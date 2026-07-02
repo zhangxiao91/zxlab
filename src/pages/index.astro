@@ -1,30 +1,10 @@
 ---
+
 import Layout from "../layouts/Layout.astro";
+import ProjectList from "../components/ProjectList.astro";
+import { projects } from "../data/projects";
 
-const projects = [
-  {
-    title: "OilShield",
-    description:
-      "An oil-price hedging platform for strategy simulation and risk comparison.",
-    tags: ["Risk Management", "Full Stack"],
-    href: "/projects/oilshield",
-  },
-  {
-    title: "Long-memo",
-    description:
-      "Experiments in semantic chunking and long-context memory systems.",
-    tags: ["AI Infra", "Retrieval"],
-    href: "/projects/long-memo",
-  },
-  {
-    title: "ZXLab",
-    description:
-      "A hand-built personal website for projects, notes, and experiments.",
-    tags: ["Astro", "Web"],
-    href: "/projects/zxlab",
-  },
-];
-
+const featuredProjects = projects.filter((project) => project.featured);
 // Welcome to Astro! Wondering what to do next? Check out the Astro documentation at https://docs.astro.build
 // Don't want to use any of this? Delete everything in this file, the `assets`, `components`, and `layouts` directories, and start fresh.
 ---

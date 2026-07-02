@@ -1,0 +1,32 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import ProjectList from "../../components/ProjectList.astro";
+import { projects } from "../../data/projects";
+---
+
+<Layout
+	title="Projects | zxlab"
+	description="Software projects, experiments, and ongoing work by zhangxiao."
+>
+	<main class="site-main">
+		<section class="page-hero" aria-labelledby="projects-title">
+			<p class="eyebrow">PROJECTS / ZXLAB</p>
+
+			<h1 id="projects-title">Things I have built and explored.</h1>
+
+			<p class="intro">
+				A collection of software projects, experiments, and systems
+				that helped me understand something more deeply.
+			</p>
+		</section>
+
+		<section class="home-section" aria-labelledby="project-list-title">
+			<div class="section-heading">
+				<p class="section-index">01</p>
+				<h2 id="project-list-title">All projects</h2>
+			</div>
+
+			<ProjectList projects={projects} />
+		</section>
+	</main>
+</Layout>
