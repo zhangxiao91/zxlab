@@ -104,7 +104,12 @@ a {
 .site-nav a:hover {
   color: var(--color-text);
 }
-
+.site-nav a[aria-current="page"] {
+	color: var(--color-text);
+	text-decoration: underline;
+	text-decoration-thickness: 1px;
+	text-underline-offset: 0.3em;
+}
 .site-main {
   flex: 1;
 }

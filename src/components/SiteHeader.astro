@@ -1,9 +1,34 @@
+---
+const pathname = Astro.url.pathname;
+
+function isCurrent(href: string) {
+	return href === "/" ? pathname === "/" : pathname.startsWith(href);
+}
+---
+
 <header class="site-header">
 	<a class="site-name" href="/">zxlab</a>
 
 	<nav class="site-nav" aria-label="Main navigation">
-		<a href="/projects">Projects</a>
-		<a href="/notes">Notes</a>
-		<a href="/about">About</a>
+		<a
+			href="/projects"
+			aria-current={isCurrent("/projects") ? "page" : undefined}
+		>
+			Projects
+		</a>
+
+		<a
+			href="/notes"
+			aria-current={isCurrent("/notes") ? "page" : undefined}
+		>
+			Notes
+		</a>
+
+		<a
+			href="/about"
+			aria-current={isCurrent("/about") ? "page" : undefined}
+		>
+			About
+		</a>
 	</nav>
 </header>
