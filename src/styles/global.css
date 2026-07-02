@@ -1,0 +1,168 @@
+:root {
+	--color-background: #f7f7f4;
+	--color-text: #181817;
+	--color-muted: #6c6c67;
+	--color-border: #d8d8d2;
+
+	--page-width: 72rem;
+	--reading-width: 44rem;
+
+	--space-1: 0.25rem;
+	--space-2: 0.5rem;
+	--space-3: 0.75rem;
+	--space-4: 1rem;
+	--space-6: 1.5rem;
+	--space-8: 2rem;
+	--space-12: 3rem;
+	--space-16: 4rem;
+
+	--radius-small: 0.375rem;
+	--radius-medium: 0.75rem;
+
+	--font-sans:
+		Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+		"Segoe UI", sans-serif;
+}
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+html {
+	background: var(--color-background);
+	color: var(--color-text);
+	font-family: var(--font-sans);
+	line-height: 1.5;
+}
+
+body {
+	margin: 0;
+	min-width: 20rem;
+	min-height: 100vh;
+}
+
+img,
+picture,
+svg {
+	display: block;
+	max-width: 100%;
+}
+
+button,
+input,
+textarea,
+select {
+	font: inherit;
+}
+
+h1,
+h2,
+h3,
+p {
+	margin: 0;
+}
+
+a {
+	color: inherit;
+}
+.site-shell {
+	width: min(calc(100% - 2rem), var(--page-width));
+	min-height: 100vh;
+	margin-inline: auto;
+	display: flex;
+	flex-direction: column;
+}
+
+.site-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-6);
+	padding-block: var(--space-6);
+	border-bottom: 1px solid var(--color-border);
+}
+
+.site-name {
+	font-weight: 700;
+	letter-spacing: -0.02em;
+	text-decoration: none;
+}
+
+.site-nav {
+	display: flex;
+	gap: var(--space-6);
+	color: var(--color-muted);
+	font-size: 0.875rem;
+}
+
+.site-nav a {
+	text-decoration: none;
+}
+
+.site-nav a:hover {
+	color: var(--color-text);
+}
+
+.site-main {
+	flex: 1;
+}
+
+.hero {
+	max-width: var(--reading-width);
+	padding-block: clamp(4rem, 12vw, 9rem);
+}
+
+.eyebrow {
+	margin-bottom: var(--space-4);
+	color: var(--color-muted);
+	font-size: 0.75rem;
+	font-weight: 600;
+	letter-spacing: 0.12em;
+}
+
+.hero h1 {
+	max-width: 12ch;
+	font-size: clamp(2.75rem, 8vw, 6.5rem);
+	line-height: 0.96;
+	letter-spacing: -0.055em;
+}
+
+.intro {
+	max-width: 38rem;
+	margin-top: var(--space-8);
+	color: var(--color-muted);
+	font-size: clamp(1rem, 1.5vw, 1.25rem);
+	line-height: 1.7;
+}
+
+.site-footer {
+	padding-block: var(--space-6);
+	border-top: 1px solid var(--color-border);
+	color: var(--color-muted);
+	font-size: 0.875rem;
+}
+
+@media (max-width: 40rem) {
+	.site-shell {
+		width: min(calc(100% - 1.5rem), var(--page-width));
+	}
+
+	.site-header {
+		align-items: flex-start;
+		flex-direction: column;
+		gap: var(--space-4);
+	}
+
+	.site-nav {
+		gap: var(--space-4);
+	}
+
+	.hero {
+		padding-block: var(--space-16);
+	}
+}
+.hero h1 {
+	text-wrap: balance;
+}

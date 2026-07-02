@@ -6,32 +6,37 @@ import Layout from "../layouts/Layout.astro";
 ---
 
 <Layout
-  title="zxlab"
-  description="Zhangxiao's personal lab for projects, notes,and experiments."
+	title="zxlab"
+	description="Zhangxiao's personal lab for projects, notes, and experiments."
 >
-  <header>
-    <a href="/">zxlab</a>
+	<div class="site-shell">
+		<header class="site-header">
+			<a class="site-name" href="/">zxlab</a>
 
-    <nav aria-label="Main navigation">
-      <a href="/projects">Projects</a>
-      <a href="/notes">Notes</a>
-      <a href="/about">About</a>
-    </nav>
-  </header>
-  <main>
-    <section aria-labelledby="intro-title">
-      <p>ZHANGXIAO / ZXLAB</p>
+			<nav class="site-nav" aria-label="Main navigation">
+				<a href="/projects">Projects</a>
+				<a href="/notes">Notes</a>
+				<a href="/about">About</a>
+			</nav>
+		</header>
 
-      <h1 id="intro-title">Building, learning, and experimenting.</h1>
+		<main class="site-main">
+			<section class="hero" aria-labelledby="intro-title">
+				<p class="eyebrow">ZHANGXIAO / ZXLAB</p>
 
-      <p>
-        A personal space for software projects, technical notes, and things I am
-        currently exploring.
-      </p>
-    </section>
-  </main>
+				<h1 id="intro-title">
+					Building, learning, and experimenting.
+				</h1>
 
-  <footer>
-    <p>Built by zhangxiao.</p>
-  </footer>
+				<p class="intro">
+					A personal space for software projects, technical notes,
+					and things I am currently exploring.
+				</p>
+			</section>
+		</main>
+
+		<footer class="site-footer">
+			<p>Built by zhangxiao.</p>
+		</footer>
+	</div>
 </Layout>
