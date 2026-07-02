@@ -1,11 +1,37 @@
 ---
-import Welcome from '../components/Welcome.astro';
-import Layout from '../layouts/Layout.astro';
+import Layout from "../layouts/Layout.astro";
 
 // Welcome to Astro! Wondering what to do next? Check out the Astro documentation at https://docs.astro.build
 // Don't want to use any of this? Delete everything in this file, the `assets`, `components`, and `layouts` directories, and start fresh.
 ---
 
-<Layout>
-	<Welcome />
+<Layout
+  title="zxlab"
+  description="Zhangxiao's personal lab for projects, notes,and experiments."
+>
+  <header>
+    <a href="/">zxlab</a>
+
+    <nav aria-label="Main navigation">
+      <a href="/projects">Projects</a>
+      <a href="/notes">Notes</a>
+      <a href="/about">About</a>
+    </nav>
+  </header>
+  <main>
+    <section aria-labelledby="intro-title">
+      <p>ZHANGXIAO / ZXLAB</p>
+
+      <h1 id="intro-title">Building, learning, and experimenting.</h1>
+
+      <p>
+        A personal space for software projects, technical notes, and things I am
+        currently exploring.
+      </p>
+    </section>
+  </main>
+
+  <footer>
+    <p>Built by zhangxiao.</p>
+  </footer>
 </Layout>
