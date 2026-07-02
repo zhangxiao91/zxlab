@@ -1,42 +1,92 @@
 ---
 import Layout from "../layouts/Layout.astro";
 
+const projects = [
+  {
+    title: "OilShield",
+    description:
+      "An oil-price hedging platform for strategy simulation and risk comparison.",
+    tags: ["Risk Management", "Full Stack"],
+    href: "/projects/oilshield",
+  },
+  {
+    title: "Long-memo",
+    description:
+      "Experiments in semantic chunking and long-context memory systems.",
+    tags: ["AI Infra", "Retrieval"],
+    href: "/projects/long-memo",
+  },
+  {
+    title: "ZXLab",
+    description:
+      "A hand-built personal website for projects, notes, and experiments.",
+    tags: ["Astro", "Web"],
+    href: "/projects/zxlab",
+  },
+];
+
 // Welcome to Astro! Wondering what to do next? Check out the Astro documentation at https://docs.astro.build
 // Don't want to use any of this? Delete everything in this file, the `assets`, `components`, and `layouts` directories, and start fresh.
 ---
 
 <Layout
-	title="zxlab"
-	description="Zhangxiao's personal lab for projects, notes, and experiments."
+  title="zxlab"
+  description="Zhangxiao's personal lab for projects, notes, and experiments."
 >
-	<div class="site-shell">
-		<header class="site-header">
-			<a class="site-name" href="/">zxlab</a>
+  <div class="site-shell">
+    <header class="site-header">
+      <a class="site-name" href="/">zxlab</a>
 
-			<nav class="site-nav" aria-label="Main navigation">
-				<a href="/projects">Projects</a>
-				<a href="/notes">Notes</a>
-				<a href="/about">About</a>
-			</nav>
-		</header>
+      <nav class="site-nav" aria-label="Main navigation">
+        <a href="/projects">Projects</a>
+        <a href="/notes">Notes</a>
+        <a href="/about">About</a>
+      </nav>
+    </header>
 
-		<main class="site-main">
-			<section class="hero" aria-labelledby="intro-title">
-				<p class="eyebrow">ZHANGXIAO / ZXLAB</p>
+    <main class="site-main">
+      <section class="hero" aria-labelledby="intro-title">
+        <p class="eyebrow">ZHANGXIAO / ZXLAB</p>
 
-				<h1 id="intro-title">
-					Building, learning, and experimenting.
-				</h1>
+        <h1 id="intro-title">Building, learning, and experimenting.</h1>
 
-				<p class="intro">
-					A personal space for software projects, technical notes,
-					and things I am currently exploring.
-				</p>
-			</section>
-		</main>
+        <p class="intro">
+          A personal space for software projects, technical notes, and things I
+          am currently exploring.
+        </p>
+      </section>
+      <section class="home-section" aria-labelledby="projects-title">
+        <div class="section-heading">
+          <p class="section-index">01</p>
+          <h2 id="projects-title">Selected projects</h2>
+        </div>
 
-		<footer class="site-footer">
-			<p>Built by zhangxiao.</p>
-		</footer>
-	</div>
+        <div class="project-list">
+          {
+            projects.map((project) => (
+              <a class="project-item" href={project.href}>
+                <div class="project-copy">
+                  <h3>{project.title}</h3>
+                  <p>{project.description}</p>
+                </div>
+
+                <ul
+                  class="tag-list"
+                  aria-label={`${project.title} technologies`}
+                >
+                  {project.tags.map((tag) => (
+                    <li>{tag}</li>
+                  ))}
+                </ul>
+              </a>
+            ))
+          }
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <p>Built by zhangxiao.</p>
+    </footer>
+  </div>
 </Layout>
