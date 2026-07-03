@@ -3,46 +3,192 @@ import Layout from "../../layouts/Layout.astro";
 import { projects, type Project } from "../../data/projects";
 
 export function getStaticPaths() {
-	return projects.map((project) => ({
-		params: {
-			slug: project.slug,
-		},
-		props: {
-			project,
-		},
-	}));
+  return projects.map((project) => ({
+    params: { slug: project.slug },
+    props: { project },
+  }));
 }
 
 interface Props {
-	project: Project;
+  project: Project;
 }
 
 const { project } = Astro.props;
+const projectIndex = projects.findIndex((item) => item.slug === project.slug);
+const previousProject = projects[(projectIndex - 1 + projects.length) % projects.length];
+const nextProject = projects[(projectIndex + 1) % projects.length];
 ---
 
-<Layout
-	title={`${project.title} | zxlab`}
-	description={project.description}
->
-	<main class="site-main">
-		<section class="page-hero" aria-labelledby="project-title">
-			<p class="eyebrow">PROJECT / ZXLAB</p>
+<Layout title={`${project.title} | zxlab`} description={project.description}>
+  <main class="project-detail-page" style={`--project-accent: ${project.visual.accent}`}>
+    <section class="project-detail-hero" aria-labelledby="project-title">
+      <div class="project-detail-hero__media" data-detail-image>
+        <img src={project.visual.cover} alt={project.visual.alt} fetchpriority="high" />
+      </div>
+      <div class="project-detail-hero__wash" aria-hidden="true"></div>
 
-			<h1 id="project-title">{project.title}</h1>
+      <div class="project-detail-hero__content">
+        <a href="/projects">← Back to projects</a>
+        <h1 id="project-title">{project.title}</h1>
+        <p>{project.description}</p>
+      </div>
 
-			<p class="intro">{project.description}</p>
+      <p class="project-detail-hero__caption">
+        Abstract visual study — temporary project artwork
+      </p>
+    </section>
 
-			<ul
-				class="tag-list project-page-tags"
-				aria-label={`${project.title} technologies`}
-			>
-				{project.tags.map((tag) => <li>{tag}</li>)}
-			</ul>
-		</section>
+    <section class="project-story" aria-labelledby="overview-title">
+      <aside class="project-story__rail">
+        <p>Areas of focus</p>
+        <ul aria-label={`${project.title} technologies`}>
+          {project.tags.map((tag) => <li>{tag}</li>)}
+        </ul>
+      </aside>
 
-		<section class="detail-section" aria-labelledby="overview-title">
-			<h2 id="overview-title">Overview</h2>
-			<p>{project.overview}</p>
-		</section>
-	</main>
+      <div class="project-story__stack">
+        <article class="project-story__card project-story__card--copy">
+          <p>Overview</p>
+          <h2 id="overview-title" aria-label={project.overview}>
+            {
+              project.overview.split(" ").map((word) => (
+                <span class="project-overview__word" aria-hidden="true">{word}&nbsp;</span>
+              ))
+            }
+          </h2>
+        </article>
+
+        <article class="project-story__card project-story__card--media" data-detail-image>
+          <img
+            src={project.visual.secondary}
+            alt={`Abstract companion visual for ${project.title}`}
+            loading="lazy"
+          />
+          <p>Temporary visual direction</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="project-material-note" aria-labelledby="material-title">
+      <p>Case study in progress</p>
+      <div>
+        <h2 id="material-title">The visual shell is ready for the real project story.</h2>
+        <p>
+          Screenshots, process notes, links, and measured outcomes will be added
+          when the source material is ready. Until then, this page keeps a clear
+          boundary between confirmed project information and visual atmosphere.
+        </p>
+      </div>
+    </section>
+
+    <section class="project-navigator" aria-labelledby="navigator-title">
+      <div class="project-navigator__heading">
+        <p>Continue exploring</p>
+        <h2 id="navigator-title">The next experiment is one step away.</h2>
+      </div>
+
+      <div class="project-navigator__track">
+        <a
+          class="project-nav-card"
+          href={`/projects/${previousProject.slug}`}
+          style={`--nav-accent: ${previousProject.visual.accent}`}
+        >
+          <div class="project-nav-card__media">
+            <img
+              src={previousProject.visual.cover}
+              alt={previousProject.visual.alt}
+              loading="lazy"
+            />
+          </div>
+          <div class="project-nav-card__wash" aria-hidden="true"></div>
+          <div class="project-nav-card__content">
+            <p>Previous project</p>
+            <h3>{previousProject.title}</h3>
+            <span aria-hidden="true">←</span>
+          </div>
+        </a>
+
+        <a
+          class="project-nav-card"
+          href={`/projects/${nextProject.slug}`}
+          style={`--nav-accent: ${nextProject.visual.accent}`}
+        >
+          <div class="project-nav-card__media">
+            <img src={nextProject.visual.cover} alt={nextProject.visual.alt} loading="lazy" />
+          </div>
+          <div class="project-nav-card__wash" aria-hidden="true"></div>
+          <div class="project-nav-card__content">
+            <p>Next project</p>
+            <h3>{nextProject.title}</h3>
+            <span aria-hidden="true">→</span>
+          </div>
+        </a>
+      </div>
+    </section>
+
+    <section class="project-detail-cta" aria-labelledby="project-cta-title">
+      <p>Projects show the result. Notes keep the reasoning.</p>
+      <h2 id="project-cta-title">Follow the work while it is still taking shape.</h2>
+      <a class="projects-button projects-button--light" href="/notes">
+        <span>Open the notebook</span>
+        <span aria-hidden="true">↗</span>
+      </a>
+    </section>
+  </main>
+
+  <script>
+    import gsap from "gsap";
+    import { ScrollTrigger } from "gsap/ScrollTrigger";
+
+    gsap.registerPlugin(ScrollTrigger);
+
+    const detailMotion = gsap.matchMedia();
+
+    detailMotion.add("(prefers-reduced-motion: no-preference)", () => {
+      gsap.from(".project-detail-hero__content > *", {
+        y: 52,
+        opacity: 0,
+        duration: 1.1,
+        stagger: 0.1,
+        ease: "power3.out",
+      });
+
+      gsap.utils.toArray<HTMLElement>("[data-detail-image]").forEach((image) => {
+        gsap.timeline({
+          scrollTrigger: {
+            trigger: image,
+            start: "top 96%",
+            end: "bottom 4%",
+            scrub: 0.8,
+          },
+        })
+          .fromTo(image, { scale: 0.84, opacity: 0.45 }, { scale: 1, opacity: 1, ease: "none" })
+          .to(image, { scale: 1.025, opacity: 0.28, ease: "none" });
+      });
+
+      gsap.to(".project-overview__word", {
+        opacity: 1,
+        stagger: 0.045,
+        ease: "none",
+        scrollTrigger: {
+          trigger: ".project-story__card--copy",
+          start: "top 72%",
+          end: "bottom 56%",
+          scrub: 0.8,
+        },
+      });
+
+      gsap.to(".project-story__card--copy", {
+        scale: 0.93,
+        opacity: 0.42,
+        ease: "none",
+        scrollTrigger: {
+          trigger: ".project-story__card--media",
+          start: "top 82%",
+          end: "top 30%",
+          scrub: true,
+        },
+      });
+    });
+  </script>
 </Layout>

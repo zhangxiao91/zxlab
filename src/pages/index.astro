@@ -8,12 +8,6 @@ const latestNotes = (await getCollection("notes", ({ data }) => !data.draft))
   .sort((a, b) => b.data.publishedAt.valueOf() - a.data.publishedAt.valueOf())
   .slice(0, 4);
 
-const projectImages: Record<string, string> = {
-  oilshield: "https://picsum.photos/seed/market-architecture/1400/1100",
-  "long-memo": "https://picsum.photos/seed/archive-memory/1200/900",
-  zxlab: "https://picsum.photos/seed/editorial-workspace/1200/900",
-};
-
 const dateFormatter = new Intl.DateTimeFormat("en-US", {
   year: "numeric",
   month: "short",
@@ -85,7 +79,7 @@ const dateFormatter = new Intl.DateTimeFormat("en-US", {
             >
               <div class="project-card__media">
                 <img
-                  src={projectImages[project.slug]}
+                  src={project.visual.cover}
                   alt=""
                   loading="lazy"
                   data-scroll-image

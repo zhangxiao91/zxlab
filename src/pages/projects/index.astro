@@ -1,32 +1,163 @@
 ---
 import Layout from "../../layouts/Layout.astro";
-import ProjectList from "../../components/ProjectList.astro";
 import { projects } from "../../data/projects";
+
+const statement =
+  "Each project begins as a question. Building gives the question edges, constraints, and a form that can be tested.";
 ---
 
 <Layout
-	title="Projects | zxlab"
-	description="Software projects, experiments, and ongoing work by zhangxiao."
+  title="Projects | zxlab"
+  description="Software projects, experiments, and ongoing work by Zhangxiao."
 >
-	<main class="site-main">
-		<section class="page-hero" aria-labelledby="projects-title">
-			<p class="eyebrow">PROJECTS / ZXLAB</p>
+  <main class="projects-page">
+    <section class="projects-hero" aria-labelledby="projects-title">
+      <div class="projects-hero__copy">
+        <p class="projects-kicker">Experiments made concrete</p>
+        <h1 id="projects-title">
+          Work shaped by
+          <span
+            class="projects-title-image"
+            role="img"
+            aria-label="Abstract structural detail"
+          ></span>
+          difficult questions.
+        </h1>
+        <p class="projects-hero__intro">
+          Software projects, research experiments, and systems built to make an
+          unfamiliar subject a little more legible.
+        </p>
+        <a class="projects-text-link" href="#project-archive">Explore the archive ↓</a>
+      </div>
 
-			<h1 id="projects-title">Things I have built and explored.</h1>
+      <div class="projects-hero__media" data-project-image>
+        <img
+          src={projects[0].visual.cover}
+          alt={projects[0].visual.alt}
+          fetchpriority="high"
+        />
+        <div class="projects-hero__caption">
+          <span>Selected work</span>
+          <span>Independent work in progress</span>
+        </div>
+      </div>
+    </section>
 
-			<p class="intro">
-				A collection of software projects, experiments, and systems
-				that helped me understand something more deeply.
-			</p>
-		</section>
+    <section class="projects-archive" id="project-archive" aria-labelledby="archive-title">
+      <div class="projects-section-heading">
+        <p>Project archive</p>
+        <h2 id="archive-title">Different subjects, one way of learning.</h2>
+      </div>
 
-		<section class="home-section" aria-labelledby="project-list-title">
-			<div class="section-heading">
-				<p class="section-index">01</p>
-				<h2 id="project-list-title">All projects</h2>
-			</div>
+      <div class="projects-grid">
+        {
+          projects.map((project, index) => (
+            <a
+              class:list={["archive-project", { "archive-project--lead": index === 0 }]}
+              href={`/projects/${project.slug}`}
+              style={`--project-accent: ${project.visual.accent}`}
+            >
+              <div class="archive-project__media">
+                <img
+                  src={project.visual.cover}
+                  alt={project.visual.alt}
+                  loading={index === 0 ? "eager" : "lazy"}
+                  data-project-image
+                />
+              </div>
+              <div class="archive-project__wash" aria-hidden="true" />
+              <div class="archive-project__content">
+                <div>
+                  <p>Open project</p>
+                  <h3>{project.title}</h3>
+                  <span>{project.description}</span>
+                </div>
+                <ul aria-label={`${project.title} technologies`}>
+                  {project.tags.map((tag) => <li>{tag}</li>)}
+                </ul>
+                <span class="archive-project__arrow" aria-hidden="true">↗</span>
+              </div>
+            </a>
+          ))
+        }
+      </div>
+    </section>
 
-			<ProjectList projects={projects} />
-		</section>
-	</main>
+    <section class="projects-marquee" aria-label="Project disciplines">
+      <div class="projects-marquee__track" aria-hidden="true">
+        <span>Risk systems</span><i></i>
+        <span>Long-context memory</span><i></i>
+        <span>Editorial interfaces</span><i></i>
+        <span>Reliable software</span><i></i>
+        <span>Risk systems</span><i></i>
+        <span>Long-context memory</span><i></i>
+        <span>Editorial interfaces</span><i></i>
+        <span>Reliable software</span><i></i>
+      </div>
+    </section>
+
+    <section class="projects-statement" aria-labelledby="statement-title">
+      <p>Why build</p>
+      <h2 id="statement-title" aria-label={statement}>
+        {
+          statement.split(" ").map((word) => (
+            <span class="projects-statement__word" aria-hidden="true">{word}&nbsp;</span>
+          ))
+        }
+      </h2>
+    </section>
+
+    <section class="projects-cta" aria-labelledby="projects-cta-title">
+      <p>The process continues in the notebook.</p>
+      <h2 id="projects-cta-title">What gets learned while the work is still unfinished.</h2>
+      <a class="projects-button" href="/notes">
+        <span>Read the notes</span>
+        <span aria-hidden="true">↗</span>
+      </a>
+    </section>
+  </main>
+
+  <script>
+    import gsap from "gsap";
+    import { ScrollTrigger } from "gsap/ScrollTrigger";
+
+    gsap.registerPlugin(ScrollTrigger);
+
+    const projectMotion = gsap.matchMedia();
+
+    projectMotion.add("(prefers-reduced-motion: no-preference)", () => {
+      gsap.from(".projects-hero__copy > *", {
+        y: 48,
+        opacity: 0,
+        duration: 1.05,
+        stagger: 0.09,
+        ease: "power3.out",
+      });
+
+      gsap.utils.toArray<HTMLElement>("[data-project-image]").forEach((image) => {
+        gsap.timeline({
+          scrollTrigger: {
+            trigger: image,
+            start: "top 94%",
+            end: "bottom 6%",
+            scrub: 0.8,
+          },
+        })
+          .fromTo(image, { scale: 0.84, opacity: 0.42 }, { scale: 1, opacity: 1, ease: "none" })
+          .to(image, { scale: 1.025, opacity: 0.28, ease: "none" });
+      });
+
+      gsap.to(".projects-statement__word", {
+        opacity: 1,
+        stagger: 0.06,
+        ease: "none",
+        scrollTrigger: {
+          trigger: ".projects-statement",
+          start: "top 72%",
+          end: "bottom 58%",
+          scrub: 0.8,
+        },
+      });
+    });
+  </script>
 </Layout>
