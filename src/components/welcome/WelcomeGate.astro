@@ -1,0 +1,225 @@
+---
+import WelcomeTarget from "./WelcomeTarget.astro";
+import { welcomeGateConfig } from "./welcome-config";
+import "./welcome-gate.css";
+
+const config = welcomeGateConfig;
+---
+
+<div
+  class="welcome-gate"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="welcome-dialog-title"
+  data-welcome-gate
+  data-state="idle"
+  data-storage-key={config.storageKey}
+  data-hit-duration={config.hitDuration}
+  data-leave-duration={config.leaveDuration}
+  style={`--welcome-hit-duration: ${config.hitDuration}ms; --welcome-leave-duration: ${config.leaveDuration}ms;`}
+>
+  <h2 class="welcome-visually-hidden" id="welcome-dialog-title">Welcome to ZXLab</h2>
+
+  <div class="welcome-gate__ambient" aria-hidden="true"></div>
+  <div class="welcome-gate__burst" aria-hidden="true"></div>
+
+  <div class="welcome-gate__center">
+    <WelcomeTarget enterLabel={config.enterLabel} />
+    <p class="welcome-message" aria-live="polite" data-welcome-message hidden>
+      {config.welcomeText}
+    </p>
+  </div>
+
+  <button class="welcome-skip" type="button" data-welcome-skip>Skip</button>
+</div>
+
+<script>
+  import { welcomeFinishedEvent } from "./welcome-config";
+
+  type WelcomeState = "idle" | "ready" | "hit" | "leaving" | "finished";
+
+  const gate = document.querySelector<HTMLElement>("[data-welcome-gate]");
+
+  if (gate) {
+    const html = document.documentElement;
+    const body = document.body;
+    const siteShell = document.querySelector<HTMLElement>(".site-shell");
+    const target = gate.querySelector<HTMLButtonElement>("[data-welcome-target]");
+    const skip = gate.querySelector<HTMLButtonElement>("[data-welcome-skip]");
+    const message = gate.querySelector<HTMLElement>("[data-welcome-message]");
+    const burst = gate.querySelector<HTMLElement>(".welcome-gate__burst");
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const previousFocus = document.activeElement;
+    const timers = new Set<number>();
+    const hitDuration = Number(gate.dataset.hitDuration ?? 360);
+    const leaveDuration = Number(gate.dataset.leaveDuration ?? 950);
+    const storageKey = gate.dataset.storageKey ?? "zxlab-welcome-seen:v1";
+    const hadInert = siteShell?.hasAttribute("inert") ?? false;
+    let state: WelcomeState = "idle";
+    let completionDispatched = false;
+
+    const browserWindow = window as Window & {
+      __zxWelcomeFailsafe?: number;
+    };
+
+    const clearFailsafe = () => {
+      if (!browserWindow.__zxWelcomeFailsafe) return;
+      window.clearTimeout(browserWindow.__zxWelcomeFailsafe);
+      delete browserWindow.__zxWelcomeFailsafe;
+    };
+
+    const setState = (nextState: WelcomeState) => {
+      state = nextState;
+      gate.dataset.state = nextState;
+    };
+
+    const schedule = (callback: () => void, delay: number) => {
+      const timer = window.setTimeout(() => {
+        timers.delete(timer);
+        callback();
+      }, delay);
+      timers.add(timer);
+    };
+
+    const rememberVisit = () => {
+      try {
+        window.sessionStorage.setItem(storageKey, "1");
+      } catch {
+        return;
+      }
+    };
+
+    const dispatchCompletion = () => {
+      if (completionDispatched) return;
+      completionDispatched = true;
+      window.dispatchEvent(new CustomEvent(welcomeFinishedEvent));
+    };
+
+    const unlockPage = () => {
+      html.classList.remove("welcome-pending", "welcome-active", "welcome-leaving");
+      body.classList.remove("welcome-locked");
+      html.style.removeProperty("--welcome-scrollbar-gap");
+
+      if (siteShell && !hadInert) {
+        siteShell.removeAttribute("inert");
+      }
+    };
+
+    const removeListeners = () => {
+      target?.removeEventListener("click", enter);
+      skip?.removeEventListener("click", skipImmediately);
+      burst?.removeEventListener("animationend", handleBurstEnd);
+      document.removeEventListener("keydown", handleKeydown);
+      window.removeEventListener("pagehide", handlePageHide);
+    };
+
+    const finish = () => {
+      if (state === "finished") return;
+      setState("finished");
+      timers.forEach((timer) => window.clearTimeout(timer));
+      timers.clear();
+      removeListeners();
+      unlockPage();
+      dispatchCompletion();
+      gate.remove();
+
+      if (previousFocus instanceof HTMLElement && previousFocus.isConnected) {
+        previousFocus.focus({ preventScroll: true });
+      }
+    };
+
+    const beginLeaving = () => {
+      if (state !== "hit") return;
+      setState("leaving");
+      html.classList.add("welcome-leaving");
+      dispatchCompletion();
+      schedule(finish, leaveDuration + 120);
+    };
+
+    function enter() {
+      if (state !== "ready") return;
+      rememberVisit();
+      message?.removeAttribute("hidden");
+      setState("hit");
+      schedule(beginLeaving, hitDuration);
+    }
+
+    function skipImmediately() {
+      if (state === "finished") return;
+      rememberVisit();
+      finish();
+    }
+
+    function handleBurstEnd(event: AnimationEvent) {
+      if (state === "leaving" && event.animationName === "welcome-burst-expand") {
+        finish();
+      }
+    }
+
+    function handleKeydown(event: KeyboardEvent) {
+      if (state === "finished") return;
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        skipImmediately();
+        return;
+      }
+
+      if (event.key === "Tab" && target && skip) {
+        const focusable = [target, skip];
+        const currentIndex = focusable.indexOf(document.activeElement as HTMLButtonElement);
+        const direction = event.shiftKey ? -1 : 1;
+        const nextIndex = (currentIndex + direction + focusable.length) % focusable.length;
+        event.preventDefault();
+        focusable[nextIndex].focus({ preventScroll: true });
+        return;
+      }
+
+      if ((event.key === "Enter" || event.key === " ") && state === "ready") {
+        if (event.target === skip) return;
+        event.preventDefault();
+        enter();
+      }
+    }
+
+    function handlePageHide() {
+      timers.forEach((timer) => window.clearTimeout(timer));
+      removeListeners();
+      unlockPage();
+    }
+
+    const initialize = () => {
+      if (!html.classList.contains("welcome-pending") || reducedMotion.matches) {
+        clearFailsafe();
+        unlockPage();
+        gate.remove();
+        return;
+      }
+
+      if (!target || !skip || !message || !burst) {
+        clearFailsafe();
+        unlockPage();
+        dispatchCompletion();
+        gate.remove();
+        return;
+      }
+
+      const scrollbarGap = Math.max(0, window.innerWidth - html.clientWidth);
+      html.style.setProperty("--welcome-scrollbar-gap", `${scrollbarGap}px`);
+      html.classList.add("welcome-active");
+      body.classList.add("welcome-locked");
+      siteShell?.setAttribute("inert", "");
+      setState("ready");
+
+      target?.addEventListener("click", enter);
+      skip?.addEventListener("click", skipImmediately);
+      burst?.addEventListener("animationend", handleBurstEnd);
+      document.addEventListener("keydown", handleKeydown);
+      window.addEventListener("pagehide", handlePageHide);
+      target?.focus({ preventScroll: true });
+      clearFailsafe();
+    };
+
+    initialize();
+  }
+</script>

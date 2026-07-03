@@ -2,16 +2,19 @@
 import "../styles/global.css";
 import SiteHeader from "../components/SiteHeader.astro";
 import SiteFooter from "../components/SiteFooter.astro";
+import { welcomeGateConfig } from "../components/welcome/welcome-config";
 
 interface Props {
   title?: string;
   description?: string;
+  welcomeGate?: boolean;
 }
 
 const canonicalURL = new URL(Astro.url.pathname, Astro.site);
 const {
   title = "zxlab",
   description = "A personal lab for projects, notes, and experiments.",
+  welcomeGate = false,
 } = Astro.props;
 ---
 
@@ -37,6 +40,50 @@ const {
     <meta name="twitter:card" content="summary" />
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
+
+    {
+      welcomeGate && (
+        <script
+          is:inline
+          define:vars={{
+            enabled: welcomeGateConfig.enabled,
+            storageKey: welcomeGateConfig.storageKey,
+            replayQueryKey: welcomeGateConfig.replayQueryKey,
+            failsafeDuration: welcomeGateConfig.failsafeDuration,
+          }}
+        >
+          (() => {
+            const html = document.documentElement;
+            const url = new URL(window.location.href);
+            const forceReplay = url.searchParams.get(replayQueryKey) === "1";
+
+            if (forceReplay) {
+              url.searchParams.delete(replayQueryKey);
+              const cleanUrl = url.pathname + url.search + url.hash;
+              window.history.replaceState(window.history.state, "", cleanUrl);
+            }
+
+            let hasSeenWelcome = false;
+            try {
+              hasSeenWelcome = window.sessionStorage.getItem(storageKey) === "1";
+            } catch {}
+
+            const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+            const shouldShow = enabled && !reducedMotion && (forceReplay || !hasSeenWelcome);
+
+            if (!shouldShow) return;
+
+            html.classList.add("welcome-pending");
+            window.__zxWelcomeFailsafe = window.setTimeout(() => {
+              html.classList.remove("welcome-pending", "welcome-active", "welcome-leaving");
+              document.body?.classList.remove("welcome-locked");
+              document.querySelector(".site-shell")?.removeAttribute("inert");
+              html.style.removeProperty("--welcome-scrollbar-gap");
+            }, failsafeDuration);
+          })();
+        </script>
+      )
+    }
   </head>
   <body>
     <div class="site-shell">
@@ -44,5 +91,6 @@ const {
       <slot />
       <SiteFooter />
     </div>
+    <slot name="overlay" />
   </body>
 </html>

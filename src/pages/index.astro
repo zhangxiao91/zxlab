@@ -1,5 +1,6 @@
 ---
 import Layout from "../layouts/Layout.astro";
+import WelcomeGate from "../components/welcome/WelcomeGate.astro";
 import { projects } from "../data/projects";
 import { getCollection } from "astro:content";
 
@@ -18,7 +19,10 @@ const dateFormatter = new Intl.DateTimeFormat("en-US", {
 <Layout
   title="zxlab — Zhangxiao's digital workshop"
   description="Projects, technical notes, and experiments by Zhangxiao."
+  welcomeGate
 >
+  <WelcomeGate slot="overlay" />
+
   <main class="home-page">
     <section class="home-hero" aria-labelledby="intro-title">
       <div class="home-hero__glow" aria-hidden="true"></div>
@@ -242,19 +246,32 @@ const dateFormatter = new Intl.DateTimeFormat("en-US", {
   <script>
     import gsap from "gsap";
     import { ScrollTrigger } from "gsap/ScrollTrigger";
+    import { welcomeFinishedEvent } from "../components/welcome/welcome-config";
 
     gsap.registerPlugin(ScrollTrigger);
 
     const motion = gsap.matchMedia();
 
     motion.add("(prefers-reduced-motion: no-preference)", () => {
-      gsap.from(".home-hero > :not(.home-hero__glow)", {
-        y: 48,
-        opacity: 0,
-        duration: 1.1,
-        stagger: 0.09,
-        ease: "power3.out",
-      });
+      let heroStarted = false;
+
+      const revealHero = () => {
+        if (heroStarted) return;
+        heroStarted = true;
+        gsap.from(".home-hero > :not(.home-hero__glow)", {
+          y: 48,
+          opacity: 0,
+          duration: 1.1,
+          stagger: 0.09,
+          ease: "power3.out",
+        });
+      };
+
+      if (document.documentElement.classList.contains("welcome-pending")) {
+        window.addEventListener(welcomeFinishedEvent, revealHero, { once: true });
+      } else {
+        revealHero();
+      }
 
       gsap.utils.toArray<HTMLElement>("[data-scroll-image]").forEach((image) => {
         gsap.timeline({
@@ -286,6 +303,8 @@ const dateFormatter = new Intl.DateTimeFormat("en-US", {
           },
         });
       });
+
+      return () => window.removeEventListener(welcomeFinishedEvent, revealHero);
     });
 
     const carouselTrack = document.querySelector<HTMLElement>(".note-carousel__track");

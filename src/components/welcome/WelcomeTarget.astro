@@ -1,0 +1,26 @@
+---
+interface Props {
+  enterLabel: string;
+}
+
+const { enterLabel } = Astro.props;
+---
+
+<div class="welcome-target-shell">
+  <span class="welcome-approach-ring" aria-hidden="true"></span>
+  <span class="welcome-hit-ring" aria-hidden="true"></span>
+
+  <button
+    class="welcome-target"
+    type="button"
+    aria-label={enterLabel}
+    data-welcome-target
+  >
+    <span class="welcome-target__bezel" aria-hidden="true">
+      <span class="welcome-target__core">
+        <span class="welcome-target__brand">ZX</span>
+        <span class="welcome-target__prompt">click to enter</span>
+      </span>
+    </span>
+  </button>
+</div>
