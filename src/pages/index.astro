@@ -1,5 +1,4 @@
 ---
-
 import Layout from "../layouts/Layout.astro";
 import ProjectList from "../components/ProjectList.astro";
 import { projects } from "../data/projects";
@@ -13,49 +12,41 @@ const featuredProjects = projects.filter((project) => project.featured);
   title="zxlab"
   description="Zhangxiao's personal lab for projects, notes, and experiments."
 >
+  <main class="site-main">
+    <section class="hero" aria-labelledby="intro-title">
+      <p class="eyebrow">ZHANGXIAO / ZXLAB</p>
 
+      <h1 id="intro-title">Building, learning, and experimenting.</h1>
 
-    <main class="site-main">
-      <section class="hero" aria-labelledby="intro-title">
-        <p class="eyebrow">ZHANGXIAO / ZXLAB</p>
+      <p class="intro">
+        A personal space for software projects, technical notes, and things I am
+        currently exploring.
+      </p>
+    </section>
+    <section class="home-section" aria-labelledby="projects-title">
+      <div class="section-heading">
+        <p class="section-index">01</p>
+        <h2 id="projects-title">Selected projects</h2>
+      </div>
 
-        <h1 id="intro-title">Building, learning, and experimenting.</h1>
-
-        <p class="intro">
-          A personal space for software projects, technical notes, and things I
-          am currently exploring.
-        </p>
-      </section>
-      <section class="home-section" aria-labelledby="projects-title">
-        <div class="section-heading">
-          <p class="section-index">01</p>
-          <h2 id="projects-title">Selected projects</h2>
-        </div>
-
-        <div class="project-list">
-          {
-            projects.map((project) => (
-              <a class="project-item" href={project.href}>
-                <div class="project-copy">
-                  <h3>{project.title}</h3>
-                  <p>{project.description}</p>
-                </div>
-
-                <ul
-                  class="tag-list"
-                  aria-label={`${project.title} technologies`}
-                >
-                  {project.tags.map((tag) => (
-                    <li>{tag}</li>
-                  ))}
-                </ul>
-              </a>
-            ))
-          }
-        </div>
-      </section>
-    </main>
-
-    
-  
+      <div class="project-list">
+        {
+          projects.map((project) => (
+            <a class="project-item" href={`/projects/${project.slug}`}>
+              {" "}
+              <div class="project-copy">
+                <h3>{project.title}</h3>
+                <p>{project.description}</p>
+              </div>
+              <ul class="tag-list" aria-label={`${project.title} technologies`}>
+                {project.tags.map((tag) => (
+                  <li>{tag}</li>
+                ))}
+              </ul>
+            </a>
+          ))
+        }
+      </div>
+    </section>
+  </main>
 </Layout>

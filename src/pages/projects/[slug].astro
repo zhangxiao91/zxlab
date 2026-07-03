@@ -1,0 +1,48 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import { projects, type Project } from "../../data/projects";
+
+export function getStaticPaths() {
+	return projects.map((project) => ({
+		params: {
+			slug: project.slug,
+		},
+		props: {
+			project,
+		},
+	}));
+}
+
+interface Props {
+	project: Project;
+}
+
+const { project } = Astro.props;
+---
+
+<Layout
+	title={`${project.title} | zxlab`}
+	description={project.description}
+>
+	<main class="site-main">
+		<section class="page-hero" aria-labelledby="project-title">
+			<p class="eyebrow">PROJECT / ZXLAB</p>
+
+			<h1 id="project-title">{project.title}</h1>
+
+			<p class="intro">{project.description}</p>
+
+			<ul
+				class="tag-list project-page-tags"
+				aria-label={`${project.title} technologies`}
+			>
+				{project.tags.map((tag) => <li>{tag}</li>)}
+			</ul>
+		</section>
+
+		<section class="detail-section" aria-labelledby="overview-title">
+			<h2 id="overview-title">Overview</h2>
+			<p>{project.overview}</p>
+		</section>
+	</main>
+</Layout>

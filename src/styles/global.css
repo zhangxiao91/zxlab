@@ -262,6 +262,28 @@ a {
 .about-section li + li {
 	margin-top: var(--space-3);
 }
+.project-page-tags {
+	justify-content: flex-start;
+	margin-top: var(--space-6);
+}
+
+.detail-section {
+	display: grid;
+	grid-template-columns: 12rem minmax(0, 40rem);
+	gap: var(--space-8);
+	padding-block: var(--space-12);
+	border-top: 1px solid var(--color-border);
+}
+
+.detail-section h2 {
+	font-size: 1rem;
+	letter-spacing: -0.02em;
+}
+
+.detail-section p {
+	color: var(--color-muted);
+	line-height: 1.75;
+}
 @media (max-width: 40rem) {
   .site-shell {
     width: min(calc(100% - 1.5rem), var(--page-width));
@@ -289,6 +311,10 @@ a {
     justify-content: flex-start;
   }
   .about-section {
+	grid-template-columns: 1fr;
+	gap: var(--space-4);
+}
+.detail-section {
 	grid-template-columns: 1fr;
 	gap: var(--space-4);
 }
