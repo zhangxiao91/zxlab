@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://zxlab.pages.dev/sitemap-index.xml
+Sitemap: https://zx-dx.xyz/sitemap-index.xml
