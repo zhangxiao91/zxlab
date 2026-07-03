@@ -443,6 +443,38 @@ a {
 .note-item {
 	grid-template-columns: 1fr;
 	gap: var(--space-3);
+  .error-page {
+	display: grid;
+	align-items: center;
+	padding-block: clamp(4rem, 10vw, 8rem);
+}
+
+.error-page section {
+	max-width: var(--reading-width);
+}
+
+.error-page h1 {
+	max-width: 12ch;
+	font-size: clamp(3rem, 8vw, 6rem);
+	line-height: 0.96;
+	letter-spacing: -0.055em;
+}
+
+.error-links {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-6);
+	margin-top: var(--space-8);
+}
+
+.error-links a {
+	text-decoration-thickness: 1px;
+	text-underline-offset: 0.25em;
+}
+
+.error-links .primary-link {
+	font-weight: 600;
+}
 }
 }
 .hero h1 {
