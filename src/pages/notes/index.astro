@@ -1,36 +1,283 @@
 ---
 import { getCollection } from "astro:content";
 import Layout from "../../layouts/Layout.astro";
-import NoteList from "../../components/NoteList.astro";
 
 const notes = (await getCollection("notes", ({ data }) => !data.draft)).sort(
   (a, b) => b.data.publishedAt.valueOf() - a.data.publishedAt.valueOf(),
 );
+
+const latestNote = notes[0];
+const fallbackCover = "https://picsum.photos/seed/quiet-notebook/1800/1200";
+const dateFormatter = new Intl.DateTimeFormat("en-US", {
+  year: "numeric",
+  month: "long",
+  day: "numeric",
+});
 ---
 
 <Layout
   title="Notes | zxlab"
-  description="Technical notes, learning records, and observations by zhangxiao."
+  description="Technical notes, learning records, and observations by Zhangxiao."
 >
-  <main class="site-main">
-    <section class="page-hero" aria-labelledby="notes-title">
-      <p class="eyebrow">NOTES / ZXLAB</p>
-
-      <h1 id="notes-title">Things worth writing down.</h1>
-
-      <p class="intro">
-        Technical notes, project records, and ideas collected while learning and
-        building.
+  <main class="notes-page">
+    <section class="notes-hero" aria-labelledby="notes-title">
+      <div class="notes-hero__glow" aria-hidden="true"></div>
+      <p class="notes-kicker">A notebook for unfinished thinking</p>
+      <h1 id="notes-title">
+        Ideas become clearer
+        <span
+          class="notes-title-image"
+          role="img"
+          aria-label="Abstract paper and light detail"
+        ></span>
+        when written down.
+      </h1>
+      <p class="notes-hero__intro">
+        Technical notes, project records, and observations collected while
+        learning how systems work—and while finding better questions for them.
       </p>
-    </section>
-
-    <section class="home-section" aria-labelledby="note-list-title">
-      <div class="section-heading">
-        <p class="section-index">01</p>
-        <h2 id="note-list-title">Latest notes</h2>
+      <div class="notes-hero__actions">
+        {
+          latestNote && (
+            <a class="notes-button notes-button--dark" href={`/notes/${latestNote.id}`}>
+              <span>Read the latest note</span><span aria-hidden="true">↗</span>
+            </a>
+          )
+        }
+        <a class="notes-button notes-button--ghost" href="#archive">
+          <span>Browse the archive</span><span aria-hidden="true">↓</span>
+        </a>
       </div>
 
-      <NoteList notes={notes} />
+      <div class="notes-hero__frame" data-note-image>
+        <img
+          src={latestNote?.data.cover ?? fallbackCover}
+          alt={latestNote?.data.coverAlt ?? "Abstract monochrome notebook study"}
+          fetchpriority="high"
+        />
+        <p>Writing as part of the build process.</p>
+      </div>
+    </section>
+
+    <section class="notes-archive" id="archive" aria-labelledby="archive-title">
+      <div class="notes-section-heading">
+        <p>From the notebook</p>
+        <h2 id="archive-title">Work in progress, made useful by writing.</h2>
+      </div>
+
+      <div class="notes-bento">
+        {
+          latestNote && (
+            <a
+              class="notes-feature-card"
+              href={`/notes/${latestNote.id}`}
+              style={`--note-accent: ${latestNote.data.accent ?? "#d8ff73"}`}
+            >
+              <div class="notes-feature-card__media">
+                <img
+                  src={latestNote.data.cover ?? fallbackCover}
+                  alt={latestNote.data.coverAlt ?? "Abstract note cover"}
+                  loading="lazy"
+                  data-note-image
+                />
+              </div>
+              <div class="notes-feature-card__wash" aria-hidden="true"></div>
+              <div class="notes-feature-card__content">
+                <time datetime={latestNote.data.publishedAt.toISOString()}>
+                  {dateFormatter.format(latestNote.data.publishedAt)}
+                </time>
+                <h3>{latestNote.data.title}</h3>
+                <p>{latestNote.data.description}</p>
+                <span class="notes-feature-card__arrow" aria-hidden="true">↗</span>
+              </div>
+            </a>
+          )
+        }
+
+        <article class="notes-editorial-card notes-editorial-card--purpose">
+          <p>What belongs here</p>
+          <h3>Decisions, experiments, and the useful parts of getting stuck.</h3>
+        </article>
+
+        <article class="notes-editorial-card notes-editorial-card--reading">
+          <p>Designed for reading</p>
+          <h3>Quiet typography, deliberate rhythm, and code that remains legible.</h3>
+        </article>
+      </div>
+
+      {
+        notes.length > 1 && (
+          <div class="notes-list" aria-label="All notes">
+            {notes.slice(1).map((note) => (
+              <a href={`/notes/${note.id}`}>
+                <time datetime={note.data.publishedAt.toISOString()}>
+                  {dateFormatter.format(note.data.publishedAt)}
+                </time>
+                <h3>{note.data.title}</h3>
+                <p>{note.data.description}</p>
+                <span aria-hidden="true">↗</span>
+              </a>
+            ))}
+          </div>
+        )
+      }
+    </section>
+
+    <section class="notes-marquee" aria-label="Notebook themes">
+      <div class="notes-marquee__track" aria-hidden="true">
+        <span>Building</span><i></i>
+        <span>Systems</span><i></i>
+        <span>Learning</span><i></i>
+        <span>AI infrastructure</span><i></i>
+        <span>Clear writing</span><i></i>
+        <span>Building</span><i></i>
+        <span>Systems</span><i></i>
+        <span>Learning</span><i></i>
+        <span>AI infrastructure</span><i></i>
+        <span>Clear writing</span><i></i>
+      </div>
+    </section>
+
+    <section class="notes-topics" aria-labelledby="topics-title">
+      <div class="notes-section-heading notes-section-heading--dark">
+        <p>Recurring themes</p>
+        <h2 id="topics-title">The subjects that keep reopening the notebook.</h2>
+      </div>
+
+      <div class="notes-topic-accordion">
+        <article class="notes-topic-panel notes-topic-panel--active" tabindex="0">
+          <div class="notes-topic-panel__media">
+            <img
+              src="https://picsum.photos/seed/building-process/1000/1400"
+              alt="Abstract structure representing the building process"
+              loading="lazy"
+              data-note-image
+            />
+          </div>
+          <div class="notes-topic-panel__copy">
+            <h3>Building</h3>
+            <p>Architecture choices, implementation trails, and what changes after the prototype.</p>
+          </div>
+        </article>
+
+        <article class="notes-topic-panel" tabindex="0">
+          <div class="notes-topic-panel__media">
+            <img
+              src="https://picsum.photos/seed/system-layers/1000/1400"
+              alt="Layered forms representing connected systems"
+              loading="lazy"
+              data-note-image
+            />
+          </div>
+          <div class="notes-topic-panel__copy">
+            <h3>Systems</h3>
+            <p>Evaluation, retrieval, infrastructure, and the behavior between individual parts.</p>
+          </div>
+        </article>
+
+        <article class="notes-topic-panel" tabindex="0">
+          <div class="notes-topic-panel__media">
+            <img
+              src="https://picsum.photos/seed/learning-light/1000/1400"
+              alt="Light and shadow representing an unfinished learning process"
+              loading="lazy"
+              data-note-image
+            />
+          </div>
+          <div class="notes-topic-panel__copy">
+            <h3>Learning</h3>
+            <p>Explanations that survived implementation and questions that became more precise.</p>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="notes-reading-system" aria-labelledby="reading-system-title">
+      <div class="notes-reading-system__intro">
+        <p>The reading system</p>
+        <h2 id="reading-system-title">Long-form pages should make attention feel lighter.</h2>
+      </div>
+
+      <div class="notes-reading-stack">
+        <article class="notes-reading-card">
+          <p aria-hidden="true">A</p>
+          <div>
+            <h3>A measured line.</h3>
+            <p>Body copy stays narrow enough to scan naturally without turning the page into a thin column.</p>
+          </div>
+        </article>
+        <article class="notes-reading-card notes-reading-card--dark">
+          <p aria-hidden="true">B</p>
+          <div>
+            <h3>Visible hierarchy.</h3>
+            <p>Headings, lists, quotes, and code each have a distinct rhythm without competing with the text.</p>
+          </div>
+        </article>
+        <article class="notes-reading-card notes-reading-card--accent">
+          <p aria-hidden="true">C</p>
+          <div>
+            <h3>Useful orientation.</h3>
+            <p>A table of contents and reading progress keep a long technical note easy to navigate.</p>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="notes-cta" aria-labelledby="notes-cta-title">
+      <p>Notes explain the reasoning. Projects show where it went.</p>
+      <h2 id="notes-cta-title">Move from the notebook back into the work.</h2>
+      <a class="notes-button notes-button--light" href="/projects">
+        <span>Explore projects</span><span aria-hidden="true">↗</span>
+      </a>
     </section>
   </main>
+
+  <script>
+    import gsap from "gsap";
+    import { ScrollTrigger } from "gsap/ScrollTrigger";
+
+    gsap.registerPlugin(ScrollTrigger);
+    const notesMotion = gsap.matchMedia();
+
+    notesMotion.add("(prefers-reduced-motion: no-preference)", () => {
+      gsap.from(".notes-hero > :not(.notes-hero__glow)", {
+        y: 46,
+        opacity: 0,
+        duration: 1.05,
+        stagger: 0.085,
+        ease: "power3.out",
+      });
+
+      gsap.utils.toArray<HTMLElement>("[data-note-image]").forEach((image) => {
+        gsap.timeline({
+          scrollTrigger: {
+            trigger: image,
+            start: "top 94%",
+            end: "bottom 6%",
+            scrub: 0.8,
+          },
+        })
+          .fromTo(image, { scale: 0.84, opacity: 0.42 }, { scale: 1, opacity: 1, ease: "none" })
+          .to(image, { scale: 1.025, opacity: 0.28, ease: "none" });
+      });
+
+      const cards = gsap.utils.toArray<HTMLElement>(".notes-reading-card");
+      cards.forEach((card, index) => {
+        const nextCard = cards[index + 1];
+        if (!nextCard) return;
+
+        gsap.to(card, {
+          scale: 0.93,
+          opacity: 0.42,
+          ease: "none",
+          scrollTrigger: {
+            trigger: nextCard,
+            start: "top 80%",
+            end: "top 30%",
+            scrub: true,
+          },
+        });
+      });
+    });
+  </script>
 </Layout>

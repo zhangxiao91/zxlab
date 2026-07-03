@@ -1,71 +1,225 @@
 ---
-import {
-	getCollection,
-	render,
-	type CollectionEntry,
-} from "astro:content";
-
+import { getCollection, render, type CollectionEntry } from "astro:content";
 import Layout from "../../layouts/Layout.astro";
 
 export async function getStaticPaths() {
-	const notes = await getCollection(
-		"notes",
-		({ data }) => !data.draft,
-	);
+  const notes = await getCollection("notes", ({ data }) => !data.draft);
 
-	return notes.map((note) => ({
-		params: {
-			id: note.id,
-		},
-		props: {
-			note,
-		},
-	}));
+  return notes.map((note) => ({
+    params: { id: note.id },
+    props: { note, notes },
+  }));
 }
 
 interface Props {
-	note: CollectionEntry<"notes">;
+  note: CollectionEntry<"notes">;
+  notes: CollectionEntry<"notes">[];
 }
 
-const { note } = Astro.props;
-const { Content } = await render(note);
+const { note, notes } = Astro.props;
+const { Content, headings } = await render(note);
+const sortedNotes = notes.sort(
+  (a, b) => b.data.publishedAt.valueOf() - a.data.publishedAt.valueOf(),
+);
+const noteIndex = sortedNotes.findIndex((item) => item.id === note.id);
+const previousNote = sortedNotes[noteIndex + 1];
+const nextNote = sortedNotes[noteIndex - 1];
+const tableOfContents = headings.filter((heading) => heading.depth <= 3);
+const cover = note.data.cover ?? "https://picsum.photos/seed/quiet-notebook/1800/1200";
+const coverAlt = note.data.coverAlt ?? "Abstract monochrome notebook study";
 
 const dateFormatter = new Intl.DateTimeFormat("en-US", {
-	year: "numeric",
-	month: "long",
-	day: "numeric",
+  year: "numeric",
+  month: "long",
+  day: "numeric",
 });
 ---
 
-<Layout
-	title={`${note.data.title} | zxlab`}
-	description={note.data.description}
->
-	<main class="site-main">
-		<article class="note-page">
-			<header class="note-header">
-				<p class="eyebrow">
-					NOTE /
-					<time datetime={note.data.publishedAt.toISOString()}>
-						{dateFormatter.format(note.data.publishedAt)}
-					</time>
-				</p>
+<Layout title={`${note.data.title} | zxlab`} description={note.data.description}>
+  <main class="note-detail-page" style={`--note-accent: ${note.data.accent ?? "#d8ff73"}`}>
+    <div class="reading-progress" aria-hidden="true">
+      <span class="reading-progress__bar"></span>
+    </div>
 
-				<h1>{note.data.title}</h1>
+    <article class="longform-note">
+      <header class="longform-hero">
+        <div class="longform-hero__media" data-longform-image>
+          <img src={cover} alt={coverAlt} fetchpriority="high" />
+        </div>
+        <div class="longform-hero__wash" aria-hidden="true"></div>
 
-				<p class="intro">{note.data.description}</p>
+        <div class="longform-hero__content">
+          <a href="/notes">← Back to notes</a>
+          <time datetime={note.data.publishedAt.toISOString()}>
+            {dateFormatter.format(note.data.publishedAt)}
+          </time>
+          <h1>{note.data.title}</h1>
+          <p>{note.data.description}</p>
+        </div>
+      </header>
 
-				<ul
-					class="tag-list note-page-tags"
-					aria-label={`${note.data.title} tags`}
-				>
-					{note.data.tags.map((tag) => <li>{tag}</li>)}
-				</ul>
-			</header>
+      <div class="longform-layout">
+        <aside class="longform-rail" aria-label="Article information">
+          <div class="longform-rail__meta">
+            <p>Filed under</p>
+            <ul aria-label={`${note.data.title} tags`}>
+              {note.data.tags.map((tag) => <li>{tag}</li>)}
+            </ul>
+          </div>
 
-			<div class="prose">
-				<Content />
-			</div>
-		</article>
-	</main>
+          {
+            tableOfContents.length > 0 && (
+              <nav class="longform-toc" aria-label="Table of contents">
+                <p>On this page</p>
+                <ol>
+                  {tableOfContents.map((heading) => (
+                    <li class:list={[`longform-toc__depth-${heading.depth}`]}>
+                      <a href={`#${heading.slug}`}>{heading.text}</a>
+                    </li>
+                  ))}
+                </ol>
+              </nav>
+            )
+          }
+        </aside>
+
+        <div class="longform-body prose">
+          <Content />
+        </div>
+      </div>
+    </article>
+
+    <section class="note-navigation" aria-labelledby="note-navigation-title">
+      <div class="note-navigation__heading">
+        <p>Keep reading</p>
+        <h2 id="note-navigation-title">Follow the thread through the notebook.</h2>
+      </div>
+
+      {
+        previousNote || nextNote ? (
+          <div class="note-navigation__links">
+            {previousNote && (
+              <a href={`/notes/${previousNote.id}`}>
+                <p>Previous note</p>
+                <h3>{previousNote.data.title}</h3>
+                <span aria-hidden="true">←</span>
+              </a>
+            )}
+            {nextNote && (
+              <a href={`/notes/${nextNote.id}`}>
+                <p>Next note</p>
+                <h3>{nextNote.data.title}</h3>
+                <span aria-hidden="true">→</span>
+              </a>
+            )}
+          </div>
+        ) : (
+          <a class="note-navigation__archive" href="/notes">
+            <span>Return to the notes archive</span><span aria-hidden="true">↗</span>
+          </a>
+        )
+      }
+    </section>
+
+    <section class="longform-cta" aria-labelledby="longform-cta-title">
+      <p>Ideas become more useful when they return to the work.</p>
+      <h2 id="longform-cta-title">Continue from the notebook into the projects.</h2>
+      <a class="notes-button notes-button--light" href="/projects">
+        <span>Explore projects</span><span aria-hidden="true">↗</span>
+      </a>
+    </section>
+  </main>
+
+  <script>
+    import gsap from "gsap";
+    import { ScrollTrigger } from "gsap/ScrollTrigger";
+
+    gsap.registerPlugin(ScrollTrigger);
+    const longformMotion = gsap.matchMedia();
+
+    longformMotion.add("(prefers-reduced-motion: no-preference)", () => {
+      gsap.from(".longform-hero__content > *", {
+        y: 48,
+        opacity: 0,
+        duration: 1.08,
+        stagger: 0.085,
+        ease: "power3.out",
+      });
+
+      gsap.to(".reading-progress__bar", {
+        scaleX: 1,
+        ease: "none",
+        scrollTrigger: {
+          trigger: ".longform-note",
+          start: "top top",
+          end: "bottom bottom",
+          scrub: true,
+        },
+      });
+
+      gsap.utils.toArray<HTMLElement>(".longform-body img").forEach((image) => {
+        gsap.fromTo(
+          image,
+          { scale: 0.88, opacity: 0.45 },
+          {
+            scale: 1,
+            opacity: 1,
+            ease: "none",
+            scrollTrigger: {
+              trigger: image,
+              start: "top 90%",
+              end: "top 48%",
+              scrub: 0.8,
+            },
+          },
+        );
+      });
+    });
+
+    document.querySelectorAll<HTMLElement>(".longform-body pre").forEach((block) => {
+      const code = block.querySelector("code");
+      if (!code) return;
+
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "code-copy-button";
+      button.textContent = "Copy";
+      button.setAttribute("aria-label", "Copy code block");
+
+      button.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(code.textContent ?? "");
+          button.textContent = "Copied";
+        } catch {
+          button.textContent = "Copy unavailable";
+        }
+        window.setTimeout(() => {
+          button.textContent = "Copy";
+        }, 1600);
+      });
+
+      block.append(button);
+    });
+
+    const tocLinks = Array.from(document.querySelectorAll<HTMLAnchorElement>(".longform-toc a"));
+    const articleHeadings = Array.from(
+      document.querySelectorAll<HTMLElement>(".longform-body :is(h2[id], h3[id])"),
+    );
+
+    const headingObserver = new IntersectionObserver(
+      (entries) => {
+        const visibleHeading = entries.find((entry) => entry.isIntersecting);
+        if (!visibleHeading) return;
+
+        tocLinks.forEach((link) => link.removeAttribute("aria-current"));
+        const activeLink = tocLinks.find(
+          (link) => link.getAttribute("href") === `#${visibleHeading.target.id}`,
+        );
+        activeLink?.setAttribute("aria-current", "location");
+      },
+      { rootMargin: "-18% 0px -72% 0px" },
+    );
+
+    articleHeadings.forEach((heading) => headingObserver.observe(heading));
+  </script>
 </Layout>

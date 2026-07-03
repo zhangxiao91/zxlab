@@ -14,6 +14,9 @@ const notes = defineCollection({
 		publishedAt: z.coerce.date(),
 		tags: z.array(z.string()),
 		draft: z.boolean().default(false),
+		cover: z.string().url().optional(),
+		coverAlt: z.string().optional(),
+		accent: z.string().optional(),
 	}),
 });
 
