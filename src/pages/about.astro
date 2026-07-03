@@ -1,41 +1,269 @@
 ---
 import Layout from "../layouts/Layout.astro";
+
+const reflections = [
+  {
+    title: "On understanding",
+    quote:
+      "I learn fastest when an idea has to survive contact with a real interface, a real user, or a real constraint.",
+  },
+  {
+    title: "On tools",
+    quote:
+      "The best tools do not remove judgment. They make room for better questions and more deliberate choices.",
+  },
+  {
+    title: "On unfinished work",
+    quote:
+      "A useful experiment can remain incomplete. What matters is whether it leaves the next decision clearer.",
+  },
+];
 ---
 
 <Layout
-	title="About | zxlab"
-	description="About zhangxiao and the ideas behind zxlab."
+  title="About Zhangxiao | zxlab"
+  description="Zhangxiao is a computer science student building software, studying intelligent systems, and documenting the process."
 >
-	<main class="site-main">
-		<section class="page-hero" aria-labelledby="about-title">
-			<p class="eyebrow">ABOUT / ZXLAB</p>
+  <main class="about-page">
+    <section class="about-hero" aria-labelledby="about-title">
+      <div class="about-hero__copy">
+        <p class="about-kicker">Zhangxiao, building from Beijing</p>
+        <h1 id="about-title">
+          A student learning
+          <span
+            class="about-title-image"
+            role="img"
+            aria-label="A fragment of a working desk"
+          ></span>
+          through things that work.
+        </h1>
+        <p class="about-hero__intro">
+          I study computer science at Beihang University and use software as a
+          way to investigate difficult ideas. ZXLab is the public edge of that
+          process: projects, technical notes, and experiments without a polished
+          ending yet.
+        </p>
+        <a class="about-text-link" href="/projects">See what I am building ↗</a>
+      </div>
 
-			<h1 id="about-title">A student building things to understand them.</h1>
+      <div class="about-portrait" data-about-image>
+        <img
+          src="https://picsum.photos/seed/quiet-studio-portrait/1200/1500"
+          alt="A quiet, monochrome studio interior"
+          fetchpriority="high"
+        />
+        <div class="about-portrait__caption">
+          <span>Computer science</span>
+          <span>Beihang University</span>
+        </div>
+      </div>
+    </section>
 
-			<p class="intro">
-				I am zhangxiao, a computer science student at Beihang University.
-				ZXLab is where I document projects, technical experiments, and
-				what I am currently learning.
-			</p>
-		</section>
+    <section class="about-context" aria-labelledby="context-title">
+      <div class="about-section-heading">
+        <p>The short version</p>
+        <h2 id="context-title">Curious about the systems beneath the surface.</h2>
+      </div>
 
-		<section class="about-section" aria-labelledby="currently-title">
-			<h2 id="currently-title">Currently</h2>
+      <div class="about-bento">
+        <article class="about-bento__story">
+          <p>
+            I am drawn to work where abstraction meets consequence: evaluating
+            an AI system, making infrastructure reliable, or finding the small
+            algorithmic idea that changes the shape of a problem.
+          </p>
+          <p>
+            The common thread is a desire to understand—not only how something
+            behaves, but why it was built that way and what would make it better.
+          </p>
+        </article>
 
-			<p>
-				I am exploring AI evaluation, infrastructure, algorithms, and
-				the practical craft of building reliable software.
-			</p>
-		</section>
+        <article class="about-bento__tile about-bento__tile--image" data-about-image>
+          <img
+            src="https://picsum.photos/seed/structural-research/900/700"
+            alt="Abstract architectural structure"
+            loading="lazy"
+          />
+        </article>
 
-		<section class="about-section" aria-labelledby="principles-title">
-			<h2 id="principles-title">Principles</h2>
+        <article class="about-bento__tile about-bento__tile--now">
+          <p>Right now</p>
+          <h3>AI evaluation, retrieval systems, and reliable software.</h3>
+        </article>
+      </div>
+    </section>
 
-			<ul>
-				<li>Build enough by hand to understand the system.</li>
-				<li>Use tools to extend judgment, not replace it.</li>
-				<li>Prefer real work and clear writing over decoration.</li>
-			</ul>
-		</section>
-	</main>
+    <section class="interest-marquee" aria-label="Areas of interest">
+      <div class="interest-marquee__track" aria-hidden="true">
+        <span>AI Evaluation</span><i></i>
+        <span>Infrastructure</span><i></i>
+        <span>Algorithms</span><i></i>
+        <span>Retrieval</span><i></i>
+        <span>Interface Craft</span><i></i>
+        <span>Clear Writing</span><i></i>
+        <span>AI Evaluation</span><i></i>
+        <span>Infrastructure</span><i></i>
+        <span>Algorithms</span><i></i>
+        <span>Retrieval</span><i></i>
+        <span>Interface Craft</span><i></i>
+        <span>Clear Writing</span><i></i>
+      </div>
+    </section>
+
+    <section class="about-principles" aria-labelledby="principles-title">
+      <div class="about-principles__heading">
+        <p>A working philosophy</p>
+        <h2 id="principles-title">How I try to approach the work.</h2>
+      </div>
+
+      <div class="about-principles__list">
+        <article class="principle-row">
+          <span aria-hidden="true">A</span>
+          <div>
+            <h3>Build before simplifying.</h3>
+            <p>
+              A clean abstraction means more after I have felt the complexity it
+              hides. The first pass is for contact with the real system.
+            </p>
+          </div>
+        </article>
+
+        <article class="principle-row">
+          <span aria-hidden="true">B</span>
+          <div>
+            <h3>Use tools to extend judgment.</h3>
+            <p>
+              Automation should increase the quality of attention, not make
+              decisions invisible. I want to know where my choices still matter.
+            </p>
+          </div>
+        </article>
+
+        <article class="principle-row">
+          <span aria-hidden="true">C</span>
+          <div>
+            <h3>Write the trail down.</h3>
+            <p>
+              Clear writing exposes fuzzy thinking. Notes turn temporary insight
+              into material that can be questioned, reused, and improved.
+            </p>
+          </div>
+        </article>
+
+        <article class="principle-row principle-row--image" data-about-image>
+          <img
+            src="https://picsum.photos/seed/process-material/1400/900"
+            alt="Layered material suggesting an iterative process"
+            loading="lazy"
+          />
+        </article>
+      </div>
+    </section>
+
+    <section class="reflection-section" aria-labelledby="reflection-title">
+      <div class="about-section-heading about-section-heading--reflection">
+        <p>Notes to self</p>
+        <h2 id="reflection-title">Ideas I keep returning to.</h2>
+      </div>
+
+      <div class="reflection-carousel">
+        <div class="reflection-carousel__track">
+          {
+            reflections.map((reflection) => (
+              <article class="reflection-slide">
+                <div class="reflection-slide__artifacts" aria-hidden="true">
+                  <img src="https://picsum.photos/seed/paper-detail/180/180" alt="" loading="lazy" />
+                  <img src="https://picsum.photos/seed/code-light/180/180" alt="" loading="lazy" />
+                  <img src="https://picsum.photos/seed/metal-study/180/180" alt="" loading="lazy" />
+                </div>
+                <p>{reflection.quote}</p>
+                <h3>{reflection.title}</h3>
+              </article>
+            ))
+          }
+        </div>
+
+        <div class="reflection-carousel__controls">
+          <button type="button" data-reflection-direction="-1" aria-label="Previous reflection">←</button>
+          <button type="button" data-reflection-direction="1" aria-label="Next reflection">→</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="about-cta" aria-labelledby="about-cta-title">
+      <div data-about-image class="about-cta__image">
+        <img
+          src="https://picsum.photos/seed/open-horizon/1800/1100"
+          alt="An open landscape representing unfinished exploration"
+          loading="lazy"
+        />
+      </div>
+      <div class="about-cta__wash" aria-hidden="true"></div>
+      <div class="about-cta__content">
+        <p>ZXLab stays deliberately unfinished.</p>
+        <h2 id="about-cta-title">The next idea is already becoming a project.</h2>
+        <div class="about-cta__actions">
+          <a class="about-button about-button--light" href="/projects">
+            <span>Explore projects</span><span aria-hidden="true">↗</span>
+          </a>
+          <a class="about-button about-button--glass" href="/notes">
+            <span>Read the notes</span><span aria-hidden="true">↗</span>
+          </a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    import gsap from "gsap";
+    import { ScrollTrigger } from "gsap/ScrollTrigger";
+
+    gsap.registerPlugin(ScrollTrigger);
+
+    const aboutMotion = gsap.matchMedia();
+
+    aboutMotion.add("(prefers-reduced-motion: no-preference)", () => {
+      gsap.from(".about-hero__copy > *", {
+        y: 44,
+        opacity: 0,
+        duration: 1.05,
+        stagger: 0.09,
+        ease: "power3.out",
+      });
+
+      gsap.utils.toArray<HTMLElement>("[data-about-image]").forEach((image) => {
+        gsap.timeline({
+          scrollTrigger: {
+            trigger: image,
+            start: "top 94%",
+            end: "bottom 6%",
+            scrub: 0.8,
+          },
+        })
+          .fromTo(image, { scale: 0.84, opacity: 0.42 }, { scale: 1, opacity: 1, ease: "none" })
+          .to(image, { scale: 1.025, opacity: 0.28, ease: "none" });
+      });
+    });
+
+    aboutMotion.add("(min-width: 901px) and (prefers-reduced-motion: no-preference)", () => {
+      ScrollTrigger.create({
+        trigger: ".about-principles",
+        start: "top 112px",
+        end: "bottom bottom",
+        pin: ".about-principles__heading",
+        pinSpacing: false,
+      });
+    });
+
+    const reflectionTrack = document.querySelector<HTMLElement>(".reflection-carousel__track");
+    document.querySelectorAll<HTMLButtonElement>("[data-reflection-direction]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const direction = Number(button.dataset.reflectionDirection);
+        reflectionTrack?.scrollBy({
+          left: direction * reflectionTrack.clientWidth * 0.86,
+          behavior: "smooth",
+        });
+      });
+    });
+  </script>
 </Layout>
