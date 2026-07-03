@@ -48,8 +48,10 @@ src/
 ├── components/     Reusable interface components
 ├── content/        Markdown notes
 ├── data/           Structured project data
+├── lab/            Lab project definitions and lazy experiment modules
 ├── layouts/        Shared page shells
 ├── pages/          File-based routes
+├── status/         Public status types, providers, and client boundary
 └── styles/         Global styles and design tokens
 ```
 
@@ -60,6 +62,9 @@ Static files that should be copied directly are stored in `public/`.
 * `/` — Homepage
 * `/projects` — Project archive
 * `/notes` — Notes archive
+* `/lab` — Interactive experiment index
+* `/lab/[slug]` — Isolated experiment container
+* `/status` — Public, privacy-filtered status dashboard
 * `/about` — About page
 
 Project and note detail pages are generated from shared data and content
@@ -72,6 +77,7 @@ The interface is intentionally restrained, editorial, and content-driven.
 See:
 
 * `docs/visual-guidelines.md`
+* `docs/lab-status.md`
 * `AGENTS.md`
 
 ## Status

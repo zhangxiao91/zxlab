@@ -1,0 +1,84 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import ExperimentFrame from "../../components/lab/ExperimentFrame.astro";
+import LabStatusBadge from "../../components/lab/LabStatusBadge.astro";
+import { labProjects } from "../../lab/projects";
+import type { LabProject } from "../../lab/types";
+import "../../styles/lab-status-shell.css";
+import "../../styles/lab.css";
+
+export function getStaticPaths() {
+  return labProjects.map((project) => ({ params: { slug: project.slug }, props: { project } }));
+}
+
+interface Props {
+  project: LabProject;
+}
+
+const { project } = Astro.props;
+const projectIndex = labProjects.findIndex((item) => item.slug === project.slug);
+const nextProject = labProjects[(projectIndex + 1) % labProjects.length];
+---
+
+<Layout title={`${project.title} | Lab | zxlab`} description={project.description}>
+  <main class="lab-detail-page">
+    <section class="lab-detail-hero" aria-labelledby="experiment-title">
+      <div class="lab-detail-hero__copy">
+        <a href="/lab">← Back to Lab</a>
+        <h1 id="experiment-title">{project.title}</h1>
+        <p>{project.description}</p>
+      </div>
+      <div class="lab-detail-hero__media" data-lab-image>
+        {project.thumbnail && <img src={project.thumbnail} alt={project.thumbnailAlt ?? ""} />}
+      </div>
+    </section>
+
+    <section class="lab-experiment-section">
+      <div class="lab-experiment-meta">
+        <LabStatusBadge status={project.status} />
+        {project.category && <p>{project.category}</p>}
+        <ul aria-label={`${project.title} tags`}>
+          {project.tags?.map((tag) => <li>{tag}</li>)}
+        </ul>
+      </div>
+      <ExperimentFrame project={project} />
+    </section>
+
+    <section class="lab-instructions" aria-labelledby="instructions-title">
+      <p>Using this experiment</p>
+      <div>
+        <h2 id="instructions-title">Controls and support will stay beside the work.</h2>
+        <ol>
+          {project.instructions?.map((instruction) => <li>{instruction}</li>)}
+        </ol>
+        <p>
+          This placeholder makes no network requests and loads no experiment dependency.
+          Future client modules will be isolated to this route.
+        </p>
+        {
+          project.links && project.links.length > 0 && (
+            <nav class="lab-resource-links" aria-label={`${project.title} resources`}>
+              {project.links.map((link) => (
+                <a
+                  href={link.href}
+                  target={link.external ? "_blank" : undefined}
+                  rel={link.external ? "noreferrer" : undefined}
+                >
+                  {link.label}<span aria-hidden="true">↗</span>
+                </a>
+              ))}
+            </nav>
+          )
+        }
+      </div>
+    </section>
+
+    <section class="lab-next" aria-labelledby="lab-next-title">
+      <p>Continue through the Lab</p>
+      <h2 id="lab-next-title">Next planned experiment.</h2>
+      <a href={`/lab/${nextProject.slug}`}>
+        <span>{nextProject.title}</span><span aria-hidden="true">↗</span>
+      </a>
+    </section>
+  </main>
+</Layout>

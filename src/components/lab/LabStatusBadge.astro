@@ -1,0 +1,20 @@
+---
+import type { LabProjectStatus } from "../../lab/types";
+
+interface Props {
+  status: LabProjectStatus;
+}
+
+const { status } = Astro.props;
+const labels: Record<LabProjectStatus, string> = {
+  available: "Available",
+  beta: "Beta",
+  "coming-soon": "Coming soon",
+  archived: "Archived",
+};
+---
+
+<span class="lab-status-badge" data-status={status}>
+  <span aria-hidden="true"></span>
+  {labels[status]}
+</span>

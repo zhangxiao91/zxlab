@@ -1,0 +1,135 @@
+---
+import type { LabProject } from "../../lab/types";
+
+interface Props {
+  project: LabProject;
+}
+
+const { project } = Astro.props;
+const initialState = project.clientEntry ? "loading" : "unavailable";
+---
+
+<section
+  class="experiment-frame"
+  aria-label={`${project.title} experiment area`}
+  data-experiment-frame
+  data-state={initialState}
+  data-client-entry={project.clientEntry}
+  style={`--experiment-min-height: ${project.minHeight ?? "32rem"}`}
+>
+  <header class="experiment-frame__toolbar">
+    <div>
+      <span aria-hidden="true"></span>
+      <p>Experiment viewport</p>
+    </div>
+    {
+      project.clientEntry && project.supportsFullscreen && (
+        <button type="button" data-experiment-fullscreen aria-label={`Open ${project.title} fullscreen`}>
+          Fullscreen
+        </button>
+      )
+    }
+  </header>
+
+  <div class="experiment-frame__viewport" data-experiment-viewport aria-live="polite">
+    <div class="experiment-frame__mount" data-experiment-mount></div>
+
+    <div class="experiment-state" data-frame-state="loading" hidden={initialState !== "loading"}>
+      <span class="experiment-state__loader" aria-hidden="true"></span>
+      <h2>Preparing the experiment.</h2>
+      <p>The interactive module is being loaded only for this page.</p>
+    </div>
+
+    <div class="experiment-state" data-frame-state="error" hidden>
+      <span aria-hidden="true">×</span>
+      <h2>The experiment could not start.</h2>
+      <p>The failure is contained here; the rest of ZXLab remains available.</p>
+    </div>
+
+    <div class="experiment-state" data-frame-state="unsupported" hidden>
+      <span aria-hidden="true">—</span>
+      <h2>This device is not supported yet.</h2>
+      <p>Check the experiment requirements or return to the Lab archive.</p>
+    </div>
+
+    <div class="experiment-state" data-frame-state="unavailable" hidden={initialState !== "unavailable"}>
+      <span aria-hidden="true">○</span>
+      <h2>This experiment is still planned.</h2>
+      <p>The route and interaction boundary are ready, but no client experiment is published.</p>
+    </div>
+  </div>
+</section>
+
+<script>
+  import type { ExperimentModule } from "../../lab/types";
+
+  const experimentModules = import.meta.glob<ExperimentModule>("../../lab/experiments/*.ts");
+
+  document.querySelectorAll<HTMLElement>("[data-experiment-frame]").forEach((frame) => {
+    const entry = frame.dataset.clientEntry;
+    const viewport = frame.querySelector<HTMLElement>("[data-experiment-viewport]");
+    const mount = frame.querySelector<HTMLElement>("[data-experiment-mount]");
+    const fullscreen = frame.querySelector<HTMLButtonElement>("[data-experiment-fullscreen]");
+    const controller = new AbortController();
+    let dispose: void | (() => void);
+    const previewState = new URL(window.location.href).searchParams.get("experiment-state");
+
+    const setState = (state: string) => {
+      frame.dataset.state = state;
+      frame.querySelectorAll<HTMLElement>("[data-frame-state]").forEach((panel) => {
+        panel.hidden = panel.dataset.frameState !== state;
+      });
+    };
+
+    const loadExperiment = async () => {
+      if (["loading", "error", "unsupported", "unavailable"].includes(previewState ?? "")) {
+        setState(previewState!);
+        return;
+      }
+      if (!entry || !mount) return;
+      const modulePath = `../../lab/experiments/${entry}.ts`;
+      const loadModule = experimentModules[modulePath];
+
+      if (!loadModule) {
+        setState("error");
+        return;
+      }
+
+      try {
+        const experiment = await loadModule();
+        if (experiment.isSupported && !experiment.isSupported()) {
+          setState("unsupported");
+          return;
+        }
+
+        dispose = experiment.mount(mount, {
+          signal: controller.signal,
+          reducedMotion: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+        });
+        setState("ready");
+      } catch {
+        setState("error");
+      }
+    };
+
+    fullscreen?.addEventListener("click", async () => {
+      if (!viewport) return;
+      if (document.fullscreenElement === viewport) {
+        await document.exitFullscreen();
+      } else {
+        await viewport.requestFullscreen();
+      }
+    });
+
+    window.addEventListener(
+      "pagehide",
+      () => {
+        controller.abort();
+        dispose?.();
+      },
+      { once: true },
+    );
+
+    void loadExperiment();
+  });
+</script>

@@ -1,0 +1,135 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import LabProjectCard from "../../components/lab/LabProjectCard.astro";
+import { labProjects } from "../../lab/projects";
+import "../../styles/lab-status-shell.css";
+import "../../styles/lab.css";
+
+const statement =
+  "A stable site can still make room for unstable ideas, as long as every experiment has a clear boundary.";
+---
+
+<Layout
+  title="Lab | zxlab"
+  description="Interactive demos, visual studies, AI experiments, and developer tools in progress at ZXLab."
+>
+  <main class="lab-page">
+    <section class="lab-hero" aria-labelledby="lab-title">
+      <div class="lab-hero__copy">
+        <p class="lab-kicker">A place for unfinished interaction</p>
+        <h1 id="lab-title">
+          Experiments need
+          <span class="lab-title-image" role="img" aria-label="Abstract light signal"></span>
+          room to misbehave.
+        </h1>
+        <p class="lab-hero__intro">
+          ZXLab’s test bench for interactive demos, small tools, visual systems,
+          and future client-heavy ideas kept safely outside the main site bundle.
+        </p>
+        <a class="lab-text-link" href="#experiments">Explore planned experiments ↓</a>
+      </div>
+
+      <div class="lab-hero__media" data-lab-image>
+        <img
+          src="https://picsum.photos/seed/lab-signal-room/1200/1500"
+          alt="Abstract monochrome room selected to represent an experimental workspace"
+          fetchpriority="high"
+        />
+        <div class="lab-hero__caption">
+          <span>Isolated by route</span>
+          <span>Loaded only when needed</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="lab-archive" id="experiments" aria-labelledby="experiments-title">
+      <div class="lab-section-heading">
+        <p>Planned experiments</p>
+        <h2 id="experiments-title">The containers are ready before the ideas arrive.</h2>
+      </div>
+
+      <div class="lab-project-grid">
+        {
+          labProjects.map((project) => (
+            <LabProjectCard project={project} lead={project.featured} />
+          ))
+        }
+      </div>
+    </section>
+
+    <section class="lab-marquee" aria-label="Future Lab capabilities">
+      <div class="lab-marquee__track" aria-hidden="true">
+        <span>Interaction</span><i></i>
+        <span>Visualization</span><i></i>
+        <span>AI experiments</span><i></i>
+        <span>Developer tools</span><i></i>
+        <span>Canvas</span><i></i>
+        <span>WebGL</span><i></i>
+        <span>Interaction</span><i></i>
+        <span>Visualization</span><i></i>
+        <span>AI experiments</span><i></i>
+        <span>Developer tools</span><i></i>
+        <span>Canvas</span><i></i>
+        <span>WebGL</span><i></i>
+      </div>
+    </section>
+
+    <section class="lab-boundary" aria-labelledby="boundary-title">
+      <p>Built for safe experiments</p>
+      <h2 id="boundary-title" aria-label={statement}>
+        {
+          statement.split(" ").map((word) => (
+            <span class="lab-boundary__word" aria-hidden="true">{word}&nbsp;</span>
+          ))
+        }
+      </h2>
+    </section>
+
+    <section class="lab-cta" aria-labelledby="lab-cta-title">
+      <p>Experiments will appear when they have something honest to test.</p>
+      <h2 id="lab-cta-title">Until then, the work continues in projects and notes.</h2>
+      <div class="lab-cta__actions">
+        <a class="lab-button" href="/projects"><span>Explore projects</span><span aria-hidden="true">↗</span></a>
+        <a class="lab-button lab-button--ghost" href="/notes"><span>Read notes</span><span aria-hidden="true">↗</span></a>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    import gsap from "gsap";
+    import { ScrollTrigger } from "gsap/ScrollTrigger";
+
+    gsap.registerPlugin(ScrollTrigger);
+    const labMotion = gsap.matchMedia();
+
+    labMotion.add("(prefers-reduced-motion: no-preference)", () => {
+      gsap.from(".lab-hero__copy > *", {
+        y: 46,
+        opacity: 0,
+        duration: 1.05,
+        stagger: 0.09,
+        ease: "power3.out",
+      });
+
+      gsap.utils.toArray<HTMLElement>("[data-lab-image]").forEach((image) => {
+        gsap.timeline({
+          scrollTrigger: { trigger: image, start: "top 94%", end: "bottom 6%", scrub: 0.8 },
+        })
+          .fromTo(image, { scale: 0.84, opacity: 0.42 }, { scale: 1, opacity: 1, ease: "none" })
+          .to(image, { scale: 1.025, opacity: 0.28, ease: "none" });
+      });
+
+      gsap.to(".lab-boundary__word", {
+        opacity: 1,
+        stagger: 0.055,
+        ease: "none",
+        scrollTrigger: {
+          trigger: ".lab-boundary",
+          start: "top 72%",
+          end: "bottom 58%",
+          scrub: 0.8,
+        },
+      });
+    });
+  </script>
+</Layout>

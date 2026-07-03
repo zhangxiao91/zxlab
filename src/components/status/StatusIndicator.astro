@@ -1,0 +1,12 @@
+---
+interface Props {
+  state: string;
+  label: string;
+  role?: string;
+}
+const { state, label, role } = Astro.props;
+---
+<span class="status-indicator" data-state={state} data-status-indicator={role}>
+  <span aria-hidden="true"></span>
+  <span data-indicator-label>{label}</span>
+</span>

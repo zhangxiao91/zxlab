@@ -1,0 +1,98 @@
+---
+import type { StatusSnapshot } from "../../status/types";
+import MetricCard from "./MetricCard.astro";
+import StatusIndicator from "./StatusIndicator.astro";
+import StatusState from "./StatusState.astro";
+
+interface Props { snapshot: StatusSnapshot; }
+const { snapshot } = Astro.props;
+const usage = snapshot.usage.data;
+const devices = snapshot.devices.data ?? [];
+const activity = snapshot.activity.data ?? [];
+const dateFormatter = new Intl.DateTimeFormat("en", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+---
+
+<div class="status-dashboard" data-status-dashboard data-overall-state={snapshot.overall.state} data-stale={String(snapshot.overall.stale)}>
+  <section class="status-overall" aria-labelledby="overall-title" aria-live="polite">
+    <div>
+      <StatusIndicator state={snapshot.overall.state} label={snapshot.overall.label} role="overall" />
+      <h2 id="overall-title" data-overall-label>{snapshot.overall.label}</h2>
+      <p data-overall-message>{snapshot.overall.message}</p>
+    </div>
+    <dl>
+      <div><dt>Source</dt><dd data-source-label>{snapshot.source}</dd></div>
+      <div><dt>Freshness</dt><dd data-freshness>{snapshot.overall.stale ? "Stale demo snapshot" : "Fresh demo snapshot"}</dd></div>
+      <div>
+        <dt>Updated</dt>
+        <dd><time data-updated-at data-relative-time datetime={snapshot.updatedAt}>{dateFormatter.format(new Date(snapshot.updatedAt))}</time></dd>
+      </div>
+    </dl>
+    <button class="status-refresh" type="button" data-status-refresh>
+      <span>Refresh demo</span><span aria-hidden="true">↻</span>
+    </button>
+  </section>
+
+  <div class="status-module-grid">
+    <section class="status-module status-usage" data-status-module="usage" data-module-state={snapshot.usage.state} aria-labelledby="usage-title">
+      <header><div><p>Provider-neutral usage</p><h2 id="usage-title">Usage</h2></div><span data-usage-provider>{usage?.providerName ?? "Unavailable"}</span></header>
+      <div data-module-ready hidden={snapshot.usage.state !== "ready"}>
+        <div class="usage-windows">
+          <MetricCard label="5-hour window" value={`${usage?.fiveHourWindow?.usedPercent ?? 0}%`} valueId="five-hour-value" progress={usage?.fiveHourWindow?.usedPercent ?? 0} progressId="five-hour" />
+          <MetricCard label="Weekly allowance" value={`${usage?.weeklyAllowance?.usedPercent ?? 0}%`} valueId="weekly-value" progress={usage?.weeklyAllowance?.usedPercent ?? 0} progressId="weekly" />
+        </div>
+        <div class="usage-metrics">
+          <MetricCard label="Credits remaining" value={usage?.creditsRemaining ?? "—"} valueId="credits" />
+          <MetricCard label="Current model" value={usage?.currentModel ?? "—"} valueId="current-model" />
+          <MetricCard label="Active threads" value={usage?.activeThreads ?? "—"} valueId="threads" />
+          <MetricCard label="Tasks today" value={usage?.tasksToday ?? "—"} valueId="tasks" />
+          <MetricCard label="Tokens used" value={usage?.tokensUsed?.toLocaleString() ?? "—"} valueId="tokens" />
+        </div>
+      </div>
+      <StatusState hidden={snapshot.usage.state === "ready"} title="Usage unavailable" message={snapshot.usage.message} />
+    </section>
+
+    <section class="status-module status-devices" data-status-module="devices" data-module-state={snapshot.devices.state} aria-labelledby="devices-title">
+      <header><div><p>Public, filtered fields</p><h2 id="devices-title">Devices</h2></div><span>Demo nodes</span></header>
+      <div data-module-ready hidden={snapshot.devices.state !== "ready"}>
+        <ul class="device-list" data-device-list>
+          {devices.map((device) => (
+            <li class="device-item" data-device-state={device.state}>
+              <div><h3>{device.name}</h3><p>{device.type}</p></div>
+              <StatusIndicator state={device.state} label={device.state} />
+              <div>
+                <time data-relative-time data-prefix="Last seen " datetime={device.lastSeen}>Last seen {dateFormatter.format(new Date(device.lastSeen))}</time>
+                {device.publicTask && <p>{device.publicTask}</p>}
+                {device.latencyMs !== undefined && <p>{device.latencyMs} ms demo latency</p>}
+              </div>
+            </li>
+          ))}
+        </ul>
+      </div>
+      <StatusState hidden={snapshot.devices.state === "ready"} title="Devices unavailable" message={snapshot.devices.message} />
+    </section>
+  </div>
+
+  <section class="status-module status-activity" data-status-module="activity" data-module-state={snapshot.activity.state} aria-labelledby="activity-title">
+    <header><div><p>Public development trail</p><h2 id="activity-title">Latest activity</h2></div><span>Demo feed</span></header>
+    <div data-module-ready hidden={snapshot.activity.state !== "ready"}>
+      <ol class="activity-list" data-activity-list>
+        {activity.map((item) => (
+          <li>
+            {item.href ? (
+              <a href={item.href}>
+                <div><span>{item.type}</span><time data-relative-time datetime={item.timestamp}>{dateFormatter.format(new Date(item.timestamp))}</time></div>
+                <h3>{item.title}</h3>{item.description && <p>{item.description}</p>}
+              </a>
+            ) : (
+              <div>
+                <div><span>{item.type}</span><time data-relative-time datetime={item.timestamp}>{dateFormatter.format(new Date(item.timestamp))}</time></div>
+                <h3>{item.title}</h3>{item.description && <p>{item.description}</p>}
+              </div>
+            )}
+          </li>
+        ))}
+      </ol>
+    </div>
+    <StatusState hidden={snapshot.activity.state === "ready"} title="Activity unavailable" message={snapshot.activity.message} />
+  </section>
+</div>

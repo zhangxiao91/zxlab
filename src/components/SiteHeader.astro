@@ -9,7 +9,18 @@ function isCurrent(href: string) {
 <header class="site-header">
 	<a class="site-name" href="/">zxlab</a>
 
-	<nav class="site-nav" aria-label="Main navigation">
+	<button
+		class="site-menu-toggle"
+		type="button"
+		aria-controls="site-navigation"
+		aria-expanded="false"
+		aria-label="Open navigation"
+	>
+		<span aria-hidden="true"></span>
+		<span aria-hidden="true"></span>
+	</button>
+
+	<nav class="site-nav" id="site-navigation" aria-label="Main navigation">
 		<a
 			href="/projects"
 			aria-current={isCurrent("/projects") ? "page" : undefined}
@@ -25,6 +36,20 @@ function isCurrent(href: string) {
 		</a>
 
 		<a
+			href="/lab"
+			aria-current={isCurrent("/lab") ? "page" : undefined}
+		>
+			Lab
+		</a>
+
+		<a
+			href="/status"
+			aria-current={isCurrent("/status") ? "page" : undefined}
+		>
+			Status
+		</a>
+
+		<a
 			href="/about"
 			aria-current={isCurrent("/about") ? "page" : undefined}
 		>
@@ -32,3 +57,42 @@ function isCurrent(href: string) {
 		</a>
 	</nav>
 </header>
+
+<script>
+	const header = document.querySelector<HTMLElement>(".site-header");
+	const toggle = header?.querySelector<HTMLButtonElement>(".site-menu-toggle");
+	const navigation = header?.querySelector<HTMLElement>(".site-nav");
+
+	if (header && toggle && navigation) {
+		header.dataset.menuReady = "true";
+
+		const setMenu = (open: boolean, restoreFocus = false) => {
+			header.dataset.menuOpen = String(open);
+			toggle.setAttribute("aria-expanded", String(open));
+			toggle.setAttribute("aria-label", open ? "Close navigation" : "Open navigation");
+			if (!open && restoreFocus) toggle.focus();
+		};
+
+		toggle.addEventListener("click", () => {
+			setMenu(toggle.getAttribute("aria-expanded") !== "true");
+		});
+
+		navigation.addEventListener("click", (event) => {
+			if ((event.target as Element).closest("a")) setMenu(false);
+		});
+
+		document.addEventListener("click", (event) => {
+			if (!header.contains(event.target as Node)) setMenu(false);
+		});
+
+		document.addEventListener("keydown", (event) => {
+			if (event.key === "Escape" && toggle.getAttribute("aria-expanded") === "true") {
+				setMenu(false, true);
+			}
+		});
+
+		window.matchMedia("(min-width: 40.001rem)").addEventListener("change", (event) => {
+			if (event.matches) setMenu(false);
+		});
+	}
+</script>

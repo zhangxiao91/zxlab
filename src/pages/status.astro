@@ -1,0 +1,149 @@
+---
+import Layout from "../layouts/Layout.astro";
+import StatusDashboard from "../components/status/StatusDashboard.astro";
+import { getStatusSnapshot } from "../status/client";
+import "../styles/lab-status-shell.css";
+import "../styles/status.css";
+
+const snapshot = await getStatusSnapshot("normal");
+---
+
+<Layout
+  title="Status | zxlab"
+  description="A public, privacy-filtered demo control room for ZXLab services, tool usage, devices, and recent activity."
+>
+  <main class="status-page">
+    <section class="status-hero" aria-labelledby="status-title">
+      <div class="status-hero__copy">
+        <p class="status-kicker">ZX control room</p>
+        <h1 id="status-title">
+          Public signals,
+          <span class="status-title-image" role="img" aria-label="Abstract control surface"></span>
+          private boundaries.
+        </h1>
+        <p class="status-hero__intro">
+          A visitor-facing structure for service health, tool usage, safe device
+          presence, and the latest public development trail.
+        </p>
+      </div>
+
+      <aside class="status-demo-notice" aria-label="Demo data notice">
+        <span aria-hidden="true"></span>
+        <p>Demo snapshot</p>
+        <h2>No live or private provider is connected.</h2>
+        <p>Every value below is illustrative and exists to verify the public data boundary.</p>
+      </aside>
+    </section>
+
+    <section class="status-dashboard-section" aria-label="ZXLab public status dashboard">
+      <StatusDashboard snapshot={snapshot} />
+    </section>
+
+    <section class="status-privacy" aria-labelledby="privacy-title">
+      <p>Public by design</p>
+      <div>
+        <h2 id="privacy-title">Enough signal to be useful. No private network details.</h2>
+        <p>
+          Device addresses, SSH information, serial numbers, precise location,
+          authentication data, and internal topology are outside this interface by type and policy.
+        </p>
+      </div>
+    </section>
+
+    <section class="status-cta" aria-labelledby="status-cta-title">
+      <p>Status explains the surface. Lab holds what comes next.</p>
+      <h2 id="status-cta-title">Move from the control room into the experiments.</h2>
+      <a class="status-button" href="/lab"><span>Open Lab</span><span aria-hidden="true">↗</span></a>
+    </section>
+  </main>
+
+  <script>
+    import gsap from "gsap";
+    import { ScrollTrigger } from "gsap/ScrollTrigger";
+    import {
+      getStatusSnapshot,
+      enhanceRelativeTimes,
+      parseStatusScenario,
+      renderLoadingSnapshot,
+      renderStatusSnapshot,
+      scheduleStatusRefresh,
+    } from "../status/client";
+
+    gsap.registerPlugin(ScrollTrigger);
+
+    const dashboard = document.querySelector<HTMLElement>("[data-status-dashboard]");
+    const refresh = document.querySelector<HTMLButtonElement>("[data-status-refresh]");
+    const controller = new AbortController();
+    const scenario = parseStatusScenario(new URL(window.location.href).searchParams.get("status-state"));
+    const statusMotion = gsap.matchMedia();
+
+    statusMotion.add("(prefers-reduced-motion: no-preference)", () => {
+      gsap.from(".status-hero__copy > *, .status-demo-notice", {
+        y: 48,
+        opacity: 0,
+        duration: 1.05,
+        stagger: 0.08,
+        ease: "power3.out",
+      });
+
+      gsap.utils.toArray<HTMLElement>(".status-overall, .status-module-grid, .status-activity").forEach((card) => {
+        gsap.from(card, {
+          y: 72,
+          scale: 0.965,
+          opacity: 0,
+          duration: 1.1,
+          ease: "power3.out",
+          scrollTrigger: { trigger: card, start: "top 88%" },
+        });
+      });
+
+      gsap.to(".status-overall", {
+        scale: 0.96,
+        opacity: 0.32,
+        ease: "none",
+        scrollTrigger: {
+          trigger: ".status-module-grid",
+          start: "top 82%",
+          end: "top 18%",
+          scrub: 0.8,
+        },
+      });
+    });
+
+    const refreshDashboard = async (delayMs = 650) => {
+      if (!dashboard) return;
+      renderLoadingSnapshot(dashboard);
+      if (refresh) refresh.disabled = true;
+
+      try {
+        const nextScenario = scenario === "loading" ? "normal" : scenario;
+        const nextSnapshot = await getStatusSnapshot(nextScenario, {
+          signal: controller.signal,
+          delayMs,
+        });
+        renderStatusSnapshot(dashboard, nextSnapshot);
+        enhanceRelativeTimes(dashboard);
+      } catch {
+        const errorSnapshot = await getStatusSnapshot("error");
+        renderStatusSnapshot(dashboard, errorSnapshot);
+      } finally {
+        if (refresh) refresh.disabled = false;
+      }
+    };
+
+    if (dashboard && scenario !== "normal") {
+      const preview = await getStatusSnapshot(scenario);
+      renderStatusSnapshot(dashboard, preview);
+    }
+    if (dashboard) enhanceRelativeTimes(dashboard);
+
+    refresh?.addEventListener("click", () => void refreshDashboard());
+    const stopAutoRefresh = scheduleStatusRefresh(() => void refreshDashboard(0));
+
+    window.addEventListener("pagehide", () => {
+      controller.abort();
+      stopAutoRefresh();
+      statusMotion.revert();
+    }, { once: true });
+  </script>
+</Layout>

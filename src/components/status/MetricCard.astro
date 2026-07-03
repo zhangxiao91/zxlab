@@ -1,0 +1,24 @@
+---
+interface Props {
+  label: string;
+  value: string | number;
+  detail?: string;
+  progress?: number;
+  progressId?: string;
+  valueId?: string;
+}
+const { label, value, detail, progress, progressId, valueId } = Astro.props;
+---
+<article class="metric-card">
+  <p>{label}</p>
+  <strong data-field={valueId}>{value}</strong>
+  {detail && <span>{detail}</span>}
+  {
+    progress !== undefined && (
+      <div class="metric-card__progress">
+        <progress max="100" value={progress} data-progress={progressId}>{progress}%</progress>
+        <span data-progress-value={progressId}>{progress}%</span>
+      </div>
+    )
+  }
+</article>

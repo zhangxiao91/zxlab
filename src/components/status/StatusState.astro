@@ -1,0 +1,16 @@
+---
+interface Props {
+  title?: string;
+  message?: string;
+  hidden?: boolean;
+}
+const { title = "Source unavailable", message = "This module has no public data.", hidden = true } = Astro.props;
+---
+<div class="status-state" data-module-fallback hidden={hidden} role="status" aria-live="polite">
+  <div class="status-state__skeleton" aria-hidden="true">
+    <i></i><i></i><i></i>
+  </div>
+  <span aria-hidden="true">○</span>
+  <h3 data-state-title>{title}</h3>
+  <p data-state-message>{message}</p>
+</div>
