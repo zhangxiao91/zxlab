@@ -8,7 +8,9 @@ import "../../styles/lab-status-shell.css";
 import "../../styles/lab.css";
 
 export function getStaticPaths() {
-  return labProjects.map((project) => ({ params: { slug: project.slug }, props: { project } }));
+  return labProjects
+    .filter((project) => !project.customPage)
+    .map((project) => ({ params: { slug: project.slug }, props: { project } }));
 }
 
 interface Props {

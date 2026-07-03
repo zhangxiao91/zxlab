@@ -2,6 +2,30 @@ import type { LabProject } from "./types";
 
 export const labProjects: LabProject[] = [
   {
+    slug: "strudel",
+    title: "Strudel Playground",
+    description:
+      "A browser-based live coding desk for shaping a 138 BPM trance pattern with Strudel.",
+    status: "beta",
+    category: "Live Coding",
+    tags: ["Audio", "Strudel", "WebAudio"],
+    featured: true,
+    thumbnail: "https://picsum.photos/seed/trance-signal-room/1600/1200",
+    thumbnailAlt: "Abstract green light trails selected to represent live-coded electronic music",
+    supportsFullscreen: true,
+    minHeight: "46rem",
+    deviceSupport: ["desktop", "touch", "keyboard", "pointer"],
+    customPage: true,
+    instructions: [
+      "Click inside the Strudel editor before running the pattern so the browser can unlock audio.",
+      "Use Control or Command plus Enter to run, and Control or Command plus period to stop.",
+      "Leaving this page or resetting the template destroys the embedded player and stops its audio context.",
+    ],
+    links: [
+      { label: "Strudel documentation", href: "https://strudel.cc/learn/", external: true },
+    ],
+  },
+  {
     slug: "interaction-sandbox",
     title: "Interaction Sandbox",
     description:
@@ -9,7 +33,7 @@ export const labProjects: LabProject[] = [
     status: "coming-soon",
     category: "Web Interaction",
     tags: ["Input", "Motion", "Interface"],
-    featured: true,
+    featured: false,
     thumbnail: "https://picsum.photos/seed/interaction-signal/1600/1200",
     thumbnailAlt: "Abstract rings and light selected for the planned interaction sandbox",
     supportsFullscreen: true,

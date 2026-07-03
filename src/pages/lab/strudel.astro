@@ -1,0 +1,138 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import LabStatusBadge from "../../components/lab/LabStatusBadge.astro";
+import StrudelEmbed from "../../components/lab/StrudelEmbed.astro";
+import { getLabProject, labProjects } from "../../lab/projects";
+import "../../styles/lab-status-shell.css";
+import "../../styles/lab.css";
+import "../../styles/strudel.css";
+
+const project = getLabProject("strudel");
+if (!project) throw new Error("Strudel Lab project is missing");
+const nextProject = labProjects.find((item) => item.slug !== project.slug) ?? project;
+---
+
+<Layout
+  title="Strudel Playground | Lab | zxlab"
+  description="Live-code a 138 BPM trance sketch in an embedded Strudel editor, with a local ZXLab preset and safe audio cleanup."
+>
+  <main class="lab-detail-page strudel-page">
+    <section class="lab-detail-hero strudel-hero" aria-labelledby="experiment-title">
+      <div class="lab-detail-hero__copy">
+        <a href="/lab">← Lab / Strudel Playground</a>
+        <h1 id="experiment-title">
+          Strudel
+          <span class="strudel-title-image" role="img" aria-label="Abstract pulse of green light"></span>
+          Playground.
+        </h1>
+        <p>
+          A live coding desk seeded with a trance sketch: four-on-the-floor 909 drums,
+          an offbeat bass pulse, and a filtered arpeggio ready to reshape.
+        </p>
+      </div>
+      <div class="lab-detail-hero__media" data-strudel-media>
+        <img src={project.thumbnail} alt={project.thumbnailAlt ?? ""} fetchpriority="high" />
+      </div>
+    </section>
+
+    <section class="strudel-signal" aria-label="Strudel preset contents">
+      <div aria-hidden="true">
+        <span>138 BPM</span><i></i><span>TR-909</span><i></i><span>Offbeat bass</span><i></i><span>Filtered arpeggio</span><i></i>
+        <span>138 BPM</span><i></i><span>TR-909</span><i></i><span>Offbeat bass</span><i></i><span>Filtered arpeggio</span><i></i>
+      </div>
+    </section>
+
+    <section class="lab-experiment-section strudel-experiment" aria-label="Strudel experiment">
+      <aside class="lab-experiment-meta">
+        <LabStatusBadge status={project.status} />
+        <p>{project.category}</p>
+        <ul aria-label="Strudel Playground tags">
+          {project.tags?.map((tag) => <li>{tag}</li>)}
+        </ul>
+        <p class="strudel-experiment__note">
+          The editor is hosted by Strudel. ZXLab supplies the local preset and lifecycle boundary.
+        </p>
+      </aside>
+      <div data-strudel-frame>
+        <StrudelEmbed />
+      </div>
+    </section>
+
+    <section class="lab-instructions strudel-instructions" aria-labelledby="instructions-title">
+      <p>Using the instrument</p>
+      <div>
+        <h2 id="instructions-title">Start deliberately. Stop completely.</h2>
+        <div class="strudel-guide">
+          <details open>
+            <summary><span>Unlock audio</span><span aria-hidden="true">+</span></summary>
+            <p>Click inside the editor first. Browsers require a direct gesture before WebAudio can produce sound.</p>
+          </details>
+          <details>
+            <summary><span>Run and stop</span><span aria-hidden="true">+</span></summary>
+            <p>Use Control or Command plus Enter to evaluate. Use Control or Command plus period to stop.</p>
+          </details>
+          <details>
+            <summary><span>Reset or leave</span><span aria-hidden="true">+</span></summary>
+            <p>Reset rebuilds the iframe. Leaving the route removes it entirely, stopping its audio context.</p>
+          </details>
+        </div>
+        <p>
+          The preset is encoded directly into the Strudel URL from local source. It does not depend on a remote share ID,
+          and no ZXLab backend, account, or cloud save layer is involved.
+        </p>
+      </div>
+    </section>
+
+    <section class="lab-next" aria-labelledby="lab-next-title">
+      <p>Continue through the Lab</p>
+      <h2 id="lab-next-title">Return to a quieter experiment.</h2>
+      <a href={`/lab/${nextProject.slug}`}>
+        <span>{nextProject.title}</span><span aria-hidden="true">↗</span>
+      </a>
+    </section>
+  </main>
+
+  <script>
+    import gsap from "gsap";
+    import { ScrollTrigger } from "gsap/ScrollTrigger";
+
+    gsap.registerPlugin(ScrollTrigger);
+    const motion = gsap.matchMedia();
+
+    motion.add("(prefers-reduced-motion: no-preference)", () => {
+      gsap.from(".strudel-hero .lab-detail-hero__copy > *", {
+        y: 44,
+        opacity: 0,
+        duration: 1.05,
+        stagger: 0.09,
+        ease: "power3.out",
+      });
+
+      gsap.timeline({
+        scrollTrigger: { trigger: "[data-strudel-media]", start: "top 94%", end: "bottom 8%", scrub: 0.8 },
+      })
+        .fromTo("[data-strudel-media]", { scale: 0.84, opacity: 0.45 }, { scale: 1, opacity: 1, ease: "none" })
+        .to("[data-strudel-media]", { scale: 1.025, opacity: 0.28, ease: "none" });
+
+      gsap.from("[data-strudel-frame]", {
+        y: 80,
+        scale: 0.92,
+        opacity: 0,
+        duration: 1.15,
+        ease: "power3.out",
+        scrollTrigger: { trigger: "[data-strudel-frame]", start: "top 88%" },
+      });
+
+      gsap.from(".strudel-guide details", {
+        y: 72,
+        opacity: 0,
+        duration: 1,
+        stagger: 0.12,
+        ease: "power3.out",
+        scrollTrigger: { trigger: ".strudel-guide", start: "top 86%" },
+      });
+    });
+
+    window.addEventListener("pagehide", () => motion.revert(), { once: true });
+  </script>
+</Layout>

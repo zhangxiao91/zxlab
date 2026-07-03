@@ -27,6 +27,7 @@ export interface LabProject {
   deviceSupport?: LabDeviceSupport[];
   instructions?: string[];
   links?: LabProjectLink[];
+  customPage?: boolean;
 }
 
 export type ExperimentFrameState =

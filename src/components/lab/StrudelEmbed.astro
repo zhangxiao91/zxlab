@@ -1,0 +1,179 @@
+---
+import { createStrudelUrl, STRUDEL_ORIGIN } from "../../lab/strudel/embed";
+import { STRUDEL_TRANCE_PRESET } from "../../lab/strudel/preset";
+
+const defaultUrl = createStrudelUrl(STRUDEL_TRANCE_PRESET);
+---
+
+<section
+  class="strudel-embed"
+  data-strudel-embed
+  data-default-url={defaultUrl}
+  data-state="loading"
+  aria-label="Embedded Strudel live coding editor"
+>
+  <header class="strudel-embed__toolbar">
+    <div class="strudel-embed__status">
+      <span aria-hidden="true"></span>
+      <p>Strudel editor</p>
+    </div>
+    <div class="strudel-embed__actions" aria-label="Strudel editor actions">
+      <button type="button" data-strudel-reset>Reset template</button>
+      <button type="button" data-strudel-fullscreen aria-pressed="false">Fullscreen</button>
+      <a href={defaultUrl} target="_blank" rel="noreferrer">Open on Strudel<span aria-hidden="true">↗</span></a>
+    </div>
+  </header>
+
+  <div class="strudel-embed__shell" data-strudel-shell>
+    <iframe
+      class="strudel-embed__iframe"
+      data-strudel-iframe
+      src={defaultUrl}
+      title="Strudel Playground editor with the ZXLab trance preset"
+      loading="eager"
+      referrerpolicy="strict-origin-when-cross-origin"
+      sandbox="allow-scripts allow-same-origin allow-downloads"
+      allow="autoplay; clipboard-read; clipboard-write; fullscreen"
+      allowfullscreen
+    ></iframe>
+    <div class="strudel-embed__state" data-strudel-state aria-live="polite">
+      <span aria-hidden="true"></span>
+      <p data-strudel-state-text tabindex="-1">Loading the Strudel editor.</p>
+      <a href={STRUDEL_ORIGIN} target="_blank" rel="noreferrer" hidden data-strudel-fallback>
+        Open Strudel directly
+      </a>
+    </div>
+  </div>
+
+  <footer class="strudel-embed__hints">
+    <p><kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>Enter</kbd><span>Run or update</span></p>
+    <p><kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>.</kbd><span>Stop audio</span></p>
+    <p><span aria-hidden="true" class="strudel-embed__audio-dot"></span><span>Audio starts only after your interaction</span></p>
+  </footer>
+</section>
+
+<script>
+  document.querySelectorAll<HTMLElement>("[data-strudel-embed]").forEach((root) => {
+    const defaultUrl = root.dataset.defaultUrl;
+    const shell = root.querySelector<HTMLElement>("[data-strudel-shell]");
+    const reset = root.querySelector<HTMLButtonElement>("[data-strudel-reset]");
+    const fullscreen = root.querySelector<HTMLButtonElement>("[data-strudel-fullscreen]");
+    const stateText = root.querySelector<HTMLElement>("[data-strudel-state-text]");
+    const fallback = root.querySelector<HTMLAnchorElement>("[data-strudel-fallback]");
+    const controller = new AbortController();
+    let activeFrame = root.querySelector<HTMLIFrameElement>("[data-strudel-iframe]");
+    let loadTimer: number | undefined;
+    let fallbackFullscreen = false;
+    const previousBodyOverflow = document.body.style.overflow;
+
+    if (!defaultUrl || !shell || !activeFrame) return;
+
+    const setState = (state: "loading" | "ready" | "error") => {
+      root.dataset.state = state;
+      if (stateText) {
+        stateText.textContent = state === "loading"
+          ? "Loading the Strudel editor."
+          : state === "error"
+            ? "Strudel could not be loaded inside this page."
+            : "Strudel editor ready.";
+      }
+      if (fallback) fallback.hidden = state !== "error";
+    };
+
+    const armFrame = (frame: HTMLIFrameElement) => {
+      window.clearTimeout(loadTimer);
+      setState("loading");
+      frame.addEventListener("load", () => {
+        if (frame !== activeFrame) return;
+        window.clearTimeout(loadTimer);
+        setState("ready");
+      }, { once: true });
+      frame.addEventListener("error", () => {
+        if (frame !== activeFrame) return;
+        window.clearTimeout(loadTimer);
+        setState("error");
+      }, { once: true });
+      loadTimer = window.setTimeout(() => {
+        if (frame === activeFrame && root.dataset.state === "loading") setState("error");
+      }, 20_000);
+    };
+
+    const createFrame = () => {
+      const frame = document.createElement("iframe");
+      frame.className = "strudel-embed__iframe";
+      frame.dataset.strudelIframe = "";
+      frame.src = defaultUrl;
+      frame.title = "Strudel Playground editor with the ZXLab trance preset";
+      frame.loading = "eager";
+      frame.referrerPolicy = "strict-origin-when-cross-origin";
+      frame.setAttribute("sandbox", "allow-scripts allow-same-origin allow-downloads");
+      frame.setAttribute("allow", "autoplay; clipboard-read; clipboard-write; fullscreen");
+      frame.allowFullscreen = true;
+      return frame;
+    };
+
+    const destroyFrame = (frame: HTMLIFrameElement | null) => {
+      if (!frame) return;
+      frame.src = "about:blank";
+      frame.remove();
+    };
+
+    const resetFrame = () => {
+      const previous = activeFrame;
+      const next = createFrame();
+      activeFrame = next;
+      shell.prepend(next);
+      destroyFrame(previous);
+      armFrame(next);
+      stateText?.focus({ preventScroll: true });
+    };
+
+    const dispose = () => {
+      controller.abort();
+      window.clearTimeout(loadTimer);
+      root.classList.remove("strudel-embed--fullscreen");
+      document.body.style.overflow = previousBodyOverflow;
+      destroyFrame(activeFrame);
+      activeFrame = null;
+    };
+
+    const setFallbackFullscreen = (active: boolean) => {
+      fallbackFullscreen = active;
+      root.classList.toggle("strudel-embed--fullscreen", active);
+      document.body.style.overflow = active ? "hidden" : previousBodyOverflow;
+      if (fullscreen) {
+        fullscreen.textContent = active ? "Exit fullscreen" : "Fullscreen";
+        fullscreen.setAttribute("aria-pressed", String(active));
+      }
+    };
+
+    reset?.addEventListener("click", resetFrame, { signal: controller.signal });
+    fullscreen?.addEventListener("click", async () => {
+      if (fallbackFullscreen) {
+        setFallbackFullscreen(false);
+        return;
+      }
+      if (document.fullscreenElement === shell) {
+        await document.exitFullscreen();
+        return;
+      }
+      if (document.fullscreenEnabled) {
+        try {
+          await shell.requestFullscreen();
+          return;
+        } catch {}
+      }
+      setFallbackFullscreen(true);
+    }, { signal: controller.signal });
+    document.addEventListener("fullscreenchange", () => {
+      if (fullscreen && !fallbackFullscreen) {
+        const active = document.fullscreenElement === shell;
+        fullscreen.textContent = active ? "Exit fullscreen" : "Fullscreen";
+        fullscreen.setAttribute("aria-pressed", String(active));
+      }
+    }, { signal: controller.signal });
+    window.addEventListener("pagehide", dispose, { once: true });
+    document.addEventListener("astro:before-swap", dispose, { once: true });
+    armFrame(activeFrame);
+  });
+</script>

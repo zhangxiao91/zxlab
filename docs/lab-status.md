@@ -34,6 +34,35 @@ load or mount is caught by the frame and shown as a local error state. Future
 experiments should provide keyboard operation, touch fallbacks, reduced-motion
 behavior, and their own cleanup function.
 
+## Strudel Playground
+
+`/lab/strudel` is a custom Lab route because its first version embeds the
+official Strudel REPL rather than mounting a local experiment module. The
+default trance source lives in `src/lab/strudel/preset.ts`; the UTF-8 Base64
+long-URL encoder lives in `src/lab/strudel/embed.ts`. This follows
+[Strudel's documented long URL format](https://strudel.cc/technical-manual/project-start/)
+and avoids temporary database-backed share IDs.
+
+The iframe is never given an autoplay trigger. Audio begins only after the
+visitor interacts with Strudel and runs the pattern. Resetting destroys the
+current iframe before creating a fresh one, while `pagehide` and
+`astro:before-swap` remove it when the route is left. Destroying the embedded
+document stops its WebAudio context without requiring cross-origin scripting.
+
+The repository does not currently define a Content Security Policy, so no
+global CSP was changed. The iframe is limited to `https://strudel.cc`, uses a
+strict-origin referrer policy, and receives only the sandbox and Permissions
+Policy capabilities required for the editor, clipboard actions, downloads,
+fullscreen, and user-initiated audio. If deployment headers later introduce a
+CSP, add only `https://strudel.cc` to `frame-src`.
+
+Run `npm run verify:strudel` to verify that the preset survives URL encoding
+and still contains the required tempo, drum, bass, filter, delay, and reverb
+parts. A future migration to `@strudel/repl` should preserve the same preset
+and lifecycle API, lazy-load the package only on this route, confirm its AGPL
+requirements, and replace iframe teardown with the REPL's explicit stop and
+dispose hooks.
+
 The frame's loading and fallback surfaces can be checked with
 `?experiment-state=loading|error|unsupported|unavailable` on any Lab detail
 route. This query changes only the local frame preview.

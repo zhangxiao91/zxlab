@@ -68,6 +68,7 @@ status JSON.
 * `/notes` — Notes archive
 * `/lab` — Interactive experiment index
 * `/lab/[slug]` — Isolated experiment container
+* `/lab/strudel` — Embedded Strudel live coding playground
 * `/status` — Public, privacy-filtered status dashboard
 * `/about` — About page
 

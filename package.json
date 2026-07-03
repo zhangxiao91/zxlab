@@ -11,6 +11,7 @@
     "preview": "astro preview",
     "astro": "astro",
     "verify:status": "node --experimental-strip-types scripts/verify-status-usage.ts",
+    "verify:strudel": "node --experimental-strip-types scripts/verify-strudel.ts",
     "test:collector": "npm --prefix services/codex-usage-collector test"
   },
   "dependencies": {
