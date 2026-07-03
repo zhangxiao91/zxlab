@@ -17,11 +17,11 @@ export const welcomeGateConfig: Readonly<WelcomeGateConfig> = Object.freeze({
   welcomeText: "welcome to zxlab!",
   enterLabel: "Enter ZXLab",
   replayQueryKey: "replay-welcome",
-  hitDuration: 820,
-  leaveDuration: 1050,
+  hitDuration: 980,
+  leaveDuration: 1180,
   failsafeDuration: 4000,
   messageSteps: ["wel", "welcome", "welcome to", "welcome to zxlab!"],
-  messageStepInterval: 140,
+  messageStepInterval: 175,
 });
 
 export const welcomeFinishedEvent = "zxlab:welcome-finished";

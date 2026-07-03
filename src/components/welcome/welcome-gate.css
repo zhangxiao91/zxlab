@@ -79,11 +79,11 @@ body.welcome-locked {
 }
 
 .welcome-gate[data-state="ready"] .welcome-target-shell {
-  animation: welcome-target-bounce 0.92s infinite cubic-bezier(0.22, 1, 0.36, 1);
+  animation: welcome-target-bounce 0.82s infinite cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .welcome-gate[data-state="ready"] .welcome-target__core {
-  animation: welcome-core-pulse 0.58s infinite alternate cubic-bezier(0.32, 0.72, 0, 1);
+  animation: welcome-core-pulse 0.5s infinite alternate cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 .welcome-target {
@@ -183,7 +183,7 @@ body.welcome-locked {
 }
 
 .welcome-approach-ring {
-  animation: welcome-approach 1.12s infinite cubic-bezier(0.32, 0.72, 0, 1);
+  animation: welcome-approach 1s infinite cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 .welcome-hit-ring {
@@ -418,12 +418,13 @@ body.welcome-locked {
     transform: translateX(0);
   }
   26% {
-    opacity: 0.2;
-    transform: translateX(-0.1rem);
+    opacity: 0.34;
+    text-shadow: 0 0 0.65rem rgba(200, 255, 118, 0.5);
+    transform: translateX(-0.2rem) skewX(-3deg);
   }
   58% {
-    opacity: 0.08;
-    transform: translateX(0.06rem);
+    opacity: 0.15;
+    transform: translateX(0.11rem) skewX(1.5deg);
   }
   100% {
     opacity: 0;
@@ -437,12 +438,13 @@ body.welcome-locked {
     transform: translateX(0);
   }
   32% {
-    opacity: 0.14;
-    transform: translateX(0.08rem);
+    opacity: 0.26;
+    text-shadow: 0 0 0.55rem rgba(255, 255, 255, 0.42);
+    transform: translateX(0.17rem) skewX(2.5deg);
   }
   64% {
-    opacity: 0.06;
-    transform: translateX(-0.04rem);
+    opacity: 0.12;
+    transform: translateX(-0.09rem) skewX(-1deg);
   }
   100% {
     opacity: 0;
