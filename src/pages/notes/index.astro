@@ -1,67 +1,36 @@
 ---
 import { getCollection } from "astro:content";
 import Layout from "../../layouts/Layout.astro";
+import NoteList from "../../components/NoteList.astro";
 
-const notes = (
-	await getCollection("notes", ({ data }) => !data.draft)
-).sort(
-	(a, b) =>
-		b.data.publishedAt.valueOf() -
-		a.data.publishedAt.valueOf(),
+const notes = (await getCollection("notes", ({ data }) => !data.draft)).sort(
+  (a, b) => b.data.publishedAt.valueOf() - a.data.publishedAt.valueOf(),
 );
-
-const dateFormatter = new Intl.DateTimeFormat("en-US", {
-	year: "numeric",
-	month: "short",
-	day: "numeric",
-});
 ---
 
 <Layout
-	title="Notes | zxlab"
-	description="Technical notes, learning records, and observations by zhangxiao."
+  title="Notes | zxlab"
+  description="Technical notes, learning records, and observations by zhangxiao."
 >
-	<main class="site-main">
-		<section class="page-hero" aria-labelledby="notes-title">
-			<p class="eyebrow">NOTES / ZXLAB</p>
+  <main class="site-main">
+    <section class="page-hero" aria-labelledby="notes-title">
+      <p class="eyebrow">NOTES / ZXLAB</p>
 
-			<h1 id="notes-title">Things worth writing down.</h1>
+      <h1 id="notes-title">Things worth writing down.</h1>
 
-			<p class="intro">
-				Technical notes, project records, and ideas collected while
-				learning and building.
-			</p>
-		</section>
+      <p class="intro">
+        Technical notes, project records, and ideas collected while learning and
+        building.
+      </p>
+    </section>
 
-		<section class="home-section" aria-labelledby="note-list-title">
-			<div class="section-heading">
-				<p class="section-index">01</p>
-				<h2 id="note-list-title">Latest notes</h2>
-			</div>
+    <section class="home-section" aria-labelledby="note-list-title">
+      <div class="section-heading">
+        <p class="section-index">01</p>
+        <h2 id="note-list-title">Latest notes</h2>
+      </div>
 
-			<div class="note-list">
-				{
-					notes.map((note) => (
-						<a class="note-item" href={`/notes/${note.id}`}>
-							<time datetime={note.data.publishedAt.toISOString()}>
-								{dateFormatter.format(note.data.publishedAt)}
-							</time>
-
-							<div class="note-copy">
-								<h3>{note.data.title}</h3>
-								<p>{note.data.description}</p>
-
-								<ul
-									class="tag-list note-tags"
-									aria-label={`${note.data.title} tags`}
-								>
-									{note.data.tags.map((tag) => <li>{tag}</li>)}
-								</ul>
-							</div>
-						</a>
-					))
-				}
-			</div>
-		</section>
-	</main>
+      <NoteList notes={notes} />
+    </section>
+  </main>
 </Layout>

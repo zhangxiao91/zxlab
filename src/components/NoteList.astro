@@ -1,0 +1,39 @@
+---
+import type { CollectionEntry } from "astro:content";
+
+interface Props {
+	notes: CollectionEntry<"notes">[];
+}
+
+const { notes } = Astro.props;
+
+const dateFormatter = new Intl.DateTimeFormat("en-US", {
+	year: "numeric",
+	month: "short",
+	day: "numeric",
+});
+---
+
+<div class="note-list">
+	{
+		notes.map((note) => (
+			<a class="note-item" href={`/notes/${note.id}`}>
+				<time datetime={note.data.publishedAt.toISOString()}>
+					{dateFormatter.format(note.data.publishedAt)}
+				</time>
+
+				<div class="note-copy">
+					<h3>{note.data.title}</h3>
+					<p>{note.data.description}</p>
+
+					<ul
+						class="tag-list note-tags"
+						aria-label={`${note.data.title} tags`}
+					>
+						{note.data.tags.map((tag) => <li>{tag}</li>)}
+					</ul>
+				</div>
+			</a>
+		))
+	}
+</div>

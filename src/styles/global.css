@@ -406,6 +406,21 @@ a {
 	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 	font-size: 0.875em;
 }
+.section-more {
+	margin-top: var(--space-6);
+	text-align: right;
+}
+
+.section-more a {
+	color: var(--color-muted);
+	font-size: 0.875rem;
+	text-decoration-thickness: 1px;
+	text-underline-offset: 0.25em;
+}
+
+.section-more a:hover {
+	color: var(--color-text);
+}
 @media (max-width: 40rem) {
   .site-shell {
     width: min(calc(100% - 1.5rem), var(--page-width));
