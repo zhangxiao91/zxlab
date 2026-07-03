@@ -1,0 +1,93 @@
+---
+import type { UsageStatus } from "../../status/types";
+import { renderUsageContent } from "../../status/usage-render";
+
+interface Props { usage: UsageStatus; isMock?: boolean; }
+const { usage, isMock = false } = Astro.props;
+---
+
+<div class="codex-usage-panel" data-codex-usage-panel data-usage-json={JSON.stringify(usage)} data-usage-mock={String(isMock)} set:html={renderUsageContent(usage, 30, isMock)}></div>
+
+<script>
+  import type { UsageStatus } from "../../status/types";
+  import { renderUsageContent } from "../../status/usage-render";
+
+  const setup = (root: HTMLElement) => {
+    let usage: UsageStatus;
+    let isMock = root.dataset.usageMock === "true";
+    const resetTimers = new Set<number>();
+    try { usage = JSON.parse(root.dataset.usageJson || "{}"); } catch { return; }
+
+    const render = (days: 7 | 30 | 90 = 30) => {
+      resetTimers.forEach((timer) => window.clearInterval(timer));
+      resetTimers.clear();
+      root.innerHTML = renderUsageContent(usage, days, isMock);
+      root.querySelectorAll<HTMLTimeElement>("time[data-reset-at]").forEach((time) => {
+        const update = () => {
+          const remaining = new Date(time.dateTime).valueOf() - Date.now();
+          if (remaining <= 0) { time.textContent = "Reset pending"; return; }
+          const hours = Math.floor(remaining / 3_600_000);
+          const minutes = Math.floor((remaining % 3_600_000) / 60_000);
+          time.textContent = `Resets in ${hours}h ${minutes}m`;
+          time.title = new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(time.dateTime));
+        };
+        update();
+        const timer = window.setInterval(() => { if (!document.hidden) update(); }, 30_000);
+        resetTimers.add(timer);
+      });
+    };
+
+    root.addEventListener("click", (event) => {
+      const button = (event.target as Element).closest<HTMLButtonElement>("[data-usage-range]");
+      if (button) render(Number(button.dataset.usageRange) as 7 | 30 | 90);
+    });
+    root.addEventListener("keydown", (event) => {
+      const cells = [...root.querySelectorAll<HTMLButtonElement>("[data-heatmap-day]")];
+      const current = (event.target as Element).closest<HTMLButtonElement>("[data-heatmap-day]");
+      if (!current) return;
+      const index = cells.indexOf(current);
+      const offset = { ArrowRight: 7, ArrowLeft: -7, ArrowDown: 1, ArrowUp: -1 }[event.key];
+      if (!offset) return;
+      event.preventDefault();
+      cells[index + offset]?.focus();
+    });
+    const showTooltip = (target: Element, x?: number, y?: number) => {
+      const value = target.getAttribute("data-tooltip");
+      const tooltip = root.querySelector<HTMLOutputElement>("[data-usage-tooltip]");
+      if (!value || !tooltip) return;
+      const bounds = target.getBoundingClientRect();
+      tooltip.textContent = value;
+      tooltip.style.left = `${x ?? bounds.left + bounds.width / 2}px`;
+      tooltip.style.top = `${y ?? bounds.top}px`;
+      tooltip.hidden = false;
+    };
+    const hideTooltip = () => {
+      const tooltip = root.querySelector<HTMLOutputElement>("[data-usage-tooltip]");
+      if (tooltip) tooltip.hidden = true;
+    };
+    root.addEventListener("pointerover", (event) => {
+      const target = (event.target as Element).closest("[data-tooltip]");
+      if (target) showTooltip(target, event.clientX, event.clientY - 16);
+    });
+    root.addEventListener("pointerout", hideTooltip);
+    root.addEventListener("focusin", (event) => {
+      const target = (event.target as Element).closest("[data-tooltip]");
+      if (target) showTooltip(target);
+    });
+    root.addEventListener("focusout", hideTooltip);
+    root.addEventListener("zxlab:usage-update", ((event: CustomEvent<{ usage: UsageStatus; isMock: boolean }>) => {
+      usage = event.detail.usage;
+      isMock = event.detail.isMock;
+      root.dataset.usageJson = JSON.stringify(usage);
+      root.dataset.usageMock = String(isMock);
+      render();
+    }) as EventListener);
+    window.addEventListener("pagehide", () => {
+      resetTimers.forEach((timer) => window.clearInterval(timer));
+      resetTimers.clear();
+    }, { once: true });
+    render();
+  };
+
+  document.querySelectorAll<HTMLElement>("[data-codex-usage-panel]").forEach(setup);
+</script>

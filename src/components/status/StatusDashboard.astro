@@ -1,6 +1,6 @@
 ---
 import type { StatusSnapshot } from "../../status/types";
-import MetricCard from "./MetricCard.astro";
+import CodexUsagePanel from "./CodexUsagePanel.astro";
 import StatusIndicator from "./StatusIndicator.astro";
 import StatusState from "./StatusState.astro";
 
@@ -34,19 +34,9 @@ const dateFormatter = new Intl.DateTimeFormat("en", { month: "short", day: "nume
 
   <div class="status-module-grid">
     <section class="status-module status-usage" data-status-module="usage" data-module-state={snapshot.usage.state} aria-labelledby="usage-title">
-      <header><div><p>Provider-neutral usage</p><h2 id="usage-title">Usage</h2></div><span data-usage-provider>{usage?.providerName ?? "Unavailable"}</span></header>
+      <header><div><p>Codex account telemetry</p><h2 id="usage-title">Usage</h2></div><span data-usage-provider>{snapshot.usage.source}</span></header>
       <div data-module-ready hidden={snapshot.usage.state !== "ready"}>
-        <div class="usage-windows">
-          <MetricCard label="5-hour window" value={`${usage?.fiveHourWindow?.usedPercent ?? 0}%`} valueId="five-hour-value" progress={usage?.fiveHourWindow?.usedPercent ?? 0} progressId="five-hour" />
-          <MetricCard label="Weekly allowance" value={`${usage?.weeklyAllowance?.usedPercent ?? 0}%`} valueId="weekly-value" progress={usage?.weeklyAllowance?.usedPercent ?? 0} progressId="weekly" />
-        </div>
-        <div class="usage-metrics">
-          <MetricCard label="Credits remaining" value={usage?.creditsRemaining ?? "—"} valueId="credits" />
-          <MetricCard label="Current model" value={usage?.currentModel ?? "—"} valueId="current-model" />
-          <MetricCard label="Active threads" value={usage?.activeThreads ?? "—"} valueId="threads" />
-          <MetricCard label="Tasks today" value={usage?.tasksToday ?? "—"} valueId="tasks" />
-          <MetricCard label="Tokens used" value={usage?.tokensUsed?.toLocaleString() ?? "—"} valueId="tokens" />
-        </div>
+        {usage && <CodexUsagePanel usage={usage} isMock={snapshot.isMock} />}
       </div>
       <StatusState hidden={snapshot.usage.state === "ready"} title="Usage unavailable" message={snapshot.usage.message} />
     </section>

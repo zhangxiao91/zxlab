@@ -9,7 +9,9 @@
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
-    "astro": "astro"
+    "astro": "astro",
+    "verify:status": "node --experimental-strip-types scripts/verify-status-usage.ts",
+    "test:collector": "npm --prefix services/codex-usage-collector test"
   },
   "dependencies": {
     "@astrojs/sitemap": "^3.7.3",

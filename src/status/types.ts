@@ -19,35 +19,38 @@ export interface OverallStatus {
   stale: boolean;
 }
 
-export interface UsageWindow {
+export interface UsageLimit {
+  id: string;
   label: string;
-  usedPercent: number;
-  resetsAt?: string;
+  usedPercent: number | null;
+  windowMinutes: number | null;
+  resetsAt: string | null;
 }
 
-export interface ModelUsage {
-  model: string;
-  percent: number;
+export interface TokenSummary {
+  lifetimeTokens: number | null;
+  todayTokens: number | null;
+  peakDailyTokens: number | null;
+  currentStreakDays: number | null;
+  longestStreakDays: number | null;
 }
 
-export interface UsageTrendPoint {
-  label: string;
-  value: number;
+export interface DailyUsagePoint {
+  date: string;
+  tokens: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  cachedInputTokens?: number;
+  reasoningTokens?: number;
 }
 
 export interface UsageStatus {
-  providerId: string;
-  providerName: string;
-  fiveHourWindow?: UsageWindow;
-  weeklyAllowance?: UsageWindow;
-  creditsRemaining?: number;
-  nextReset?: string;
-  currentModel?: string;
-  activeThreads?: number;
-  tasksToday?: number;
-  tokensUsed?: number;
-  modelDistribution?: ModelUsage[];
-  recentTrend?: UsageTrendPoint[];
+  status: "online" | "stale" | "offline" | "error";
+  updatedAt: string;
+  limits: UsageLimit[];
+  tokenSummary: TokenSummary;
+  dailyUsage: DailyUsagePoint[];
+  error?: { code: string; message: string };
 }
 
 export type DeviceType = "desktop" | "laptop" | "phone" | "server" | "node" | "other";

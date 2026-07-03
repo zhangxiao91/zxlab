@@ -45,6 +45,7 @@ npm run preview
 
 ```text
 functions/          Cloudflare Pages Functions for filtered live status data
+services/           Private, separately deployed status collectors
 src/
 ├── components/     Reusable interface components
 ├── content/        Markdown notes

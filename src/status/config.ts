@@ -13,7 +13,9 @@ export const statusConfig = Object.freeze({
   apiBaseUrl,
   requestTimeoutMs: 8000,
   staleAfterMs: 15 * 60 * 1000,
-  autoRefreshMs: null as number | null,
+  autoRefreshMs: providerMode === "mock"
+    ? null
+    : Math.max(60_000, Number(import.meta.env.PUBLIC_STATUS_REFRESH_MS || 120_000)),
   scenarioQueryKey: "status-state",
   endpoints: {
     overall: "/api/status",

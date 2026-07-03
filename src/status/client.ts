@@ -171,21 +171,11 @@ export function renderStatusSnapshot(root: HTMLElement, snapshot: StatusSnapshot
   const usageRoot = root.querySelector<HTMLElement>("[data-status-module='usage']");
   if (usageRoot) {
     renderModuleState(usageRoot, snapshot.usage.state, snapshot.usage.message);
-    setText(usageRoot, "[data-usage-provider]", snapshot.usage.data?.providerName ?? snapshot.usage.source);
+    setText(usageRoot, "[data-usage-provider]", snapshot.usage.source);
     if (snapshot.usage.data) {
-      setText(usageRoot, "[data-field='current-model']", snapshot.usage.data.currentModel);
-      setText(usageRoot, "[data-field='credits']", snapshot.usage.data.creditsRemaining);
-      setText(usageRoot, "[data-field='threads']", snapshot.usage.data.activeThreads);
-      setText(usageRoot, "[data-field='tasks']", snapshot.usage.data.tasksToday);
-      setText(usageRoot, "[data-field='tokens']", snapshot.usage.data.tokensUsed?.toLocaleString());
-      const fiveHour = usageRoot.querySelector<HTMLProgressElement>("[data-progress='five-hour']");
-      const weekly = usageRoot.querySelector<HTMLProgressElement>("[data-progress='weekly']");
-      if (fiveHour && snapshot.usage.data.fiveHourWindow) fiveHour.value = snapshot.usage.data.fiveHourWindow.usedPercent;
-      if (weekly && snapshot.usage.data.weeklyAllowance) weekly.value = snapshot.usage.data.weeklyAllowance.usedPercent;
-      setText(usageRoot, "[data-progress-value='five-hour']", `${snapshot.usage.data.fiveHourWindow?.usedPercent ?? 0}%`);
-      setText(usageRoot, "[data-progress-value='weekly']", `${snapshot.usage.data.weeklyAllowance?.usedPercent ?? 0}%`);
-      setText(usageRoot, "[data-field='five-hour-value']", `${snapshot.usage.data.fiveHourWindow?.usedPercent ?? 0}%`);
-      setText(usageRoot, "[data-field='weekly-value']", `${snapshot.usage.data.weeklyAllowance?.usedPercent ?? 0}%`);
+      usageRoot.querySelector<HTMLElement>("[data-codex-usage-panel]")?.dispatchEvent(
+        new CustomEvent("zxlab:usage-update", { detail: { usage: snapshot.usage.data, isMock: snapshot.isMock } }),
+      );
     }
   }
 

@@ -48,15 +48,68 @@ The current public configuration keys are:
 
 - `PUBLIC_STATUS_PROVIDER=mock|tailscale|remote`
 - `PUBLIC_STATUS_API_BASE_URL=https://public-status.example`
+- `PUBLIC_STATUS_REFRESH_MS=120000`
 
 `tailscale` uses the same-origin `/api/status/devices` endpoint by default, so
 `PUBLIC_STATUS_API_BASE_URL` can be omitted. A custom base URL is only needed
 when the public gateway is deployed on another origin and permits the site
 origin through CORS. Full `remote` mode uses
 the reserved endpoints `/api/status`,
-`/api/status/usage`, `/api/status/devices`, and `/api/status/activity`. They are
-interfaces for a future filtered service; this repository does not create
-the usage or activity API routes.
+`/api/status/usage`, `/api/status/devices`, and `/api/status/activity`.
+The Codex usage and Tailscale device routes are implemented; overall and
+activity remain reserved interfaces.
+
+## Connecting Codex Usage
+
+The Usage path has three deliberate boundaries:
+
+```text
+codex app-server (remote stdio JSON-RPC)
+  -> services/codex-usage-collector (private HTTPS JSON)
+  -> functions/api/status/usage (sanitized Cloudflare proxy)
+  -> Status page
+```
+
+The remote collector must run as the same OS user who is already logged into
+Codex. It initializes one persistent App Server, calls
+`account/rateLimits/read` and `account/usage/read`, then normalizes the result.
+The method contract follows the current
+[Codex App Server documentation](https://developers.openai.com/codex/app-server/).
+The current App Server returns primary and secondary percentage windows plus a
+summary and sparse daily Token buckets. Window labels, reset ISO timestamps,
+the current-day total, sorting, chart ranges, and heatmap intensity levels are
+computed by ZXLab. Missing days remain missing rather than being invented as
+zero.
+
+Deploy the files in `services/codex-usage-collector` to the remote host by
+following its README. Do not run it as a different user or copy the Codex login
+directory. Then configure these Cloudflare Pages server variables:
+
+- `CODEX_USAGE_API_URL`: HTTPS origin of the private collector.
+- `CODEX_USAGE_API_TOKEN`: encrypted Bearer secret shared with the collector.
+- `CODEX_USAGE_CACHE_TTL`: fresh proxy cache in seconds; default `120`.
+- `CODEX_USAGE_STALE_TTL`: last-known-good cache in seconds; default `21600`.
+- `CODEX_USAGE_REQUEST_TIMEOUT`: upstream timeout in seconds; default `8`.
+
+None of these names may use a `PUBLIC_` prefix. The browser requests only the
+same-origin `/api/status/usage` route and cannot see the Bearer token. The
+collector caches App Server reads, and the Pages Function adds a second short
+cache. If refresh fails, the Function returns the last successful response as
+`stale`; without a cache it returns a sanitized unavailable state while other
+Status modules continue rendering.
+
+For local design work, keep `PUBLIC_STATUS_PROVIDER=mock`. To test the real
+chain, use Cloudflare Pages local development with uncommitted `.dev.vars`, set
+`PUBLIC_STATUS_PROVIDER=tailscale`, and request both `/api/status/usage` and
+`/api/status/usage/health`. Run `npm run verify:status` and
+`npm run test:collector` before the production build.
+
+Troubleshooting starts at the remote `/health` route, then an authenticated
+`/v1/usage` request, then the Pages Function. `CODEX_NOT_LOGGED_IN` means the
+service user lacks the existing Codex session; `METHOD_UNSUPPORTED` means the
+installed Codex version does not expose one of the methods; timeout and schema
+errors are returned without raw App Server payloads. Update Codex and rerun the
+collector tests before changing the frontend contract.
 
 ## Connecting Tailscale devices
 

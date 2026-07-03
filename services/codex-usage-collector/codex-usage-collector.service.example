@@ -1,0 +1,16 @@
+[Unit]
+Description=ZXLab Codex Usage Collector
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/zxlab-codex-usage
+EnvironmentFile=%h/.config/zxlab-codex-usage.env
+ExecStart=/usr/bin/node %h/zxlab-codex-usage/server.mjs
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

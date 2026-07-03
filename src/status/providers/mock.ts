@@ -36,25 +36,27 @@ export function createMockStatusSnapshot(scenario: StatusScenario = "normal"): S
     scenario === "stale" ? now.valueOf() - 45 * 60 * 1000 : now.valueOf(),
   ).toISOString();
 
+  const dailyUsage = Array.from({ length: 120 }, (_, index) => {
+    const date = new Date(now.valueOf() - (119 - index) * 86_400_000);
+    const wave = Math.sin(index * 0.47) * 38_000;
+    const tokens = index % 11 === 0 ? 0 : Math.max(4200, Math.round(64_000 + wave + (index % 7) * 3100));
+    return { date: date.toISOString().slice(0, 10), tokens };
+  });
   const usage: UsageStatus = {
-    providerId: "codex-demo",
-    providerName: "Codex demo",
-    fiveHourWindow: { label: "5-hour window", usedPercent: 38, resetsAt: new Date(now.valueOf() + 2 * 60 * 60 * 1000).toISOString() },
-    weeklyAllowance: { label: "Weekly allowance", usedPercent: 54, resetsAt: new Date(now.valueOf() + 3 * 24 * 60 * 60 * 1000).toISOString() },
-    creditsRemaining: 24,
-    nextReset: new Date(now.valueOf() + 2 * 60 * 60 * 1000).toISOString(),
-    currentModel: "Demo model",
-    activeThreads: 3,
-    tasksToday: 7,
-    tokensUsed: 128400,
-    modelDistribution: [
-      { model: "Frontier demo", percent: 64 },
-      { model: "Fast demo", percent: 36 },
+    status: scenario === "stale" ? "stale" : "online",
+    updatedAt,
+    limits: [
+      { id: "demo:primary", label: "5-hour window", usedPercent: 38, windowMinutes: 300, resetsAt: new Date(now.valueOf() + 2 * 60 * 60 * 1000).toISOString() },
+      { id: "demo:secondary", label: "Weekly window", usedPercent: 54, windowMinutes: 10080, resetsAt: new Date(now.valueOf() + 3 * 24 * 60 * 60 * 1000).toISOString() },
     ],
-    recentTrend: [
-      { label: "Mon", value: 28 }, { label: "Tue", value: 42 }, { label: "Wed", value: 35 },
-      { label: "Thu", value: 58 }, { label: "Fri", value: 46 },
-    ],
+    tokenSummary: {
+      lifetimeTokens: 12_840_000,
+      todayTokens: dailyUsage.at(-1)?.tokens ?? null,
+      peakDailyTokens: Math.max(...dailyUsage.map((point) => point.tokens)),
+      currentStreakDays: 9,
+      longestStreakDays: 31,
+    },
+    dailyUsage,
   };
 
   const devices: DeviceStatus[] = [

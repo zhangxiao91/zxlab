@@ -95,11 +95,12 @@ const snapshot = createMockStatusSnapshot("normal");
       }
 
       const devicesLive = snapshot.devices.state === "ready" || snapshot.devices.state === "empty";
-      if (label) label.textContent = devicesLive ? "Live source" : "Source unavailable";
+      const usageLive = snapshot.usage.state === "ready";
+      if (label) label.textContent = devicesLive || usageLive ? "Live sources" : "Sources unavailable";
       if (title) title.textContent = devicesLive
-        ? "Tailscale device presence is connected."
-        : "The live device source could not be reached.";
-      if (message) message.textContent = "Only allowlisted aliases and coarse presence are public. Usage and activity remain disconnected.";
+        ? usageLive ? "Codex usage and device presence are connected." : "Tailscale device presence is connected."
+        : usageLive ? "Codex usage is connected." : "The live sources could not be reached.";
+      if (message) message.textContent = "Only normalized usage totals, allowlisted aliases, and coarse presence reach this public surface.";
       if (refreshLabel) refreshLabel.textContent = "Refresh status";
     };
 
