@@ -1,50 +1,308 @@
 ---
 import Layout from "../layouts/Layout.astro";
-import ProjectList from "../components/ProjectList.astro";
 import { projects } from "../data/projects";
 import { getCollection } from "astro:content";
-import NoteList from "../components/NoteList.astro";
 
 const featuredProjects = projects.filter((project) => project.featured);
 const latestNotes = (await getCollection("notes", ({ data }) => !data.draft))
   .sort((a, b) => b.data.publishedAt.valueOf() - a.data.publishedAt.valueOf())
-  .slice(0, 2);
+  .slice(0, 4);
+
+const projectImages: Record<string, string> = {
+  oilshield: "https://picsum.photos/seed/market-architecture/1400/1100",
+  "long-memo": "https://picsum.photos/seed/archive-memory/1200/900",
+  zxlab: "https://picsum.photos/seed/editorial-workspace/1200/900",
+};
+
+const dateFormatter = new Intl.DateTimeFormat("en-US", {
+  year: "numeric",
+  month: "short",
+  day: "numeric",
+});
 ---
 
 <Layout
-  title="zxlab"
-  description="Zhangxiao's personal lab for projects, notes, and experiments."
+  title="zxlab — Zhangxiao's digital workshop"
+  description="Projects, technical notes, and experiments by Zhangxiao."
 >
-  <main class="site-main">
-    <section class="hero" aria-labelledby="intro-title">
-      <p class="eyebrow">ZHANGXIAO / ZXLAB</p>
+  <main class="home-page">
+    <section class="home-hero" aria-labelledby="intro-title">
+      <div class="home-hero__glow" aria-hidden="true"></div>
 
-      <h1 id="intro-title">Building, learning, and experimenting.</h1>
+      <p class="home-kicker">A digital workshop by Zhangxiao</p>
 
-      <p class="intro">
-        A personal space for software projects, technical notes, and things I am
-        currently exploring.
+      <h1 id="intro-title">
+        <span>
+          I build systems
+          <span
+            class="title-image"
+            role="img"
+            aria-label="Abstract architectural detail"
+          ></span>
+        </span>
+        <span>that make ideas tangible.</span>
+      </h1>
+
+      <p class="home-hero__intro">
+        Computer science, AI infrastructure, and the patient craft of turning
+        difficult questions into working software.
       </p>
-    </section>
-    <section class="home-section" aria-labelledby="projects-title">
-      <div class="section-heading">
-        <p class="section-index">01</p>
-        <h2 id="projects-title">Selected projects</h2>
+
+      <div class="home-actions" aria-label="Explore zxlab">
+        <a class="home-button home-button--primary" href="/projects">
+          <span>Explore projects</span>
+          <span class="home-button__icon" aria-hidden="true">↗</span>
+        </a>
+        <a class="home-button home-button--ghost" href="/about">
+          <span>More about me</span>
+          <span class="home-button__icon" aria-hidden="true">↗</span>
+        </a>
       </div>
 
-      <ProjectList projects={featuredProjects} />
+      <div class="hero-frame" data-scroll-image>
+        <img
+          src="https://picsum.photos/seed/digital-material/1920/1200"
+          alt="Monochrome abstract landscape"
+          fetchpriority="high"
+        />
+        <p>Built by hand, extended with intent.</p>
+      </div>
     </section>
-    <section class="home-section" aria-labelledby="latest-notes-title">
-      <div class="section-heading">
-        <p class="section-index">02</p>
-        <h2 id="latest-notes-title">Latest notes</h2>
+
+    <section class="home-chapter work-chapter" aria-labelledby="work-title">
+      <div class="chapter-heading">
+        <p>Selected work</p>
+        <h2 id="work-title">Three ways of learning by building.</h2>
+        <a href="/projects">View the full archive ↗</a>
       </div>
 
-      <NoteList notes={latestNotes} />
+      <div class="project-bento">
+        {
+          featuredProjects.map((project, index) => (
+            <a
+              class:list={["project-card", { "project-card--lead": index === 0 }]}
+              href={`/projects/${project.slug}`}
+            >
+              <div class="project-card__media">
+                <img
+                  src={projectImages[project.slug]}
+                  alt=""
+                  loading="lazy"
+                  data-scroll-image
+                />
+              </div>
+              <div class="project-card__wash" aria-hidden="true" />
+              <div class="project-card__content">
+                <div>
+                  <h3>{project.title}</h3>
+                  <p>{project.description}</p>
+                </div>
+                <ul aria-label={`${project.title} technologies`}>
+                  {project.tags.map((tag) => <li>{tag}</li>)}
+                </ul>
+              </div>
+            </a>
+          ))
+        }
+      </div>
+    </section>
 
-      <p class="section-more">
-        <a href="/notes">View all notes</a>
-      </p>
+    <section class="home-chapter curiosity-chapter" aria-labelledby="curiosity-title">
+      <div class="chapter-heading chapter-heading--light">
+        <p>Current curiosities</p>
+        <h2 id="curiosity-title">The questions behind the repository.</h2>
+      </div>
+
+      <div class="curiosity-accordion">
+        <article class="curiosity-panel curiosity-panel--active" tabindex="0">
+          <div class="curiosity-panel__image">
+            <img
+              src="https://picsum.photos/seed/model-evaluation/1000/1400"
+              alt="Abstract layers suggesting model evaluation"
+              loading="lazy"
+              data-scroll-image
+            />
+          </div>
+          <div class="curiosity-panel__copy">
+            <h3>Evaluation</h3>
+            <p>How do we measure whether an intelligent system is actually useful?</p>
+          </div>
+        </article>
+
+        <article class="curiosity-panel" tabindex="0">
+          <div class="curiosity-panel__image">
+            <img
+              src="https://picsum.photos/seed/infrastructure-system/1000/1400"
+              alt="Structural detail representing infrastructure"
+              loading="lazy"
+              data-scroll-image
+            />
+          </div>
+          <div class="curiosity-panel__copy">
+            <h3>Infrastructure</h3>
+            <p>What makes complex software dependable when the prototype ends?</p>
+          </div>
+        </article>
+
+        <article class="curiosity-panel" tabindex="0">
+          <div class="curiosity-panel__image">
+            <img
+              src="https://picsum.photos/seed/algorithm-pattern/1000/1400"
+              alt="Geometric pattern representing algorithms"
+              loading="lazy"
+              data-scroll-image
+            />
+          </div>
+          <div class="curiosity-panel__copy">
+            <h3>Algorithms</h3>
+            <p>Where can a clearer model turn an intimidating problem into a small one?</p>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="home-chapter method-chapter" aria-labelledby="method-title">
+      <div class="method-intro">
+        <p>Working method</p>
+        <h2 id="method-title">A small set of principles, tested in public.</h2>
+      </div>
+
+      <div class="method-stack">
+        <article class="method-card">
+          <p class="method-card__number" aria-hidden="true">A</p>
+          <div>
+            <h3>Build enough by hand.</h3>
+            <p>
+              Understanding starts where abstraction stops. I make the first
+              version close to the metal before reaching for automation.
+            </p>
+          </div>
+        </article>
+        <article class="method-card method-card--dark">
+          <p class="method-card__number" aria-hidden="true">B</p>
+          <div>
+            <h3>Make judgment visible.</h3>
+            <p>
+              Notes, decisions, and failed approaches belong beside the final
+              result. The trail is part of the work.
+            </p>
+          </div>
+        </article>
+        <article class="method-card method-card--accent">
+          <p class="method-card__number" aria-hidden="true">C</p>
+          <div>
+            <h3>Leave room to change.</h3>
+            <p>
+              Good systems are precise without becoming rigid. Each project is
+              an experiment with a next version already in mind.
+            </p>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="home-chapter notes-chapter" aria-labelledby="notes-title">
+      <div class="chapter-heading">
+        <p>From the notebook</p>
+        <h2 id="notes-title">Field notes from work in progress.</h2>
+      </div>
+
+      <div class="note-carousel" aria-label="Latest notes">
+        <div class="note-carousel__track">
+          {
+            latestNotes.map((note) => (
+              <a class="note-slide" href={`/notes/${note.id}`}>
+                <time datetime={note.data.publishedAt.toISOString()}>
+                  {dateFormatter.format(note.data.publishedAt)}
+                </time>
+                <h3>{note.data.title}</h3>
+                <p>{note.data.description}</p>
+                <span>Read note ↗</span>
+              </a>
+            ))
+          }
+        </div>
+        {
+          latestNotes.length > 1 && (
+            <div class="note-carousel__controls">
+              <button type="button" data-carousel-direction="-1" aria-label="Previous note">←</button>
+              <button type="button" data-carousel-direction="1" aria-label="Next note">→</button>
+            </div>
+          )
+        }
+      </div>
+    </section>
+
+    <section class="home-cta" aria-labelledby="cta-title">
+      <p>There is always another question worth building around.</p>
+      <h2 id="cta-title">Follow the experiments as they take shape.</h2>
+      <div class="home-actions home-actions--centered">
+        <a class="home-button home-button--light" href="/notes">
+          <span>Browse the notebook</span>
+          <span class="home-button__icon" aria-hidden="true">↗</span>
+        </a>
+      </div>
     </section>
   </main>
+
+  <script>
+    import gsap from "gsap";
+    import { ScrollTrigger } from "gsap/ScrollTrigger";
+
+    gsap.registerPlugin(ScrollTrigger);
+
+    const motion = gsap.matchMedia();
+
+    motion.add("(prefers-reduced-motion: no-preference)", () => {
+      gsap.from(".home-hero > :not(.home-hero__glow)", {
+        y: 48,
+        opacity: 0,
+        duration: 1.1,
+        stagger: 0.09,
+        ease: "power3.out",
+      });
+
+      gsap.utils.toArray<HTMLElement>("[data-scroll-image]").forEach((image) => {
+        gsap.timeline({
+          scrollTrigger: {
+            trigger: image,
+            start: "top 92%",
+            end: "bottom 8%",
+            scrub: 0.8,
+          },
+        })
+          .fromTo(image, { scale: 0.82, opacity: 0.45 }, { scale: 1, opacity: 1, ease: "none" })
+          .to(image, { scale: 1.035, opacity: 0.28, ease: "none" });
+      });
+
+      const cards = gsap.utils.toArray<HTMLElement>(".method-card");
+      cards.forEach((card, index) => {
+        const nextCard = cards[index + 1];
+        if (!nextCard) return;
+
+        gsap.to(card, {
+          scale: 0.93,
+          opacity: 0.42,
+          ease: "none",
+          scrollTrigger: {
+            trigger: nextCard,
+            start: "top 78%",
+            end: "top 28%",
+            scrub: true,
+          },
+        });
+      });
+    });
+
+    const carouselTrack = document.querySelector<HTMLElement>(".note-carousel__track");
+    document.querySelectorAll<HTMLButtonElement>("[data-carousel-direction]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const direction = Number(button.dataset.carouselDirection);
+        carouselTrack?.scrollBy({
+          left: direction * carouselTrack.clientWidth * 0.82,
+          behavior: "smooth",
+        });
+      });
+    });
+  </script>
 </Layout>

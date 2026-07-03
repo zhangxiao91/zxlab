@@ -72,3 +72,10 @@ Before writing ANY React/UI code, you MUST output a `<design_plan>` block contai
 4. **Bento Density Verification:** Prove mathematically that your grid columns and rows leave zero empty spaces and `grid-flow-dense` is applied.
 5. **Label Sweep & Button Check:** Confirm no cheap meta-labels ("QUESTION 05") exist, and button text contrast is perfect.
 Only output the UI code after this rigorous verification is complete.
+
+## 9. POST-CHANGE DEVELOPMENT SERVER CHECK
+After every visual or interface change, ensure the local Astro development server is running before declaring the work complete.
+- First check whether this repository already has a development server listening on port `4321`; reuse it instead of starting a duplicate process.
+- If no matching server exists, start it with `npm run dev` and keep it available for local review.
+- Verify that the changed route responds successfully and contains the expected updated content.
+- Before committing a completed visual change, also run `npm run build`. Only commit when both the development route check and production build succeed.
