@@ -16,7 +16,8 @@ const config = welcomeGateConfig;
   data-storage-key={config.storageKey}
   data-hit-duration={config.hitDuration}
   data-leave-duration={config.leaveDuration}
-  style={`--welcome-hit-duration: ${config.hitDuration}ms; --welcome-leave-duration: ${config.leaveDuration}ms;`}
+  data-message-step-interval={config.messageStepInterval}
+  style={`--welcome-hit-duration: ${config.hitDuration}ms; --welcome-leave-duration: ${config.leaveDuration}ms; --welcome-message-step-duration: ${config.messageStepInterval + 50}ms;`}
 >
   <h2 class="welcome-visually-hidden" id="welcome-dialog-title">Welcome to ZXLab</h2>
 
@@ -25,16 +26,17 @@ const config = welcomeGateConfig;
 
   <div class="welcome-gate__center">
     <WelcomeTarget enterLabel={config.enterLabel} />
-    <p class="welcome-message" aria-live="polite" data-welcome-message hidden>
-      {config.welcomeText}
-    </p>
+    <div class="welcome-message" data-welcome-message data-text="" aria-hidden="true" hidden>
+      <span data-welcome-message-text></span>
+    </div>
+    <p class="welcome-visually-hidden" aria-live="polite" data-welcome-announcer></p>
   </div>
 
   <button class="welcome-skip" type="button" data-welcome-skip>Skip</button>
 </div>
 
 <script>
-  import { welcomeFinishedEvent } from "./welcome-config";
+  import { welcomeFinishedEvent, welcomeGateConfig } from "./welcome-config";
 
   type WelcomeState = "idle" | "ready" | "hit" | "leaving" | "finished";
 
@@ -47,12 +49,15 @@ const config = welcomeGateConfig;
     const target = gate.querySelector<HTMLButtonElement>("[data-welcome-target]");
     const skip = gate.querySelector<HTMLButtonElement>("[data-welcome-skip]");
     const message = gate.querySelector<HTMLElement>("[data-welcome-message]");
+    const messageText = gate.querySelector<HTMLElement>("[data-welcome-message-text]");
+    const announcer = gate.querySelector<HTMLElement>("[data-welcome-announcer]");
     const burst = gate.querySelector<HTMLElement>(".welcome-gate__burst");
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
     const previousFocus = document.activeElement;
     const timers = new Set<number>();
-    const hitDuration = Number(gate.dataset.hitDuration ?? 360);
-    const leaveDuration = Number(gate.dataset.leaveDuration ?? 950);
+    const hitDuration = Number(gate.dataset.hitDuration ?? 820);
+    const leaveDuration = Number(gate.dataset.leaveDuration ?? 1050);
+    const messageStepInterval = Number(gate.dataset.messageStepInterval ?? 140);
     const storageKey = gate.dataset.storageKey ?? "zxlab-welcome-seen:v1";
     const hadInert = siteShell?.hasAttribute("inert") ?? false;
     let state: WelcomeState = "idle";
@@ -93,6 +98,25 @@ const config = welcomeGateConfig;
       if (completionDispatched) return;
       completionDispatched = true;
       window.dispatchEvent(new CustomEvent(welcomeFinishedEvent));
+    };
+
+    const revealWelcomeMessage = () => {
+      if (!message || !messageText || !announcer) return;
+      message.removeAttribute("hidden");
+
+      welcomeGateConfig.messageSteps.forEach((text, index) => {
+        schedule(() => {
+          message.classList.remove("is-updating");
+          message.dataset.text = text;
+          messageText.textContent = text;
+          void message.offsetWidth;
+          message.classList.add("is-updating");
+
+          if (index === welcomeGateConfig.messageSteps.length - 1) {
+            announcer.textContent = welcomeGateConfig.welcomeText;
+          }
+        }, index * messageStepInterval);
+      });
     };
 
     const unlockPage = () => {
@@ -139,7 +163,7 @@ const config = welcomeGateConfig;
     function enter() {
       if (state !== "ready") return;
       rememberVisit();
-      message?.removeAttribute("hidden");
+      revealWelcomeMessage();
       setState("hit");
       schedule(beginLeaving, hitDuration);
     }
@@ -196,7 +220,7 @@ const config = welcomeGateConfig;
         return;
       }
 
-      if (!target || !skip || !message || !burst) {
+      if (!target || !skip || !message || !messageText || !announcer || !burst) {
         clearFailsafe();
         unlockPage();
         dispatchCompletion();
