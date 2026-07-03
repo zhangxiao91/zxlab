@@ -1,46 +1,81 @@
-# Astro Starter Kit: Basics
 
-```sh
-npm create astro@latest -- --template basics
+# ZXLab
+
+ZXLab is my personal site for projects, technical notes, and experiments.
+
+The main site is built by hand to understand the frontend architecture,
+visual system, content pipeline, and deployment process before using agents
+to extend it.
+
+## Tech stack
+
+- Astro
+- TypeScript
+- Native CSS
+- Markdown Content Collections
+- Static site generation
+
+## Local development
+
+Install dependencies:
+
+```bash
+npm install
+````
+
+Start the development server:
+
+```bash
+npm run dev
 ```
 
-> 🧑‍🚀 **Seasoned astronaut?** Delete this file. Have fun!
+Create a production build:
 
-## 🚀 Project Structure
+```bash
+npm run build
+```
 
-Inside of your Astro project, you'll see the following folders and files:
+Preview the production build locally:
+
+```bash
+npm run preview
+```
+
+## Project structure
 
 ```text
-/
-├── public/
-│   └── favicon.svg
-├── src
-│   ├── assets
-│   │   └── astro.svg
-│   ├── components
-│   │   └── Welcome.astro
-│   ├── layouts
-│   │   └── Layout.astro
-│   └── pages
-│       └── index.astro
-└── package.json
+src/
+├── components/     Reusable interface components
+├── content/        Markdown notes
+├── data/           Structured project data
+├── layouts/        Shared page shells
+├── pages/          File-based routes
+└── styles/         Global styles and design tokens
 ```
 
-To learn more about the folder structure of an Astro project, refer to [our guide on project structure](https://docs.astro.build/en/basics/project-structure/).
+Static files that should be copied directly are stored in `public/`.
 
-## 🧞 Commands
+## Main routes
 
-All commands are run from the root of the project, from a terminal:
+* `/` — Homepage
+* `/projects` — Project archive
+* `/notes` — Notes archive
+* `/about` — About page
 
-| Command                   | Action                                           |
-| :------------------------ | :----------------------------------------------- |
-| `npm install`             | Installs dependencies                            |
-| `npm run dev`             | Starts local dev server at `localhost:4321`      |
-| `npm run build`           | Build your production site to `./dist/`          |
-| `npm run preview`         | Preview your build locally, before deploying     |
-| `npm run astro ...`       | Run CLI commands like `astro add`, `astro check` |
-| `npm run astro -- --help` | Get help using the Astro CLI                     |
+Project and note detail pages are generated from shared data and content
+collections.
 
-## 👀 Want to learn more?
+## Design
 
-Feel free to check [our documentation](https://docs.astro.build) or jump into our [Discord server](https://astro.build/chat).
+The interface is intentionally restrained, editorial, and content-driven.
+
+See:
+
+* `docs/visual-guidelines.md`
+* `AGENTS.md`
+
+## Status
+
+The first hand-built version is under active development.
+
+
