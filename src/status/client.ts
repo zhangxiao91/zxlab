@@ -1,6 +1,7 @@
 import { statusConfig } from "./config";
 import { mockStatusProvider, createMockStatusSnapshot } from "./providers/mock";
 import { remoteStatusProvider } from "./providers/remote";
+import { tailscaleStatusProvider } from "./providers/tailscale";
 import type { ActivityItem, DeviceStatus, StatusScenario, StatusSnapshot } from "./types";
 
 const scenarios: StatusScenario[] = ["normal", "loading", "empty", "error", "unavailable", "stale", "partial"];
@@ -13,8 +14,19 @@ export async function getStatusSnapshot(
   scenario: StatusScenario = "normal",
   options: { signal?: AbortSignal; delayMs?: number } = {},
 ) {
-  const provider = statusConfig.providerMode === "remote" ? remoteStatusProvider : mockStatusProvider;
+  if (scenario !== "normal") {
+    return mockStatusProvider.getSnapshot({ scenario, signal: options.signal, delayMs: options.delayMs });
+  }
+  const provider = {
+    mock: mockStatusProvider,
+    tailscale: tailscaleStatusProvider,
+    remote: remoteStatusProvider,
+  }[statusConfig.providerMode];
   return provider.getSnapshot({ scenario, signal: options.signal, delayMs: options.delayMs });
+}
+
+export function shouldLoadLiveStatus() {
+  return statusConfig.providerMode !== "mock";
 }
 
 function setText(root: ParentNode, selector: string, value: string | number | undefined) {
@@ -146,7 +158,9 @@ export function renderStatusSnapshot(root: HTMLElement, snapshot: StatusSnapshot
   setText(root, "[data-overall-label]", snapshot.overall.label);
   setText(root, "[data-overall-message]", snapshot.overall.message);
   setText(root, "[data-source-label]", snapshot.source);
-  setText(root, "[data-freshness]", snapshot.overall.stale ? "Stale demo snapshot" : "Fresh demo snapshot");
+  setText(root, "[data-freshness]", snapshot.overall.stale
+    ? "Stale status snapshot"
+    : snapshot.isMock ? "Fresh demo snapshot" : "Fresh live snapshot");
   setTime(root, "[data-updated-at]", snapshot.updatedAt);
   const overallIndicator = root.querySelector<HTMLElement>("[data-status-indicator='overall']");
   if (overallIndicator) {
@@ -157,8 +171,8 @@ export function renderStatusSnapshot(root: HTMLElement, snapshot: StatusSnapshot
   const usageRoot = root.querySelector<HTMLElement>("[data-status-module='usage']");
   if (usageRoot) {
     renderModuleState(usageRoot, snapshot.usage.state, snapshot.usage.message);
+    setText(usageRoot, "[data-usage-provider]", snapshot.usage.data?.providerName ?? snapshot.usage.source);
     if (snapshot.usage.data) {
-      setText(usageRoot, "[data-usage-provider]", snapshot.usage.data.providerName);
       setText(usageRoot, "[data-field='current-model']", snapshot.usage.data.currentModel);
       setText(usageRoot, "[data-field='credits']", snapshot.usage.data.creditsRemaining);
       setText(usageRoot, "[data-field='threads']", snapshot.usage.data.activeThreads);
@@ -178,6 +192,7 @@ export function renderStatusSnapshot(root: HTMLElement, snapshot: StatusSnapshot
   const devicesRoot = root.querySelector<HTMLElement>("[data-status-module='devices']");
   if (devicesRoot) {
     renderModuleState(devicesRoot, snapshot.devices.state, snapshot.devices.message);
+    setText(devicesRoot, "[data-device-provider]", snapshot.devices.source);
     const list = devicesRoot.querySelector<HTMLUListElement>("[data-device-list]");
     if (list && snapshot.devices.data) list.replaceChildren(...snapshot.devices.data.map(createDeviceItem));
   }
@@ -185,6 +200,7 @@ export function renderStatusSnapshot(root: HTMLElement, snapshot: StatusSnapshot
   const activityRoot = root.querySelector<HTMLElement>("[data-status-module='activity']");
   if (activityRoot) {
     renderModuleState(activityRoot, snapshot.activity.state, snapshot.activity.message);
+    setText(activityRoot, "[data-activity-provider]", snapshot.activity.source);
     const list = activityRoot.querySelector<HTMLOListElement>("[data-activity-list]");
     if (list && snapshot.activity.data) list.replaceChildren(...snapshot.activity.data.map(createActivityItem));
   }

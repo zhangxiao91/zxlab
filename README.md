@@ -44,6 +44,7 @@ npm run preview
 ## Project structure
 
 ```text
+functions/          Cloudflare Pages Functions for filtered live status data
 src/
 ├── components/     Reusable interface components
 ├── content/        Markdown notes
@@ -55,7 +56,9 @@ src/
 └── styles/         Global styles and design tokens
 ```
 
-Static files that should be copied directly are stored in `public/`.
+Static files that should be copied directly are stored in `public/`. Astro still
+builds as a static site; the optional Function boundary only serves sanitized
+status JSON.
 
 ## Main routes
 

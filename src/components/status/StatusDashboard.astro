@@ -52,7 +52,7 @@ const dateFormatter = new Intl.DateTimeFormat("en", { month: "short", day: "nume
     </section>
 
     <section class="status-module status-devices" data-status-module="devices" data-module-state={snapshot.devices.state} aria-labelledby="devices-title">
-      <header><div><p>Public, filtered fields</p><h2 id="devices-title">Devices</h2></div><span>Demo nodes</span></header>
+      <header><div><p>Public, filtered fields</p><h2 id="devices-title">Devices</h2></div><span data-device-provider>Demo nodes</span></header>
       <div data-module-ready hidden={snapshot.devices.state !== "ready"}>
         <ul class="device-list" data-device-list>
           {devices.map((device) => (
@@ -73,7 +73,7 @@ const dateFormatter = new Intl.DateTimeFormat("en", { month: "short", day: "nume
   </div>
 
   <section class="status-module status-activity" data-status-module="activity" data-module-state={snapshot.activity.state} aria-labelledby="activity-title">
-    <header><div><p>Public development trail</p><h2 id="activity-title">Latest activity</h2></div><span>Demo feed</span></header>
+    <header><div><p>Public development trail</p><h2 id="activity-title">Latest activity</h2></div><span data-activity-provider>Demo feed</span></header>
     <div data-module-ready hidden={snapshot.activity.state !== "ready"}>
       <ol class="activity-list" data-activity-list>
         {activity.map((item) => (

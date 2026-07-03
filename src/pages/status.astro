@@ -1,16 +1,16 @@
 ---
 import Layout from "../layouts/Layout.astro";
 import StatusDashboard from "../components/status/StatusDashboard.astro";
-import { getStatusSnapshot } from "../status/client";
+import { createMockStatusSnapshot } from "../status/providers/mock";
 import "../styles/lab-status-shell.css";
 import "../styles/status.css";
 
-const snapshot = await getStatusSnapshot("normal");
+const snapshot = createMockStatusSnapshot("normal");
 ---
 
 <Layout
   title="Status | zxlab"
-  description="A public, privacy-filtered demo control room for ZXLab services, tool usage, devices, and recent activity."
+  description="A public, privacy-filtered control room for ZXLab services, tool usage, devices, and recent activity."
 >
   <main class="status-page">
     <section class="status-hero" aria-labelledby="status-title">
@@ -27,11 +27,11 @@ const snapshot = await getStatusSnapshot("normal");
         </p>
       </div>
 
-      <aside class="status-demo-notice" aria-label="Demo data notice">
+      <aside class="status-demo-notice" aria-label="Status data source notice" data-status-source-notice>
         <span aria-hidden="true"></span>
-        <p>Demo snapshot</p>
-        <h2>No live or private provider is connected.</h2>
-        <p>Every value below is illustrative and exists to verify the public data boundary.</p>
+        <p data-status-notice-label>Demo snapshot</p>
+        <h2 data-status-notice-title>No live or private provider is connected.</h2>
+        <p data-status-notice-message>Every value below is illustrative and exists to verify the public data boundary.</p>
       </aside>
     </section>
 
@@ -67,15 +67,41 @@ const snapshot = await getStatusSnapshot("normal");
       renderLoadingSnapshot,
       renderStatusSnapshot,
       scheduleStatusRefresh,
+      shouldLoadLiveStatus,
     } from "../status/client";
+    import type { StatusSnapshot } from "../status/types";
 
     gsap.registerPlugin(ScrollTrigger);
 
     const dashboard = document.querySelector<HTMLElement>("[data-status-dashboard]");
     const refresh = document.querySelector<HTMLButtonElement>("[data-status-refresh]");
+    const notice = document.querySelector<HTMLElement>("[data-status-source-notice]");
     const controller = new AbortController();
     const scenario = parseStatusScenario(new URL(window.location.href).searchParams.get("status-state"));
     const statusMotion = gsap.matchMedia();
+
+    const updateSourceNotice = (snapshot: StatusSnapshot) => {
+      if (!notice) return;
+      const label = notice.querySelector<HTMLElement>("[data-status-notice-label]");
+      const title = notice.querySelector<HTMLElement>("[data-status-notice-title]");
+      const message = notice.querySelector<HTMLElement>("[data-status-notice-message]");
+      const refreshLabel = refresh?.querySelector<HTMLElement>("span");
+      if (snapshot.isMock) {
+        if (label) label.textContent = "Demo snapshot";
+        if (title) title.textContent = "No live or private provider is connected.";
+        if (message) message.textContent = "Every value below is illustrative and exists to verify the public data boundary.";
+        if (refreshLabel) refreshLabel.textContent = "Refresh demo";
+        return;
+      }
+
+      const devicesLive = snapshot.devices.state === "ready" || snapshot.devices.state === "empty";
+      if (label) label.textContent = devicesLive ? "Live source" : "Source unavailable";
+      if (title) title.textContent = devicesLive
+        ? "Tailscale device presence is connected."
+        : "The live device source could not be reached.";
+      if (message) message.textContent = "Only allowlisted aliases and coarse presence are public. Usage and activity remain disconnected.";
+      if (refreshLabel) refreshLabel.textContent = "Refresh status";
+    };
 
     statusMotion.add("(prefers-reduced-motion: no-preference)", () => {
       gsap.from(".status-hero__copy > *, .status-demo-notice", {
@@ -123,6 +149,7 @@ const snapshot = await getStatusSnapshot("normal");
         });
         renderStatusSnapshot(dashboard, nextSnapshot);
         enhanceRelativeTimes(dashboard);
+        updateSourceNotice(nextSnapshot);
       } catch {
         const errorSnapshot = await getStatusSnapshot("error");
         renderStatusSnapshot(dashboard, errorSnapshot);
@@ -134,6 +161,9 @@ const snapshot = await getStatusSnapshot("normal");
     if (dashboard && scenario !== "normal") {
       const preview = await getStatusSnapshot(scenario);
       renderStatusSnapshot(dashboard, preview);
+      updateSourceNotice(preview);
+    } else if (dashboard && shouldLoadLiveStatus()) {
+      await refreshDashboard(0);
     }
     if (dashboard) enhanceRelativeTimes(dashboard);
 

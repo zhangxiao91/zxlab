@@ -1,10 +1,15 @@
-export type StatusProviderMode = "mock" | "remote";
+export type StatusProviderMode = "mock" | "tailscale" | "remote";
 
 const requestedMode = import.meta.env.PUBLIC_STATUS_PROVIDER;
-const apiBaseUrl = import.meta.env.PUBLIC_STATUS_API_BASE_URL?.replace(/\/$/, "") ?? null;
+const apiBaseUrl = import.meta.env.PUBLIC_STATUS_API_BASE_URL?.replace(/\/$/, "") ?? "";
+const providerMode: StatusProviderMode = requestedMode === "tailscale"
+  ? "tailscale"
+  : requestedMode === "remote"
+    ? "remote"
+    : "mock";
 
 export const statusConfig = Object.freeze({
-  providerMode: (requestedMode === "remote" && apiBaseUrl ? "remote" : "mock") as StatusProviderMode,
+  providerMode,
   apiBaseUrl,
   requestTimeoutMs: 8000,
   staleAfterMs: 15 * 60 * 1000,
