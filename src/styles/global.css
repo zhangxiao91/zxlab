@@ -284,6 +284,50 @@ a {
 	color: var(--color-muted);
 	line-height: 1.75;
 }
+.note-list {
+	border-top: 1px solid var(--color-border);
+}
+
+.note-item {
+	display: grid;
+	grid-template-columns: 9rem minmax(0, 1fr);
+	gap: var(--space-8);
+	padding-block: var(--space-8);
+	border-bottom: 1px solid var(--color-border);
+	text-decoration: none;
+}
+
+.note-item time {
+	color: var(--color-muted);
+	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+	font-size: 0.75rem;
+}
+
+.note-copy {
+	max-width: 42rem;
+}
+
+.note-copy h3 {
+	margin-bottom: var(--space-3);
+	font-size: 1.25rem;
+	letter-spacing: -0.025em;
+}
+
+.note-copy > p {
+	color: var(--color-muted);
+	line-height: 1.65;
+}
+
+.note-tags {
+	justify-content: flex-start;
+	margin-top: var(--space-4);
+}
+
+.note-item:hover h3 {
+	text-decoration: underline;
+	text-decoration-thickness: 1px;
+	text-underline-offset: 0.2em;
+}
 @media (max-width: 40rem) {
   .site-shell {
     width: min(calc(100% - 1.5rem), var(--page-width));
@@ -317,6 +361,10 @@ a {
 .detail-section {
 	grid-template-columns: 1fr;
 	gap: var(--space-4);
+}
+.note-item {
+	grid-template-columns: 1fr;
+	gap: var(--space-3);
 }
 }
 .hero h1 {
