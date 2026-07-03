@@ -8,7 +8,7 @@ interface Props {
   description?: string;
   image?: string;
 }
-
+const canonicalURL = new URL(Astro.url.pathname, Astro.site);
 const {
   title = "zxlab",
   description = "A personal lab for projects, notes, and experiments.",
@@ -19,6 +19,8 @@ const {
 <!doctype html>
 <html lang="zh-CN">
   <head>
+    <link rel="canonical" href={canonicalURL.toString()} />
+<link rel="sitemap" href="/sitemap-index.xml" />
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
 
@@ -32,7 +34,7 @@ const {
     <meta property="og:type" content="website" />
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
-
+    <meta property="og:url" content={canonicalURL.toString()} />
     <meta name="twitter:card" content="summary" />
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
