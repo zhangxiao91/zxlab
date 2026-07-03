@@ -1,0 +1,71 @@
+---
+import {
+	getCollection,
+	render,
+	type CollectionEntry,
+} from "astro:content";
+
+import Layout from "../../layouts/Layout.astro";
+
+export async function getStaticPaths() {
+	const notes = await getCollection(
+		"notes",
+		({ data }) => !data.draft,
+	);
+
+	return notes.map((note) => ({
+		params: {
+			id: note.id,
+		},
+		props: {
+			note,
+		},
+	}));
+}
+
+interface Props {
+	note: CollectionEntry<"notes">;
+}
+
+const { note } = Astro.props;
+const { Content } = await render(note);
+
+const dateFormatter = new Intl.DateTimeFormat("en-US", {
+	year: "numeric",
+	month: "long",
+	day: "numeric",
+});
+---
+
+<Layout
+	title={`${note.data.title} | zxlab`}
+	description={note.data.description}
+>
+	<main class="site-main">
+		<article class="note-page">
+			<header class="note-header">
+				<p class="eyebrow">
+					NOTE /
+					<time datetime={note.data.publishedAt.toISOString()}>
+						{dateFormatter.format(note.data.publishedAt)}
+					</time>
+				</p>
+
+				<h1>{note.data.title}</h1>
+
+				<p class="intro">{note.data.description}</p>
+
+				<ul
+					class="tag-list note-page-tags"
+					aria-label={`${note.data.title} tags`}
+				>
+					{note.data.tags.map((tag) => <li>{tag}</li>)}
+				</ul>
+			</header>
+
+			<div class="prose">
+				<Content />
+			</div>
+		</article>
+	</main>
+</Layout>

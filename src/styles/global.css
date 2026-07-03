@@ -328,6 +328,84 @@ a {
 	text-decoration-thickness: 1px;
 	text-underline-offset: 0.2em;
 }
+.note-page {
+	max-width: var(--reading-width);
+	margin-inline: auto;
+	padding-block: clamp(4rem, 10vw, 8rem);
+}
+
+.note-header {
+	padding-bottom: var(--space-12);
+	border-bottom: 1px solid var(--color-border);
+}
+
+.note-header h1 {
+	max-width: 15ch;
+	font-size: clamp(2.5rem, 6vw, 5rem);
+	line-height: 1;
+	letter-spacing: -0.05em;
+}
+
+.note-page-tags {
+	justify-content: flex-start;
+	margin-top: var(--space-6);
+}
+
+.prose {
+	padding-block: var(--space-12);
+	font-size: 1.0625rem;
+	line-height: 1.8;
+}
+
+.prose > * {
+	max-width: 42rem;
+}
+
+.prose > * + * {
+	margin-top: var(--space-6);
+}
+
+.prose h2 {
+	margin-top: var(--space-12);
+	font-size: 1.75rem;
+	line-height: 1.2;
+	letter-spacing: -0.035em;
+}
+
+.prose h3 {
+	margin-top: var(--space-8);
+	font-size: 1.25rem;
+	line-height: 1.3;
+	letter-spacing: -0.025em;
+}
+
+.prose p,
+.prose li {
+	color: var(--color-muted);
+}
+
+.prose ul,
+.prose ol {
+	padding-left: 1.5rem;
+}
+
+.prose li + li {
+	margin-top: var(--space-2);
+}
+
+.prose a {
+	color: var(--color-text);
+	text-decoration-thickness: 1px;
+	text-underline-offset: 0.2em;
+}
+
+.prose code {
+	padding: 0.125em 0.35em;
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-small);
+	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+	font-size: 0.875em;
+}
 @media (max-width: 40rem) {
   .site-shell {
     width: min(calc(100% - 1.5rem), var(--page-width));
