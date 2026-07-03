@@ -21,7 +21,7 @@ Install dependencies:
 
 ```bash
 npm install
-````
+```
 
 Start the development server:
 
@@ -77,5 +77,3 @@ See:
 ## Status
 
 The first hand-built version is under active development.
-
-

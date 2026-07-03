@@ -4,12 +4,11 @@ import ProjectList from "../components/ProjectList.astro";
 import { projects } from "../data/projects";
 import { getCollection } from "astro:content";
 import NoteList from "../components/NoteList.astro";
+
 const featuredProjects = projects.filter((project) => project.featured);
 const latestNotes = (await getCollection("notes", ({ data }) => !data.draft))
   .sort((a, b) => b.data.publishedAt.valueOf() - a.data.publishedAt.valueOf())
   .slice(0, 2);
-// Welcome to Astro! Wondering what to do next? Check out the Astro documentation at https://docs.astro.build
-// Don't want to use any of this? Delete everything in this file, the `assets`, `components`, and `layouts` directories, and start fresh.
 ---
 
 <Layout
@@ -33,24 +32,7 @@ const latestNotes = (await getCollection("notes", ({ data }) => !data.draft))
         <h2 id="projects-title">Selected projects</h2>
       </div>
 
-      <div class="project-list">
-        {
-          projects.map((project) => (
-            <a class="project-item" href={`/projects/${project.slug}`}>
-              {" "}
-              <div class="project-copy">
-                <h3>{project.title}</h3>
-                <p>{project.description}</p>
-              </div>
-              <ul class="tag-list" aria-label={`${project.title} technologies`}>
-                {project.tags.map((tag) => (
-                  <li>{tag}</li>
-                ))}
-              </ul>
-            </a>
-          ))
-        }
-      </div>
+      <ProjectList projects={featuredProjects} />
     </section>
     <section class="home-section" aria-labelledby="latest-notes-title">
       <div class="section-heading">

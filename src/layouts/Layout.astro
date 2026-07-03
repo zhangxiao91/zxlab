@@ -6,21 +6,20 @@ import SiteFooter from "../components/SiteFooter.astro";
 interface Props {
   title?: string;
   description?: string;
-  image?: string;
 }
+
 const canonicalURL = new URL(Astro.url.pathname, Astro.site);
 const {
   title = "zxlab",
   description = "A personal lab for projects, notes, and experiments.",
-  image = "social-card.png",
 } = Astro.props;
 ---
 
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
   <head>
     <link rel="canonical" href={canonicalURL.toString()} />
-<link rel="sitemap" href="/sitemap-index.xml" />
+    <link rel="sitemap" href="/sitemap-index.xml" />
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
 
@@ -40,12 +39,10 @@ const {
     <meta name="twitter:description" content={description} />
   </head>
   <body>
-    <body>
-      <div class="site-shell">
-        <SiteHeader />
-        <slot />
-        <SiteFooter />
-      </div>
-    </body>
+    <div class="site-shell">
+      <SiteHeader />
+      <slot />
+      <SiteFooter />
+    </div>
   </body>
 </html>
