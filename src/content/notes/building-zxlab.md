@@ -17,3 +17,5 @@ I started ZXLab with two constraints:
 The goal is to understand the structure well enough that automation remains a tool rather than a source of architectural mystery.
 
 >So far, I have built the shared layout, responsive homepage, project data layer, and static project detail routes.
+
+The first public version of ZXLab is deployed through Cloudflare Pages.
