@@ -110,20 +110,24 @@ export function sanitizeTailscaleDevices(
     while (usedIds.has(id)) id = `${baseId}-${suffix++}`;
     usedIds.add(id);
 
+    const connectionKnown = typeof device.connectedToControl === "boolean";
     const connected = device.connectedToControl === true;
     const previousSeen = text(device.lastSeen, 64);
-    const lastSeen = connected ? updatedAt : previousSeen || updatedAt;
-    const state = connected ? "online" : previousSeen ? "offline" : "unknown";
+    const lastSeen = connected ? updatedAt : previousSeen || undefined;
+    const state = connected ? "online" : connectionKnown || previousSeen ? "offline" : "unknown";
 
     return [{
       id,
       name: definition.name,
       type: definition.type,
       state,
-      lastSeen,
+      ...(lastSeen ? { lastSeen } : {}),
       ...(definition.publicTask ? { publicTask: definition.publicTask } : {}),
       updatedAt,
     } satisfies DeviceStatus];
+  }).sort((left, right) => {
+    const rank = { online: 0, idle: 1, offline: 2, unknown: 3 } as const;
+    return rank[left.state] - rank[right.state] || left.name.localeCompare(right.name);
   });
 }
 

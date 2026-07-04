@@ -176,6 +176,12 @@ inside the Function; the response contains the configured public alias:
 }
 ```
 
+Offline nodes remain visible when they are included in this allowlist. The
+gateway maps an explicit `connectedToControl: false` response to `offline`,
+keeps the last-seen timestamp when Tailscale provides one, and sorts offline
+entries after connected devices. Nodes omitted from the allowlist remain
+private regardless of their connection state.
+
 Finally, set the build-time variable `PUBLIC_STATUS_PROVIDER=tailscale` and
 redeploy the Pages project. Do not prefix any Tailscale credential with
 `PUBLIC_`. If credentials or the allowlist are missing, the endpoint returns a

@@ -50,7 +50,9 @@ const dateFormatter = new Intl.DateTimeFormat("en", { month: "short", day: "nume
               <div><h3>{device.name}</h3><p>{device.type}</p></div>
               <StatusIndicator state={device.state} label={device.state} />
               <div>
-                <time data-relative-time data-prefix="Last seen " datetime={device.lastSeen}>Last seen {dateFormatter.format(new Date(device.lastSeen))}</time>
+                {device.lastSeen ? (
+                  <time data-relative-time data-prefix="Last seen " datetime={device.lastSeen}>Last seen {dateFormatter.format(new Date(device.lastSeen))}</time>
+                ) : <p>Last seen unavailable</p>}
                 {device.publicTask && <p>{device.publicTask}</p>}
                 {device.latencyMs !== undefined && <p>{device.latencyMs} ms demo latency</p>}
               </div>

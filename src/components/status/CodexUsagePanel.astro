@@ -57,8 +57,10 @@ const { usage, isMock = false } = Astro.props;
       if (!value || !tooltip) return;
       const bounds = target.getBoundingClientRect();
       tooltip.textContent = value;
-      tooltip.style.left = `${x ?? bounds.left + bounds.width / 2}px`;
-      tooltip.style.top = `${y ?? bounds.top}px`;
+      const left = Math.max(104, Math.min(window.innerWidth - 104, x ?? bounds.left + bounds.width / 2));
+      const top = Math.max(48, y ?? bounds.top);
+      tooltip.style.left = `${left}px`;
+      tooltip.style.top = `${top}px`;
       tooltip.hidden = false;
     };
     const hideTooltip = () => {
@@ -66,6 +68,10 @@ const { usage, isMock = false } = Astro.props;
       if (tooltip) tooltip.hidden = true;
     };
     root.addEventListener("pointerover", (event) => {
+      const target = (event.target as Element).closest("[data-tooltip]");
+      if (target) showTooltip(target, event.clientX, event.clientY - 16);
+    });
+    root.addEventListener("pointermove", (event) => {
       const target = (event.target as Element).closest("[data-tooltip]");
       if (target) showTooltip(target, event.clientX, event.clientY - 16);
     });

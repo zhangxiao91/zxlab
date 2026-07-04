@@ -106,12 +106,18 @@ function createDeviceItem(device: DeviceStatus) {
   state.append(dot, document.createTextNode(device.state));
 
   const detail = document.createElement("div");
-  const seen = document.createElement("time");
-  seen.dateTime = device.lastSeen;
-  seen.dataset.relativeTime = "true";
-  seen.dataset.prefix = "Last seen ";
-  renderRelativeTime(seen);
-  detail.append(seen);
+  if (device.lastSeen) {
+    const seen = document.createElement("time");
+    seen.dateTime = device.lastSeen;
+    seen.dataset.relativeTime = "true";
+    seen.dataset.prefix = "Last seen ";
+    renderRelativeTime(seen);
+    detail.append(seen);
+  } else {
+    const seen = document.createElement("p");
+    seen.textContent = "Last seen unavailable";
+    detail.append(seen);
+  }
   if (device.publicTask) {
     const task = document.createElement("p");
     task.textContent = device.publicTask;

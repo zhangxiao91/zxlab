@@ -83,7 +83,7 @@ export function createMockStatusSnapshot(scenario: StatusScenario = "normal"): S
       id: "personal-phone-demo",
       name: "Personal phone",
       type: "phone",
-      state: "unknown",
+      state: "offline",
       lastSeen: new Date(now.valueOf() - 75 * 60 * 1000).toISOString(),
       updatedAt,
     },

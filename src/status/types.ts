@@ -61,7 +61,7 @@ export interface DeviceStatus {
   name: string;
   type: DeviceType;
   state: DeviceState;
-  lastSeen: string;
+  lastSeen?: string;
   latencyMs?: number;
   publicTask?: string;
   updatedAt: string;

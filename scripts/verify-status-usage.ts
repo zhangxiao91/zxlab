@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { asStaleUsage, sanitizeCodexUsage, fetchCodexUsage } from "../functions/_lib/codex-usage.ts";
+import { parsePublicDeviceMap, sanitizeTailscaleDevices } from "../functions/_lib/tailscale.ts";
 import { buildHeatmap, intensityThresholds, sortDailyUsage, usageIntensity } from "../src/status/usage-utils.ts";
 
 const base = {
@@ -39,4 +40,15 @@ await assert.rejects(() => fetchCodexUsage(
 
 const stale = asStaleUsage(sanitizeCodexUsage(base));
 assert.equal(stale.status, "stale");
+
+const publicDevices = parsePublicDeviceMap(JSON.stringify({
+  offline: { name: "Offline node", type: "laptop" },
+  online: { name: "Online node", type: "server" },
+}));
+const sanitizedDevices = sanitizeTailscaleDevices([
+  { hostname: "offline", connectedToControl: false },
+  { hostname: "online", connectedToControl: true },
+], publicDevices, "2026-07-04T00:00:00.000Z");
+assert.deepEqual(sanitizedDevices.map((device) => device.state), ["online", "offline"]);
+assert.equal(sanitizedDevices[1].lastSeen, undefined);
 process.stdout.write("Status usage verification passed.\n");

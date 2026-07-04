@@ -5,6 +5,12 @@ const escape = (value: unknown) => String(value).replace(/[&<>"']/g, (character)
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
 }[character]!));
 const fullNumber = (value: number | null) => value === null ? "Unavailable" : new Intl.NumberFormat("en").format(value);
+const dateLabel = (value: string) => new Intl.DateTimeFormat("en", {
+  year: "numeric",
+  month: "short",
+  day: "numeric",
+  timeZone: "UTC",
+}).format(new Date(`${value}T00:00:00Z`));
 const duration = (minutes: number | null) => {
   if (minutes === null) return "Window unavailable";
   if (minutes % 1440 === 0) return `${minutes / 1440} days`;
@@ -39,12 +45,21 @@ function chart(usage: UsageStatus, days: 7 | 30 | 90) {
   const points = usageForRange(usage.dailyUsage, days, new Date(usage.updatedAt));
   if (!points.length) return `<div class="usage-chart-empty"><p>No daily Token history is available for this range.</p></div>`;
   const geometry = chartGeometry(points);
+  const hitWidth = Math.max(18, 960 / geometry.points.length);
   return `<div class="usage-chart-wrap">
     <svg class="usage-chart" viewBox="0 0 960 280" role="img" aria-label="Daily Token usage for the selected range">
       <defs><linearGradient id="usage-area-gradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#d8ff73" stop-opacity=".34"/><stop offset="1" stop-color="#d8ff73" stop-opacity="0"/></linearGradient></defs>
       <g class="usage-chart__grid" aria-hidden="true"><line x1="0" y1="70" x2="960" y2="70"/><line x1="0" y1="140" x2="960" y2="140"/><line x1="0" y1="210" x2="960" y2="210"/></g>
       <path class="usage-chart__area" d="${geometry.area}"/><path class="usage-chart__line" d="${geometry.path}"/>
-      ${geometry.points.map((point) => `<circle tabindex="0" cx="${point.x}" cy="${point.y}" r="7" data-chart-point data-tooltip="${point.date}: ${fullNumber(point.tokens)} tokens" aria-label="${point.date}: ${fullNumber(point.tokens)} tokens"><title>${point.date}: ${fullNumber(point.tokens)} tokens</title></circle>`).join("")}
+      ${geometry.points.map((point) => {
+        const label = `${dateLabel(point.date)} · ${fullNumber(point.tokens)} tokens`;
+        const x = Math.max(0, Math.min(960 - hitWidth, point.x - hitWidth / 2));
+        return `<g class="usage-chart__point">
+          <line x1="${point.x}" y1="0" x2="${point.x}" y2="280" aria-hidden="true" />
+          <circle cx="${point.x}" cy="${point.y}" r="7" aria-hidden="true" />
+          <rect tabindex="0" x="${x}" y="0" width="${hitWidth}" height="280" data-chart-point data-tooltip="${label}" aria-label="${label}"><title>${label}</title></rect>
+        </g>`;
+      }).join("")}
     </svg>
     <div class="usage-chart__axis"><time datetime="${points[0].date}">${points[0].date}</time><time datetime="${points.at(-1)!.date}">${points.at(-1)!.date}</time></div>
   </div>`;
@@ -60,7 +75,7 @@ function heatmap(usage: UsageStatus) {
   return `<div class="usage-heatmap-scroll" tabindex="0" aria-label="Scrollable Token activity calendar">
     <div class="usage-heatmap-months" aria-hidden="true">${monthLabels}</div>
     <div class="usage-heatmap" role="grid" aria-label="Token activity from ${first} to ${last}">
-      ${days.map((day) => { const label = `${day.date}: ${day.tokens === null ? "No data" : `${fullNumber(day.tokens)} tokens, intensity ${day.level} of 4`}`; return `<button type="button" role="gridcell" data-heatmap-day data-level="${day.level}" data-has-data="${day.tokens !== null}" data-tooltip="${label}" title="${label}" aria-label="${label}"><span class="sr-only">${day.date}</span></button>`; }).join("")}
+      ${days.map((day) => { const label = `${dateLabel(day.date)} · ${day.tokens === null ? "No data" : `${fullNumber(day.tokens)} tokens · intensity ${day.level} of 4`}`; return `<button type="button" role="gridcell" data-heatmap-day data-level="${day.level}" data-has-data="${day.tokens !== null}" data-tooltip="${label}" aria-label="${label}"><span class="sr-only">${day.date}</span></button>`; }).join("")}
     </div>
   </div>
   <div class="usage-heatmap-footer"><span>${first} — ${last}</span><div aria-label="Intensity legend"><span>Less</span>${[0,1,2,3,4].map((level) => `<i data-level="${level}"></i>`).join("")}<span>More</span></div></div>`;
