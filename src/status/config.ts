@@ -6,7 +6,9 @@ const providerMode: StatusProviderMode = requestedMode === "tailscale"
   ? "tailscale"
   : requestedMode === "remote"
     ? "remote"
-    : "mock";
+    : import.meta.env.PROD
+      ? "tailscale"
+      : "mock";
 
 export const statusConfig = Object.freeze({
   providerMode,
