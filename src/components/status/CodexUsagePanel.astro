@@ -54,14 +54,19 @@ const { usage, isMock = false } = Astro.props;
     const showTooltip = (target: Element, x?: number, y?: number) => {
       const value = target.getAttribute("data-tooltip");
       const tooltip = root.querySelector<HTMLOutputElement>("[data-usage-tooltip]");
+      const reading = root.querySelector<HTMLOutputElement>("[data-usage-reading]");
       if (!value || !tooltip) return;
       const bounds = target.getBoundingClientRect();
       tooltip.textContent = value;
       const left = Math.max(104, Math.min(window.innerWidth - 104, x ?? bounds.left + bounds.width / 2));
-      const top = Math.max(48, y ?? bounds.top);
-      tooltip.style.left = `${left}px`;
-      tooltip.style.top = `${top}px`;
       tooltip.hidden = false;
+      const desiredTop = (y ?? bounds.bottom) + 16;
+      const placeAbove = desiredTop + tooltip.offsetHeight > window.innerHeight - 16;
+      const top = placeAbove ? (y ?? bounds.top) - 14 : desiredTop;
+      tooltip.style.left = `${left}px`;
+      tooltip.style.top = `${Math.max(16, top)}px`;
+      tooltip.dataset.placement = placeAbove ? "above" : "below";
+      if (reading && target.closest("[data-heatmap-day]")) reading.textContent = value;
     };
     const hideTooltip = () => {
       const tooltip = root.querySelector<HTMLOutputElement>("[data-usage-tooltip]");
@@ -69,11 +74,11 @@ const { usage, isMock = false } = Astro.props;
     };
     root.addEventListener("pointerover", (event) => {
       const target = (event.target as Element).closest("[data-tooltip]");
-      if (target) showTooltip(target, event.clientX, event.clientY - 16);
+      if (target) showTooltip(target, event.clientX, event.clientY);
     });
     root.addEventListener("pointermove", (event) => {
       const target = (event.target as Element).closest("[data-tooltip]");
-      if (target) showTooltip(target, event.clientX, event.clientY - 16);
+      if (target) showTooltip(target, event.clientX, event.clientY);
     });
     root.addEventListener("pointerout", hideTooltip);
     root.addEventListener("focusin", (event) => {

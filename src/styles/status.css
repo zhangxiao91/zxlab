@@ -81,7 +81,7 @@
 .status-demo-notice h2 { max-width: 13ch; margin-top: .8rem; font-size: clamp(2rem, 3.5vw, 3.4rem); font-weight: 500; line-height: 1; letter-spacing: -.05em; }
 .status-demo-notice > p:last-child { max-width: 29rem; margin-top: 1.3rem; color: rgba(245,245,237,.52); line-height: 1.6; }
 
-.status-dashboard-section { padding: clamp(8rem, 14vw, 13rem) max(1.25rem, calc((100vw - 76rem) / 2)); background: #e5e4dc; }
+.status-dashboard-section { padding: clamp(2rem, 4vw, 4rem) max(1.25rem, calc((100vw - 76rem) / 2)) clamp(8rem, 14vw, 13rem); background: #e5e4dc; }
 .status-dashboard { display: grid; gap: .8rem; }
 
 .status-overall,
@@ -162,7 +162,8 @@
 
 .usage-live-state { display: grid; gap: .8rem; }
 .codex-usage-panel { position: relative; }
-.usage-tooltip { position: fixed; z-index: 30; max-width: 19rem; padding: .72rem .9rem; border: 1px solid rgba(255,255,255,.12); border-radius: .7rem; background: #11120f; color: #f5f5ed; box-shadow: 0 12px 30px rgba(0,0,0,.28); font-size: .72rem; line-height: 1.35; pointer-events: none; transform: translate(-50%,-115%); }
+.usage-tooltip { position: fixed; z-index: 30; max-width: 19rem; padding: .72rem .9rem; border: 1px solid rgba(255,255,255,.12); border-radius: .7rem; background: #11120f; color: #f5f5ed; box-shadow: 0 12px 30px rgba(0,0,0,.28); font-size: .72rem; line-height: 1.35; pointer-events: none; transform: translate(-50%,0); }
+.usage-tooltip[data-placement="above"] { transform: translate(-50%,-100%); }
 .usage-tooltip[hidden] { display: none; }
 .usage-source-line { display: flex; padding: .9rem 0 1.1rem; justify-content: space-between; gap: 1rem; color: rgba(245,245,237,.45); font-size: .7rem; }
 .usage-source-line > span { display: inline-flex; align-items: center; gap: .5rem; }
@@ -182,6 +183,7 @@
 .usage-subhead p { color: rgba(245,245,237,.4); font-size: .65rem; letter-spacing: .12em; text-transform: uppercase; }
 .usage-subhead h3 { margin-top: .45rem; font-size: clamp(1.8rem,3.2vw,3.2rem); font-weight: 500; letter-spacing: -.055em; }
 .usage-subhead > span { color: rgba(245,245,237,.38); font-size: .68rem; }
+.usage-calendar__reading { max-width: 20rem; color: rgba(245,245,237,.58); font-size: .72rem; line-height: 1.4; text-align: right; }
 .usage-range { display: flex; padding: .25rem; border-radius: 999px; background: rgba(255,255,255,.065); }
 .usage-range button { min-width: 3rem; min-height: 2.3rem; border: 0; border-radius: 999px; background: transparent; color: rgba(245,245,237,.48); cursor: pointer; }
 .usage-range button[aria-pressed="true"] { background: #f5f5ed; color: #181914; }
@@ -290,7 +292,8 @@
 @media (max-width: 40rem) {
   .status-hero { padding-top: 9.5rem; }
   .status-hero h1 { max-width: 22rem; font-size: clamp(3.1rem,14vw,4.7rem); }
-  .status-dashboard-section, .status-privacy { padding-top: 7rem; padding-bottom: 7rem; }
+  .status-dashboard-section { padding-top: 2rem; padding-bottom: 7rem; }
+  .status-privacy { padding-top: 7rem; padding-bottom: 7rem; }
   .status-overall, .status-module, .status-demo-notice { border-radius: 1.6rem; }
   .usage-limits, .activity-list { grid-template-columns: 1fr; }
   .usage-source-line, .usage-subhead, .usage-heatmap-footer { align-items: start; flex-direction: column; }

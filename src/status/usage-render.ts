@@ -32,13 +32,20 @@ function limitCards(usage: UsageStatus) {
 
 function summaryCards(usage: UsageStatus, rangePoints: ReturnType<typeof usageForRange>) {
   const total = rangePoints.reduce((sum, point) => sum + point.tokens, 0);
+  const lifetime = usage.tokenSummary.lifetimeTokens;
+  const approximateValue = lifetime === null ? null : lifetime / 1_000_000 * 4;
   const entries = [
-    ["Today", usage.tokenSummary.todayTokens],
-    ["Selected range", total],
-    ["Lifetime", usage.tokenSummary.lifetimeTokens],
-    ["Peak day", usage.tokenSummary.peakDailyTokens],
-  ] as const;
-  return entries.filter(([, value]) => value !== null).map(([label, value]) => `<div><span>${label}</span><strong title="${fullNumber(value)}">${formatCompactNumber(value)}</strong></div>`).join("");
+    { label: "Selected range", value: total, display: formatCompactNumber(total), title: `${fullNumber(total)} tokens` },
+    { label: "Lifetime", value: lifetime, display: formatCompactNumber(lifetime), title: `${fullNumber(lifetime)} tokens` },
+    { label: "Peak day", value: usage.tokenSummary.peakDailyTokens, display: formatCompactNumber(usage.tokenSummary.peakDailyTokens), title: `${fullNumber(usage.tokenSummary.peakDailyTokens)} tokens` },
+    {
+      label: "Approx. token value",
+      value: approximateValue,
+      display: approximateValue === null ? "Unavailable" : `≈ ${new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", notation: "compact", maximumFractionDigits: 1 }).format(approximateValue)}`,
+      title: approximateValue === null ? "Unavailable" : `${new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(approximateValue)} estimate at $4 per 1M tokens`,
+    },
+  ];
+  return entries.map((entry) => `<div><span>${entry.label}</span><strong title="${escape(entry.title)}">${escape(entry.display)}</strong></div>`).join("");
 }
 
 function chart(usage: UsageStatus, days: 7 | 30 | 90) {
@@ -57,7 +64,7 @@ function chart(usage: UsageStatus, days: 7 | 30 | 90) {
         return `<g class="usage-chart__point">
           <line x1="${point.x}" y1="0" x2="${point.x}" y2="280" aria-hidden="true" />
           <circle cx="${point.x}" cy="${point.y}" r="7" aria-hidden="true" />
-          <rect tabindex="0" x="${x}" y="0" width="${hitWidth}" height="280" data-chart-point data-tooltip="${label}" aria-label="${label}"><title>${label}</title></rect>
+          <rect tabindex="0" x="${x}" y="0" width="${hitWidth}" height="280" data-chart-point data-tooltip="${label}" aria-label="${label}"></rect>
         </g>`;
       }).join("")}
     </svg>
@@ -90,7 +97,7 @@ export function renderUsageContent(usage: UsageStatus, days: 7 | 30 | 90 = 30, i
       <div class="usage-subhead"><div><p>Daily totals</p><h3 id="token-trend-title">Token usage</h3></div><div class="usage-range" role="group" aria-label="Token chart date range">${[7,30,90].map((range) => `<button type="button" data-usage-range="${range}" aria-pressed="${range === days}">${range}D</button>`).join("")}</div></div>
       <div class="usage-summary">${summaryCards(usage, points)}</div>${chart(usage, days)}
     </section>
-    <section class="usage-calendar" aria-labelledby="usage-calendar-title"><div class="usage-subhead"><div><p>Daily intensity</p><h3 id="usage-calendar-title">Activity field</h3></div><span>Missing days stay neutral</span></div>${heatmap(usage)}</section>
+    <section class="usage-calendar" aria-labelledby="usage-calendar-title"><div class="usage-subhead"><div><p>Daily intensity</p><h3 id="usage-calendar-title">Activity field</h3></div><output class="usage-calendar__reading" data-usage-reading aria-live="polite">Hover or focus a day to inspect tokens</output></div>${heatmap(usage)}</section>
     <output class="usage-tooltip" role="tooltip" data-usage-tooltip hidden></output>
   </div>`;
 }
