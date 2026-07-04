@@ -6,7 +6,8 @@ After=network-online.target
 Type=simple
 WorkingDirectory=%h/zxlab-codex-usage
 EnvironmentFile=%h/.config/zxlab-codex-usage.env
-ExecStart=/usr/bin/node %h/zxlab-codex-usage/server.mjs
+Environment=PATH=%h/.local/node-v22/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/env node %h/zxlab-codex-usage/server.mjs
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true

@@ -33,6 +33,10 @@ through an HTTPS reverse proxy or private tunnel. `Caddyfile.example` shows the
 smallest TLS proxy. Restrict inbound access at the firewall to the proxy or
 trusted origin where practical.
 
+The example unit expects a user-local Node 22 installation at
+`~/.local/node-v22`. If Node is installed elsewhere, adjust the unit's `PATH`
+before enabling it.
+
 Verification and operations:
 
 ```bash
