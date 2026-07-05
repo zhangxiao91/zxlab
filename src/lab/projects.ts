@@ -26,6 +26,24 @@ export const labProjects: LabProject[] = [
     ],
   },
   {
+    slug: "digital-starter",
+    title: "准大学生数字技能启动包",
+    description:
+      "电脑、AI 和一点点编程的暑假数字技能资料入口，用来承接一次轻量数字技能培训。",
+    status: "beta",
+    category: "Digital Literacy",
+    tags: ["AI", "Markdown", "GitHub"],
+    featured: false,
+    thumbnail: "https://picsum.photos/seed/digital-starter-toolkit/1600/1200",
+    thumbnailAlt: "Abstract desktop workspace selected for a digital skills starter kit",
+    customPage: true,
+    deviceSupport: ["desktop", "touch", "keyboard", "pointer"],
+    instructions: [
+      "This custom Lab page is a resource index and does not load a separate client experiment.",
+      "Future documents, files, and external links will be connected through the page data source.",
+    ],
+  },
+  {
     slug: "interaction-sandbox",
     title: "Interaction Sandbox",
     description:

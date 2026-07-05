@@ -1,0 +1,281 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import {
+  digitalStarterAssets,
+  digitalStarterDocs,
+  digitalStarterResourceTypeLabels,
+  digitalStarterResources,
+  digitalStarterRoutes,
+  digitalStarterUpdates,
+  type DigitalStarterResourceType,
+  type DigitalStarterRouteId,
+} from "../../lab/digital-starter";
+import "../../styles/lab-status-shell.css";
+import "../../styles/lab.css";
+
+const resourceTypes = Object.entries(digitalStarterResourceTypeLabels) as [
+  DigitalStarterResourceType,
+  string,
+][];
+
+const routeIndex = new Map(digitalStarterRoutes.map((route, index) => [route.id, index + 1]));
+
+const routeEntrances: Record<DigitalStarterRouteId, string[]> = {
+  computer: ["相关文档", "工具链接", "课件资产", "实战任务"],
+  ai: ["AI 工具链接", "Prompt 模板", "PPT 示例文件", "相关文档"],
+  coding: ["入门文档", "示例代码", "GitHub 仓库链接", "作品展示入口"],
+};
+
+const roadmapItems = [
+  "补充电脑基础文档",
+  "补充 AI 做 PPT 示例",
+  "补充 Markdown 与 GitHub 入门资料",
+  "接入培训课件和下载文件",
+];
+
+const connectionNotes = [
+  `${digitalStarterDocs.length} 个文档入口已预留`,
+  `${digitalStarterAssets.length} 类资产路径已预留`,
+  `${digitalStarterResources.length} 个资源占位从数据渲染`,
+];
+---
+
+<Layout
+  title="准大学生数字技能启动包 | Lab | zxlab"
+  description="电脑、AI 和一点点编程的暑假数字技能资料入口。"
+  lang="zh-CN"
+>
+  <main class="digital-starter-page">
+    <section class="digital-starter-hero" aria-labelledby="digital-starter-title">
+      <div class="digital-starter-hero__copy">
+        <a class="digital-starter-back" href="/lab">← 返回 Lab</a>
+        <p class="digital-starter-kicker">ZXLab Lab 小项目</p>
+        <h1 id="digital-starter-title">
+          准大学生
+          <span class="digital-starter-title-image" role="img" aria-label="一段抽象的数字工具界面"></span>
+          数字技能启动包
+        </h1>
+        <p class="digital-starter-subtitle">电脑、AI 和一点点编程的暑假数字技能资料入口。</p>
+        <p class="digital-starter-intro">
+          高考结束后，你可能第一次真正开始管理自己的电脑、账号、文件、软件、AI 工具和学习资料。
+          这个小项目会整理一套轻量的数字技能路线，帮助你先把常用工具跑通。
+        </p>
+        <div class="digital-starter-actions" aria-label="页面入口">
+          <a class="digital-starter-button" href="#routes">
+            <span>查看三条路线</span><span aria-hidden="true">↓</span>
+          </a>
+          <a class="digital-starter-button digital-starter-button--ghost" href="#resources">
+            <span>查看资料入口</span><span aria-hidden="true">↓</span>
+          </a>
+          <a class="digital-starter-button digital-starter-button--ghost" href="#roadmap">
+            <span>查看后续计划</span><span aria-hidden="true">↓</span>
+          </a>
+        </div>
+      </div>
+
+      <div class="digital-starter-hero__panel" data-starter-image>
+        <div class="digital-starter-hero__screen">
+          <p>starter routes</p>
+          <ol>
+            {digitalStarterRoutes.map((route) => <li>{route.title}</li>)}
+          </ol>
+        </div>
+        <div class="digital-starter-hero__caption">
+          <span>MVP skeleton</span>
+          <span>resource-ready</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="digital-starter-routes" id="routes" aria-labelledby="routes-title">
+      <div class="digital-starter-section-heading">
+        <p>三条路线</p>
+        <h2 id="routes-title">先把方向搭起来，不急着塞满教程。</h2>
+      </div>
+
+      <div class="digital-starter-route-grid">
+        {
+          digitalStarterRoutes.map((route) => (
+            <article class="digital-starter-route-card" data-starter-reveal>
+              <div class="digital-starter-route-card__shell">
+                <div class="digital-starter-route-card__top">
+                  <span>{String(routeIndex.get(route.id)).padStart(2, "0")}</span>
+                  <span>{route.status === "draft" ? "草稿中" : "规划中"}</span>
+                </div>
+                <h3>{route.title}</h3>
+                <p>{route.description}</p>
+                <ul class="digital-starter-module-list" aria-label={`${route.title}模块`}>
+                  {route.modules.map((module) => <li>{module}</li>)}
+                </ul>
+                <div class="digital-starter-route-card__entrances">
+                  <p>预留入口</p>
+                  <ul>
+                    {routeEntrances[route.id].map((item) => <li>{item}</li>)}
+                  </ul>
+                </div>
+              </div>
+            </article>
+          ))
+        }
+      </div>
+    </section>
+
+    <section class="digital-starter-gateway" id="resources" aria-labelledby="resources-title">
+      <div class="digital-starter-section-heading digital-starter-section-heading--light">
+        <p>资料入口</p>
+        <h2 id="resources-title">资源先统一登记，内容以后逐步接入。</h2>
+      </div>
+
+      <div class="digital-starter-resource-filters" aria-label="筛选资源类型">
+        <button type="button" data-resource-filter="all" aria-pressed="true">全部</button>
+        {resourceTypes.map(([type, label]) => <button type="button" data-resource-filter={type}>{label}</button>)}
+      </div>
+
+      <div class="digital-starter-resource-grid">
+        {
+          digitalStarterResources.map((resource) => {
+            const route = digitalStarterRoutes.find((item) => item.id === resource.routeId);
+            return (
+              <a
+                class="digital-starter-resource-card"
+                href={resource.url}
+                data-resource-type={resource.type}
+                data-starter-reveal
+              >
+                <span>{digitalStarterResourceTypeLabels[resource.type]}</span>
+                <h3>{resource.title}</h3>
+                <p>{resource.description}</p>
+                <div>
+                  <small>{route?.title}</small>
+                  <small>{resource.status === "planned" ? "待接入" : "草稿中"}</small>
+                </div>
+              </a>
+            );
+          })
+        }
+      </div>
+    </section>
+
+    <section class="digital-starter-connection" aria-labelledby="connection-title">
+      <div class="digital-starter-connection__copy">
+        <p>接入方式</p>
+        <h2 id="connection-title" aria-label="页面只负责入口，资源由数据结构统一维护。">
+          {
+            "页面只负责入口，资源由数据结构统一维护。"
+              .split("")
+              .map((char) => <span class="digital-starter-word" aria-hidden="true">{char}</span>)
+          }
+        </h2>
+      </div>
+      <div class="digital-starter-connection__notes">
+        {connectionNotes.map((note) => <p data-starter-reveal>{note}</p>)}
+      </div>
+    </section>
+
+    <section class="digital-starter-roadmap" id="roadmap" aria-labelledby="roadmap-title">
+      <div class="digital-starter-section-heading">
+        <p>后续计划</p>
+        <h2 id="roadmap-title">第一版保持轻，后面再接真实材料。</h2>
+      </div>
+      <div class="digital-starter-roadmap-grid">
+        {
+          roadmapItems.map((item, index) => (
+            <article class="digital-starter-roadmap-card" data-starter-reveal>
+              <span>{String(index + 1).padStart(2, "0")}</span>
+              <h3>{item}</h3>
+            </article>
+          ))
+        }
+      </div>
+    </section>
+
+    <section class="digital-starter-updates" aria-labelledby="updates-title">
+      <div>
+        <p>更新记录</p>
+        <h2 id="updates-title">这个 Lab 项目会随着培训材料逐步长出来。</h2>
+      </div>
+      <ol>
+        {
+          digitalStarterUpdates.map((update) => (
+            <li data-starter-reveal>
+              <time>{update.date}</time>
+              <div>
+                <h3>{update.title}</h3>
+                <p>{update.description}</p>
+              </div>
+            </li>
+          ))
+        }
+      </ol>
+    </section>
+  </main>
+
+  <script>
+    import gsap from "gsap";
+    import { ScrollTrigger } from "gsap/ScrollTrigger";
+
+    gsap.registerPlugin(ScrollTrigger);
+
+    const filters = document.querySelectorAll<HTMLButtonElement>("[data-resource-filter]");
+    const resourceCards = document.querySelectorAll<HTMLElement>("[data-resource-type]");
+
+    filters.forEach((filter) => {
+      filter.addEventListener("click", () => {
+        const activeType = filter.dataset.resourceFilter;
+        filters.forEach((item) => item.setAttribute("aria-pressed", String(item === filter)));
+        resourceCards.forEach((card) => {
+          const visible = activeType === "all" || card.dataset.resourceType === activeType;
+          card.toggleAttribute("hidden", !visible);
+        });
+      });
+    });
+
+    const starterMotion = gsap.matchMedia();
+
+    starterMotion.add("(prefers-reduced-motion: no-preference)", () => {
+      gsap.from(".digital-starter-hero__copy > *", {
+        y: 44,
+        opacity: 0,
+        duration: 1,
+        stagger: 0.08,
+        ease: "power3.out",
+      });
+
+      gsap.timeline({
+        scrollTrigger: {
+          trigger: ".digital-starter-hero__panel",
+          start: "top 92%",
+          end: "bottom 8%",
+          scrub: 0.8,
+        },
+      })
+        .fromTo(".digital-starter-hero__panel", { scale: 0.84, opacity: 0.5 }, { scale: 1, opacity: 1, ease: "none" })
+        .to(".digital-starter-hero__panel", { scale: 1.025, opacity: 0.28, ease: "none" });
+
+      gsap.utils.toArray<HTMLElement>("[data-starter-reveal]").forEach((item) => {
+        gsap.from(item, {
+          y: 36,
+          opacity: 0,
+          duration: 0.82,
+          ease: "power3.out",
+          scrollTrigger: {
+            trigger: item,
+            start: "top 88%",
+          },
+        });
+      });
+
+      gsap.to(".digital-starter-word", {
+        opacity: 1,
+        stagger: 0.025,
+        ease: "none",
+        scrollTrigger: {
+          trigger: ".digital-starter-connection",
+          start: "top 72%",
+          end: "bottom 58%",
+          scrub: 0.8,
+        },
+      });
+    });
+  </script>
+</Layout>

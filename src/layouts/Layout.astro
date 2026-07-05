@@ -7,6 +7,7 @@ import { welcomeGateConfig } from "../components/welcome/welcome-config";
 interface Props {
   title?: string;
   description?: string;
+  lang?: string;
   welcomeGate?: boolean;
 }
 
@@ -14,12 +15,13 @@ const canonicalURL = new URL(Astro.url.pathname, Astro.site);
 const {
   title = "zxlab",
   description = "A personal lab for projects, notes, and experiments.",
+  lang = "en",
   welcomeGate = false,
 } = Astro.props;
 ---
 
 <!doctype html>
-<html lang="en">
+<html lang={lang}>
   <head>
     <link rel="canonical" href={canonicalURL.toString()} />
     <link rel="sitemap" href="/sitemap-index.xml" />
