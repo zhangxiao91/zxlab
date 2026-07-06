@@ -6,7 +6,8 @@ export type DigitalStarterStatus =
   | "ready"
   | "writing"
   | "todo"
-  | "pending";
+  | "pending"
+  | "organizing";
 
 export type DigitalStarterResourceType =
   | "link"
@@ -21,6 +22,7 @@ export interface DigitalStarterRoute {
   title: string;
   subtitle?: string;
   description: string;
+  audience?: string[];
   modules: string[];
   status: DigitalStarterStatus;
   links: string[];
@@ -49,7 +51,7 @@ export interface DigitalStarterResource {
   url: string;
   status: DigitalStarterStatus;
   tags: string[];
-  actionLabel: "打开" | "查看" | "下载" | "复制";
+  actionLabel: string;
 }
 
 export interface DigitalStarterDoc {
@@ -78,6 +80,15 @@ export interface DigitalStarterUpdate {
   description: string;
 }
 
+export interface DigitalStarterTask {
+  id: string;
+  routeId: DigitalStarterRouteId;
+  title: string;
+  description: string;
+  steps: string[];
+  status: DigitalStarterStatus;
+}
+
 export const digitalStarterResourceTypeLabels: Record<DigitalStarterResourceType, string> = {
   link: "外链",
   document: "文档",
@@ -99,10 +110,11 @@ export const digitalStarterResourceTypeMarks: Record<DigitalStarterResourceType,
 export const digitalStarterStatusLabels: Record<DigitalStarterStatus, string> = {
   planned: "待接入",
   draft: "草稿中",
-  ready: "可用",
+  ready: "已完成",
   writing: "编写中",
   todo: "待补充",
   pending: "待接入",
+  organizing: "整理中",
 };
 
 export const digitalStarterRoutes: DigitalStarterRoute[] = [
@@ -111,24 +123,28 @@ export const digitalStarterRoutes: DigitalStarterRoute[] = [
     title: "只想会用电脑",
     subtitle: "从文件、快捷键、软件安装到跨设备同步，先把电脑用顺手。",
     description:
-      "这条路线适合刚开始熟悉电脑的同学。它会帮你掌握大学生活里最常遇到的基础操作：找到文件、整理资料、安装软件、截图解压、使用快捷键，以及在手机、电脑和平板之间同步重要资料。",
+      "这条路线适合刚开始熟悉电脑的同学。它不会假设你已经懂很多术语，而是从最常见的真实场景开始：下载的文件去哪了、怎么截图、怎么解压、怎么安装和卸载软件、怎么整理大学资料、怎么让手机和电脑互传文件。",
+    audience: ["刚拿到新电脑", "准备进入大学", "想先补齐电脑基础"],
     modules: ["电脑基础", "键盘与快捷键", "软件工具", "跨设备同步"],
     status: "draft",
     links: [],
     assets: ["college-folder-template"],
     docs: [
-      "computer-basics-cheatsheet",
+      "computer-basics",
       "keyboard-shortcuts-doc",
       "safe-download-guide",
+      "file-structure-doc",
       "sync-plan-doc",
+      "computer-help-prompt-doc",
     ],
     resourceIds: [
-      "computer-basics-cheatsheet",
+      "computer-basics",
       "keyboard-shortcuts-doc",
       "safe-download-guide",
       "college-folder-template",
       "screenshot-unzip-task",
       "sync-plan-doc",
+      "computer-help-prompt",
     ],
     detailHref: "/lab/digital-starter/computer",
   },
@@ -163,31 +179,32 @@ export const digitalStarterRouteModules: DigitalStarterRouteModule[] = [
     routeId: "computer",
     title: "电脑基础",
     description:
-      "学会开关机、重启、文件夹、路径、下载目录、软件安装、卸载、截图、压缩和解压。",
+      "学会文件、文件夹、下载目录、软件安装、卸载、截图、压缩和解压。",
     capabilities: [
-      "知道下载的文件在哪里",
-      "能整理自己的文件夹",
-      "能区分安装包和软件本体",
+      "知道下载的文件通常在哪里",
+      "能创建和整理文件夹",
+      "能区分安装包、压缩包和软件本体",
       "能截图并标注",
       "能解压 zip / rar / 7z 文件",
       "能卸载不需要的软件",
+      "能初步判断电脑卡顿、没网、没空间等常见问题",
     ],
-    task: "整理一个“大学资料”文件夹。",
+    task: "整理一个“大学资料”文件夹，并完成一次截图、压缩和解压练习。",
   },
   {
     id: "keyboard-shortcuts",
     routeId: "computer",
     title: "键盘与快捷键",
-    description: "掌握最常用的键盘操作和快捷键，让电脑用起来更顺手。",
+    description: "掌握最常用的键盘操作，让电脑用起来更顺手。",
     capabilities: [
       "复制、粘贴、剪切、撤销、保存",
-      "全选、查找、切换窗口",
-      "浏览器新建标签页、关闭标签页、打开地址栏",
-      "Windows / macOS 截图快捷键",
+      "全选、查找、重命名",
+      "切换窗口和浏览器标签页",
+      "使用 Windows / macOS 截图快捷键",
       "中英文输入法切换",
-      "常见符号输入",
+      "输入常见符号，例如 @、#、_、-、/、\\、:、;、\"、'",
     ],
-    task: "用快捷键完成一段文字的复制、修改、保存和截图。",
+    task: "用快捷键完成一段文字的复制、修改、保存、截图和文件重命名。",
   },
   {
     id: "software-toolkit",
@@ -197,9 +214,10 @@ export const digitalStarterRouteModules: DigitalStarterRouteModule[] = [
     capabilities: [
       "从官网或可信来源下载软件",
       "识别假下载按钮和捆绑安装",
-      "知道每类工具解决什么问题",
       "能管理浏览器插件",
-      "能清理不用的软件",
+      "了解播放器、压缩工具、截图工具、文件搜索、笔记工具和密码管理器的作用",
+      "定期清理不用的软件",
+      "知道软件更新、开机自启动和默认打开方式的基本概念",
     ],
     toolCategories: [
       "浏览器",
@@ -213,7 +231,7 @@ export const digitalStarterRouteModules: DigitalStarterRouteModule[] = [
       "密码管理",
       "同步备份",
     ],
-    task: "建立自己的“常用软件清单”。",
+    task: "建立自己的“常用软件清单”，每类最多选择 1 到 2 个工具。",
   },
   {
     id: "device-sync",
@@ -222,23 +240,24 @@ export const digitalStarterRouteModules: DigitalStarterRouteModule[] = [
     description: "让手机、电脑和平板之间可以稳定传文件、同步资料和备份重要内容。",
     capabilities: [
       "区分临时传输和长期同步",
-      "知道微信文件传输助手、网盘、iCloud、OneDrive 等方案适合什么场景",
-      "知道同步冲突和误删风险",
+      "理解云盘、本地文件和备份之间的关系",
+      "知道微信文件传输助手、iCloud、OneDrive、网盘、AirDrop、Nearby Share 等方案适合什么场景",
+      "知道同步冲突、误删同步、文件过期等风险",
       "能备份证件、录取资料、课程资料和项目文件",
       "不把敏感资料随便上传到陌生平台",
     ],
-    task: "设计自己的多设备同步方案。",
+    task: "设计自己的多设备同步方案，至少包含“临时传输”“长期同步”“重要资料备份”三类。",
   },
 ];
 
 export const digitalStarterDocs: DigitalStarterDoc[] = [
   {
-    id: "computer-basics-cheatsheet",
+    id: "computer-basics",
     title: "电脑基础速查表",
     routeId: "computer",
-    description: "整理开关机、文件夹、下载、截图、解压、软件安装等基础操作。",
+    description: "面向准大学生的 Windows 电脑基础操作小抄。",
     path: "/lab/digital-starter/docs/computer-basics",
-    status: "writing",
+    status: "ready",
     updatedAt: "2026-07-06",
   },
   {
@@ -260,11 +279,29 @@ export const digitalStarterDocs: DigitalStarterDoc[] = [
     updatedAt: "2026-07-06",
   },
   {
+    id: "file-structure-doc",
+    title: "大学资料文件夹模板",
+    routeId: "computer",
+    description: "给课程、作业、证件、项目、临时下载和归档备份预留一套清晰结构。",
+    path: "/lab/digital-starter/docs/file-structure",
+    status: "pending",
+    updatedAt: "2026-07-06",
+  },
+  {
     id: "sync-plan-doc",
     title: "跨设备同步方案",
     routeId: "computer",
     description: "介绍手机、电脑、平板之间传文件、同步和备份的基本方案。",
     path: "/lab/digital-starter/docs/device-sync",
+    status: "todo",
+    updatedAt: "2026-07-06",
+  },
+  {
+    id: "computer-help-prompt-doc",
+    title: "电脑问题求助模板",
+    routeId: "computer",
+    description: "把报错、截图、设备信息和已经尝试过的方法整理清楚，再去求助。",
+    path: "/lab/digital-starter/docs/help-prompt",
     status: "todo",
     updatedAt: "2026-07-06",
   },
@@ -294,7 +331,7 @@ export const digitalStarterAssets: DigitalStarterAsset[] = [
     title: "大学资料文件夹模板",
     routeId: "computer",
     fileType: "ZIP",
-    description: "提供一套适合大学新生的文件夹结构示例。",
+    description: "提供一套适合大学新生的文件夹结构示例，用于整理课程、作业、证件、项目和临时下载。",
     url: "/assets/digital-starter/computer/",
     status: "pending",
   },
@@ -320,15 +357,15 @@ export const digitalStarterAssets: DigitalStarterAsset[] = [
 
 export const digitalStarterResources: DigitalStarterResource[] = [
   {
-    id: "computer-basics-cheatsheet",
+    id: "computer-basics",
     title: "电脑基础速查表",
     type: "document",
     routeId: "computer",
-    description: "整理开关机、文件夹、下载、截图、解压、软件安装等基础操作。",
+    description: "整理文件夹、下载目录、截图、解压、软件安装和卸载等基础操作。",
     url: "/lab/digital-starter/docs/computer-basics",
-    status: "writing",
-    tags: ["文档", "电脑基础"],
-    actionLabel: "查看",
+    status: "ready",
+    tags: ["Windows", "电脑基础", "文件管理", "截图", "解压"],
+    actionLabel: "查看文档",
   },
   {
     id: "keyboard-shortcuts-doc",
@@ -339,7 +376,7 @@ export const digitalStarterResources: DigitalStarterResource[] = [
     url: "/lab/digital-starter/docs/keyboard-shortcuts",
     status: "todo",
     tags: ["文档", "快捷键"],
-    actionLabel: "查看",
+    actionLabel: "查看清单",
   },
   {
     id: "safe-download-guide",
@@ -350,18 +387,18 @@ export const digitalStarterResources: DigitalStarterResource[] = [
     url: "/lab/digital-starter/docs/safe-download",
     status: "writing",
     tags: ["文档", "软件工具"],
-    actionLabel: "查看",
+    actionLabel: "查看指南",
   },
   {
     id: "college-folder-template",
     title: "大学资料文件夹模板",
     type: "file",
     routeId: "computer",
-    description: "提供一套适合大学新生的文件夹结构示例。",
+    description: "提供一套适合大学新生的文件夹结构示例，用于整理课程、作业、证件、项目和临时下载。",
     url: "/assets/digital-starter/computer/",
     status: "pending",
     tags: ["示例文件", "文件管理"],
-    actionLabel: "下载",
+    actionLabel: "查看模板",
   },
   {
     id: "screenshot-unzip-task",
@@ -372,7 +409,7 @@ export const digitalStarterResources: DigitalStarterResource[] = [
     url: "/lab/digital-starter/docs/tasks#screenshot-unzip",
     status: "todo",
     tags: ["任务", "文件管理"],
-    actionLabel: "查看",
+    actionLabel: "查看任务",
   },
   {
     id: "sync-plan-doc",
@@ -383,7 +420,18 @@ export const digitalStarterResources: DigitalStarterResource[] = [
     url: "/lab/digital-starter/docs/device-sync",
     status: "todo",
     tags: ["文档", "同步备份"],
-    actionLabel: "查看",
+    actionLabel: "查看方案",
+  },
+  {
+    id: "computer-help-prompt",
+    title: "电脑问题求助模板",
+    type: "prompt",
+    routeId: "computer",
+    description: "教新手把“电脑出问题了”描述清楚，方便向同学、搜索引擎或 AI 求助。",
+    url: "/lab/digital-starter/docs/help-prompt",
+    status: "todo",
+    tags: ["Prompt", "求助"],
+    actionLabel: "复制模板",
   },
   {
     id: "ai-intro-doc",
@@ -451,6 +499,42 @@ export const digitalStarterResources: DigitalStarterResource[] = [
     tags: ["示例文件", "helloworld"],
     actionLabel: "下载",
   },
+];
+
+export const digitalStarterTasks: DigitalStarterTask[] = [
+  {
+    id: "organize-college-folder",
+    routeId: "computer",
+    title: "整理大学资料文件夹",
+    description: "新建一个总文件夹，并用固定结构收纳课程、作业、证件、项目和临时下载。",
+    steps: ["课程资料", "作业与实验", "证件材料", "项目作品", "临时下载", "归档备份"],
+    status: "todo",
+  },
+  {
+    id: "screenshot-zip-unzip",
+    routeId: "computer",
+    title: "完成一次截图、压缩和解压",
+    description: "截一张图，保存到指定文件夹，把它压缩成 zip，再解压到另一个文件夹。",
+    steps: ["完成截图", "保存到指定文件夹", "压缩成 zip", "解压到另一个文件夹"],
+    status: "todo",
+  },
+  {
+    id: "software-shortlist",
+    routeId: "computer",
+    title: "建立常用软件清单",
+    description:
+      "为浏览器、截图、压缩、播放器、笔记、PDF、同步和密码管理各选一个工具，写下用途和下载来源。",
+    steps: ["选择工具类别", "记录工具用途", "记录下载来源", "删除暂时不用的软件"],
+    status: "organizing",
+  },
+];
+
+export const digitalStarterSafetyNotes = [
+  "优先从官网或可信应用商店下载软件",
+  "不要随便运行陌生 exe 文件",
+  "不要把验证码、密码和身份证号发给别人或 AI",
+  "重要文件至少保留一份备份",
+  "遇到报错时，先保存截图和错误信息",
 ];
 
 export const digitalStarterRoadmap = [

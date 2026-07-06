@@ -8,7 +8,9 @@ import {
   digitalStarterResources,
   digitalStarterRouteModules,
   digitalStarterRoutes,
+  digitalStarterSafetyNotes,
   digitalStarterStatusLabels,
+  digitalStarterTasks,
 } from "../../../data/digitalStarter";
 import "../../../styles/lab-status-shell.css";
 import "../../../styles/lab.css";
@@ -23,6 +25,7 @@ const modules = digitalStarterRouteModules.filter((module) => module.routeId ===
 const routeResources = digitalStarterResources.filter((resource) => resource.routeId === route.id);
 const routeDocs = digitalStarterDocs.filter((doc) => doc.routeId === route.id);
 const routeAssets = digitalStarterAssets.filter((asset) => asset.routeId === route.id);
+const routeTasks = digitalStarterTasks.filter((task) => task.routeId === route.id);
 ---
 
 <Layout
@@ -38,12 +41,20 @@ const routeAssets = digitalStarterAssets.filter((asset) => asset.routeId === rou
         <h1 id="computer-route-title">{route.title}</h1>
         <p class="digital-starter-subtitle">{route.subtitle}</p>
         <p class="digital-starter-intro">{route.description}</p>
+        <div class="digital-starter-route-meta" aria-label="路线状态与适合人群">
+          <span>First Route</span>
+          <span>{digitalStarterStatusLabels[route.status]}</span>
+          {route.audience?.map((item) => <span>{item}</span>)}
+        </div>
         <div class="digital-starter-actions" aria-label="路线页面入口">
           <a class="digital-starter-button" href="#modules">
             <span>查看四个模块</span><span aria-hidden="true">↓</span>
           </a>
           <a class="digital-starter-button digital-starter-button--ghost" href="#computer-resources">
             <span>查看资源入口</span><span aria-hidden="true">↓</span>
+          </a>
+          <a class="digital-starter-button digital-starter-button--ghost" href="#mini-tasks">
+            <span>先做三个任务</span><span aria-hidden="true">↓</span>
           </a>
         </div>
       </div>
@@ -132,29 +143,69 @@ const routeAssets = digitalStarterAssets.filter((asset) => asset.routeId === rou
       </div>
     </section>
 
-    <section class="digital-starter-entry-index" aria-labelledby="computer-entry-title">
+    <section class="digital-starter-docs-preview" aria-labelledby="computer-docs-title">
       <div>
-        <p>接入索引</p>
-        <h2 id="computer-entry-title">后续真实材料只需要接到数据里。</h2>
+        <p>文档索引</p>
+        <h2 id="computer-docs-title">文档先留入口，正文后续逐步补齐。</h2>
       </div>
 
+      <div class="digital-starter-docs-preview__grid">
+        {
+          routeDocs.map((doc) => (
+            <article data-starter-reveal>
+              <div>
+                <span>{digitalStarterStatusLabels[doc.status]}</span>
+                <time>{doc.updatedAt}</time>
+              </div>
+              <h3>{doc.title}</h3>
+              <p>{doc.description}</p>
+              <a href={doc.path}>进入文档<span aria-hidden="true">↗</span></a>
+            </article>
+          ))
+        }
+      </div>
+    </section>
+
+    <section class="digital-starter-mini-tasks" id="mini-tasks" aria-labelledby="mini-tasks-title">
+      <div class="digital-starter-section-heading">
+        <p>先做这三个小任务</p>
+        <h2 id="mini-tasks-title">不用等课程完整，先把电脑用起来。</h2>
+      </div>
+
+      <div class="digital-starter-mini-task-grid">
+        {
+          routeTasks.map((task, index) => (
+            <article data-starter-reveal>
+              <span>{String(index + 1).padStart(2, "0")}</span>
+              <h3>{task.title}</h3>
+              <p>{task.description}</p>
+              <ul aria-label={task.title + "步骤"}>
+                {task.steps.map((step) => <li>{step}</li>)}
+              </ul>
+            </article>
+          ))
+        }
+      </div>
+    </section>
+
+    <section class="digital-starter-safety-note" aria-labelledby="safety-title">
+      <div>
+        <p>安全提醒</p>
+        <h2 id="safety-title">先把几个底线习惯固定下来。</h2>
+      </div>
+      <ul>
+        {digitalStarterSafetyNotes.map((note) => <li>{note}</li>)}
+      </ul>
+    </section>
+
+    <section class="digital-starter-entry-index" aria-labelledby="computer-entry-title">
+      <div>
+        <p>资产入口</p>
+        <h2 id="computer-entry-title">文件和课件会继续接到这里。</h2>
+      </div>
       <div class="digital-starter-entry-index__grid">
         <article>
-          <h3>文档入口</h3>
-          <ul>
-            {
-              routeDocs.map((doc) => (
-                <li>
-                  <a href={doc.path}>{doc.title}</a>
-                  <span>{digitalStarterStatusLabels[doc.status]}</span>
-                </li>
-              ))
-            }
-          </ul>
-        </article>
-
-        <article>
-          <h3>资产入口</h3>
+          <h3>当前资产</h3>
           <ul>
             {
               routeAssets.map((asset) => (

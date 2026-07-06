@@ -1,0 +1,68 @@
+---
+import { getCollection, render, type CollectionEntry } from "astro:content";
+import Layout from "../../../../layouts/Layout.astro";
+import {
+  digitalStarterRoutes,
+  digitalStarterStatusLabels,
+  type DigitalStarterStatus,
+} from "../../../../data/digitalStarter";
+import "../../../../styles/lab-status-shell.css";
+import "../../../../styles/lab.css";
+
+export async function getStaticPaths() {
+  const docs = await getCollection("digitalStarterDocs");
+
+  return docs.map((doc) => ({
+    params: { id: doc.id },
+    props: { doc },
+  }));
+}
+
+interface Props {
+  doc: CollectionEntry<"digitalStarterDocs">;
+}
+
+const { doc } = Astro.props;
+const { Content } = await render(doc);
+const route = digitalStarterRoutes.find((item) => item.id === doc.data.routeId);
+const backHref = route?.detailHref ?? "/lab/digital-starter";
+const pageTitle = doc.data.title + " | Digital Starter | zxlab";
+
+const dateFormatter = new Intl.DateTimeFormat("zh-CN", {
+  year: "numeric",
+  month: "long",
+  day: "numeric",
+});
+---
+
+<Layout title={pageTitle} description={doc.data.description} lang="zh-CN">
+  <main class="digital-starter-doc-page">
+    <article class="digital-starter-doc">
+      <header class="digital-starter-doc-hero">
+        <a class="digital-starter-back" href={backHref}>← 返回 {route?.title ?? "数字技能启动包"}</a>
+        <p class="digital-starter-kicker">Digital Starter Doc</p>
+        <h1>{doc.data.title}</h1>
+        <p>{doc.data.description}</p>
+        <div class="digital-starter-doc-meta" aria-label="文档信息">
+          <span>{digitalStarterStatusLabels[doc.data.status as DigitalStarterStatus]}</span>
+          <time datetime={doc.data.updatedAt.toISOString()}>
+            更新于 {dateFormatter.format(doc.data.updatedAt)}
+          </time>
+          {doc.data.tags.map((tag) => <span>{tag}</span>)}
+        </div>
+      </header>
+
+      <div class="digital-starter-doc-layout">
+        <aside class="digital-starter-doc-rail" aria-label="文档路线信息">
+          <p>所属路线</p>
+          <a href={backHref}>{route?.title ?? "Digital Starter"}</a>
+          <span>这是一份轻量速查文档，不是完整课程。</span>
+        </aside>
+
+        <div class="digital-starter-prose">
+          <Content />
+        </div>
+      </div>
+    </article>
+  </main>
+</Layout>

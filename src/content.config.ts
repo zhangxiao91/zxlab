@@ -20,4 +20,20 @@ const notes = defineCollection({
 	}),
 });
 
-export const collections = { notes };
+const digitalStarterDocs = defineCollection({
+	loader: glob({
+		base: "./src/content/digital-starter",
+		pattern: "**/*.md",
+	}),
+
+	schema: z.object({
+		title: z.string(),
+		description: z.string(),
+		routeId: z.enum(["computer", "ai", "coding"]),
+		status: z.enum(["planned", "draft", "ready", "writing", "todo", "pending", "organizing"]),
+		updatedAt: z.coerce.date(),
+		tags: z.array(z.string()).default([]),
+	}),
+});
+
+export const collections = { notes, digitalStarterDocs };
