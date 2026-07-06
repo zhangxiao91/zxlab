@@ -1,0 +1,198 @@
+---
+import Layout from "../../../../layouts/Layout.astro";
+import {
+  digitalStarterRoutes,
+  digitalStarterSoftwareCategories,
+  digitalStarterSoftwareTools,
+  digitalStarterStatusLabels,
+  type DigitalStarterSoftwareToolType,
+} from "../../../../data/digitalStarter";
+import "../../../../styles/lab-status-shell.css";
+import "../../../../styles/lab.css";
+
+const route = digitalStarterRoutes.find((item) => item.id === "computer");
+
+const typeLabels: Record<DigitalStarterSoftwareToolType, string> = {
+  software: "软件",
+  plugin: "插件",
+  web: "Web",
+  system: "系统工具",
+};
+
+const principles = [
+  "不要为了“必装”而装很多软件。",
+  "每一类工具先选 1 个主力，用熟之后再扩展。",
+  "优先从官网、应用商店或可信来源下载。",
+  "安装时注意捆绑软件、开机自启动和默认打开方式。",
+  "插件越多，浏览器越容易变慢，也会增加权限风险。",
+  "先解决真实需求，再考虑高级工具。",
+];
+
+const starterPriorities = [
+  "浏览器",
+  "压缩解压",
+  "截图",
+  "文档与 PDF",
+  "同步备份",
+  "密码管理",
+  "编程入门工具，按兴趣选择",
+];
+
+const downloadSafety = [
+  "优先从官网或应用商店下载。",
+  "不要点击页面上不明的“高速下载”。",
+  "安装时看清附加选项。",
+  "不要运行来路不明的 exe 文件。",
+  "浏览器插件要看权限。",
+  "不常用的软件可以卸载。",
+];
+---
+
+<Layout
+  title="推荐插件与软件列表 | Digital Starter | zxlab"
+  description="给准大学生的 Windows 基础工具箱：先装真正用得上的，再慢慢扩展。"
+  lang="zh-CN"
+  current="lab"
+>
+  <main class="digital-starter-toolbox-page">
+    <section class="digital-starter-toolbox-hero" aria-labelledby="software-toolbox-title">
+      <div>
+        <a class="digital-starter-back" href="/lab/digital-starter/computer">← 返回 {route?.title ?? "只想会用电脑"}</a>
+        <p class="digital-starter-kicker">Software toolbox</p>
+        <h1 id="software-toolbox-title">推荐插件与软件列表</h1>
+        <p>给准大学生的 Windows 基础工具箱：先装真正用得上的，再慢慢扩展。</p>
+      </div>
+      <aside aria-label="文档定位">
+        <p>
+          这不是“装机必备大全”，而是一份适合新手的轻量工具箱。每类工具只推荐少量代表，重点说明它解决什么问题、适合谁、下载时注意什么。
+        </p>
+      </aside>
+    </section>
+
+    <section class="digital-starter-toolbox-principles" aria-labelledby="toolbox-principles-title">
+      <div>
+        <p>使用原则</p>
+        <h2 id="toolbox-principles-title">先让工具服务需求，而不是让电脑变成软件仓库。</h2>
+      </div>
+      <ul>
+        {principles.map((principle) => <li>{principle}</li>)}
+      </ul>
+    </section>
+
+    <section class="digital-starter-toolbox-catalog" aria-labelledby="toolbox-catalog-title">
+      <div class="digital-starter-section-heading digital-starter-section-heading--light">
+        <p>分类列表</p>
+        <h2 id="toolbox-catalog-title">按使用场景预留工具入口。</h2>
+      </div>
+
+      <div class="digital-starter-toolbox-category-list" aria-label="软件分类">
+        {digitalStarterSoftwareCategories.map((category) => <span>{category}</span>)}
+      </div>
+
+      <div class="digital-starter-toolbox-sections">
+        {
+          digitalStarterSoftwareCategories.map((category) => {
+            const tools = digitalStarterSoftwareTools.filter((tool) => tool.category === category);
+
+            return (
+              <section class="digital-starter-toolbox-category" aria-labelledby={`tool-category-${category}`}>
+                <div class="digital-starter-toolbox-category__heading">
+                  <h3 id={`tool-category-${category}`}>{category}</h3>
+                  <span>{tools.length > 0 ? `${tools.length} 个示例` : "待补充"}</span>
+                </div>
+                {tools.length > 0 ? (
+                  <div class="digital-starter-tool-grid">
+                    {tools.map((tool) => (
+                      <article class="digital-starter-tool-card" data-starter-reveal>
+                        <div class="digital-starter-tool-card__top">
+                          <span>{typeLabels[tool.type]}</span>
+                          <span>{digitalStarterStatusLabels[tool.status]}</span>
+                        </div>
+                        <h4>{tool.name}</h4>
+                        <p>{tool.description}</p>
+                        <dl>
+                          <div>
+                            <dt>适合场景</dt>
+                            <dd>{tool.useCase}</dd>
+                          </div>
+                          <div>
+                            <dt>适合谁</dt>
+                            <dd>{tool.recommendedFor}</dd>
+                          </div>
+                          <div>
+                            <dt>平台</dt>
+                            <dd>{tool.platform.join(" / ")}</dd>
+                          </div>
+                          {tool.alternatives && (
+                            <div>
+                              <dt>替代品</dt>
+                              <dd>{tool.alternatives.join(" / ")}</dd>
+                            </div>
+                          )}
+                          {tool.caution && (
+                            <div>
+                              <dt>注意</dt>
+                              <dd>{tool.caution}</dd>
+                            </div>
+                          )}
+                        </dl>
+                        <a href={tool.officialUrl}>
+                          <span>访问官网</span>
+                          <span aria-hidden="true">↗</span>
+                        </a>
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  <p class="digital-starter-toolbox-empty">这个分类先留出位置，后续按课程需要补充。</p>
+                )}
+              </section>
+            );
+          })
+        }
+      </div>
+    </section>
+
+    <section class="digital-starter-toolbox-priority" aria-labelledby="toolbox-priority-title">
+      <div>
+        <p>新手优先级</p>
+        <h2 id="toolbox-priority-title">刚拿到 Windows 电脑时，不需要一次性全部安装。</h2>
+      </div>
+      <ul>
+        {starterPriorities.map((item) => <li>{item}</li>)}
+      </ul>
+      <p>先用到什么，再补什么。能用系统自带功能解决的，就先别急着装第三方工具。</p>
+    </section>
+
+    <section class="digital-starter-safety-note" aria-labelledby="toolbox-safety-title">
+      <div>
+        <p>下载安全提醒</p>
+        <h2 id="toolbox-safety-title">安装软件之前，先多看两眼来源和权限。</h2>
+      </div>
+      <ul>
+        {downloadSafety.map((item) => <li>{item}</li>)}
+      </ul>
+    </section>
+  </main>
+</Layout>
+
+<script>
+  import gsap from "gsap";
+  import { ScrollTrigger } from "gsap/ScrollTrigger";
+
+  gsap.registerPlugin(ScrollTrigger);
+
+  if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    gsap.from("[data-starter-reveal]", {
+      y: 36,
+      opacity: 0,
+      duration: 0.75,
+      ease: "power3.out",
+      stagger: 0.05,
+      scrollTrigger: {
+        trigger: ".digital-starter-toolbox-catalog",
+        start: "top 72%",
+      },
+    });
+  }
+</script>

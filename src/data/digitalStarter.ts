@@ -17,6 +17,8 @@ export type DigitalStarterResourceType =
   | "prompt"
   | "task";
 
+export type DigitalStarterSoftwareToolType = "software" | "plugin" | "web" | "system";
+
 export interface DigitalStarterRoute {
   id: DigitalStarterRouteId;
   title: string;
@@ -89,6 +91,22 @@ export interface DigitalStarterTask {
   status: DigitalStarterStatus;
 }
 
+export interface DigitalStarterSoftwareTool {
+  id: string;
+  name: string;
+  category: string;
+  platform: string[];
+  type: DigitalStarterSoftwareToolType;
+  description: string;
+  useCase: string;
+  recommendedFor: string;
+  officialUrl: string;
+  alternatives?: string[];
+  caution?: string;
+  status: "ready" | "draft" | "todo";
+  tags: string[];
+}
+
 export const digitalStarterResourceTypeLabels: Record<DigitalStarterResourceType, string> = {
   link: "外链",
   document: "文档",
@@ -136,6 +154,7 @@ export const digitalStarterRoutes: DigitalStarterRoute[] = [
       "file-structure-doc",
       "sync-plan-doc",
       "computer-help-prompt-doc",
+      "software-toolbox",
     ],
     resourceIds: [
       "computer-basics",
@@ -145,6 +164,7 @@ export const digitalStarterRoutes: DigitalStarterRoute[] = [
       "screenshot-unzip-task",
       "sync-plan-doc",
       "computer-help-prompt",
+      "software-toolbox",
     ],
     detailHref: "/lab/digital-starter/computer",
   },
@@ -306,6 +326,15 @@ export const digitalStarterDocs: DigitalStarterDoc[] = [
     updatedAt: "2026-07-06",
   },
   {
+    id: "software-toolbox",
+    title: "推荐插件与软件列表",
+    routeId: "computer",
+    description: "给准大学生的 Windows 基础工具箱。",
+    path: "/lab/digital-starter/docs/software-toolbox",
+    status: "draft",
+    updatedAt: "2026-07-06",
+  },
+  {
     id: "ai-intro-doc",
     title: "AI 入门讲义",
     routeId: "ai",
@@ -434,6 +463,17 @@ export const digitalStarterResources: DigitalStarterResource[] = [
     actionLabel: "复制模板",
   },
   {
+    id: "software-toolbox",
+    title: "推荐插件与软件列表",
+    type: "document",
+    routeId: "computer",
+    description: "按浏览器、广告过滤、视频播放、压缩解压、截图录屏、笔记、同步和安全等类别整理常用工具。",
+    url: "/lab/digital-starter/docs/software-toolbox",
+    status: "draft",
+    tags: ["Windows", "软件工具", "浏览器插件", "工具箱"],
+    actionLabel: "查看列表",
+  },
+  {
     id: "ai-intro-doc",
     title: "AI 入门讲义",
     type: "document",
@@ -526,6 +566,204 @@ export const digitalStarterTasks: DigitalStarterTask[] = [
       "为浏览器、截图、压缩、播放器、笔记、PDF、同步和密码管理各选一个工具，写下用途和下载来源。",
     steps: ["选择工具类别", "记录工具用途", "记录下载来源", "删除暂时不用的软件"],
     status: "organizing",
+  },
+];
+
+export const digitalStarterSoftwareCategories = [
+  "浏览器与插件",
+  "广告过滤",
+  "视频播放",
+  "压缩解压",
+  "截图与录屏",
+  "文件搜索与管理",
+  "文档与 PDF",
+  "笔记与 Markdown",
+  "同步与备份",
+  "密码与账号安全",
+  "编程入门",
+  "系统效率工具",
+];
+
+export const digitalStarterSoftwareTools: DigitalStarterSoftwareTool[] = [
+  {
+    id: "browser-basics",
+    name: "Microsoft Edge / Chrome / Firefox",
+    category: "浏览器与插件",
+    platform: ["Windows", "macOS", "Mobile"],
+    type: "software",
+    description: "常用浏览器，用于搜索资料、访问课程平台、管理书签和下载文件。",
+    useCase: "日常搜索、课程平台、资料下载、账号登录和书签管理。",
+    recommendedFor: "所有刚开始管理电脑和学习资料的同学。",
+    officialUrl: "#",
+    alternatives: ["Safari"],
+    caution: "登录重要账号时看清网址，浏览器插件不要乱装。",
+    status: "draft",
+    tags: ["Browser", "书签", "下载"],
+  },
+  {
+    id: "ad-blocking",
+    name: "uBlock Origin / AdGuard",
+    category: "广告过滤",
+    platform: ["Windows", "macOS", "Browser"],
+    type: "plugin",
+    description: "用于减少网页广告和部分追踪，提高浏览体验。",
+    useCase: "浏览资料页、论坛和下载页时减少干扰。",
+    recommendedFor: "经常查资料、阅读网页和访问课程站点的同学。",
+    officialUrl: "#",
+    alternatives: ["浏览器内置跟踪防护"],
+    caution: "插件权限较高，优先从浏览器官方扩展商店安装。",
+    status: "draft",
+    tags: ["Plugin", "广告过滤", "Browser"],
+  },
+  {
+    id: "video-player",
+    name: "PotPlayer / VLC",
+    category: "视频播放",
+    platform: ["Windows", "macOS"],
+    type: "software",
+    description: "用于播放本地视频、课程录像和多种格式的视频文件。",
+    useCase: "打开下载到电脑里的课程录像、讲座视频和常见视频格式。",
+    recommendedFor: "需要保存网课录像或经常看本地视频文件的同学。",
+    officialUrl: "#",
+    alternatives: ["系统自带播放器"],
+    caution: "优先从官网或可信来源下载。",
+    status: "draft",
+    tags: ["视频", "课程录像"],
+  },
+  {
+    id: "archive-tools",
+    name: "7-Zip / Bandizip",
+    category: "压缩解压",
+    platform: ["Windows", "macOS"],
+    type: "software",
+    description: "用于解压 zip、rar、7z 等压缩包，也可以把多个文件打包发送。",
+    useCase: "处理老师、同学或网站提供的压缩包，整理多个文件后统一发送。",
+    recommendedFor: "需要交作业、收课件、下载资料包的新生。",
+    officialUrl: "#",
+    alternatives: ["系统自带压缩功能"],
+    caution: "安装时留意是否有额外推荐软件。",
+    status: "draft",
+    tags: ["zip", "rar", "7z"],
+  },
+  {
+    id: "screenshot-recording",
+    name: "Windows 自带截图 / Snipaste / ShareX",
+    category: "截图与录屏",
+    platform: ["Windows"],
+    type: "software",
+    description: "用于截图、标注、保存问题现场或制作简单说明图。",
+    useCase: "记录报错、截取资料、标注问题位置和制作简单说明。",
+    recommendedFor: "所有需要写作业、求助或整理资料的同学。",
+    officialUrl: "#",
+    alternatives: ["macOS 截图工具"],
+    caution: "新手先熟悉 Win + Shift + S，再考虑安装额外工具。",
+    status: "draft",
+    tags: ["截图", "录屏", "标注"],
+  },
+  {
+    id: "everything-search",
+    name: "Everything",
+    category: "文件搜索与管理",
+    platform: ["Windows"],
+    type: "software",
+    description: "用于在 Windows 上快速搜索文件，适合找不到下载文件或资料时使用。",
+    useCase: "按文件名快速找下载、课件、截图和临时保存的资料。",
+    recommendedFor: "经常找不到文件位置的同学。",
+    officialUrl: "#",
+    alternatives: ["Windows 搜索"],
+    caution: "第一次使用需要建立索引，搜索结果要看清文件所在路径。",
+    status: "draft",
+    tags: ["文件搜索", "Windows"],
+  },
+  {
+    id: "office-pdf",
+    name: "WPS / Microsoft Office / PDF Reader",
+    category: "文档与 PDF",
+    platform: ["Windows", "macOS", "Mobile"],
+    type: "software",
+    description: "用于处理作业、报告、PPT、表格和 PDF 阅读批注。",
+    useCase: "写报告、做 PPT、看论文或阅读课程 PDF。",
+    recommendedFor: "需要提交文档、表格、PPT 和 PDF 作业的同学。",
+    officialUrl: "#",
+    alternatives: ["LibreOffice", "浏览器 PDF 阅读器"],
+    caution: "注意文件格式兼容，提交作业前确认格式要求。",
+    status: "draft",
+    tags: ["PDF", "PPT", "Office"],
+  },
+  {
+    id: "markdown-notes",
+    name: "Obsidian / Typora / VS Code",
+    category: "笔记与 Markdown",
+    platform: ["Windows", "macOS"],
+    type: "software",
+    description: "用于写笔记、Markdown 文档、说明文件和简单网页内容。",
+    useCase: "整理课程笔记、项目说明、学习记录和 Markdown 文档。",
+    recommendedFor: "想把笔记和资料整理得更清楚的同学。",
+    officialUrl: "#",
+    alternatives: ["Notion", "系统备忘录"],
+    caution: "新手可以先从 Markdown 标题、列表、链接和代码块开始。",
+    status: "draft",
+    tags: ["Markdown", "笔记", "VS Code"],
+  },
+  {
+    id: "sync-backup",
+    name: "OneDrive / iCloud / 坚果云 / 百度网盘",
+    category: "同步与备份",
+    platform: ["Windows", "macOS", "Web", "Mobile"],
+    type: "software",
+    description: "用于在电脑、手机和平板之间同步资料或备份重要文件。",
+    useCase: "同步课程资料、备份证件材料、跨设备传文件。",
+    recommendedFor: "有多台设备或担心重要资料丢失的同学。",
+    officialUrl: "#",
+    alternatives: ["移动硬盘", "U 盘"],
+    caution: "同步不等于备份，误删可能会同步到其他设备。",
+    status: "draft",
+    tags: ["OneDrive", "iCloud", "备份"],
+  },
+  {
+    id: "password-manager",
+    name: "Bitwarden / 1Password",
+    category: "密码与账号安全",
+    platform: ["Windows", "macOS", "Web", "Mobile"],
+    type: "software",
+    description: "用于管理多个账号密码，减少重复使用弱密码的风险。",
+    useCase: "保存课程平台、邮箱、GitHub 和常用网站账号。",
+    recommendedFor: "开始拥有多个学习、生活和工具账号的同学。",
+    officialUrl: "#",
+    alternatives: ["浏览器密码管理器"],
+    caution: "主密码一定要记牢，重要账号建议开启两步验证。",
+    status: "draft",
+    tags: ["密码管理", "账号安全"],
+  },
+  {
+    id: "vscode-intro",
+    name: "VS Code",
+    category: "编程入门",
+    platform: ["Windows", "macOS"],
+    type: "software",
+    description: "代码编辑器，也可以写 Markdown、HTML 和简单项目。",
+    useCase: "打开文件夹、编辑代码、预览 HTML、写 Markdown。",
+    recommendedFor: "对编程、网页或 AI 辅助写代码有兴趣的同学。",
+    officialUrl: "#",
+    alternatives: ["Cursor", "系统文本编辑器"],
+    caution: "第一次使用先学会打开文件夹、编辑文件和预览 HTML。",
+    status: "draft",
+    tags: ["VS Code", "编程", "Markdown"],
+  },
+  {
+    id: "powertoys",
+    name: "PowerToys",
+    category: "系统效率工具",
+    platform: ["Windows"],
+    type: "system",
+    description: "微软提供的 Windows 效率工具合集，包含窗口管理、批量重命名、颜色拾取等功能。",
+    useCase: "进阶窗口管理、批量整理文件名、屏幕取色和快捷启动。",
+    recommendedFor: "已经熟悉基础操作，想继续提升 Windows 效率的同学。",
+    officialUrl: "#",
+    alternatives: ["Windows 自带设置"],
+    caution: "新手可以先不用急着装，熟悉基础操作后再探索。",
+    status: "draft",
+    tags: ["Windows", "效率工具"],
   },
 ];
 
