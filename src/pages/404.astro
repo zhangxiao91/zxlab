@@ -6,21 +6,109 @@ import Layout from "../layouts/Layout.astro";
 	title="Page not found | zxlab"
 	description="The requested page could not be found."
 >
-	<main class="site-main error-page">
-		<section aria-labelledby="error-title">
-			<p class="eyebrow">ERROR / 404</p>
+	<main class="error-page">
+		<section class="error-hero" aria-labelledby="error-title">
+			<div class="error-ambient" aria-hidden="true"></div>
 
-			<h1 id="error-title">Page not found :(</h1>
+			<div class="error-hero__copy">
+				<p class="eyebrow">ERROR / 404</p>
 
-			<p class="intro">
-				qwq The address may be incorrect, or the page may have moved
-				somewhere else.
-			</p>
+				<h1 id="error-title">
+					Page{" "}
+					<span
+						class="error-title-image"
+						role="img"
+						aria-label="Abstract broken route detail"
+					></span>{" "}
+					not found :(
+				</h1>
 
-			<div class="error-links">
-				<a class="primary-link" href="/">Return home</a>
-				<a href="/projects">Browse projects</a>
+				<p class="intro">
+					qwq The address may be incorrect, or the page may have moved
+					somewhere else.
+				</p>
+
+				<div class="error-links">
+					<a class="primary-link" href="/">Return home</a>
+					<a href="/projects">Browse projects</a>
+				</div>
+			</div>
+
+			<div class="error-orbit" aria-hidden="true">
+				<div class="error-orbit__media" data-error-image>
+					<img
+						src="https://picsum.photos/seed/lost-digital-corridor/1200/1500"
+						alt=""
+						fetchpriority="high"
+					/>
+				</div>
+				<div class="error-orbit__panel error-orbit__panel--top">404</div>
+				<div class="error-orbit__panel error-orbit__panel--bottom">zxlab</div>
 			</div>
 		</section>
+
+		<section class="error-bento" aria-label="Helpful routes">
+			<div class="error-bento__map" data-error-card>
+				<span>404</span>
+				<div class="error-bento__line" aria-hidden="true"></div>
+			</div>
+			<a href="/" data-error-card>
+				<span>Return home</span>
+				<i aria-hidden="true">↗</i>
+			</a>
+			<a href="/projects" data-error-card>
+				<span>Browse projects</span>
+				<i aria-hidden="true">↗</i>
+			</a>
+		</section>
 	</main>
+
+	<script>
+		import gsap from "gsap";
+		import { ScrollTrigger } from "gsap/ScrollTrigger";
+
+		gsap.registerPlugin(ScrollTrigger);
+
+		const motion = gsap.matchMedia();
+
+		motion.add("(prefers-reduced-motion: no-preference)", () => {
+			gsap.from(".error-hero__copy > *, .error-orbit", {
+				y: 42,
+				opacity: 0,
+				duration: 1,
+				stagger: 0.09,
+				ease: "power3.out",
+			});
+
+			gsap.fromTo(
+				"[data-error-image]",
+				{ scale: 0.86, opacity: 0.58 },
+				{
+					scale: 1,
+					opacity: 1,
+					ease: "none",
+					scrollTrigger: {
+						trigger: ".error-hero",
+						start: "top top",
+						end: "bottom 35%",
+						scrub: 0.8,
+					},
+				},
+			);
+
+			gsap.utils.toArray<HTMLElement>("[data-error-card]").forEach((card, index) => {
+				gsap.from(card, {
+					y: 52,
+					opacity: 0,
+					duration: 0.9,
+					delay: index * 0.08,
+					ease: "power3.out",
+					scrollTrigger: {
+						trigger: card,
+						start: "top 86%",
+					},
+				});
+			});
+		});
+	</script>
 </Layout>
