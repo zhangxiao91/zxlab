@@ -1,15 +1,16 @@
 ---
 import Layout from "../../layouts/Layout.astro";
 import {
-  digitalStarterAssets,
-  digitalStarterDocs,
+  digitalStarterConnectionNotes,
+  digitalStarterResourceTypeMarks,
   digitalStarterResourceTypeLabels,
   digitalStarterResources,
+  digitalStarterRoadmap,
   digitalStarterRoutes,
+  digitalStarterStatusLabels,
   digitalStarterUpdates,
   type DigitalStarterResourceType,
-  type DigitalStarterRouteId,
-} from "../../lab/digital-starter";
+} from "../../data/digitalStarter";
 import "../../styles/lab-status-shell.css";
 import "../../styles/lab.css";
 
@@ -19,25 +20,14 @@ const resourceTypes = Object.entries(digitalStarterResourceTypeLabels) as [
 ][];
 
 const routeIndex = new Map(digitalStarterRoutes.map((route, index) => [route.id, index + 1]));
-
-const routeEntrances: Record<DigitalStarterRouteId, string[]> = {
-  computer: ["相关文档", "工具链接", "课件资产", "实战任务"],
-  ai: ["AI 工具链接", "Prompt 模板", "PPT 示例文件", "相关文档"],
-  coding: ["入门文档", "示例代码", "GitHub 仓库链接", "作品展示入口"],
-};
-
-const roadmapItems = [
-  "补充电脑基础文档",
-  "补充 AI 做 PPT 示例",
-  "补充 Markdown 与 GitHub 入门资料",
-  "接入培训课件和下载文件",
-];
-
-const connectionNotes = [
-  `${digitalStarterDocs.length} 个文档入口已预留`,
-  `${digitalStarterAssets.length} 类资产路径已预留`,
-  `${digitalStarterResources.length} 个资源占位从数据渲染`,
-];
+const routeResources = new Map(
+  digitalStarterRoutes.map((route) => [
+    route.id,
+    route.resourceIds
+      .map((resourceId) => digitalStarterResources.find((resource) => resource.id === resourceId))
+      .filter((resource) => resource !== undefined),
+  ]),
+);
 ---
 
 <Layout
@@ -100,7 +90,7 @@ const connectionNotes = [
               <div class="digital-starter-route-card__shell">
                 <div class="digital-starter-route-card__top">
                   <span>{String(routeIndex.get(route.id)).padStart(2, "0")}</span>
-                  <span>{route.status === "draft" ? "草稿中" : "规划中"}</span>
+                  <span>{digitalStarterStatusLabels[route.status]}</span>
                 </div>
                 <h3>{route.title}</h3>
                 <p>{route.description}</p>
@@ -110,9 +100,21 @@ const connectionNotes = [
                 <div class="digital-starter-route-card__entrances">
                   <p>预留入口</p>
                   <ul>
-                    {routeEntrances[route.id].map((item) => <li>{item}</li>)}
+                    {(routeResources.get(route.id) ?? []).map((resource) => (
+                      <li>
+                        <span>{digitalStarterResourceTypeLabels[resource.type]}</span>
+                        {resource.title}
+                      </li>
+                    ))}
                   </ul>
                 </div>
+                {
+                  route.detailHref && (
+                    <a class="digital-starter-route-card__link" href={route.detailHref}>
+                      <span>打开路线详情</span><span aria-hidden="true">↗</span>
+                    </a>
+                  )
+                }
               </div>
             </article>
           ))
@@ -142,13 +144,19 @@ const connectionNotes = [
                 data-resource-type={resource.type}
                 data-starter-reveal
               >
-                <span>{digitalStarterResourceTypeLabels[resource.type]}</span>
+                <div class="digital-starter-resource-card__type">
+                  <span>{digitalStarterResourceTypeMarks[resource.type]}</span>
+                  <span>{digitalStarterResourceTypeLabels[resource.type]}</span>
+                </div>
                 <h3>{resource.title}</h3>
                 <p>{resource.description}</p>
-                <div>
+                <div class="digital-starter-resource-card__meta">
                   <small>{route?.title}</small>
-                  <small>{resource.status === "planned" ? "待接入" : "草稿中"}</small>
+                  <small>{digitalStarterStatusLabels[resource.status]}</small>
                 </div>
+                <span class="digital-starter-resource-card__action">
+                  {resource.actionLabel}<span aria-hidden="true">↗</span>
+                </span>
               </a>
             );
           })
@@ -168,7 +176,7 @@ const connectionNotes = [
         </h2>
       </div>
       <div class="digital-starter-connection__notes">
-        {connectionNotes.map((note) => <p data-starter-reveal>{note}</p>)}
+        {digitalStarterConnectionNotes.map((note) => <p data-starter-reveal>{note}</p>)}
       </div>
     </section>
 
@@ -179,7 +187,7 @@ const connectionNotes = [
       </div>
       <div class="digital-starter-roadmap-grid">
         {
-          roadmapItems.map((item, index) => (
+          digitalStarterRoadmap.map((item, index) => (
             <article class="digital-starter-roadmap-card" data-starter-reveal>
               <span>{String(index + 1).padStart(2, "0")}</span>
               <h3>{item}</h3>

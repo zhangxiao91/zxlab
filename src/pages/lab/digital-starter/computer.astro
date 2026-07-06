@@ -1,0 +1,215 @@
+---
+import Layout from "../../../layouts/Layout.astro";
+import {
+  digitalStarterAssets,
+  digitalStarterDocs,
+  digitalStarterResourceTypeLabels,
+  digitalStarterResourceTypeMarks,
+  digitalStarterResources,
+  digitalStarterRouteModules,
+  digitalStarterRoutes,
+  digitalStarterStatusLabels,
+} from "../../../data/digitalStarter";
+import "../../../styles/lab-status-shell.css";
+import "../../../styles/lab.css";
+
+const route = digitalStarterRoutes.find((item) => item.id === "computer");
+
+if (!route) {
+  throw new Error("Digital Starter computer route is missing.");
+}
+
+const modules = digitalStarterRouteModules.filter((module) => module.routeId === route.id);
+const routeResources = digitalStarterResources.filter((resource) => resource.routeId === route.id);
+const routeDocs = digitalStarterDocs.filter((doc) => doc.routeId === route.id);
+const routeAssets = digitalStarterAssets.filter((asset) => asset.routeId === route.id);
+---
+
+<Layout
+  title="只想会用电脑 | 准大学生数字技能启动包 | zxlab"
+  description="从文件、快捷键、软件安装到跨设备同步，先把电脑用顺手。"
+  lang="zh-CN"
+>
+  <main class="digital-starter-detail-page">
+    <section class="digital-starter-detail-hero" aria-labelledby="computer-route-title">
+      <div class="digital-starter-detail-hero__copy">
+        <a class="digital-starter-back" href="/lab/digital-starter">← 返回数字技能启动包</a>
+        <p class="digital-starter-kicker">Computer route</p>
+        <h1 id="computer-route-title">{route.title}</h1>
+        <p class="digital-starter-subtitle">{route.subtitle}</p>
+        <p class="digital-starter-intro">{route.description}</p>
+        <div class="digital-starter-actions" aria-label="路线页面入口">
+          <a class="digital-starter-button" href="#modules">
+            <span>查看四个模块</span><span aria-hidden="true">↓</span>
+          </a>
+          <a class="digital-starter-button digital-starter-button--ghost" href="#computer-resources">
+            <span>查看资源入口</span><span aria-hidden="true">↓</span>
+          </a>
+        </div>
+      </div>
+
+      <div class="digital-starter-detail-hero__panel" data-starter-image>
+        <div class="digital-starter-detail-hero__screen">
+          <p>route modules</p>
+          <ol>
+            {modules.map((module) => <li>{module.title}</li>)}
+          </ol>
+        </div>
+      </div>
+    </section>
+
+    <section class="digital-starter-module-section" id="modules" aria-labelledby="computer-modules-title">
+      <div class="digital-starter-section-heading">
+        <p>路线模块</p>
+        <h2 id="computer-modules-title">先掌握高频操作，再慢慢补工具细节。</h2>
+      </div>
+
+      <div class="digital-starter-module-grid">
+        {
+          modules.map((module, index) => (
+            <article class="digital-starter-module-card" data-starter-reveal>
+              <div class="digital-starter-module-card__top">
+                <span>{String(index + 1).padStart(2, "0")}</span>
+                <span>{module.title}</span>
+              </div>
+              <h3>{module.title}</h3>
+              <p>{module.description}</p>
+
+              <div class="digital-starter-module-card__block">
+                <h4>关键能力</h4>
+                <ul aria-label={module.title + "关键能力"}>
+                  {module.capabilities.map((capability) => <li>{capability}</li>)}
+                </ul>
+              </div>
+
+              {
+                module.toolCategories && (
+                  <div class="digital-starter-module-card__block">
+                    <h4>推荐工具类别</h4>
+                    <ul class="digital-starter-module-card__tags" aria-label="推荐工具类别">
+                      {module.toolCategories.map((category) => <li>{category}</li>)}
+                    </ul>
+                  </div>
+                )
+              }
+
+              <div class="digital-starter-module-card__task">
+                <span>建议任务</span>
+                <p>{module.task}</p>
+              </div>
+            </article>
+          ))
+        }
+      </div>
+    </section>
+
+    <section class="digital-starter-route-resources" id="computer-resources" aria-labelledby="computer-resources-title">
+      <div class="digital-starter-section-heading digital-starter-section-heading--light">
+        <p>资源入口</p>
+        <h2 id="computer-resources-title">文档、任务和文件先占好位置。</h2>
+      </div>
+
+      <div class="digital-starter-resource-grid digital-starter-resource-grid--route">
+        {
+          routeResources.map((resource) => (
+            <a class="digital-starter-resource-card" href={resource.url} data-resource-type={resource.type} data-starter-reveal>
+              <div class="digital-starter-resource-card__type">
+                <span>{digitalStarterResourceTypeMarks[resource.type]}</span>
+                <span>{digitalStarterResourceTypeLabels[resource.type]}</span>
+              </div>
+              <h3>{resource.title}</h3>
+              <p>{resource.description}</p>
+              <div class="digital-starter-resource-card__meta">
+                <small>{route.title}</small>
+                <small>{digitalStarterStatusLabels[resource.status]}</small>
+              </div>
+              <span class="digital-starter-resource-card__action">
+                {resource.actionLabel}<span aria-hidden="true">↗</span>
+              </span>
+            </a>
+          ))
+        }
+      </div>
+    </section>
+
+    <section class="digital-starter-entry-index" aria-labelledby="computer-entry-title">
+      <div>
+        <p>接入索引</p>
+        <h2 id="computer-entry-title">后续真实材料只需要接到数据里。</h2>
+      </div>
+
+      <div class="digital-starter-entry-index__grid">
+        <article>
+          <h3>文档入口</h3>
+          <ul>
+            {
+              routeDocs.map((doc) => (
+                <li>
+                  <a href={doc.path}>{doc.title}</a>
+                  <span>{digitalStarterStatusLabels[doc.status]}</span>
+                </li>
+              ))
+            }
+          </ul>
+        </article>
+
+        <article>
+          <h3>资产入口</h3>
+          <ul>
+            {
+              routeAssets.map((asset) => (
+                <li>
+                  <a href={asset.url}>{asset.title}</a>
+                  <span>{asset.fileType} · {digitalStarterStatusLabels[asset.status]}</span>
+                </li>
+              ))
+            }
+          </ul>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    import gsap from "gsap";
+    import { ScrollTrigger } from "gsap/ScrollTrigger";
+
+    gsap.registerPlugin(ScrollTrigger);
+
+    const detailMotion = gsap.matchMedia();
+
+    detailMotion.add("(prefers-reduced-motion: no-preference)", () => {
+      gsap.from(".digital-starter-detail-hero__copy > *", {
+        y: 42,
+        opacity: 0,
+        duration: 0.95,
+        stagger: 0.08,
+        ease: "power3.out",
+      });
+
+      gsap.timeline({
+        scrollTrigger: {
+          trigger: ".digital-starter-detail-hero__panel",
+          start: "top 92%",
+          end: "bottom 8%",
+          scrub: 0.8,
+        },
+      })
+        .fromTo(".digital-starter-detail-hero__panel", { scale: 0.86, opacity: 0.5 }, { scale: 1, opacity: 1, ease: "none" })
+        .to(".digital-starter-detail-hero__panel", { scale: 1.02, opacity: 0.3, ease: "none" });
+
+      gsap.utils.toArray<HTMLElement>("[data-starter-reveal]").forEach((item) => {
+        gsap.from(item, {
+          y: 34,
+          opacity: 0,
+          duration: 0.78,
+          ease: "power3.out",
+          scrollTrigger: {
+            trigger: item,
+            start: "top 88%",
+          },
+        });
+      });
+    });
+  </script>
+</Layout>
