@@ -1,6 +1,25 @@
 ---
 import { getCollection, render, type CollectionEntry } from "astro:content";
 import Layout from "../../layouts/Layout.astro";
+import referenceGraphData from "../../data/note-references.json";
+
+interface InternalReference {
+  targetKey: string;
+  label: string;
+  targetSlug?: string;
+  targetTitle?: string;
+  url?: string;
+}
+
+interface ReferenceNode {
+  slug: string;
+  title: string;
+  sourceKey: string;
+  outgoing: InternalReference[];
+  backlinks: Array<{ slug: string; title: string; url: string }>;
+  external: Array<{ label: string; domain: string; url: string }>;
+  unpublished: Array<{ targetKey: string; label: string }>;
+}
 
 export async function getStaticPaths() {
   const notes = await getCollection("notes", ({ data }) => !data.draft);
@@ -18,7 +37,9 @@ interface Props {
 
 const { note, notes } = Astro.props;
 const { Content, headings } = await render(note);
-const sortedNotes = notes.sort(
+const sortedNotes = notes.filter(
+  (item) => item.data.category === note.data.category,
+).sort(
   (a, b) => b.data.publishedAt.valueOf() - a.data.publishedAt.valueOf(),
 );
 const noteIndex = sortedNotes.findIndex((item) => item.id === note.id);
@@ -27,6 +48,28 @@ const nextNote = sortedNotes[noteIndex - 1];
 const tableOfContents = headings.filter((heading) => heading.depth <= 3);
 const cover = note.data.cover ?? "https://picsum.photos/seed/quiet-notebook/1800/1200";
 const coverAlt = note.data.coverAlt ?? "Abstract monochrome notebook study";
+const categoryLabel = note.data.category === "technical" ? "Technical note" : "Journal entry";
+const referenceGraph = referenceGraphData as { version: 1; nodes: Record<string, ReferenceNode> };
+const references = referenceGraph.nodes[note.id];
+const hasConnections = Boolean(
+  references && (references.outgoing.length || references.backlinks.length || references.external.length),
+);
+const canonicalNoteUrl = new URL(`/notes/${note.id}`, Astro.site).toString();
+const citationUrls = references
+  ? [...references.outgoing.flatMap((reference) => reference.url ? [reference.url] : []), ...references.external.map((reference) => reference.url)]
+  : [];
+const articleJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "Article",
+  headline: note.data.title,
+  description: note.data.description,
+  datePublished: note.data.publishedAt.toISOString(),
+  mainEntityOfPage: canonicalNoteUrl,
+  url: canonicalNoteUrl,
+  keywords: note.data.tags,
+  ...(citationUrls.length ? { citation: citationUrls } : {}),
+};
+const articleJsonLdString = JSON.stringify(articleJsonLd).replace(/</g, "\\u003c");
 
 const dateFormatter = new Intl.DateTimeFormat("en-US", {
   year: "numeric",
@@ -36,6 +79,7 @@ const dateFormatter = new Intl.DateTimeFormat("en-US", {
 ---
 
 <Layout title={`${note.data.title} | zxlab`} description={note.data.description}>
+  <script type="application/ld+json" set:html={articleJsonLdString} />
   <main class="note-detail-page" style={`--note-accent: ${note.data.accent ?? "#d8ff73"}`}>
     <div class="reading-progress" aria-hidden="true">
       <span class="reading-progress__bar"></span>
@@ -62,6 +106,7 @@ const dateFormatter = new Intl.DateTimeFormat("en-US", {
         <aside class="longform-rail" aria-label="Article information">
           <div class="longform-rail__meta">
             <p>Filed under</p>
+            <span class="longform-category">{categoryLabel}</span>
             <ul aria-label={`${note.data.title} tags`}>
               {note.data.tags.map((tag) => <li>{tag}</li>)}
             </ul>
@@ -88,6 +133,67 @@ const dateFormatter = new Intl.DateTimeFormat("en-US", {
         </div>
       </div>
     </article>
+
+    {
+      hasConnections && references && (
+        <section class="note-connections" aria-labelledby="note-connections-title">
+          <header class="note-connections__heading">
+            <p>Connections</p>
+            <h2 id="note-connections-title">Follow the ideas around this note.</h2>
+          </header>
+
+          <div class="note-connections__grid">
+            {references.outgoing.length > 0 && (
+              <div class="note-connection-group">
+                <h3>Referenced here</h3>
+                <ul>
+                  {references.outgoing.map((reference) => (
+                    <li>
+                      <a href={reference.url ? new URL(reference.url).pathname + new URL(reference.url).hash : undefined}>
+                        <span>{reference.targetTitle ?? reference.label}</span>
+                        <small>{reference.label}</small>
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {references.backlinks.length > 0 && (
+              <div class="note-connection-group">
+                <h3>Referenced by</h3>
+                <ul>
+                  {references.backlinks.map((reference) => (
+                    <li>
+                      <a href={new URL(reference.url).pathname}>
+                        <span>{reference.title}</span>
+                        <small>Open note</small>
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {references.external.length > 0 && (
+              <div class="note-connection-group note-connection-group--sources">
+                <h3>Sources</h3>
+                <ol>
+                  {references.external.map((reference) => (
+                    <li>
+                      <a href={reference.url} target="_blank" rel="noreferrer">
+                        <span>{reference.label}</span>
+                        <small>{reference.domain}</small>
+                      </a>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
+          </div>
+        </section>
+      )
+    }
 
     <section class="note-navigation" aria-labelledby="note-navigation-title">
       <div class="note-navigation__heading">

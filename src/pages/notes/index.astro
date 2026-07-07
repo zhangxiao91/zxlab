@@ -7,6 +7,28 @@ const notes = (await getCollection("notes", ({ data }) => !data.draft)).sort(
 );
 
 const latestNote = notes[0];
+const technicalNotes = notes.filter(({ data }) => data.category === "technical");
+const journalNotes = notes.filter(({ data }) => data.category === "journal");
+const noteChapters = [
+  {
+    id: "technical",
+    title: "Technical field notes",
+    description: "Architecture decisions, implementation trails, and lessons that survived contact with the work.",
+    notes: technicalNotes,
+    empty: "Technical notes will collect here as the work develops.",
+  },
+  {
+    id: "journal",
+    title: "Journal and digressions",
+    description: "Daily observations, unfinished thoughts, and the quieter material around the projects.",
+    notes: journalNotes,
+    empty: "The first journal entry is still finding its way onto the page.",
+  },
+];
+const categoryLabels = {
+  technical: "Technical note",
+  journal: "Journal entry",
+};
 const fallbackCover = "https://picsum.photos/seed/quiet-notebook/1800/1200";
 const dateFormatter = new Intl.DateTimeFormat("en-US", {
   year: "numeric",
@@ -83,9 +105,12 @@ const dateFormatter = new Intl.DateTimeFormat("en-US", {
               </div>
               <div class="notes-feature-card__wash" aria-hidden="true"></div>
               <div class="notes-feature-card__content">
-                <time datetime={latestNote.data.publishedAt.toISOString()}>
-                  {dateFormatter.format(latestNote.data.publishedAt)}
-                </time>
+                <div class="notes-feature-card__meta">
+                  <span>{categoryLabels[latestNote.data.category]}</span>
+                  <time datetime={latestNote.data.publishedAt.toISOString()}>
+                    {dateFormatter.format(latestNote.data.publishedAt)}
+                  </time>
+                </div>
                 <h3>{latestNote.data.title}</h3>
                 <p>{latestNote.data.description}</p>
                 <span class="notes-feature-card__arrow" aria-hidden="true">↗</span>
@@ -105,22 +130,45 @@ const dateFormatter = new Intl.DateTimeFormat("en-US", {
         </article>
       </div>
 
-      {
-        notes.length > 1 && (
-          <div class="notes-list" aria-label="All notes">
-            {notes.slice(1).map((note) => (
-              <a href={`/notes/${note.id}`}>
-                <time datetime={note.data.publishedAt.toISOString()}>
-                  {dateFormatter.format(note.data.publishedAt)}
-                </time>
-                <h3>{note.data.title}</h3>
-                <p>{note.data.description}</p>
-                <span aria-hidden="true">↗</span>
-              </a>
-            ))}
-          </div>
-        )
-      }
+      <nav class="notes-chapter-nav" aria-label="Note collections">
+        <a href="#technical">Technical field notes <span>{technicalNotes.length}</span></a>
+        <a href="#journal">Journal and digressions <span>{journalNotes.length}</span></a>
+      </nav>
+
+      <div class="notes-chapters">
+        {
+          noteChapters.map((chapter) => (
+            <section class="notes-chapter" id={chapter.id} aria-labelledby={`${chapter.id}-title`}>
+              <header class="notes-chapter__heading">
+                <div>
+                  <h3 id={`${chapter.id}-title`}>{chapter.title}</h3>
+                  <span>{String(chapter.notes.length).padStart(2, "0")}</span>
+                </div>
+                <p>{chapter.description}</p>
+              </header>
+
+              {chapter.notes.length > 0 ? (
+                <div class="notes-list" aria-label={chapter.title}>
+                  {chapter.notes.map((note) => (
+                    <a href={`/notes/${note.id}`}>
+                      <time datetime={note.data.publishedAt.toISOString()}>
+                        {dateFormatter.format(note.data.publishedAt)}
+                      </time>
+                      <div>
+                        <h4>{note.data.title}</h4>
+                        <p>{note.data.description}</p>
+                      </div>
+                      <span aria-hidden="true">↗</span>
+                    </a>
+                  ))}
+                </div>
+              ) : (
+                <p class="notes-chapter__empty">{chapter.empty}</p>
+              )}
+            </section>
+          ))
+        }
+      </div>
     </section>
 
     <section class="notes-marquee" aria-label="Notebook themes">

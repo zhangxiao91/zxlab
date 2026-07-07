@@ -10,6 +10,9 @@
     "build": "astro build",
     "preview": "astro preview",
     "astro": "astro",
+    "notes:publish:technical": "node --experimental-strip-types scripts/publish-obsidian-notes.ts technical",
+    "notes:publish:journal": "node --experimental-strip-types scripts/publish-obsidian-notes.ts journal",
+    "test:notes-publisher": "node --test --experimental-strip-types scripts/obsidian-publisher.test.ts",
     "verify:status": "node --experimental-strip-types scripts/verify-status-usage.ts",
     "verify:strudel": "node --experimental-strip-types scripts/verify-strudel.ts",
     "test:collector": "npm --prefix services/codex-usage-collector test"
@@ -17,6 +20,10 @@
   "dependencies": {
     "@astrojs/sitemap": "^3.7.3",
     "astro": "^7.0.5",
-    "gsap": "^3.15.0"
+    "gsap": "^3.15.0",
+    "remark-parse": "^11.0.0",
+    "remark-stringify": "^11.0.0",
+    "unified": "^11.0.5",
+    "yaml": "^2.9.0"
   }
 }

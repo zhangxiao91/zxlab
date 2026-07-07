@@ -2,6 +2,7 @@
 title: "Building ZXLab by hand"
 description: "Notes from building a personal website from an empty Astro project."
 publishedAt: 2026-07-03
+category: technical
 tags:
   - Astro
   - Web

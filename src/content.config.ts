@@ -12,6 +12,7 @@ const notes = defineCollection({
 		title: z.string(),
 		description: z.string(),
 		publishedAt: z.coerce.date(),
+		category: z.enum(["technical", "journal"]),
 		tags: z.array(z.string()),
 		draft: z.boolean().default(false),
 		cover: z.string().url().optional(),
