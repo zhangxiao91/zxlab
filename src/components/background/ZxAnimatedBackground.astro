@@ -1,0 +1,389 @@
+---
+const BACKGROUND_CONFIG = {
+  patternOpacity: 0.064,
+  patternAngle: 10,
+  patternDuration: 32,
+  meteorMinInterval: 3200,
+  meteorMaxInterval: 9000,
+  meteorMaxCount: 3,
+} as const;
+
+const TOKEN_ROWS = 7;
+const TOKENS_PER_ROW = 9;
+const tokenVocabulary = ["zx", "zx", "zx", "zx", "z", "x"] as const;
+
+function seededValue(index: number) {
+  const value = Math.sin((index + 1) * 9283.17 + 47.11) * 43758.5453;
+  return value - Math.floor(value);
+}
+
+const rows = Array.from({ length: TOKEN_ROWS }, (_, rowIndex) =>
+  Array.from({ length: TOKENS_PER_ROW }, (_, columnIndex) => {
+    const index = rowIndex * TOKENS_PER_ROW + columnIndex;
+    const vocabularyIndex = Math.floor(seededValue(index) * tokenVocabulary.length);
+    return {
+      value: tokenVocabulary[vocabularyIndex],
+      outline: seededValue(index + 101) > 0.72,
+      size: seededValue(index + 211) > 0.68 ? "large" : seededValue(index + 307) < 0.24 ? "small" : "regular",
+    };
+  }),
+);
+
+const tileCopies = Array.from({ length: 4 });
+const meteorSlots = Array.from({ length: BACKGROUND_CONFIG.meteorMaxCount });
+---
+
+<div
+  class="zx-background"
+  data-zx-background
+  aria-hidden="true"
+  style={`--zx-pattern-opacity:${BACKGROUND_CONFIG.patternOpacity};--zx-pattern-angle:${BACKGROUND_CONFIG.patternAngle}deg;--zx-pattern-duration:${BACKGROUND_CONFIG.patternDuration}s`}
+>
+  <div class="zx-background__gradient"></div>
+
+  <div class="zx-pattern" data-zx-pattern>
+    <div class="zx-pattern__track">
+      {
+        tileCopies.map(() => (
+          <div class="zx-pattern__tile">
+            {rows.map((row, rowIndex) => (
+              <div class:list={["zx-pattern__row", { "zx-pattern__row--offset": rowIndex % 2 === 1 }]}>
+                {row.map((token) => (
+                  <span
+                    class:list={[
+                      "zx-pattern__token",
+                      `zx-pattern__token--${token.size}`,
+                      { "zx-pattern__token--outline": token.outline },
+                    ]}
+                  >
+                    {token.value}
+                  </span>
+                ))}
+              </div>
+            ))}
+          </div>
+        ))
+      }
+    </div>
+  </div>
+
+  <div class="zx-meteors" data-zx-meteors>
+    {meteorSlots.map(() => <span class="zx-meteor"><i></i></span>)}
+  </div>
+
+  <div class="zx-background__readability"></div>
+</div>
+
+<script define:vars={{ BACKGROUND_CONFIG }}>
+  const background = document.querySelector("[data-zx-background]");
+
+  if (background instanceof HTMLElement) {
+    const meteorElements = Array.from(background.querySelectorAll(".zx-meteor"));
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    let scheduleTimer;
+    let burstTimer;
+    let disposed = false;
+
+    const randomBetween = (minimum, maximum) => minimum + Math.random() * (maximum - minimum);
+
+    const clearTimers = () => {
+      window.clearTimeout(scheduleTimer);
+      window.clearTimeout(burstTimer);
+      scheduleTimer = undefined;
+      burstTimer = undefined;
+    };
+
+    const resetMeteors = () => {
+      meteorElements.forEach((meteor) => meteor.classList.remove("is-active"));
+    };
+
+    const launchMeteor = () => {
+      if (disposed || reducedMotion.matches || document.hidden) return;
+
+      const meteor = meteorElements.find((element) => !element.classList.contains("is-active"));
+      if (!(meteor instanceof HTMLElement)) return;
+
+      const duration = randomBetween(0.86, 1.62);
+      meteor.style.setProperty("--meteor-x", `${randomBetween(68, 108).toFixed(2)}%`);
+      meteor.style.setProperty("--meteor-y", `${randomBetween(-12, 42).toFixed(2)}%`);
+      meteor.style.setProperty("--meteor-distance-x", `${randomBetween(-38, -25).toFixed(2)}vw`);
+      meteor.style.setProperty("--meteor-distance-y", `${randomBetween(27, 43).toFixed(2)}vh`);
+      meteor.style.setProperty("--meteor-length", `${randomBetween(4.8, 9.5).toFixed(2)}rem`);
+      meteor.style.setProperty("--meteor-duration", `${duration.toFixed(2)}s`);
+      meteor.style.setProperty("--meteor-strength", randomBetween(0.5, 0.82).toFixed(2));
+      meteor.classList.add("is-active");
+      meteor.addEventListener("animationend", () => meteor.classList.remove("is-active"), { once: true });
+    };
+
+    const scheduleNext = () => {
+      if (disposed || reducedMotion.matches || document.hidden) return;
+      const delay = randomBetween(BACKGROUND_CONFIG.meteorMinInterval, BACKGROUND_CONFIG.meteorMaxInterval);
+      scheduleTimer = window.setTimeout(() => {
+        launchMeteor();
+        if (Math.random() > 0.76) {
+          burstTimer = window.setTimeout(launchMeteor, randomBetween(240, 720));
+        }
+        scheduleNext();
+      }, delay);
+    };
+
+    const handleVisibility = () => {
+      clearTimers();
+      if (document.hidden) resetMeteors();
+      else scheduleNext();
+    };
+
+    const handleMotionPreference = () => {
+      clearTimers();
+      resetMeteors();
+      if (!reducedMotion.matches) scheduleNext();
+    };
+
+    const cleanup = () => {
+      disposed = true;
+      clearTimers();
+      resetMeteors();
+      document.removeEventListener("visibilitychange", handleVisibility);
+      document.removeEventListener("astro:before-swap", cleanup);
+      window.removeEventListener("pagehide", cleanup);
+      reducedMotion.removeEventListener("change", handleMotionPreference);
+    };
+
+    document.addEventListener("visibilitychange", handleVisibility);
+    document.addEventListener("astro:before-swap", cleanup, { once: true });
+    window.addEventListener("pagehide", cleanup, { once: true });
+    reducedMotion.addEventListener("change", handleMotionPreference);
+    scheduleNext();
+  }
+</script>
+
+<style>
+  .zx-background {
+    --zx-navy: #070b17;
+    --zx-blue-black: #0a1023;
+    --zx-indigo: #17234a;
+    --zx-violet: #332b61;
+    --zx-cyan: #63a8c7;
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    overflow: hidden;
+    pointer-events: none;
+    user-select: none;
+    contain: layout paint;
+    isolation: isolate;
+  }
+
+  .zx-background__gradient,
+  .zx-pattern,
+  .zx-meteors,
+  .zx-background__readability {
+    position: absolute;
+    inset: 0;
+  }
+
+  .zx-background__gradient {
+    z-index: 0;
+    inset: -8%;
+    background:
+      radial-gradient(ellipse at 50% 24%, rgba(71, 86, 162, 0.42), transparent 35%),
+      radial-gradient(circle at 18% 72%, rgba(42, 115, 139, 0.13), transparent 31%),
+      radial-gradient(circle at 84% 18%, rgba(108, 73, 146, 0.17), transparent 28%),
+      linear-gradient(145deg, var(--zx-navy) 5%, var(--zx-blue-black) 42%, #101735 68%, #080b17 100%);
+    background-size: 112% 112%, 108% 108%, 114% 114%, 100% 100%;
+    animation: zx-gradient-breathe 24s ease-in-out infinite alternate;
+    transform: translate3d(0, 0, 0) scale(1.03);
+  }
+
+  .zx-pattern {
+    z-index: 1;
+    inset: -22%;
+    opacity: var(--zx-pattern-opacity);
+    transform: rotate(var(--zx-pattern-angle));
+    transform-origin: center;
+    -webkit-mask-image: radial-gradient(ellipse at 50% 38%, transparent 5%, rgba(0, 0, 0, 0.28) 35%, #000 74%);
+    mask-image: radial-gradient(ellipse at 50% 38%, transparent 5%, rgba(0, 0, 0, 0.28) 35%, #000 74%);
+  }
+
+  .zx-pattern__track {
+    display: grid;
+    width: 200%;
+    height: 200%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+    animation: zx-pattern-drift var(--zx-pattern-duration) linear infinite;
+    will-change: transform;
+  }
+
+  .zx-pattern__tile {
+    display: grid;
+    min-width: 0;
+    align-content: space-evenly;
+  }
+
+  .zx-pattern__row {
+    display: grid;
+    grid-template-columns: repeat(9, minmax(3.5rem, 1fr));
+    align-items: center;
+    column-gap: clamp(2.4rem, 5vw, 6rem);
+  }
+
+  .zx-pattern__row--offset {
+    transform: translateX(clamp(2.8rem, 6vw, 7rem));
+  }
+
+  .zx-pattern__token {
+    color: #dfeaff;
+    font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    font-size: clamp(1.4rem, 2.1vw, 2.45rem);
+    font-weight: 500;
+    letter-spacing: -0.08em;
+    white-space: nowrap;
+  }
+
+  .zx-pattern__token:nth-child(3n) {
+    color: #c8c8ff;
+  }
+
+  .zx-pattern__token:nth-child(5n) {
+    color: #bceeff;
+  }
+
+  .zx-pattern__token--small {
+    font-size: clamp(1.1rem, 1.65vw, 1.85rem);
+  }
+
+  .zx-pattern__token--large {
+    font-size: clamp(1.75rem, 2.65vw, 3rem);
+  }
+
+  .zx-pattern__token--outline {
+    color: transparent;
+    -webkit-text-stroke: 1px rgba(214, 226, 255, 0.78);
+  }
+
+  .zx-meteors {
+    z-index: 2;
+    overflow: hidden;
+  }
+
+  .zx-meteor {
+    position: absolute;
+    top: var(--meteor-y, 10%);
+    left: var(--meteor-x, 90%);
+    display: block;
+    width: var(--meteor-length, 7rem);
+    height: 1px;
+    opacity: 0;
+    transform: rotate(-42deg) translate3d(0, 0, 0);
+    transform-origin: left center;
+    will-change: transform, opacity;
+  }
+
+  .zx-meteor::before {
+    position: absolute;
+    inset: -0.4rem -0.55rem;
+    background: radial-gradient(ellipse at 0 50%, rgba(135, 202, 255, 0.28), transparent 66%);
+    content: "";
+    filter: blur(5px);
+  }
+
+  .zx-meteor::after {
+    position: absolute;
+    top: 50%;
+    left: -0.12rem;
+    width: 0.28rem;
+    height: 0.28rem;
+    border-radius: 50%;
+    background: rgba(232, 246, 255, 0.96);
+    box-shadow: 0 0 0.6rem rgba(112, 190, 255, 0.74);
+    content: "";
+    transform: translateY(-50%);
+  }
+
+  .zx-meteor i {
+    display: block;
+    width: 100%;
+    height: 1px;
+    background: linear-gradient(90deg, rgba(220, 241, 255, 0.92), rgba(126, 161, 240, 0.28) 48%, transparent 100%);
+  }
+
+  .zx-meteor.is-active {
+    animation: zx-meteor-flight var(--meteor-duration, 1.2s) cubic-bezier(0.16, 0.7, 0.2, 1) both;
+  }
+
+  .zx-background__readability {
+    z-index: 3;
+    background:
+      radial-gradient(ellipse at 50% 28%, rgba(6, 9, 21, 0.64) 0%, rgba(6, 9, 21, 0.32) 31%, transparent 62%),
+      linear-gradient(to bottom, rgba(3, 6, 14, 0.2), transparent 54%, rgba(4, 7, 15, 0.42));
+  }
+
+  @keyframes zx-gradient-breathe {
+    from { transform: translate3d(-1.2%, -0.8%, 0) scale(1.035); }
+    to { transform: translate3d(1.2%, 0.9%, 0) scale(1.055); }
+  }
+
+  @keyframes zx-pattern-drift {
+    from { transform: translate3d(0, -50%, 0); }
+    to { transform: translate3d(-50%, 0, 0); }
+  }
+
+  @keyframes zx-meteor-flight {
+    0% { opacity: 0; transform: rotate(-42deg) translate3d(0, 0, 0); }
+    12% { opacity: var(--meteor-strength, 0.7); }
+    72% { opacity: var(--meteor-strength, 0.7); }
+    100% {
+      opacity: 0;
+      transform: rotate(-42deg) translate3d(var(--meteor-distance-x, -30vw), var(--meteor-distance-y, 34vh), 0);
+    }
+  }
+
+  @media (prefers-color-scheme: light) {
+    .zx-background {
+      --zx-navy: #090e1c;
+      --zx-blue-black: #0d1530;
+      --zx-indigo: #1d2b57;
+      --zx-violet: #39316a;
+    }
+  }
+
+  @media (max-width: 40rem) {
+    .zx-pattern {
+      inset: -28%;
+      opacity: calc(var(--zx-pattern-opacity) * 0.82);
+    }
+
+    .zx-pattern__row {
+      grid-template-columns: repeat(9, minmax(4.6rem, 1fr));
+      column-gap: 4.8rem;
+    }
+
+    .zx-pattern__token:nth-child(3n),
+    .zx-pattern__token:nth-child(5n) {
+      visibility: hidden;
+    }
+
+    .zx-background__readability {
+      background:
+        radial-gradient(ellipse at 50% 24%, rgba(6, 9, 21, 0.76) 0%, rgba(6, 9, 21, 0.48) 38%, transparent 72%),
+        linear-gradient(to bottom, rgba(3, 6, 14, 0.28), transparent 52%, rgba(4, 7, 15, 0.48));
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .zx-background__gradient,
+    .zx-pattern__track,
+    .zx-meteor {
+      animation: none !important;
+    }
+
+    .zx-pattern__track {
+      transform: translate3d(-18%, -22%, 0);
+    }
+
+    .zx-meteors {
+      display: none;
+    }
+  }
+</style>

@@ -1,6 +1,7 @@
 ---
 import Layout from "../layouts/Layout.astro";
 import WelcomeGate from "../components/welcome/WelcomeGate.astro";
+import ZxAnimatedBackground from "../components/background/ZxAnimatedBackground.astro";
 import { projects } from "../data/projects";
 import { getCollection } from "astro:content";
 
@@ -25,7 +26,7 @@ const dateFormatter = new Intl.DateTimeFormat("en-US", {
 
   <main class="home-page">
     <section class="home-hero" aria-labelledby="intro-title">
-      <div class="home-hero__glow" aria-hidden="true"></div>
+      <ZxAnimatedBackground />
 
       <p class="home-kicker">A digital workshop by Zhangxiao</p>
 
@@ -258,7 +259,7 @@ const dateFormatter = new Intl.DateTimeFormat("en-US", {
       const revealHero = () => {
         if (heroStarted) return;
         heroStarted = true;
-        gsap.from(".home-hero > :not(.home-hero__glow)", {
+        gsap.from(".home-hero > :not(.zx-background)", {
           y: 48,
           opacity: 0,
           duration: 1.1,
