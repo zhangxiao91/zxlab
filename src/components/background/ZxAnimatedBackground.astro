@@ -1,144 +1,162 @@
 ---
 const BACKGROUND_CONFIG = {
-  patternOpacity: 0.064,
   patternAngle: 10,
-  patternDuration: 32,
-  meteorMinInterval: 3200,
-  meteorMaxInterval: 9000,
-  meteorMaxCount: 3,
+  farOpacity: 0.095,
+  farDuration: 38,
+  midOpacity: 0.165,
+  midDuration: 21,
+  meteorMinInterval: 1800,
+  meteorMaxInterval: 4200,
+  meteorMaxCount: 4,
+  sparkCount: 14,
 } as const;
 
-const TOKEN_ROWS = 7;
-const TOKENS_PER_ROW = 9;
-const tokenVocabulary = ["zx", "zx", "zx", "zx", "z", "x"] as const;
+const vocabulary = ["zx", "zx", "zx", "zx", "z", "x"] as const;
 
 function seededValue(index: number) {
   const value = Math.sin((index + 1) * 9283.17 + 47.11) * 43758.5453;
   return value - Math.floor(value);
 }
 
-const rows = Array.from({ length: TOKEN_ROWS }, (_, rowIndex) =>
-  Array.from({ length: TOKENS_PER_ROW }, (_, columnIndex) => {
-    const index = rowIndex * TOKENS_PER_ROW + columnIndex;
-    const vocabularyIndex = Math.floor(seededValue(index) * tokenVocabulary.length);
-    return {
-      value: tokenVocabulary[vocabularyIndex],
-      outline: seededValue(index + 101) > 0.72,
-      size: seededValue(index + 211) > 0.68 ? "large" : seededValue(index + 307) < 0.24 ? "small" : "regular",
-    };
-  }),
-);
+function createRows(rowCount: number, columnCount: number, offset = 0) {
+  return Array.from({ length: rowCount }, (_, rowIndex) =>
+    Array.from({ length: columnCount }, (_, columnIndex) => {
+      const index = offset + rowIndex * columnCount + columnIndex;
+      return {
+        value: vocabulary[Math.floor(seededValue(index) * vocabulary.length)],
+        style: seededValue(index + 101) > 0.8 ? "outline" : seededValue(index + 211) > 0.9 ? "glow" : "solid",
+        size: seededValue(index + 307) > 0.72 ? "large" : seededValue(index + 401) < 0.2 ? "small" : "regular",
+      };
+    }),
+  );
+}
 
+const farRows = createRows(8, 11);
+const midRows = createRows(5, 7, 600);
 const tileCopies = Array.from({ length: 4 });
-const meteorSlots = Array.from({ length: BACKGROUND_CONFIG.meteorMaxCount });
+const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) => ({
+  x: 4 + seededValue(index + 801) * 92,
+  y: -8 + seededValue(index + 901) * 92,
+  size: 1 + seededValue(index + 1001) * 2,
+  duration: 10 + seededValue(index + 1101) * 10,
+  delay: seededValue(index + 1201) * -18,
+  opacity: 0.28 + seededValue(index + 1301) * 0.45,
+}));
 ---
 
 <div
   class="zx-background"
   data-zx-background
   aria-hidden="true"
-  style={`--zx-pattern-opacity:${BACKGROUND_CONFIG.patternOpacity};--zx-pattern-angle:${BACKGROUND_CONFIG.patternAngle}deg;--zx-pattern-duration:${BACKGROUND_CONFIG.patternDuration}s`}
+  style={`--zx-pattern-angle:${BACKGROUND_CONFIG.patternAngle}deg;--zx-far-opacity:${BACKGROUND_CONFIG.farOpacity};--zx-far-duration:${BACKGROUND_CONFIG.farDuration}s;--zx-mid-opacity:${BACKGROUND_CONFIG.midOpacity};--zx-mid-duration:${BACKGROUND_CONFIG.midDuration}s`}
 >
   <div class="zx-background__gradient"></div>
 
-  <div class="zx-pattern" data-zx-pattern>
+  <div class="zx-pattern zx-pattern--far" data-zx-pattern="far">
     <div class="zx-pattern__track">
-      {
-        tileCopies.map(() => (
-          <div class="zx-pattern__tile">
-            {rows.map((row, rowIndex) => (
-              <div class:list={["zx-pattern__row", { "zx-pattern__row--offset": rowIndex % 2 === 1 }]}>
-                {row.map((token) => (
-                  <span
-                    class:list={[
-                      "zx-pattern__token",
-                      `zx-pattern__token--${token.size}`,
-                      { "zx-pattern__token--outline": token.outline },
-                    ]}
-                  >
-                    {token.value}
-                  </span>
-                ))}
-              </div>
-            ))}
-          </div>
-        ))
-      }
+      {tileCopies.map(() => (
+        <div class="zx-pattern__tile">
+          {farRows.map((row, rowIndex) => (
+            <div class:list={["zx-pattern__row", { "zx-pattern__row--offset": rowIndex % 2 === 1 }]}>
+              {row.map((token) => <span class:list={["zx-pattern__token", `is-${token.style}`, `is-${token.size}`]}>{token.value}</span>)}
+            </div>
+          ))}
+        </div>
+      ))}
     </div>
   </div>
 
-  <div class="zx-meteors" data-zx-meteors>
-    {meteorSlots.map(() => <span class="zx-meteor"><i></i></span>)}
+  <div class="zx-sparks" aria-hidden="true">
+    {sparks.map((spark) => (
+      <i style={`--spark-x:${spark.x.toFixed(2)}%;--spark-y:${spark.y.toFixed(2)}%;--spark-size:${spark.size.toFixed(2)}px;--spark-duration:${spark.duration.toFixed(2)}s;--spark-delay:${spark.delay.toFixed(2)}s;--spark-opacity:${spark.opacity.toFixed(2)}`}></i>
+    ))}
   </div>
 
+  <div class="zx-pattern zx-pattern--mid" data-zx-pattern="mid">
+    <div class="zx-pattern__track">
+      {tileCopies.map(() => (
+        <div class="zx-pattern__tile">
+          {midRows.map((row, rowIndex) => (
+            <div class:list={["zx-pattern__row", { "zx-pattern__row--offset": rowIndex % 2 === 1 }]}>
+              {row.map((token) => <span class:list={["zx-pattern__token", `is-${token.style}`, `is-${token.size}`]}>{token.value}</span>)}
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  </div>
+
+  <div class="zx-meteors" data-zx-meteors></div>
   <div class="zx-background__readability"></div>
 </div>
 
 <script define:vars={{ BACKGROUND_CONFIG }}>
   const background = document.querySelector("[data-zx-background]");
 
-  if (background instanceof HTMLElement) {
-    const meteorElements = Array.from(background.querySelectorAll(".zx-meteor"));
+  if (background instanceof HTMLElement && background.dataset.initialized !== "true") {
+    background.dataset.initialized = "true";
+    const meteorLayer = background.querySelector("[data-zx-meteors]");
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
-    let scheduleTimer;
-    let burstTimer;
+    const timers = new Set();
     let disposed = false;
 
     const randomBetween = (minimum, maximum) => minimum + Math.random() * (maximum - minimum);
-
+    const setTimer = (callback, delay) => {
+      const timer = window.setTimeout(() => {
+        timers.delete(timer);
+        callback();
+      }, delay);
+      timers.add(timer);
+      return timer;
+    };
     const clearTimers = () => {
-      window.clearTimeout(scheduleTimer);
-      window.clearTimeout(burstTimer);
-      scheduleTimer = undefined;
-      burstTimer = undefined;
+      timers.forEach((timer) => window.clearTimeout(timer));
+      timers.clear();
     };
 
-    const resetMeteors = () => {
-      meteorElements.forEach((meteor) => meteor.classList.remove("is-active"));
+    const launchMeteor = (featured = false) => {
+      if (disposed || reducedMotion.matches || document.hidden || !(meteorLayer instanceof HTMLElement)) return;
+      const maximumCount = window.matchMedia("(max-width: 40rem)").matches ? 3 : BACKGROUND_CONFIG.meteorMaxCount;
+      if (meteorLayer.childElementCount >= maximumCount) return;
+
+      const meteor = document.createElement("span");
+      const duration = randomBetween(0.72, 1.55);
+      const length = featured ? randomBetween(220, 280) : randomBetween(90, 220);
+      meteor.className = `zx-meteor${featured ? " is-featured" : ""}`;
+      meteor.innerHTML = "<i></i>";
+      meteor.style.cssText = `--meteor-x:${randomBetween(62, 110).toFixed(2)}%;--meteor-y:${randomBetween(-10, 52).toFixed(2)}%;--meteor-distance-x:${randomBetween(-48, -31).toFixed(2)}vw;--meteor-distance-y:${randomBetween(31, 48).toFixed(2)}vh;--meteor-length:${length.toFixed(2)}px;--meteor-head:${randomBetween(2, 6).toFixed(2)}px;--meteor-duration:${duration.toFixed(2)}s;--meteor-strength:${randomBetween(featured ? 0.82 : 0.62, 0.96).toFixed(2)}`;
+      meteor.addEventListener("animationend", () => meteor.remove(), { once: true });
+      meteorLayer.append(meteor);
     };
 
-    const launchMeteor = () => {
+    const launchGroup = () => {
+      const count = Math.random() > 0.72 ? 3 : Math.random() > 0.35 ? 2 : 1;
+      const featuredIndex = Math.random() > 0.78 ? Math.floor(Math.random() * count) : -1;
+      for (let index = 0; index < count; index += 1) {
+        setTimer(() => launchMeteor(index === featuredIndex), index * randomBetween(140, 360));
+      }
+    };
+
+    const scheduleNext = (initial = false) => {
       if (disposed || reducedMotion.matches || document.hidden) return;
-
-      const meteor = meteorElements.find((element) => !element.classList.contains("is-active"));
-      if (!(meteor instanceof HTMLElement)) return;
-
-      const duration = randomBetween(0.86, 1.62);
-      meteor.style.setProperty("--meteor-x", `${randomBetween(68, 108).toFixed(2)}%`);
-      meteor.style.setProperty("--meteor-y", `${randomBetween(-12, 42).toFixed(2)}%`);
-      meteor.style.setProperty("--meteor-distance-x", `${randomBetween(-38, -25).toFixed(2)}vw`);
-      meteor.style.setProperty("--meteor-distance-y", `${randomBetween(27, 43).toFixed(2)}vh`);
-      meteor.style.setProperty("--meteor-length", `${randomBetween(4.8, 9.5).toFixed(2)}rem`);
-      meteor.style.setProperty("--meteor-duration", `${duration.toFixed(2)}s`);
-      meteor.style.setProperty("--meteor-strength", randomBetween(0.5, 0.82).toFixed(2));
-      meteor.classList.add("is-active");
-      meteor.addEventListener("animationend", () => meteor.classList.remove("is-active"), { once: true });
-    };
-
-    const scheduleNext = () => {
-      if (disposed || reducedMotion.matches || document.hidden) return;
-      const delay = randomBetween(BACKGROUND_CONFIG.meteorMinInterval, BACKGROUND_CONFIG.meteorMaxInterval);
-      scheduleTimer = window.setTimeout(() => {
-        launchMeteor();
-        if (Math.random() > 0.76) {
-          burstTimer = window.setTimeout(launchMeteor, randomBetween(240, 720));
-        }
+      const delay = initial ? 650 : randomBetween(BACKGROUND_CONFIG.meteorMinInterval, BACKGROUND_CONFIG.meteorMaxInterval);
+      setTimer(() => {
+        launchGroup();
         scheduleNext();
       }, delay);
     };
 
+    const resetMeteors = () => meteorLayer instanceof HTMLElement && meteorLayer.replaceChildren();
     const handleVisibility = () => {
       clearTimers();
-      if (document.hidden) resetMeteors();
-      else scheduleNext();
+      resetMeteors();
+      if (!document.hidden) scheduleNext(true);
     };
-
     const handleMotionPreference = () => {
       clearTimers();
       resetMeteors();
-      if (!reducedMotion.matches) scheduleNext();
+      if (!reducedMotion.matches) scheduleNext(true);
     };
-
     const cleanup = () => {
       disposed = true;
       clearTimers();
@@ -153,17 +171,12 @@ const meteorSlots = Array.from({ length: BACKGROUND_CONFIG.meteorMaxCount });
     document.addEventListener("astro:before-swap", cleanup, { once: true });
     window.addEventListener("pagehide", cleanup, { once: true });
     reducedMotion.addEventListener("change", handleMotionPreference);
-    scheduleNext();
+    scheduleNext(true);
   }
 </script>
 
 <style>
   .zx-background {
-    --zx-navy: #070b17;
-    --zx-blue-black: #0a1023;
-    --zx-indigo: #17234a;
-    --zx-violet: #332b61;
-    --zx-cyan: #63a8c7;
     position: absolute;
     inset: 0;
     z-index: 0;
@@ -176,6 +189,7 @@ const meteorSlots = Array.from({ length: BACKGROUND_CONFIG.meteorMaxCount });
 
   .zx-background__gradient,
   .zx-pattern,
+  .zx-sparks,
   .zx-meteors,
   .zx-background__readability {
     position: absolute;
@@ -186,204 +200,135 @@ const meteorSlots = Array.from({ length: BACKGROUND_CONFIG.meteorMaxCount });
     z-index: 0;
     inset: -8%;
     background:
-      radial-gradient(ellipse at 50% 24%, rgba(71, 86, 162, 0.42), transparent 35%),
-      radial-gradient(circle at 18% 72%, rgba(42, 115, 139, 0.13), transparent 31%),
-      radial-gradient(circle at 84% 18%, rgba(108, 73, 146, 0.17), transparent 28%),
-      linear-gradient(145deg, var(--zx-navy) 5%, var(--zx-blue-black) 42%, #101735 68%, #080b17 100%);
-    background-size: 112% 112%, 108% 108%, 114% 114%, 100% 100%;
+      radial-gradient(ellipse at 50% 24%, rgba(74, 91, 176, 0.5), transparent 38%),
+      radial-gradient(circle at 13% 76%, rgba(44, 132, 156, 0.2), transparent 32%),
+      radial-gradient(circle at 88% 20%, rgba(122, 78, 161, 0.22), transparent 30%),
+      linear-gradient(145deg, #060a16 4%, #091126 42%, #11183a 68%, #070a16 100%);
     animation: zx-gradient-breathe 24s ease-in-out infinite alternate;
-    transform: translate3d(0, 0, 0) scale(1.03);
   }
 
   .zx-pattern {
-    z-index: 1;
-    inset: -22%;
-    opacity: var(--zx-pattern-opacity);
     transform: rotate(var(--zx-pattern-angle));
     transform-origin: center;
-    -webkit-mask-image: radial-gradient(ellipse at 50% 38%, transparent 5%, rgba(0, 0, 0, 0.28) 35%, #000 74%);
-    mask-image: radial-gradient(ellipse at 50% 38%, transparent 5%, rgba(0, 0, 0, 0.28) 35%, #000 74%);
+  }
+
+  .zx-pattern--far {
+    z-index: 1;
+    inset: -20%;
+    opacity: var(--zx-far-opacity);
+  }
+
+  .zx-pattern--mid {
+    z-index: 3;
+    inset: -28%;
+    opacity: var(--zx-mid-opacity);
+    -webkit-mask-image: radial-gradient(ellipse at 50% 33%, rgba(0, 0, 0, 0.44) 0%, #000 48%);
+    mask-image: radial-gradient(ellipse at 50% 33%, rgba(0, 0, 0, 0.44) 0%, #000 48%);
   }
 
   .zx-pattern__track {
     display: grid;
     width: 200%;
     height: 200%;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    grid-template-rows: repeat(2, minmax(0, 1fr));
-    animation: zx-pattern-drift var(--zx-pattern-duration) linear infinite;
+    grid-template-columns: repeat(2, 1fr);
+    grid-template-rows: repeat(2, 1fr);
     will-change: transform;
   }
 
-  .zx-pattern__tile {
-    display: grid;
-    min-width: 0;
-    align-content: space-evenly;
-  }
-
-  .zx-pattern__row {
-    display: grid;
-    grid-template-columns: repeat(9, minmax(3.5rem, 1fr));
-    align-items: center;
-    column-gap: clamp(2.4rem, 5vw, 6rem);
-  }
-
-  .zx-pattern__row--offset {
-    transform: translateX(clamp(2.8rem, 6vw, 7rem));
-  }
+  .zx-pattern--far .zx-pattern__track { animation: zx-pattern-far var(--zx-far-duration) linear infinite; }
+  .zx-pattern--mid .zx-pattern__track { animation: zx-pattern-mid var(--zx-mid-duration) linear infinite; }
+  .zx-pattern__tile { display: grid; min-width: 0; align-content: space-evenly; }
+  .zx-pattern__row { display: grid; align-items: center; }
+  .zx-pattern--far .zx-pattern__row { grid-template-columns: repeat(11, minmax(2.4rem, 1fr)); column-gap: clamp(1.8rem, 3vw, 4rem); }
+  .zx-pattern--mid .zx-pattern__row { grid-template-columns: repeat(7, minmax(5rem, 1fr)); column-gap: clamp(4rem, 7vw, 8rem); }
+  .zx-pattern__row--offset { transform: translateX(clamp(3rem, 6vw, 7rem)); }
 
   .zx-pattern__token {
-    color: #dfeaff;
+    color: #dce9ff;
     font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-    font-size: clamp(1.4rem, 2.1vw, 2.45rem);
-    font-weight: 500;
-    letter-spacing: -0.08em;
+    font-weight: 600;
+    letter-spacing: -0.09em;
     white-space: nowrap;
   }
+  .zx-pattern--far .zx-pattern__token { font-size: clamp(1.125rem, 1.8vw, 1.875rem); }
+  .zx-pattern--mid .zx-pattern__token { font-size: clamp(2.25rem, 4vw, 4.5rem); }
+  .zx-pattern__token.is-small { font-size: 0.78em; }
+  .zx-pattern__token.is-large { font-size: 1.18em; }
+  .zx-pattern__token.is-outline { color: transparent; -webkit-text-stroke: 1px rgba(176, 184, 255, 0.94); }
+  .zx-pattern__token.is-glow { color: #c8ecff; text-shadow: 0 0 12px rgba(89, 174, 255, 0.62); }
+  .zx-pattern__token:nth-child(4n) { color: #c8c8ff; }
 
-  .zx-pattern__token:nth-child(3n) {
-    color: #c8c8ff;
-  }
-
-  .zx-pattern__token:nth-child(5n) {
-    color: #bceeff;
-  }
-
-  .zx-pattern__token--small {
-    font-size: clamp(1.1rem, 1.65vw, 1.85rem);
-  }
-
-  .zx-pattern__token--large {
-    font-size: clamp(1.75rem, 2.65vw, 3rem);
-  }
-
-  .zx-pattern__token--outline {
-    color: transparent;
-    -webkit-text-stroke: 1px rgba(214, 226, 255, 0.78);
-  }
-
-  .zx-meteors {
-    z-index: 2;
-    overflow: hidden;
-  }
-
-  .zx-meteor {
+  .zx-sparks { z-index: 2; overflow: hidden; }
+  .zx-sparks i {
     position: absolute;
-    top: var(--meteor-y, 10%);
-    left: var(--meteor-x, 90%);
-    display: block;
-    width: var(--meteor-length, 7rem);
-    height: 1px;
-    opacity: 0;
-    transform: rotate(-42deg) translate3d(0, 0, 0);
-    transform-origin: left center;
+    top: var(--spark-y);
+    left: var(--spark-x);
+    width: var(--spark-size);
+    height: var(--spark-size);
+    border-radius: 50%;
+    background: #d9efff;
+    box-shadow: 0 0 7px rgba(102, 181, 255, 0.68);
+    opacity: var(--spark-opacity);
+    animation: zx-spark-drift var(--spark-duration) linear var(--spark-delay) infinite;
     will-change: transform, opacity;
   }
+  .zx-sparks i:nth-child(3n) { animation-name: zx-spark-drift, zx-spark-twinkle; animation-duration: var(--spark-duration), 2.8s; animation-delay: var(--spark-delay), var(--spark-delay); }
 
-  .zx-meteor::before {
+  .zx-meteors { z-index: 4; overflow: hidden; }
+  :global(.zx-meteor) {
     position: absolute;
-    inset: -0.4rem -0.55rem;
-    background: radial-gradient(ellipse at 0 50%, rgba(135, 202, 255, 0.28), transparent 66%);
-    content: "";
-    filter: blur(5px);
+    top: var(--meteor-y);
+    left: var(--meteor-x);
+    width: var(--meteor-length);
+    height: 2px;
+    opacity: 0;
+    transform: rotate(-42deg);
+    transform-origin: left center;
+    animation: zx-meteor-flight var(--meteor-duration) cubic-bezier(0.16, 0.7, 0.2, 1) both;
+    will-change: transform, opacity;
   }
-
-  .zx-meteor::after {
-    position: absolute;
-    top: 50%;
-    left: -0.12rem;
-    width: 0.28rem;
-    height: 0.28rem;
-    border-radius: 50%;
-    background: rgba(232, 246, 255, 0.96);
-    box-shadow: 0 0 0.6rem rgba(112, 190, 255, 0.74);
-    content: "";
-    transform: translateY(-50%);
-  }
-
-  .zx-meteor i {
-    display: block;
-    width: 100%;
-    height: 1px;
-    background: linear-gradient(90deg, rgba(220, 241, 255, 0.92), rgba(126, 161, 240, 0.28) 48%, transparent 100%);
-  }
-
-  .zx-meteor.is-active {
-    animation: zx-meteor-flight var(--meteor-duration, 1.2s) cubic-bezier(0.16, 0.7, 0.2, 1) both;
-  }
+  :global(.zx-meteor)::before { position: absolute; inset: -9px -14px; background: radial-gradient(ellipse at 0 50%, rgba(130, 208, 255, 0.5), transparent 64%); content: ""; filter: blur(5px); }
+  :global(.zx-meteor)::after { position: absolute; top: 50%; left: 0; width: var(--meteor-head); height: var(--meteor-head); border-radius: 50%; background: #f1fbff; box-shadow: 0 0 5px #fff, 0 0 14px rgba(99, 190, 255, 0.95); content: ""; transform: translate(-50%, -50%); }
+  :global(.zx-meteor) i { display: block; width: 100%; height: 100%; background: linear-gradient(90deg, rgba(235, 249, 255, 0.98), rgba(130, 181, 255, 0.52) 38%, rgba(116, 99, 223, 0.14) 72%, transparent); }
+  :global(.zx-meteor.is-featured) i { box-shadow: 0 0 12px rgba(113, 196, 255, 0.42); }
 
   .zx-background__readability {
-    z-index: 3;
+    z-index: 5;
     background:
-      radial-gradient(ellipse at 50% 28%, rgba(6, 9, 21, 0.64) 0%, rgba(6, 9, 21, 0.32) 31%, transparent 62%),
-      linear-gradient(to bottom, rgba(3, 6, 14, 0.2), transparent 54%, rgba(4, 7, 15, 0.42));
+      linear-gradient(to bottom, rgba(3, 6, 14, 0.38), transparent 15%, transparent 76%, rgba(4, 7, 15, 0.24)),
+      radial-gradient(ellipse at 50% 27%, rgba(6, 9, 21, 0.36) 0%, rgba(6, 9, 21, 0.18) 32%, transparent 61%);
   }
 
-  @keyframes zx-gradient-breathe {
-    from { transform: translate3d(-1.2%, -0.8%, 0) scale(1.035); }
-    to { transform: translate3d(1.2%, 0.9%, 0) scale(1.055); }
-  }
-
-  @keyframes zx-pattern-drift {
-    from { transform: translate3d(0, -50%, 0); }
-    to { transform: translate3d(-50%, 0, 0); }
-  }
-
+  @keyframes zx-gradient-breathe { from { transform: translate3d(-1.2%, -0.8%, 0) scale(1.04); } to { transform: translate3d(1.2%, 0.9%, 0) scale(1.06); } }
+  @keyframes zx-pattern-far { from { transform: translate3d(0, -50%, 0); } to { transform: translate3d(-50%, 0, 0); } }
+  @keyframes zx-pattern-mid { from { transform: translate3d(-2%, -50%, 0); } to { transform: translate3d(-52%, 0, 0); } }
+  @keyframes zx-spark-drift { from { transform: translate3d(12vw, -10vh, 0); } to { transform: translate3d(-35vw, 38vh, 0); } }
+  @keyframes zx-spark-twinkle { 0%, 100% { opacity: 0.18; } 50% { opacity: var(--spark-opacity); } }
   @keyframes zx-meteor-flight {
-    0% { opacity: 0; transform: rotate(-42deg) translate3d(0, 0, 0); }
-    12% { opacity: var(--meteor-strength, 0.7); }
-    72% { opacity: var(--meteor-strength, 0.7); }
-    100% {
-      opacity: 0;
-      transform: rotate(-42deg) translate3d(var(--meteor-distance-x, -30vw), var(--meteor-distance-y, 34vh), 0);
-    }
-  }
-
-  @media (prefers-color-scheme: light) {
-    .zx-background {
-      --zx-navy: #090e1c;
-      --zx-blue-black: #0d1530;
-      --zx-indigo: #1d2b57;
-      --zx-violet: #39316a;
-    }
+    0% { opacity: 0; transform: rotate(-42deg) translate3d(0, 0, 0) scaleX(0.72); }
+    10% { opacity: var(--meteor-strength); }
+    72% { opacity: var(--meteor-strength); }
+    100% { opacity: 0; transform: rotate(-42deg) translate3d(var(--meteor-distance-x), var(--meteor-distance-y), 0) scaleX(1.08); }
   }
 
   @media (max-width: 40rem) {
-    .zx-pattern {
-      inset: -28%;
-      opacity: calc(var(--zx-pattern-opacity) * 0.82);
-    }
-
-    .zx-pattern__row {
-      grid-template-columns: repeat(9, minmax(4.6rem, 1fr));
-      column-gap: 4.8rem;
-    }
-
-    .zx-pattern__token:nth-child(3n),
-    .zx-pattern__token:nth-child(5n) {
-      visibility: hidden;
-    }
-
-    .zx-background__readability {
-      background:
-        radial-gradient(ellipse at 50% 24%, rgba(6, 9, 21, 0.76) 0%, rgba(6, 9, 21, 0.48) 38%, transparent 72%),
-        linear-gradient(to bottom, rgba(3, 6, 14, 0.28), transparent 52%, rgba(4, 7, 15, 0.48));
-    }
+    .zx-pattern--far { inset: -28%; opacity: 0.085; }
+    .zx-pattern--mid { inset: -36%; opacity: 0.15; }
+    .zx-pattern--far .zx-pattern__token:nth-child(3n),
+    .zx-pattern--mid .zx-pattern__token:nth-child(4n) { visibility: hidden; }
+    .zx-pattern--mid .zx-pattern__token { font-size: clamp(2.6rem, 12vw, 4.2rem); }
+    .zx-sparks i:nth-child(n + 10) { display: none; }
+    .zx-background__readability { background: linear-gradient(to bottom, rgba(3, 6, 14, 0.42), transparent 18%, transparent 70%, rgba(4, 7, 15, 0.24)), radial-gradient(ellipse at 50% 25%, rgba(6, 9, 21, 0.42), rgba(6, 9, 21, 0.16) 42%, transparent 70%); }
   }
 
   @media (prefers-reduced-motion: reduce) {
     .zx-background__gradient,
     .zx-pattern__track,
-    .zx-meteor {
-      animation: none !important;
-    }
-
-    .zx-pattern__track {
-      transform: translate3d(-18%, -22%, 0);
-    }
-
-    .zx-meteors {
-      display: none;
-    }
+    .zx-sparks i { animation: none !important; }
+    .zx-pattern--far .zx-pattern__track { transform: translate3d(-14%, -18%, 0); }
+    .zx-pattern--mid .zx-pattern__track { transform: translate3d(-24%, -12%, 0); }
+    .zx-meteors { display: none; }
+    .zx-pattern--far { opacity: 0.1; }
+    .zx-pattern--mid { opacity: 0.17; }
   }
 </style>
