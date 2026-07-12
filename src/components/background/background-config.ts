@@ -4,7 +4,7 @@ export const BACKGROUND_CONFIG = Object.freeze({
   farDuration: 38,
   midOpacity: 0.165,
   midDuration: 21,
-  sparkCount: 14,
+  sparkCount: 10,
 });
 
 export const METEOR_CONFIG = Object.freeze({
@@ -14,8 +14,8 @@ export const METEOR_CONFIG = Object.freeze({
   maxDuration: 900,
   minHeadSize: 1.5,
   maxHeadSize: 4.5,
-  maxActiveCount: 10,
-  mobileMaxActiveCount: 6,
+  maxActiveCount: 8,
+  mobileMaxActiveCount: 4,
   ambientMinInterval: 8000,
   ambientMaxInterval: 16000,
   fadeStartViewport: 0.9,

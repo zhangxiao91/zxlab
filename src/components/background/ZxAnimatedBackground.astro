@@ -1,8 +1,6 @@
 ---
 import { BACKGROUND_CONFIG } from "./background-config";
 
-const vocabulary = ["zx", "zx", "zx", "zx", "z", "x"] as const;
-
 function seededValue(index: number) {
   const value = Math.sin((index + 1) * 9283.17 + 47.11) * 43758.5453;
   return value - Math.floor(value);
@@ -13,7 +11,7 @@ function createRows(rowCount: number, columnCount: number, offset = 0) {
     Array.from({ length: columnCount }, (_, columnIndex) => {
       const index = offset + rowIndex * columnCount + columnIndex;
       return {
-        value: vocabulary[Math.floor(seededValue(index) * vocabulary.length)],
+        value: "zx",
         style: seededValue(index + 101) > 0.8 ? "outline" : seededValue(index + 211) > 0.9 ? "glow" : "solid",
         size: seededValue(index + 307) > 0.72 ? "large" : seededValue(index + 401) < 0.2 ? "small" : "regular",
       };
@@ -21,8 +19,8 @@ function createRows(rowCount: number, columnCount: number, offset = 0) {
   );
 }
 
-const farRows = createRows(8, 11);
-const midRows = createRows(5, 7, 600);
+const farRows = createRows(6, 8);
+const midRows = createRows(4, 5, 600);
 const tileCopies = Array.from({ length: 4 });
 const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) => ({
   x: 4 + seededValue(index + 801) * 92,
@@ -90,6 +88,7 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
     background.dataset.initialized = "true";
     const meteorLayer = background.querySelector("[data-zx-meteors]");
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const mobileViewport = window.matchMedia("(max-width: 40rem)");
     const motion = getMotionController();
     const timers = new Set();
     const activeEffects = new Set();
@@ -101,6 +100,8 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
     let lastSpawnTime = 0;
     let lastScrollTime = 0;
     let ambientTimer = 0;
+    let lastPatternSpeed = -1;
+    let lastMotionPublish = 0;
 
     const randomBetween = (minimum, maximum) => minimum + Math.random() * (maximum - minimum);
     const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
@@ -132,7 +133,7 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
 
     const launchEffect = ({ intensity = 0.2, direction = 1, trace = false, ambient = false } = {}) => {
       if (disposed || reducedMotion.matches || document.hidden || !(meteorLayer instanceof HTMLElement)) return;
-      const isMobile = window.matchMedia("(max-width: 40rem)").matches;
+      const isMobile = mobileViewport.matches;
       const maximumCount = isMobile ? METEOR_CONFIG.mobileMaxActiveCount : METEOR_CONFIG.maxActiveCount;
       if (activeEffects.size >= maximumCount || getFade() <= 0.02) return;
 
@@ -160,9 +161,9 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
     };
 
     const launchScrollGroup = (intensity, direction) => {
-      const isMobile = window.matchMedia("(max-width: 40rem)").matches;
-      const meteorCount = Math.min(isMobile ? 3 : 6, Math.max(1, Math.ceil(mix(1, 6, intensity))));
-      const traceCount = Math.min(isMobile ? 2 : 4, Math.floor(mix(1, 5, intensity)));
+      const isMobile = mobileViewport.matches;
+      const meteorCount = Math.min(isMobile ? 2 : 4, Math.max(1, Math.ceil(mix(1, 4, intensity))));
+      const traceCount = Math.min(isMobile ? 1 : 2, Math.floor(mix(1, 3, intensity)));
       for (let index = 0; index < meteorCount; index += 1) {
         launchEffect({ intensity: clamp(intensity + randomBetween(-0.12, 0.1), 0, 1), direction });
       }
@@ -173,8 +174,11 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
 
     const applySharedMotion = (state: MotionState) => {
       const patternSpeed = Math.max(0.2, state.patternSpeed || 1);
-      background.style.setProperty("--zx-far-motion-duration", `${BACKGROUND_CONFIG.farDuration / patternSpeed}s`);
-      background.style.setProperty("--zx-mid-motion-duration", `${BACKGROUND_CONFIG.midDuration / patternSpeed}s`);
+      if (Math.abs(patternSpeed - lastPatternSpeed) >= 0.06) {
+        lastPatternSpeed = patternSpeed;
+        background.style.setProperty("--zx-far-motion-duration", `${BACKGROUND_CONFIG.farDuration / patternSpeed}s`);
+        background.style.setProperty("--zx-mid-motion-duration", `${BACKGROUND_CONFIG.midDuration / patternSpeed}s`);
+      }
 
       if ((state.phase === "intro-hit" || state.phase === "intro-transition") && state.meteorIntensity > 0.2) {
         smoothedVelocity = Math.max(smoothedVelocity, Math.abs(state.velocity || 28));
@@ -209,7 +213,8 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
       const fade = getFade();
       background.style.setProperty("--zx-scroll-fade", fade.toFixed(3));
 
-      if (!motion.state.phase.startsWith("intro")) {
+      if (!motion.state.phase.startsWith("intro") && time - lastMotionPublish >= 80) {
+        lastMotionPublish = time;
         motion.update({
           phase: intensity > 0.02 ? "scrolling" : "hero-idle",
           intensity,
@@ -228,7 +233,7 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
       }
 
       if (intensity > 0.02) {
-        const spawnInterval = mix(145, 52, intensity);
+        const spawnInterval = mix(180, 90, intensity);
         if (time - lastSpawnTime >= spawnInterval) {
           launchScrollGroup(intensity, smoothedVelocity >= 0 ? 1 : -1);
           lastSpawnTime = time;
@@ -298,17 +303,18 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
 
 <style>
   .zx-background {
-    position: absolute;
-    top: 0;
-    right: 0;
-    left: 0;
-    height: 220vh;
+    position: fixed;
+    inset: 0;
+    height: 100svh;
     z-index: 0;
     overflow: hidden;
     opacity: var(--zx-scroll-fade, 1);
     pointer-events: none;
     user-select: none;
+    backface-visibility: hidden;
+    contain: strict;
     isolation: isolate;
+    transform: translateZ(0);
     transition: opacity 120ms linear;
   }
 
@@ -319,14 +325,6 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
   .zx-background__readability {
     position: absolute;
     inset: 0;
-  }
-
-  .zx-background__gradient,
-  .zx-pattern,
-  .zx-sparks,
-  .zx-background__readability {
-    -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 72%, transparent 100%);
-    mask-image: linear-gradient(to bottom, #000 0%, #000 72%, transparent 100%);
   }
 
   .zx-background__gradient {
@@ -363,6 +361,7 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
     height: 200%;
     grid-template-columns: repeat(2, 1fr);
     grid-template-rows: repeat(2, 1fr);
+    backface-visibility: hidden;
     will-change: transform;
   }
 
@@ -370,8 +369,8 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
   .zx-pattern--mid .zx-pattern__track { animation: zx-pattern-mid var(--zx-mid-motion-duration) linear infinite; }
   .zx-pattern__tile { display: grid; min-width: 0; align-content: space-evenly; }
   .zx-pattern__row { display: grid; align-items: center; }
-  .zx-pattern--far .zx-pattern__row { grid-template-columns: repeat(11, minmax(2.4rem, 1fr)); column-gap: clamp(1.8rem, 3vw, 4rem); }
-  .zx-pattern--mid .zx-pattern__row { grid-template-columns: repeat(7, minmax(5rem, 1fr)); column-gap: clamp(4rem, 7vw, 8rem); }
+  .zx-pattern--far .zx-pattern__row { grid-template-columns: repeat(8, minmax(2.4rem, 1fr)); column-gap: clamp(2.4rem, 4vw, 5rem); }
+  .zx-pattern--mid .zx-pattern__row { grid-template-columns: repeat(5, minmax(5rem, 1fr)); column-gap: clamp(5rem, 9vw, 10rem); }
   .zx-pattern__row--offset { transform: translateX(clamp(3rem, 6vw, 7rem)); }
 
   .zx-pattern__token {
@@ -406,7 +405,6 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
   .zx-sparks i:nth-child(3n) { animation-name: zx-spark-drift, zx-spark-twinkle; animation-duration: var(--spark-duration), 2.8s; animation-delay: var(--spark-delay), var(--spark-delay); }
 
   .zx-meteors {
-    position: fixed;
     z-index: 4;
     overflow: hidden;
   }
@@ -453,12 +451,16 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
   }
 
   @media (max-width: 40rem) {
-    .zx-pattern--far { inset: -28%; opacity: 0.085; }
-    .zx-pattern--mid { inset: -36%; opacity: 0.15; }
-    .zx-pattern--far .zx-pattern__token:nth-child(3n),
-    .zx-pattern--mid .zx-pattern__token:nth-child(4n) { visibility: hidden; }
+    .zx-background { height: 100svh; transition: none; }
+    .zx-background__gradient { animation: none; transform: scale(1.04); }
+    .zx-pattern--far { display: none; }
+    .zx-pattern--mid { inset: -20%; opacity: 0.14; }
     .zx-pattern--mid .zx-pattern__token { font-size: clamp(2.6rem, 12vw, 4.2rem); }
-    .zx-sparks i:nth-child(n + 10) { display: none; }
+    .zx-pattern__token.is-glow { text-shadow: none; }
+    .zx-sparks i:nth-child(n + 6) { display: none; }
+    :global(.zx-meteor)::before { display: none; }
+    :global(.zx-meteor)::after { box-shadow: 0 0 7px rgba(99, 190, 255, 0.72); }
+    :global(.zx-meteor.is-trace) { filter: none; opacity: 0.72; }
     .zx-background__readability { background: linear-gradient(to bottom, rgba(3, 6, 14, 0.42), transparent 18%, transparent 70%, rgba(4, 7, 15, 0.24)), radial-gradient(ellipse at 50% 25%, rgba(6, 9, 21, 0.42), rgba(6, 9, 21, 0.16) 42%, transparent 70%); }
   }
 
