@@ -902,6 +902,7 @@ a {
 }
 
 .home-page {
+  position: relative;
   width: 100%;
   max-width: 100%;
   overflow-x: hidden;
@@ -916,11 +917,12 @@ a {
   align-items: center;
   flex-direction: column;
   text-align: center;
-  background: #080c19;
+  background: transparent;
   color: #f4f6ff;
 }
 
-.home-hero > :not(.zx-background) {
+.home-hero > * {
+  position: relative;
   z-index: 4;
 }
 
@@ -1081,7 +1083,25 @@ a {
 }
 
 .home-chapter {
+  position: relative;
+  z-index: 1;
   padding: clamp(7rem, 13vw, 12rem) max(1.25rem, calc((100vw - 76rem) / 2));
+}
+
+.work-chapter {
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 78% 4%, rgba(88, 104, 197, 0.18), transparent 24rem),
+    linear-gradient(to bottom, rgba(8, 12, 25, 0.08) 0, rgba(10, 16, 33, 0.76) 9rem, #f4f3ed 31rem);
+}
+
+.work-chapter .chapter-heading {
+  color: #f2f5ff;
+}
+
+.work-chapter .chapter-heading > p,
+.work-chapter .chapter-heading > a {
+  color: rgba(224, 231, 255, 0.62);
 }
 
 .chapter-heading {

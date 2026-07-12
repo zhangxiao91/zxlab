@@ -5,10 +5,22 @@ const BACKGROUND_CONFIG = {
   farDuration: 38,
   midOpacity: 0.165,
   midDuration: 21,
-  meteorMinInterval: 1800,
-  meteorMaxInterval: 4200,
-  meteorMaxCount: 4,
   sparkCount: 14,
+} as const;
+
+const METEOR_CONFIG = {
+  minLength: 70,
+  maxLength: 260,
+  minDuration: 280,
+  maxDuration: 900,
+  minHeadSize: 1.5,
+  maxHeadSize: 4.5,
+  maxActiveCount: 10,
+  mobileMaxActiveCount: 6,
+  ambientMinInterval: 8000,
+  ambientMaxInterval: 16000,
+  fadeStartViewport: 0.9,
+  fadeEndViewport: 2.2,
 } as const;
 
 const vocabulary = ["zx", "zx", "zx", "zx", "z", "x"] as const;
@@ -90,7 +102,7 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
   <div class="zx-background__readability"></div>
 </div>
 
-<script define:vars={{ BACKGROUND_CONFIG }}>
+<script define:vars={{ BACKGROUND_CONFIG, METEOR_CONFIG }}>
   const background = document.querySelector("[data-zx-background]");
 
   if (background instanceof HTMLElement && background.dataset.initialized !== "true") {
@@ -98,9 +110,19 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
     const meteorLayer = background.querySelector("[data-zx-meteors]");
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
     const timers = new Set();
+    const activeEffects = new Set();
     let disposed = false;
+    let animationFrame = 0;
+    let previousScrollY = window.scrollY;
+    let pendingScrollY = window.scrollY;
+    let smoothedVelocity = 0;
+    let lastSpawnTime = 0;
+    let lastScrollTime = 0;
+    let ambientTimer = 0;
 
     const randomBetween = (minimum, maximum) => minimum + Math.random() * (maximum - minimum);
+    const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
+    const mix = (minimum, maximum, amount) => minimum + (maximum - minimum) * amount;
     const setTimer = (callback, delay) => {
       const timer = window.setTimeout(() => {
         timers.delete(timer);
@@ -112,79 +134,169 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
     const clearTimers = () => {
       timers.forEach((timer) => window.clearTimeout(timer));
       timers.clear();
+      ambientTimer = 0;
     };
 
-    const launchMeteor = (featured = false) => {
+    const getFade = () => {
+      const fadeStart = window.innerHeight * METEOR_CONFIG.fadeStartViewport;
+      const fadeEnd = window.innerHeight * METEOR_CONFIG.fadeEndViewport;
+      return 1 - clamp((window.scrollY - fadeStart) / (fadeEnd - fadeStart), 0, 1);
+    };
+
+    const removeEffect = (effect) => {
+      activeEffects.delete(effect);
+      effect.remove();
+    };
+
+    const launchEffect = ({ intensity = 0.2, direction = 1, trace = false, ambient = false } = {}) => {
       if (disposed || reducedMotion.matches || document.hidden || !(meteorLayer instanceof HTMLElement)) return;
-      const maximumCount = window.matchMedia("(max-width: 40rem)").matches ? 3 : BACKGROUND_CONFIG.meteorMaxCount;
-      if (meteorLayer.childElementCount >= maximumCount) return;
+      const isMobile = window.matchMedia("(max-width: 40rem)").matches;
+      const maximumCount = isMobile ? METEOR_CONFIG.mobileMaxActiveCount : METEOR_CONFIG.maxActiveCount;
+      if (activeEffects.size >= maximumCount || getFade() <= 0.02) return;
 
       const meteor = document.createElement("span");
-      const duration = randomBetween(0.72, 1.55);
-      const length = featured ? randomBetween(220, 280) : randomBetween(90, 220);
-      meteor.className = `zx-meteor${featured ? " is-featured" : ""}`;
-      meteor.innerHTML = "<i></i>";
-      meteor.style.cssText = `--meteor-x:${randomBetween(62, 110).toFixed(2)}%;--meteor-y:${randomBetween(-10, 52).toFixed(2)}%;--meteor-distance-x:${randomBetween(-48, -31).toFixed(2)}vw;--meteor-distance-y:${randomBetween(31, 48).toFixed(2)}vh;--meteor-length:${length.toFixed(2)}px;--meteor-head:${randomBetween(2, 6).toFixed(2)}px;--meteor-duration:${duration.toFixed(2)}s;--meteor-strength:${randomBetween(featured ? 0.82 : 0.62, 0.96).toFixed(2)}`;
-      meteor.addEventListener("animationend", () => meteor.remove(), { once: true });
+      const mobileLengthScale = isMobile ? 0.8 : 1;
+      const length = trace ? mix(30, 100, intensity) : mix(METEOR_CONFIG.minLength, METEOR_CONFIG.maxLength, intensity);
+      const duration = trace ? mix(450, 180, intensity) : mix(METEOR_CONFIG.maxDuration, METEOR_CONFIG.minDuration, intensity);
+      const angleJitter = randomBetween(-12, 12);
+      const baseAngle = direction > 0 ? -138 : 42;
+      const movementAngle = baseAngle + angleJitter;
+      const trailAngle = movementAngle + 180;
+      const radians = movementAngle * Math.PI / 180;
+      const distance = trace ? mix(14, 26, intensity) : mix(34, 58, intensity);
+      const startX = direction > 0 ? randomBetween(44, 112) : randomBetween(-12, 56);
+      const startY = direction > 0 ? randomBetween(52, 112) : randomBetween(-12, 48);
+      const strength = trace ? mix(0.16, 0.36, intensity) : ambient ? 0.42 : mix(0.42, 0.88, intensity);
+      const blur = trace ? mix(0.5, 1.5, intensity) : mix(1.5, 4, intensity);
+
+      meteor.className = `zx-meteor${trace ? " is-trace" : ""}`;
+      if (!trace) meteor.innerHTML = "<i></i>";
+      meteor.style.cssText = `--meteor-x:${startX.toFixed(2)}%;--meteor-y:${startY.toFixed(2)}%;--meteor-distance-x:${(Math.cos(radians) * distance).toFixed(2)}vw;--meteor-distance-y:${(Math.sin(radians) * distance).toFixed(2)}vh;--meteor-angle:${trailAngle.toFixed(2)}deg;--meteor-length:${(length * mobileLengthScale).toFixed(2)}px;--meteor-head:${mix(METEOR_CONFIG.minHeadSize, METEOR_CONFIG.maxHeadSize, intensity).toFixed(2)}px;--meteor-duration:${duration.toFixed(0)}ms;--meteor-strength:${strength.toFixed(2)};--meteor-blur:${blur.toFixed(2)}px`;
+      meteor.addEventListener("animationend", () => removeEffect(meteor), { once: true });
+      activeEffects.add(meteor);
       meteorLayer.append(meteor);
     };
 
-    const launchGroup = () => {
-      const count = Math.random() > 0.72 ? 3 : Math.random() > 0.35 ? 2 : 1;
-      const featuredIndex = Math.random() > 0.78 ? Math.floor(Math.random() * count) : -1;
-      for (let index = 0; index < count; index += 1) {
-        setTimer(() => launchMeteor(index === featuredIndex), index * randomBetween(140, 360));
+    const launchScrollGroup = (intensity, direction) => {
+      const isMobile = window.matchMedia("(max-width: 40rem)").matches;
+      const meteorCount = Math.min(isMobile ? 3 : 6, Math.max(1, Math.ceil(mix(1, 6, intensity))));
+      const traceCount = Math.min(isMobile ? 2 : 4, Math.floor(mix(1, 5, intensity)));
+      for (let index = 0; index < meteorCount; index += 1) {
+        launchEffect({ intensity: clamp(intensity + randomBetween(-0.12, 0.1), 0, 1), direction });
+      }
+      for (let index = 0; index < traceCount; index += 1) {
+        launchEffect({ intensity, direction, trace: true });
       }
     };
 
-    const scheduleNext = (initial = false) => {
-      if (disposed || reducedMotion.matches || document.hidden) return;
-      const delay = initial ? 650 : randomBetween(BACKGROUND_CONFIG.meteorMinInterval, BACKGROUND_CONFIG.meteorMaxInterval);
-      setTimer(() => {
-        launchGroup();
-        scheduleNext();
-      }, delay);
+    const scheduleAmbient = () => {
+      if (ambientTimer || disposed || reducedMotion.matches || document.hidden || getFade() <= 0.02) return;
+      ambientTimer = setTimer(() => {
+        ambientTimer = 0;
+        if (performance.now() - lastScrollTime > 800) launchEffect({ intensity: 0.18, direction: 1, ambient: true });
+        scheduleAmbient();
+      }, randomBetween(METEOR_CONFIG.ambientMinInterval, METEOR_CONFIG.ambientMaxInterval));
     };
 
-    const resetMeteors = () => meteorLayer instanceof HTMLElement && meteorLayer.replaceChildren();
+    const updateFrame = (time) => {
+      animationFrame = 0;
+      if (disposed || reducedMotion.matches || document.hidden) return;
+
+      const delta = pendingScrollY - previousScrollY;
+      previousScrollY = pendingScrollY;
+      if (Math.abs(delta) > 0.01) smoothedVelocity = smoothedVelocity * 0.82 + delta * 0.18;
+      else if (time - lastScrollTime > 80) smoothedVelocity *= 0.88;
+
+      const intensity = clamp(Math.abs(smoothedVelocity) / 30, 0, 1);
+      const fade = getFade();
+      background.style.setProperty("--zx-scroll-fade", fade.toFixed(3));
+
+      if (fade <= 0.02) {
+        activeEffects.forEach(removeEffect);
+        smoothedVelocity = 0;
+        return;
+      }
+
+      if (intensity > 0.02) {
+        const spawnInterval = mix(145, 52, intensity);
+        if (time - lastSpawnTime >= spawnInterval) {
+          launchScrollGroup(intensity, smoothedVelocity >= 0 ? 1 : -1);
+          lastSpawnTime = time;
+        }
+      }
+
+      if (Math.abs(smoothedVelocity) > 0.08 || time - lastScrollTime < 600) {
+        animationFrame = requestAnimationFrame(updateFrame);
+      }
+    };
+
+    const handleScroll = () => {
+      pendingScrollY = window.scrollY;
+      lastScrollTime = performance.now();
+      scheduleAmbient();
+      if (!animationFrame && !reducedMotion.matches && !document.hidden) {
+        animationFrame = requestAnimationFrame(updateFrame);
+      }
+    };
+
+    const resetEffects = () => {
+      activeEffects.forEach((effect) => effect.remove());
+      activeEffects.clear();
+      if (meteorLayer instanceof HTMLElement) meteorLayer.replaceChildren();
+    };
     const handleVisibility = () => {
       clearTimers();
-      resetMeteors();
-      if (!document.hidden) scheduleNext(true);
+      if (animationFrame) cancelAnimationFrame(animationFrame);
+      animationFrame = 0;
+      resetEffects();
+      if (!document.hidden && !reducedMotion.matches) {
+        previousScrollY = pendingScrollY = window.scrollY;
+        scheduleAmbient();
+      }
     };
     const handleMotionPreference = () => {
       clearTimers();
-      resetMeteors();
-      if (!reducedMotion.matches) scheduleNext(true);
+      if (animationFrame) cancelAnimationFrame(animationFrame);
+      animationFrame = 0;
+      resetEffects();
+      if (!reducedMotion.matches) scheduleAmbient();
     };
     const cleanup = () => {
       disposed = true;
       clearTimers();
-      resetMeteors();
+      if (animationFrame) cancelAnimationFrame(animationFrame);
+      resetEffects();
+      window.removeEventListener("scroll", handleScroll);
       document.removeEventListener("visibilitychange", handleVisibility);
       document.removeEventListener("astro:before-swap", cleanup);
       window.removeEventListener("pagehide", cleanup);
       reducedMotion.removeEventListener("change", handleMotionPreference);
     };
 
+    window.addEventListener("scroll", handleScroll, { passive: true });
     document.addEventListener("visibilitychange", handleVisibility);
     document.addEventListener("astro:before-swap", cleanup, { once: true });
     window.addEventListener("pagehide", cleanup, { once: true });
     reducedMotion.addEventListener("change", handleMotionPreference);
-    scheduleNext(true);
+    background.style.setProperty("--zx-scroll-fade", getFade().toFixed(3));
+    scheduleAmbient();
   }
 </script>
 
 <style>
   .zx-background {
     position: absolute;
-    inset: 0;
+    top: 0;
+    right: 0;
+    left: 0;
+    height: 220vh;
     z-index: 0;
     overflow: hidden;
+    opacity: var(--zx-scroll-fade, 1);
     pointer-events: none;
     user-select: none;
-    contain: layout paint;
     isolation: isolate;
+    transition: opacity 120ms linear;
   }
 
   .zx-background__gradient,
@@ -194,6 +306,14 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
   .zx-background__readability {
     position: absolute;
     inset: 0;
+  }
+
+  .zx-background__gradient,
+  .zx-pattern,
+  .zx-sparks,
+  .zx-background__readability {
+    -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 72%, transparent 100%);
+    mask-image: linear-gradient(to bottom, #000 0%, #000 72%, transparent 100%);
   }
 
   .zx-background__gradient {
@@ -222,8 +342,6 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
     z-index: 3;
     inset: -28%;
     opacity: var(--zx-mid-opacity);
-    -webkit-mask-image: radial-gradient(ellipse at 50% 33%, rgba(0, 0, 0, 0.44) 0%, #000 48%);
-    mask-image: radial-gradient(ellipse at 50% 33%, rgba(0, 0, 0, 0.44) 0%, #000 48%);
   }
 
   .zx-pattern__track {
@@ -274,7 +392,11 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
   }
   .zx-sparks i:nth-child(3n) { animation-name: zx-spark-drift, zx-spark-twinkle; animation-duration: var(--spark-duration), 2.8s; animation-delay: var(--spark-delay), var(--spark-delay); }
 
-  .zx-meteors { z-index: 4; overflow: hidden; }
+  .zx-meteors {
+    position: fixed;
+    z-index: 4;
+    overflow: hidden;
+  }
   :global(.zx-meteor) {
     position: absolute;
     top: var(--meteor-y);
@@ -282,7 +404,7 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
     width: var(--meteor-length);
     height: 2px;
     opacity: 0;
-    transform: rotate(-42deg);
+    transform: translate3d(0, 0, 0) rotate(var(--meteor-angle));
     transform-origin: left center;
     animation: zx-meteor-flight var(--meteor-duration) cubic-bezier(0.16, 0.7, 0.2, 1) both;
     will-change: transform, opacity;
@@ -290,7 +412,13 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
   :global(.zx-meteor)::before { position: absolute; inset: -9px -14px; background: radial-gradient(ellipse at 0 50%, rgba(130, 208, 255, 0.5), transparent 64%); content: ""; filter: blur(5px); }
   :global(.zx-meteor)::after { position: absolute; top: 50%; left: 0; width: var(--meteor-head); height: var(--meteor-head); border-radius: 50%; background: #f1fbff; box-shadow: 0 0 5px #fff, 0 0 14px rgba(99, 190, 255, 0.95); content: ""; transform: translate(-50%, -50%); }
   :global(.zx-meteor) i { display: block; width: 100%; height: 100%; background: linear-gradient(90deg, rgba(235, 249, 255, 0.98), rgba(130, 181, 255, 0.52) 38%, rgba(116, 99, 223, 0.14) 72%, transparent); }
-  :global(.zx-meteor.is-featured) i { box-shadow: 0 0 12px rgba(113, 196, 255, 0.42); }
+  :global(.zx-meteor.is-trace) {
+    height: 1px;
+    filter: blur(var(--meteor-blur));
+  }
+  :global(.zx-meteor.is-trace)::before,
+  :global(.zx-meteor.is-trace)::after { display: none; }
+  :global(.zx-meteor.is-trace) { background: linear-gradient(90deg, rgba(179, 218, 255, 0.62), transparent); }
 
   .zx-background__readability {
     z-index: 5;
@@ -305,10 +433,10 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
   @keyframes zx-spark-drift { from { transform: translate3d(12vw, -10vh, 0); } to { transform: translate3d(-35vw, 38vh, 0); } }
   @keyframes zx-spark-twinkle { 0%, 100% { opacity: 0.18; } 50% { opacity: var(--spark-opacity); } }
   @keyframes zx-meteor-flight {
-    0% { opacity: 0; transform: rotate(-42deg) translate3d(0, 0, 0) scaleX(0.72); }
+    0% { opacity: 0; transform: translate3d(0, 0, 0) rotate(var(--meteor-angle)) scaleX(0.72); }
     10% { opacity: var(--meteor-strength); }
     72% { opacity: var(--meteor-strength); }
-    100% { opacity: 0; transform: rotate(-42deg) translate3d(var(--meteor-distance-x), var(--meteor-distance-y), 0) scaleX(1.08); }
+    100% { opacity: 0; transform: translate3d(var(--meteor-distance-x), var(--meteor-distance-y), 0) rotate(var(--meteor-angle)) scaleX(1.08); }
   }
 
   @media (max-width: 40rem) {
@@ -322,12 +450,14 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
   }
 
   @media (prefers-reduced-motion: reduce) {
+    .zx-background { opacity: 1 !important; }
     .zx-background__gradient,
     .zx-pattern__track,
     .zx-sparks i { animation: none !important; }
     .zx-pattern--far .zx-pattern__track { transform: translate3d(-14%, -18%, 0); }
     .zx-pattern--mid .zx-pattern__track { transform: translate3d(-24%, -12%, 0); }
     .zx-meteors { display: none; }
+    .zx-sparks { display: none; }
     .zx-pattern--far { opacity: 0.1; }
     .zx-pattern--mid { opacity: 0.17; }
   }

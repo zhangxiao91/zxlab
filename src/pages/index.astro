@@ -25,9 +25,9 @@ const dateFormatter = new Intl.DateTimeFormat("en-US", {
   <WelcomeGate slot="overlay" />
 
   <main class="home-page">
-    <section class="home-hero" aria-labelledby="intro-title">
-      <ZxAnimatedBackground />
+    <ZxAnimatedBackground />
 
+    <section class="home-hero" aria-labelledby="intro-title">
       <p class="home-kicker">A digital workshop by Zhangxiao</p>
 
       <h1 id="intro-title">
@@ -259,7 +259,7 @@ const dateFormatter = new Intl.DateTimeFormat("en-US", {
       const revealHero = () => {
         if (heroStarted) return;
         heroStarted = true;
-        gsap.from(".home-hero > :not(.zx-background)", {
+        gsap.from(".home-hero > *", {
           y: 48,
           opacity: 0,
           duration: 1.1,
