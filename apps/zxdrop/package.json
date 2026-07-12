@@ -5,6 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite --port 4173",
+    "dev:worker": "wrangler dev --config worker/wrangler.jsonc --port 8787",
+    "dev:all": "concurrently -k -n web,worker -c blue,green \"npm:dev\" \"npm:dev:worker\"",
+    "types:worker": "wrangler types worker/worker-configuration.d.ts --config worker/wrangler.jsonc",
+    "typecheck": "npm run types:worker && tsc -b --pretty false && tsc -p worker/tsconfig.json --noEmit --pretty false",
+    "lint": "eslint src worker/src vite.config.ts",
     "build": "tsc -b && vite build",
     "preview": "vite preview --port 4173",
     "test": "vitest run"
@@ -12,19 +17,25 @@
   "dependencies": {
     "gsap": "^3.13.0",
     "lucide-react": "^0.468.0",
+    "qrcode": "^1.5.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "@types/qrcode": "^1.5.5",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
+    "concurrently": "^9.2.1",
+    "eslint": "^9.31.0",
+    "typescript-eslint": "^8.37.0",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17",
     "typescript": "~5.7.2",
     "vite": "^6.0.5",
     "vite-plugin-pwa": "^0.21.1",
-    "vitest": "^2.1.8"
+    "vitest": "^2.1.8",
+    "wrangler": "^4.110.0"
   }
 }

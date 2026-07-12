@@ -1,0 +1,31 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "zxdrop-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-12",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "APP_ORIGIN": "https://zxdrop.pages.dev",
+    "SESSION_TTL_SECONDS": "600",
+    "MAX_FILE_BYTES": "20971520"
+  },
+  "r2_buckets": [
+    {
+      "binding": "FILES",
+      "bucket_name": "zxdrop-files",
+      "preview_bucket_name": "zxdrop-files-preview"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "SESSIONS", "class_name": "TransferSession" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["TransferSession"] }
+  ],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  }
+}

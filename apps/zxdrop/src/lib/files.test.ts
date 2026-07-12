@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { MAX_FILE_SIZE, MAX_TOTAL_SIZE, formatBytes, validateFiles } from "./files";
 
 function fileOfSize(size: number): File {
-  return new File([new Uint8Array(size)], "sample.bin");
+  return new File([new Uint8Array(size)], "sample.png", { type: "image/png" });
 }
 
 describe("file limits", () => {
