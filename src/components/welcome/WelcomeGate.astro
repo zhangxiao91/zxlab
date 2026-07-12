@@ -45,7 +45,7 @@ const config = welcomeGateConfig;
   import { welcomeFinishedEvent, welcomeGateConfig } from "./welcome-config";
   import { getMotionController } from "../background/motion-state";
 
-  type WelcomeState = "idle" | "ready" | "hit" | "leaving" | "finished";
+  type WelcomeState = "idle" | "ready" | "revealing" | "hit" | "leaving" | "finished";
 
   const gate = document.querySelector<HTMLElement>("[data-welcome-gate]");
 
@@ -89,15 +89,14 @@ const config = welcomeGateConfig;
 
     const setMotion = (patch: Parameters<typeof motion.update>[0]) => motion.update(patch);
 
-    const pulseTextMotion = (index: number) => {
-      const isGlitchStep = index === 1 || index === 3 || index === welcomeGateConfig.messageSteps.length - 1;
+    const pulseTextMotion = () => {
       window.clearTimeout(motionPulseTimer);
       setMotion({
         phase: "intro-idle",
         intensity: 0.12,
         patternSpeed: 0.48,
         meteorIntensity: 0,
-        glitchIntensity: isGlitchStep ? 0.18 : 0.06,
+        glitchIntensity: 0,
       });
       motionPulseTimer = window.setTimeout(() => {
         setMotion({ intensity: 0, patternSpeed: 0.28, glitchIntensity: 0 });
@@ -144,7 +143,7 @@ const config = welcomeGateConfig;
       welcomeGateConfig.messageSteps.forEach((text, index) => {
         schedule(() => {
           message.classList.remove("is-updating");
-          message.classList.toggle("is-glitch-step", index === 1 || index === 3 || index === welcomeGateConfig.messageSteps.length - 1);
+          message.classList.remove("is-glitch-step");
           message.dataset.step = String(index);
           message.dataset.text = text;
           messageText.textContent = text;
@@ -153,8 +152,9 @@ const config = welcomeGateConfig;
 
           if (index === welcomeGateConfig.messageSteps.length - 1) {
             announcer.textContent = welcomeGateConfig.welcomeText;
+            schedule(beginHit, messageStepInterval);
           }
-          pulseTextMotion(index);
+          pulseTextMotion();
         }, welcomeGateConfig.messageStepDelays[index] ?? index * messageStepInterval);
       });
     };
@@ -219,15 +219,8 @@ const config = welcomeGateConfig;
       schedule(finish, leaveDuration + 120);
     };
 
-    function enter() {
-      if (state !== "ready") return;
-      rememberVisit();
-      if (reducedMotion.matches) {
-        gate.classList.add("is-skipping");
-        setMotion({ phase: "hero-idle", intensity: 0, direction: 0, velocity: 0, patternSpeed: 0, meteorIntensity: 0, glitchIntensity: 0 });
-        schedule(finish, 200);
-        return;
-      }
+    const beginHit = () => {
+      if (state !== "revealing") return;
       setState("hit");
       setMotion({
         phase: "intro-hit",
@@ -238,7 +231,23 @@ const config = welcomeGateConfig;
         meteorIntensity: 1,
         glitchIntensity: 1,
       });
+      schedule(() => setMotion({ glitchIntensity: 0 }), 190);
       schedule(beginLeaving, hitDuration);
+    };
+
+    function enter() {
+      if (state !== "ready") return;
+      rememberVisit();
+      if (reducedMotion.matches) {
+        gate.classList.add("is-skipping");
+        setMotion({ phase: "hero-idle", intensity: 0, direction: 0, velocity: 0, patternSpeed: 0, meteorIntensity: 0, glitchIntensity: 0 });
+        schedule(finish, 200);
+        return;
+      }
+      gate.classList.remove("is-hovering");
+      setState("revealing");
+      setMotion({ phase: "intro-idle", intensity: 0, patternSpeed: 0.28, meteorIntensity: 0, glitchIntensity: 0 });
+      revealWelcomeMessage();
     }
 
     function skipImmediately() {
@@ -321,9 +330,7 @@ const config = welcomeGateConfig;
       html.classList.add("welcome-active");
       body.classList.add("welcome-locked");
       siteShell?.setAttribute("inert", "");
-      setState("idle");
-      revealWelcomeMessage();
-      schedule(() => setState("ready"), (welcomeGateConfig.messageStepDelays.at(-1) ?? 710) + messageStepInterval);
+      setState("ready");
       setMotion({ phase: "intro-idle", intensity: 0, direction: 0, velocity: 0, patternSpeed: reducedMotion.matches ? 0 : 0.28, meteorIntensity: 0, glitchIntensity: 0 });
       if (!reducedMotion.matches) {
         gate.classList.add("is-calibrating");
