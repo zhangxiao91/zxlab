@@ -3,7 +3,8 @@
   "type": "module",
   "version": "0.0.1",
   "workspaces": [
-    "apps/stonks"
+    "apps/stonks",
+    "apps/zxdrop"
   ],
   "engines": {
     "node": ">=22.12.0"
@@ -11,6 +12,7 @@
   "scripts": {
     "dev": "astro dev",
     "build": "npm run build:stonks && astro build",
+    "build:zxdrop": "npm run build --workspace zxdrop",
     "build:stonks": "npm run build --workspace stonks-wip",
     "preview": "astro preview",
     "astro": "astro",
