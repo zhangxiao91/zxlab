@@ -853,8 +853,8 @@ a {
   max-width: 100%;
   overflow-x: hidden;
   background:
-    radial-gradient(circle at 16% 8%, rgba(177, 255, 89, 0.08), transparent 24rem),
-    #f0f0e9;
+    radial-gradient(circle at 16% 8%, rgba(142, 184, 244, 0.08), transparent 24rem),
+    #eef1f7;
   font-family: "Outfit", ui-sans-serif, system-ui, sans-serif;
 }
 
@@ -902,11 +902,23 @@ a {
 }
 
 .home-page {
+  --home-dark-0: #060a16;
+  --home-dark-1: #091126;
+  --home-dark-2: #11183a;
+  --home-light-0: #eef1f7;
+  --home-light-1: #e4e8f1;
+  --home-light-2: #d9deea;
+  --home-ink-dark: #f4f6ff;
+  --home-ink-light: #171a24;
+  --home-accent-blue: #9bbcff;
+  --home-accent-cyan: #8edcf4;
+  --home-accent-violet: #afa3ff;
   position: relative;
   width: 100%;
   max-width: 100%;
   overflow-x: hidden;
-  color: #171814;
+  background: var(--home-light-0);
+  color: var(--home-ink-light);
 }
 
 .home-hero {
@@ -1091,8 +1103,9 @@ a {
 .work-chapter {
   overflow: hidden;
   background:
-    radial-gradient(circle at 78% 4%, rgba(88, 104, 197, 0.18), transparent 24rem),
-    linear-gradient(to bottom, rgba(8, 12, 25, 0.08) 0, rgba(10, 16, 33, 0.76) 9rem, #f4f3ed 31rem);
+    radial-gradient(circle at 78% 4%, rgba(112, 128, 230, 0.16), transparent 29rem),
+    linear-gradient(to bottom, rgba(8, 12, 25, 0.08), rgba(8, 13, 29, 0.82) 10rem, rgba(9, 17, 38, 0.95) 34rem, rgba(6, 10, 22, 0.97));
+  color: var(--home-ink-dark);
 }
 
 .work-chapter .chapter-heading {
@@ -1231,10 +1244,32 @@ a {
 }
 
 .curiosity-chapter {
+  overflow: hidden;
+  padding-bottom: calc(clamp(7rem, 13vw, 12rem) + 20rem);
   background:
-    radial-gradient(circle at 80% 20%, rgba(192, 255, 113, 0.09), transparent 28rem),
-    #12130f;
-  color: #f3f3eb;
+    radial-gradient(circle at 80% 18%, rgba(139, 124, 235, 0.14), transparent 30rem),
+    linear-gradient(to bottom, rgba(6, 10, 22, 0.97) 0%, rgba(10, 16, 36, 0.96) calc(100% - 24rem), #64718b calc(100% - 12rem), var(--home-light-0) 100%);
+  color: var(--home-ink-dark);
+}
+
+.curiosity-chapter::after {
+  position: absolute;
+  right: -8vw;
+  bottom: 8rem;
+  width: min(46vw, 42rem);
+  height: 1px;
+  z-index: 0;
+  background: linear-gradient(90deg, transparent, rgba(155, 188, 255, 0.36), transparent);
+  content: "";
+  pointer-events: none;
+  transform: rotate(-10deg);
+}
+
+.curiosity-chapter > :not(.zx-section-texture),
+.notes-chapter > :not(.zx-section-texture),
+.home-cta > :not(.zx-section-texture) {
+  position: relative;
+  z-index: 1;
 }
 
 .chapter-heading--light > p,
@@ -1322,6 +1357,7 @@ a {
   display: grid;
   grid-template-columns: minmax(18rem, 0.72fr) minmax(0, 1fr);
   align-items: start;
+  background: var(--home-light-0);
   gap: clamp(3rem, 9vw, 9rem);
 }
 
@@ -1347,7 +1383,7 @@ a {
   padding: clamp(2rem, 5vw, 4rem);
   border-radius: 2.4rem;
   grid-template-rows: auto 1fr;
-  background: #deded4;
+  background: #dce2ed;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.72),
     0 30px 70px rgba(26, 27, 23, 0.11);
@@ -1356,18 +1392,22 @@ a {
 
 .method-card--dark {
   top: 9.6rem;
-  background: #20211d;
-  color: #f5f5ed;
+  background: #11182d;
+  color: var(--home-ink-dark);
 }
 
 .method-card--accent {
   top: 11.2rem;
   margin-bottom: 0;
-  background: #c8ff76;
-  color: #171814;
+  background: #b8c9f2;
+  color: #171a24;
 }
 
+.method-card--dark .method-card__number { color: var(--home-accent-blue); }
+
 .method-card__number {
+  color: #52658f;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
   font-size: 0.75rem;
   letter-spacing: 0.2em;
 }
@@ -1393,7 +1433,8 @@ a {
 }
 
 .notes-chapter {
-  background: #e5e5dc;
+  overflow: hidden;
+  background: var(--home-light-1);
 }
 
 .note-carousel {
@@ -1422,7 +1463,7 @@ a {
   border-radius: 2.2rem;
   scroll-snap-align: start;
   flex-direction: column;
-  background: #f5f5ee;
+  background: #f7f9fc;
   box-shadow:
     inset 0 0 0 0.4rem rgba(21, 22, 18, 0.045),
     inset 0 1px 0 rgba(255, 255, 255, 0.9);
@@ -1435,7 +1476,7 @@ a {
 }
 
 .note-slide time {
-  color: #74756d;
+  color: #66769b;
   font-size: 0.72rem;
   letter-spacing: 0.11em;
   text-transform: uppercase;
@@ -1453,13 +1494,14 @@ a {
 .note-slide p {
   max-width: 37rem;
   margin-top: 1.25rem;
-  color: #64655f;
+  color: #5f687b;
   line-height: 1.6;
 }
 
 .note-slide > span {
   margin-top: 1.7rem;
   font-size: 0.82rem;
+  color: #596da5;
 }
 
 .note-carousel__controls {
@@ -1474,7 +1516,7 @@ a {
   height: 3rem;
   border: 0;
   border-radius: 50%;
-  background: #171814;
+  background: #18213a;
   color: #fff;
   cursor: pointer;
   transition: transform 600ms cubic-bezier(0.32, 0.72, 0, 1);
@@ -1485,16 +1527,19 @@ a {
 }
 
 .home-cta {
+  position: relative;
+  overflow: hidden;
   padding: clamp(8rem, 17vw, 15rem) 1.25rem;
   background:
-    radial-gradient(circle at 50% 0, rgba(203, 255, 126, 0.18), transparent 30rem),
-    #10110e;
-  color: #f5f5ed;
+    radial-gradient(circle at 50% 0, rgba(139, 124, 235, 0.2), transparent 32rem),
+    radial-gradient(circle at 14% 72%, rgba(71, 152, 187, 0.1), transparent 26rem),
+    linear-gradient(to bottom, var(--home-light-1), #66718a 9rem, var(--home-dark-1) 19rem, var(--home-dark-2) 68%, #080c19);
+  color: var(--home-ink-dark);
   text-align: center;
 }
 
 .home-cta > p {
-  color: rgba(245, 245, 237, 0.48);
+  color: rgba(226, 232, 255, 0.52);
   font-size: 0.8rem;
 }
 
@@ -1509,8 +1554,8 @@ a {
 }
 
 .home-button--light {
-  background: #f5f5ed;
-  color: #171814;
+  background: #f4f6ff;
+  color: #171a24;
 }
 
 .home-button--light .home-button__icon {
@@ -1520,8 +1565,8 @@ a {
 .site-shell:has(.home-page) .site-footer {
   padding: 2rem max(1.25rem, calc((100vw - 76rem) / 2));
   border: 0;
-  background: #10110e;
-  color: rgba(245, 245, 237, 0.45);
+  background: #080c19;
+  color: rgba(226, 232, 255, 0.45);
 }
 
 @media (max-width: 56rem) {

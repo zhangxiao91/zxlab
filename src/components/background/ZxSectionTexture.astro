@@ -1,0 +1,59 @@
+---
+interface Props {
+  tone?: "dark" | "light";
+  density?: "quiet" | "regular";
+}
+
+const { tone = "dark", density = "regular" } = Astro.props;
+const marks = Array.from({ length: density === "quiet" ? 7 : 10 });
+---
+
+<div class:list={["zx-section-texture", `is-${tone}`, `is-${density}`]} aria-hidden="true">
+  {marks.map((_, index) => <span class:list={{ "is-outline": index % 3 === 1 }}>zx</span>)}
+</div>
+
+<style>
+  .zx-section-texture {
+    position: absolute;
+    inset: 2rem -5rem;
+    z-index: 0;
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    align-content: space-around;
+    gap: clamp(4rem, 9vw, 10rem);
+    opacity: 0.032;
+    pointer-events: none;
+    transform: rotate(10deg) translate3d(0, 0, 0);
+    user-select: none;
+  }
+
+  .zx-section-texture.is-quiet { opacity: 0.022; }
+  .zx-section-texture.is-light { opacity: 0.026; }
+
+  .zx-section-texture span {
+    color: #b9ccff;
+    font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    font-size: clamp(3.5rem, 8vw, 8rem);
+    font-weight: 600;
+    letter-spacing: -0.1em;
+    white-space: nowrap;
+  }
+
+  .zx-section-texture.is-light span { color: #52658f; }
+  .zx-section-texture span.is-outline {
+    color: transparent;
+    -webkit-text-stroke: 1px rgba(185, 204, 255, 0.9);
+  }
+  .zx-section-texture.is-light span.is-outline { -webkit-text-stroke-color: rgba(82, 101, 143, 0.82); }
+
+  @media (max-width: 40rem) {
+    .zx-section-texture {
+      inset: 1rem -3rem;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 5rem;
+      opacity: 0.024;
+    }
+
+    .zx-section-texture span:nth-child(n + 7) { display: none; }
+  }
+</style>

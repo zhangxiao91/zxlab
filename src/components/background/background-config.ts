@@ -18,6 +18,8 @@ export const METEOR_CONFIG = Object.freeze({
   mobileMaxActiveCount: 4,
   ambientMinInterval: 8000,
   ambientMaxInterval: 16000,
-  fadeStartViewport: 0.9,
-  fadeEndViewport: 2.2,
+  motionFadeStartViewport: 0.85,
+  motionFadeEndViewport: 2.2,
+  ambientFadeStartViewport: 1.5,
+  ambientFadeEndViewport: 3.2,
 });

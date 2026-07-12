@@ -2,6 +2,7 @@
 import Layout from "../layouts/Layout.astro";
 import WelcomeGate from "../components/welcome/WelcomeGate.astro";
 import ZxAnimatedBackground from "../components/background/ZxAnimatedBackground.astro";
+import ZxSectionTexture from "../components/background/ZxSectionTexture.astro";
 import { projects } from "../data/projects";
 import { getCollection } from "astro:content";
 
@@ -107,6 +108,7 @@ const dateFormatter = new Intl.DateTimeFormat("en-US", {
     </section>
 
     <section class="home-chapter curiosity-chapter" aria-labelledby="curiosity-title">
+      <ZxSectionTexture density="quiet" />
       <div class="chapter-heading chapter-heading--light">
         <p>Current curiosities</p>
         <h2 id="curiosity-title">The questions behind the repository.</h2>
@@ -201,6 +203,7 @@ const dateFormatter = new Intl.DateTimeFormat("en-US", {
     </section>
 
     <section class="home-chapter notes-chapter" aria-labelledby="notes-title">
+      <ZxSectionTexture tone="light" density="quiet" />
       <div class="chapter-heading">
         <p>From the notebook</p>
         <h2 id="notes-title">Field notes from work in progress.</h2>
@@ -233,6 +236,7 @@ const dateFormatter = new Intl.DateTimeFormat("en-US", {
     </section>
 
     <section class="home-cta" aria-labelledby="cta-title">
+      <ZxSectionTexture density="quiet" />
       <p>There is always another question worth building around.</p>
       <h2 id="cta-title">Follow the experiments as they take shape.</h2>
       <div class="home-actions home-actions--centered">
@@ -285,6 +289,34 @@ const dateFormatter = new Intl.DateTimeFormat("en-US", {
         })
           .fromTo(image, { scale: 0.82, opacity: 0.45 }, { scale: 1, opacity: 1, ease: "none" })
           .to(image, { scale: 1.035, opacity: 0.28, ease: "none" });
+      });
+
+      gsap.utils.toArray<HTMLElement>(".home-chapter, .home-cta").forEach((section) => {
+        const heading = section.querySelector<HTMLElement>(".chapter-heading, .method-intro");
+        const body = section.matches(".home-cta")
+          ? null
+          : section.querySelector<HTMLElement>(
+              ".project-bento, .curiosity-accordion, .method-stack, .note-carousel",
+            );
+        const ctaItems = section.matches(".home-cta")
+          ? Array.from(section.querySelectorAll<HTMLElement>(":scope > p, :scope > h2, :scope > .home-actions"))
+          : [];
+        const revealItems = [...ctaItems, heading, body].filter((item): item is HTMLElement => Boolean(item));
+        if (!revealItems.length) return;
+
+        gsap.from(revealItems, {
+          y: 32,
+          opacity: 0,
+          filter: "blur(6px)",
+          duration: 0.95,
+          stagger: 0.12,
+          ease: "power3.out",
+          scrollTrigger: {
+            trigger: section,
+            start: "top 82%",
+            toggleActions: "play none none none",
+          },
+        });
       });
 
       const cards = gsap.utils.toArray<HTMLElement>(".method-card");

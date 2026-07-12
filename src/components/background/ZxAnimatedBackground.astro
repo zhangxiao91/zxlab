@@ -124,11 +124,14 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
       ambientTimer = 0;
     };
 
-    const getFade = () => {
-      const fadeStart = window.innerHeight * METEOR_CONFIG.fadeStartViewport;
-      const fadeEnd = window.innerHeight * METEOR_CONFIG.fadeEndViewport;
+    const getRangeFade = (startViewport: number, endViewport: number) => {
+      const fadeStart = window.innerHeight * startViewport;
+      const fadeEnd = window.innerHeight * endViewport;
       return 1 - clamp((window.scrollY - fadeStart) / (fadeEnd - fadeStart), 0, 1);
     };
+
+    const getMotionFade = () => getRangeFade(METEOR_CONFIG.motionFadeStartViewport, METEOR_CONFIG.motionFadeEndViewport);
+    const getAmbientFade = () => getRangeFade(METEOR_CONFIG.ambientFadeStartViewport, METEOR_CONFIG.ambientFadeEndViewport);
 
     const removeEffect = (effect) => {
       activeEffects.delete(effect);
@@ -155,7 +158,7 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
       if (disposed || reducedMotion.matches || document.hidden || !(meteorLayer instanceof HTMLElement)) return;
       const isMobile = mobileViewport.matches;
       const maximumCount = isMobile ? METEOR_CONFIG.mobileMaxActiveCount : METEOR_CONFIG.maxActiveCount;
-      if (activeEffects.size >= maximumCount || getFade() <= 0.02) return;
+      if (activeEffects.size >= maximumCount || getMotionFade() <= 0.02) return;
 
       const meteor = document.createElement("span");
       const mobileLengthScale = isMobile ? 0.8 : 1;
@@ -212,7 +215,7 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
     const handleSharedMotion = (event: Event) => applySharedMotion((event as CustomEvent<MotionState>).detail);
 
     const scheduleAmbient = () => {
-      if (ambientTimer || disposed || reducedMotion.matches || document.hidden || getFade() <= 0.02) return;
+      if (ambientTimer || disposed || reducedMotion.matches || document.hidden || getMotionFade() <= 0.02) return;
       ambientTimer = setTimer(() => {
         ambientTimer = 0;
         if (performance.now() - lastScrollTime > 800) launchEffect({ intensity: 0.18, direction: 1, ambient: true });
@@ -230,8 +233,10 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
       else if (time - lastScrollTime > 80) smoothedVelocity *= 0.88;
 
       const intensity = clamp(Math.abs(smoothedVelocity) / 30, 0, 1);
-      const fade = getFade();
-      background.style.setProperty("--zx-scroll-fade", fade.toFixed(3));
+      const motionFade = getMotionFade();
+      const ambientFade = getAmbientFade();
+      background.style.setProperty("--zx-motion-fade", motionFade.toFixed(3));
+      background.style.setProperty("--zx-ambient-fade", ambientFade.toFixed(3));
 
       if (!motion.state.phase.startsWith("intro") && time - lastMotionPublish >= 80) {
         lastMotionPublish = time;
@@ -246,7 +251,7 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
         });
       }
 
-      if (fade <= 0.02) {
+      if (motionFade <= 0.02) {
         activeEffects.forEach(removeEffect);
         smoothedVelocity = 0;
         return;
@@ -349,7 +354,8 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
     document.addEventListener("astro:before-swap", cleanup, { once: true });
     window.addEventListener("pagehide", cleanup, { once: true });
     reducedMotion.addEventListener("change", handleMotionPreference);
-    background.style.setProperty("--zx-scroll-fade", getFade().toFixed(3));
+    background.style.setProperty("--zx-motion-fade", getMotionFade().toFixed(3));
+    background.style.setProperty("--zx-ambient-fade", getAmbientFade().toFixed(3));
     applySharedMotion(motion.state);
     scheduleAmbient();
   }
@@ -362,7 +368,7 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
     height: 100svh;
     z-index: 0;
     overflow: hidden;
-    opacity: var(--zx-scroll-fade, 1);
+    opacity: 1;
     pointer-events: none;
     user-select: none;
     backface-visibility: hidden;
@@ -390,6 +396,7 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
       radial-gradient(circle at 88% 20%, rgba(122, 78, 161, 0.22), transparent 30%),
       linear-gradient(145deg, #060a16 4%, #091126 42%, #11183a 68%, #070a16 100%);
     animation: zx-gradient-breathe 24s ease-in-out infinite alternate;
+    opacity: var(--zx-ambient-fade, 1);
   }
 
   .zx-pattern {
@@ -421,6 +428,8 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
 
   .zx-pattern--far .zx-pattern__track { animation: zx-pattern-far var(--zx-far-motion-duration) linear infinite; }
   .zx-pattern--mid .zx-pattern__track { animation: zx-pattern-mid var(--zx-mid-motion-duration) linear infinite; }
+  .zx-pattern--far .zx-pattern__track { opacity: var(--zx-ambient-fade, 1); }
+  .zx-pattern--mid .zx-pattern__track { opacity: var(--zx-motion-fade, 1); }
   .zx-pattern__tile { display: grid; min-width: 0; align-content: space-evenly; }
   .zx-pattern__row { display: grid; align-items: center; }
   .zx-pattern--far .zx-pattern__row { grid-template-columns: repeat(8, minmax(2.4rem, 1fr)); column-gap: clamp(2.4rem, 4vw, 5rem); }
@@ -442,7 +451,7 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
   .zx-pattern__token.is-glow { color: #c8ecff; text-shadow: 0 0 12px rgba(89, 174, 255, 0.62); }
   .zx-pattern__token:nth-child(4n) { color: #c8c8ff; }
 
-  .zx-sparks { z-index: 2; overflow: hidden; }
+  .zx-sparks { z-index: 2; overflow: hidden; opacity: var(--zx-motion-fade, 1); }
   .zx-sparks i {
     position: absolute;
     top: var(--spark-y);
@@ -461,6 +470,7 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
   .zx-meteors {
     z-index: 4;
     overflow: hidden;
+    opacity: var(--zx-motion-fade, 1);
   }
   :global(.zx-meteor) {
     position: absolute;
@@ -487,6 +497,7 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
 
   .zx-background__readability {
     z-index: 5;
+    opacity: var(--zx-ambient-fade, 1);
     background:
       linear-gradient(to bottom, rgba(3, 6, 14, 0.38), transparent 15%, transparent 76%, rgba(4, 7, 15, 0.24)),
       radial-gradient(ellipse at 50% 27%, rgba(6, 9, 21, 0.36) 0%, rgba(6, 9, 21, 0.18) 32%, transparent 61%);
