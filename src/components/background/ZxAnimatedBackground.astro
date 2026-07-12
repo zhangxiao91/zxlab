@@ -1,27 +1,5 @@
 ---
-const BACKGROUND_CONFIG = {
-  patternAngle: 10,
-  farOpacity: 0.095,
-  farDuration: 38,
-  midOpacity: 0.165,
-  midDuration: 21,
-  sparkCount: 14,
-} as const;
-
-const METEOR_CONFIG = {
-  minLength: 70,
-  maxLength: 260,
-  minDuration: 280,
-  maxDuration: 900,
-  minHeadSize: 1.5,
-  maxHeadSize: 4.5,
-  maxActiveCount: 10,
-  mobileMaxActiveCount: 6,
-  ambientMinInterval: 8000,
-  ambientMaxInterval: 16000,
-  fadeStartViewport: 0.9,
-  fadeEndViewport: 2.2,
-} as const;
+import { BACKGROUND_CONFIG } from "./background-config";
 
 const vocabulary = ["zx", "zx", "zx", "zx", "z", "x"] as const;
 
@@ -60,7 +38,7 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
   class="zx-background"
   data-zx-background
   aria-hidden="true"
-  style={`--zx-pattern-angle:${BACKGROUND_CONFIG.patternAngle}deg;--zx-far-opacity:${BACKGROUND_CONFIG.farOpacity};--zx-far-duration:${BACKGROUND_CONFIG.farDuration}s;--zx-mid-opacity:${BACKGROUND_CONFIG.midOpacity};--zx-mid-duration:${BACKGROUND_CONFIG.midDuration}s`}
+  style={`--zx-pattern-angle:${BACKGROUND_CONFIG.patternAngle}deg;--zx-far-opacity:${BACKGROUND_CONFIG.farOpacity};--zx-far-motion-duration:${BACKGROUND_CONFIG.farDuration}s;--zx-mid-opacity:${BACKGROUND_CONFIG.midOpacity};--zx-mid-motion-duration:${BACKGROUND_CONFIG.midDuration}s`}
 >
   <div class="zx-background__gradient"></div>
 
@@ -102,13 +80,17 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
   <div class="zx-background__readability"></div>
 </div>
 
-<script define:vars={{ BACKGROUND_CONFIG, METEOR_CONFIG }}>
+<script>
+  import { BACKGROUND_CONFIG, METEOR_CONFIG } from "./background-config";
+  import { getMotionController, motionStateEvent, type MotionState } from "./motion-state";
+
   const background = document.querySelector("[data-zx-background]");
 
   if (background instanceof HTMLElement && background.dataset.initialized !== "true") {
     background.dataset.initialized = "true";
     const meteorLayer = background.querySelector("[data-zx-meteors]");
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const motion = getMotionController();
     const timers = new Set();
     const activeEffects = new Set();
     let disposed = false;
@@ -189,6 +171,22 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
       }
     };
 
+    const applySharedMotion = (state: MotionState) => {
+      const patternSpeed = Math.max(0.2, state.patternSpeed || 1);
+      background.style.setProperty("--zx-far-motion-duration", `${BACKGROUND_CONFIG.farDuration / patternSpeed}s`);
+      background.style.setProperty("--zx-mid-motion-duration", `${BACKGROUND_CONFIG.midDuration / patternSpeed}s`);
+
+      if ((state.phase === "intro-hit" || state.phase === "intro-transition") && state.meteorIntensity > 0.2) {
+        smoothedVelocity = Math.max(smoothedVelocity, Math.abs(state.velocity || 28));
+        pendingScrollY = previousScrollY;
+        lastScrollTime = performance.now();
+        launchScrollGroup(state.meteorIntensity, state.direction || 1);
+        if (!animationFrame) animationFrame = requestAnimationFrame(updateFrame);
+      }
+    };
+
+    const handleSharedMotion = (event: Event) => applySharedMotion((event as CustomEvent<MotionState>).detail);
+
     const scheduleAmbient = () => {
       if (ambientTimer || disposed || reducedMotion.matches || document.hidden || getFade() <= 0.02) return;
       ambientTimer = setTimer(() => {
@@ -210,6 +208,18 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
       const intensity = clamp(Math.abs(smoothedVelocity) / 30, 0, 1);
       const fade = getFade();
       background.style.setProperty("--zx-scroll-fade", fade.toFixed(3));
+
+      if (!motion.state.phase.startsWith("intro")) {
+        motion.update({
+          phase: intensity > 0.02 ? "scrolling" : "hero-idle",
+          intensity,
+          direction: smoothedVelocity > 0.08 ? 1 : smoothedVelocity < -0.08 ? -1 : 0,
+          velocity: smoothedVelocity,
+          patternSpeed: mix(1, 1.7, intensity),
+          meteorIntensity: intensity,
+          glitchIntensity: 0,
+        });
+      }
 
       if (fade <= 0.02) {
         activeEffects.forEach(removeEffect);
@@ -267,6 +277,7 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
       if (animationFrame) cancelAnimationFrame(animationFrame);
       resetEffects();
       window.removeEventListener("scroll", handleScroll);
+      window.removeEventListener(motionStateEvent, handleSharedMotion);
       document.removeEventListener("visibilitychange", handleVisibility);
       document.removeEventListener("astro:before-swap", cleanup);
       window.removeEventListener("pagehide", cleanup);
@@ -274,11 +285,13 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
     };
 
     window.addEventListener("scroll", handleScroll, { passive: true });
+    window.addEventListener(motionStateEvent, handleSharedMotion);
     document.addEventListener("visibilitychange", handleVisibility);
     document.addEventListener("astro:before-swap", cleanup, { once: true });
     window.addEventListener("pagehide", cleanup, { once: true });
     reducedMotion.addEventListener("change", handleMotionPreference);
     background.style.setProperty("--zx-scroll-fade", getFade().toFixed(3));
+    applySharedMotion(motion.state);
     scheduleAmbient();
   }
 </script>
@@ -353,8 +366,8 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
     will-change: transform;
   }
 
-  .zx-pattern--far .zx-pattern__track { animation: zx-pattern-far var(--zx-far-duration) linear infinite; }
-  .zx-pattern--mid .zx-pattern__track { animation: zx-pattern-mid var(--zx-mid-duration) linear infinite; }
+  .zx-pattern--far .zx-pattern__track { animation: zx-pattern-far var(--zx-far-motion-duration) linear infinite; }
+  .zx-pattern--mid .zx-pattern__track { animation: zx-pattern-mid var(--zx-mid-motion-duration) linear infinite; }
   .zx-pattern__tile { display: grid; min-width: 0; align-content: space-evenly; }
   .zx-pattern__row { display: grid; align-items: center; }
   .zx-pattern--far .zx-pattern__row { grid-template-columns: repeat(11, minmax(2.4rem, 1fr)); column-gap: clamp(1.8rem, 3vw, 4rem); }

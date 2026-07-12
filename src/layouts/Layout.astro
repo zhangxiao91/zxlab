@@ -70,8 +70,7 @@ const {
               hasSeenWelcome = window.sessionStorage.getItem(storageKey) === "1";
             } catch {}
 
-            const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-            const shouldShow = enabled && !reducedMotion && (forceReplay || !hasSeenWelcome);
+            const shouldShow = enabled && (forceReplay || !hasSeenWelcome);
 
             if (!shouldShow) return;
 

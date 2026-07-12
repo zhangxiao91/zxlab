@@ -112,6 +112,17 @@ const config = welcomeGateConfig;
       timers.add(timer);
     };
 
+    const scheduleMicroGlitch = () => {
+      if (reducedMotion.matches) return;
+      schedule(() => {
+        if (state === "ready" && Math.random() > 0.58) {
+          gate.classList.add("is-micro-glitch");
+          schedule(() => gate.classList.remove("is-micro-glitch"), 72);
+        }
+        if (state === "idle" || state === "ready") scheduleMicroGlitch();
+      }, 9000 + Math.random() * 6000);
+    };
+
     const rememberVisit = () => {
       try {
         window.sessionStorage.setItem(storageKey, "1");
@@ -133,6 +144,8 @@ const config = welcomeGateConfig;
       welcomeGateConfig.messageSteps.forEach((text, index) => {
         schedule(() => {
           message.classList.remove("is-updating");
+          message.classList.toggle("is-glitch-step", index === 1 || index === 3 || index === welcomeGateConfig.messageSteps.length - 1);
+          message.dataset.step = String(index);
           message.dataset.text = text;
           messageText.textContent = text;
           void message.offsetWidth;
@@ -209,7 +222,12 @@ const config = welcomeGateConfig;
     function enter() {
       if (state !== "ready") return;
       rememberVisit();
-      revealWelcomeMessage();
+      if (reducedMotion.matches) {
+        gate.classList.add("is-skipping");
+        setMotion({ phase: "hero-idle", intensity: 0, direction: 0, velocity: 0, patternSpeed: 0, meteorIntensity: 0, glitchIntensity: 0 });
+        schedule(finish, 200);
+        return;
+      }
       setState("hit");
       setMotion({
         phase: "intro-hit",
@@ -303,11 +321,14 @@ const config = welcomeGateConfig;
       html.classList.add("welcome-active");
       body.classList.add("welcome-locked");
       siteShell?.setAttribute("inert", "");
-      setState("ready");
+      setState("idle");
+      revealWelcomeMessage();
+      schedule(() => setState("ready"), (welcomeGateConfig.messageStepDelays.at(-1) ?? 710) + messageStepInterval);
       setMotion({ phase: "intro-idle", intensity: 0, direction: 0, velocity: 0, patternSpeed: reducedMotion.matches ? 0 : 0.28, meteorIntensity: 0, glitchIntensity: 0 });
       if (!reducedMotion.matches) {
         gate.classList.add("is-calibrating");
         schedule(() => gate.classList.remove("is-calibrating"), 380);
+        scheduleMicroGlitch();
       }
 
       target?.addEventListener("click", enter);
