@@ -18,7 +18,15 @@ const { enterLabel } = Astro.props;
   >
     <span class="welcome-target__bezel" aria-hidden="true">
       <span class="welcome-target__core">
-        <span class="welcome-target__brand">ZX</span>
+        <span class="welcome-target__brand" data-brand="ZX">
+          <span class="welcome-target__brand-main">ZX</span>
+          <span class="welcome-target__brand-channel welcome-target__brand-channel--cyan" aria-hidden="true">ZX</span>
+          <span class="welcome-target__brand-channel welcome-target__brand-channel--violet" aria-hidden="true">ZX</span>
+          <span class="welcome-target__slice welcome-target__slice--a" aria-hidden="true">ZX</span>
+          <span class="welcome-target__slice welcome-target__slice--b" aria-hidden="true">ZX</span>
+          <span class="welcome-target__slice welcome-target__slice--c" aria-hidden="true">ZX</span>
+          <span class="welcome-target__slice welcome-target__slice--d" aria-hidden="true">ZX</span>
+        </span>
         <span class="welcome-target__prompt">click to enter</span>
       </span>
     </span>

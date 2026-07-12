@@ -1,4 +1,4 @@
-export type LabProjectStatus = "available" | "beta" | "coming-soon" | "archived";
+export type LabProjectStatus = "available" | "beta" | "wip" | "coming-soon" | "archived";
 
 export type LabDeviceSupport = "desktop" | "touch" | "keyboard" | "pointer";
 
@@ -15,6 +15,7 @@ export interface LabProject {
   status: LabProjectStatus;
   category?: string;
   tags?: string[];
+  cardLabels?: string[];
   featured?: boolean;
   thumbnail?: string;
   thumbnailAlt?: string;

@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1200" role="img" aria-labelledby="title desc">
+  <title id="title">STONKS virtual market interface preview</title>
+  <desc id="desc">A dark fictional trading dashboard with charts, order panels, and market signals.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#111714"/>
+      <stop offset="1" stop-color="#060806"/>
+    </linearGradient>
+    <linearGradient id="line" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#6d8653"/>
+      <stop offset="1" stop-color="#c6ef7a"/>
+    </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="10" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="1600" height="1200" fill="url(#bg)"/>
+  <g fill="none" stroke="#f4f7ef" stroke-opacity=".08">
+    <path d="M80 220H1520M80 410H1520M80 600H1520M80 790H1520M80 980H1520"/>
+    <path d="M300 110V1090M550 110V1090M800 110V1090M1050 110V1090M1300 110V1090"/>
+  </g>
+  <rect x="80" y="88" width="1440" height="86" rx="18" fill="#f4f7ef" fill-opacity=".05" stroke="#f4f7ef" stroke-opacity=".1"/>
+  <circle cx="124" cy="131" r="8" fill="#c6ef7a"/>
+  <text x="154" y="145" fill="#f5f7f0" font-family="Arial, sans-serif" font-size="38" font-weight="700" letter-spacing="8">STONKS</text>
+  <text x="1300" y="140" fill="#c6ef7a" font-family="Arial, sans-serif" font-size="19" letter-spacing="3">SIMULATION</text>
+  <rect x="80" y="210" width="310" height="780" rx="22" fill="#f4f7ef" fill-opacity=".035" stroke="#f4f7ef" stroke-opacity=".09"/>
+  <rect x="420" y="210" width="780" height="510" rx="22" fill="#f4f7ef" fill-opacity=".035" stroke="#f4f7ef" stroke-opacity=".09"/>
+  <rect x="1230" y="210" width="290" height="780" rx="22" fill="#f4f7ef" fill-opacity=".035" stroke="#f4f7ef" stroke-opacity=".09"/>
+  <rect x="420" y="750" width="780" height="240" rx="22" fill="#f4f7ef" fill-opacity=".035" stroke="#f4f7ef" stroke-opacity=".09"/>
+  <g fill="#f5f7f0" fill-opacity=".18">
+    <rect x="112" y="258" width="140" height="16" rx="8"/>
+    <rect x="112" y="310" width="230" height="58" rx="12"/>
+    <rect x="112" y="386" width="230" height="58" rx="12"/>
+    <rect x="112" y="462" width="230" height="58" rx="12"/>
+    <rect x="112" y="538" width="230" height="58" rx="12"/>
+    <rect x="112" y="614" width="230" height="58" rx="12"/>
+  </g>
+  <g fill="#c6ef7a" fill-opacity=".82">
+    <rect x="130" y="330" width="76" height="10" rx="5"/>
+    <rect x="130" y="406" width="110" height="10" rx="5"/>
+    <rect x="130" y="482" width="54" height="10" rx="5"/>
+    <rect x="130" y="558" width="134" height="10" rx="5"/>
+    <rect x="130" y="634" width="90" height="10" rx="5"/>
+  </g>
+  <path d="M470 610C540 560 550 610 630 510S760 550 820 410 960 480 1030 350 1110 330 1150 280" fill="none" stroke="url(#line)" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)"/>
+  <path d="M470 610C540 560 550 610 630 510S760 550 820 410 960 480 1030 350 1110 330 1150 280V674H470Z" fill="#c6ef7a" fill-opacity=".05"/>
+  <g fill="#f5f7f0" fill-opacity=".16">
+    <rect x="460" y="790" width="170" height="150" rx="16"/>
+    <rect x="650" y="790" width="240" height="150" rx="16"/>
+    <rect x="910" y="790" width="250" height="150" rx="16"/>
+    <rect x="1270" y="260" width="210" height="80" rx="14"/>
+    <rect x="1270" y="360" width="210" height="80" rx="14"/>
+    <rect x="1270" y="460" width="210" height="80" rx="14"/>
+  </g>
+  <text x="80" y="1070" fill="#f5f7f0" fill-opacity=".46" font-family="Arial, sans-serif" font-size="24" letter-spacing="4">FICTIONAL MARKET · NON-REAL TRADING</text>
+</svg>

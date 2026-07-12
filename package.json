@@ -2,12 +2,16 @@
   "name": "zxlab",
   "type": "module",
   "version": "0.0.1",
+  "workspaces": [
+    "apps/stonks"
+  ],
   "engines": {
     "node": ">=22.12.0"
   },
   "scripts": {
     "dev": "astro dev",
-    "build": "astro build",
+    "build": "npm run build:stonks && astro build",
+    "build:stonks": "npm run build --workspace stonks-wip",
     "preview": "astro preview",
     "astro": "astro",
     "notes:publish:technical": "node --experimental-strip-types scripts/publish-obsidian-notes.ts technical",

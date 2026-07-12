@@ -26,7 +26,7 @@ const { doc } = Astro.props;
 const { Content } = await render(doc);
 const route = digitalStarterRoutes.find((item) => item.id === doc.data.routeId);
 const backHref = route?.detailHref ?? "/lab/digital-starter";
-const pageTitle = doc.data.title + " | Digital Starter | zxlab";
+const pageTitle = doc.data.title + " | 数字技能启动包 | zxlab";
 
 const dateFormatter = new Intl.DateTimeFormat("zh-CN", {
   year: "numeric",
@@ -35,12 +35,12 @@ const dateFormatter = new Intl.DateTimeFormat("zh-CN", {
 });
 ---
 
-<Layout title={pageTitle} description={doc.data.description} lang="zh-CN">
+<Layout title={pageTitle} description={doc.data.description} lang="zh-CN" current="lab">
   <main class="digital-starter-doc-page">
     <article class="digital-starter-doc">
       <header class="digital-starter-doc-hero">
         <a class="digital-starter-back" href={backHref}>← 返回 {route?.title ?? "数字技能启动包"}</a>
-        <p class="digital-starter-kicker">Digital Starter Doc</p>
+        <p class="digital-starter-kicker">数字技能文档</p>
         <h1>{doc.data.title}</h1>
         <p>{doc.data.description}</p>
         <div class="digital-starter-doc-meta" aria-label="文档信息">
@@ -55,7 +55,7 @@ const dateFormatter = new Intl.DateTimeFormat("zh-CN", {
       <div class="digital-starter-doc-layout">
         <aside class="digital-starter-doc-rail" aria-label="文档路线信息">
           <p>所属路线</p>
-          <a href={backHref}>{route?.title ?? "Digital Starter"}</a>
+          <a href={backHref}>{route?.title ?? "数字技能启动包"}</a>
           <span>这是一份轻量速查文档，不是完整课程。</span>
         </aside>
 

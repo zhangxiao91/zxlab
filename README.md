@@ -35,6 +35,23 @@ Create a production build:
 npm run build
 ```
 
+The production build first compiles the vendored STONKS Vite app from
+`apps/stonks/` into `public/lab/stonks/game/`, then builds the Astro site. The
+game remains an isolated package and is rendered by the Astro shell at
+`/lab/stonks/`.
+
+To refresh the STONKS snapshot, copy the desired upstream revision into
+`apps/stonks/` while preserving zxlab's deployment changes in
+`apps/stonks/vite.config.ts`, the namespaced autosave key in
+`apps/stonks/src/ui/App.tsx`, and the metadata in `apps/stonks/index.html`.
+Then run:
+
+```bash
+npm install
+npm run build:stonks
+npm run build
+```
+
 Preview the production build locally:
 
 ```bash
@@ -69,6 +86,7 @@ status JSON.
 * `/lab` — Interactive experiment index
 * `/lab/[slug]` — Isolated experiment container
 * `/lab/strudel` — Embedded Strudel live coding playground
+* `/lab/stonks` — Desktop-only fictional market simulation
 * `/status` — Public, privacy-filtered status dashboard
 * `/about` — About page
 

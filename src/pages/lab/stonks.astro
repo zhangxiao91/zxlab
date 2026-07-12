@@ -1,0 +1,155 @@
+---
+import "../../styles/stonks.css";
+
+const repositoryUrl = "https://github.com/hdPotato34/STONKS-WIP-";
+const gameUrl = "/lab/stonks/game/index.html";
+---
+
+<!doctype html>
+<html lang="zh-CN" data-stonks-device="mobile">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="STONKS 是一个由朋友共同创作的虚构市场策略游戏，仅供娱乐，不构成投资建议。"
+    />
+    <link rel="canonical" href={new URL(Astro.url.pathname, Astro.site).toString()} />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>STONKS | Lab | zxlab</title>
+    <script is:inline>
+      (() => {
+        const narrow = window.matchMedia("(max-width: 63.99rem)").matches;
+        const coarseOnly =
+          window.matchMedia("(pointer: coarse)").matches &&
+          !window.matchMedia("(any-pointer: fine)").matches;
+        const userAgentData = navigator.userAgentData;
+        const mobileUserAgent = userAgentData
+          ? userAgentData.mobile
+          : /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+
+        document.documentElement.dataset.stonksDevice =
+          narrow || coarseOnly || mobileUserAgent ? "mobile" : "desktop";
+      })();
+    </script>
+  </head>
+  <body>
+    <main class="stonks-shell">
+      <header class="stonks-bar">
+        <a class="stonks-back" href="/lab/" aria-label="返回 zxlab Lab">
+          <span aria-hidden="true">←</span>
+          <span>zxlab / Lab</span>
+        </a>
+
+        <div class="stonks-identity" aria-label="当前项目">
+          <strong>STONKS</strong>
+          <span>模拟环境 · 非真实交易</span>
+        </div>
+
+        <div class="stonks-actions">
+          <button class="stonks-fullscreen" type="button" data-stonks-fullscreen>
+            全屏游戏
+          </button>
+          <a class="stonks-repository" href={repositoryUrl} target="_blank" rel="noreferrer">
+            与室友共创 · 原始仓库
+            <span aria-hidden="true">↗</span>
+          </a>
+        </div>
+      </header>
+
+      <section class="stonks-desktop" aria-label="STONKS 游戏区域">
+        <div class="stonks-loading" data-stonks-loading>
+          <span aria-hidden="true"></span>
+          <p>正在载入虚构市场模拟环境</p>
+        </div>
+        <iframe
+          title="STONKS 虚构市场模拟游戏"
+          data-stonks-frame
+          data-src={gameUrl}
+          referrerpolicy="same-origin"
+          allow="fullscreen"
+          allowfullscreen
+        ></iframe>
+
+        <aside class="stonks-disclaimer" aria-label="游戏声明" data-stonks-disclaimer>
+          <div>
+            <strong>本游戏为虚构市场模拟</strong>
+            <span>不构成任何投资建议，不对应任何真实市场，不连接真实交易。</span>
+          </div>
+          <button type="button" data-stonks-dismiss aria-label="关闭游戏声明">×</button>
+        </aside>
+      </section>
+
+      <section class="stonks-mobile" aria-labelledby="stonks-mobile-title">
+        <div class="stonks-mobile__signal" aria-hidden="true">
+          <span></span><span></span><span></span><span></span><span></span>
+        </div>
+        <p class="stonks-mobile__eyebrow">Desktop experience</p>
+        <h1 id="stonks-mobile-title">STONKS 暂时只支持桌面端游玩。</h1>
+        <p>
+          这个游戏包含盘口、K 线、持仓、订单和多面板信息，手机端体验会很难受。请使用电脑访问本页面。
+        </p>
+        <p class="stonks-mobile__notice">
+          本游戏为虚构市场模拟，不构成任何投资建议，不对应任何真实市场。
+        </p>
+        <nav aria-label="STONKS 移动端可用链接">
+          <a href="/lab/">返回 zxlab Lab</a>
+          <a href={repositoryUrl} target="_blank" rel="noreferrer">查看原始 GitHub 仓库</a>
+        </nav>
+        <small>STONKS 由我与室友共同创作，目前为 WIP 游戏原型。</small>
+      </section>
+    </main>
+
+    <script is:inline>
+      if (document.documentElement.dataset.stonksDevice === "desktop") {
+        const frame = document.querySelector("[data-stonks-frame]");
+        const stage = document.querySelector(".stonks-desktop");
+        const loading = document.querySelector("[data-stonks-loading]");
+        const fullscreen = document.querySelector("[data-stonks-fullscreen]");
+        const disclaimer = document.querySelector("[data-stonks-disclaimer]");
+        const dismiss = document.querySelector("[data-stonks-dismiss]");
+        const disclaimerKey = "zxlab:stonks:disclaimer-dismissed:v1";
+
+        try {
+          if (window.sessionStorage.getItem(disclaimerKey) === "1") {
+            disclaimer?.setAttribute("hidden", "");
+          }
+        } catch {}
+
+        if (frame instanceof HTMLIFrameElement) {
+          frame.addEventListener(
+            "load",
+            () => {
+              loading?.setAttribute("hidden", "");
+              frame.dataset.ready = "true";
+            },
+            { once: true },
+          );
+          frame.src = frame.dataset.src ?? "";
+
+          fullscreen?.addEventListener("click", async () => {
+            if (document.fullscreenElement === stage) {
+              await document.exitFullscreen();
+              return;
+            }
+
+            if (stage instanceof HTMLElement) {
+              try {
+                await stage.requestFullscreen();
+              } catch {
+                window.location.assign(frame.src);
+              }
+            }
+          });
+        }
+
+        dismiss?.addEventListener("click", () => {
+          disclaimer?.setAttribute("hidden", "");
+          try {
+            window.sessionStorage.setItem(disclaimerKey, "1");
+          } catch {}
+        });
+      }
+    </script>
+  </body>
+</html>

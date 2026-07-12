@@ -2,6 +2,29 @@ import type { LabProject } from "./types";
 
 export const labProjects: LabProject[] = [
   {
+    slug: "stonks",
+    title: "STONKS",
+    description:
+      "虚构市场策略游戏。包含封板、炸板、流动性与情绪博弈等元素。仅供娱乐，不构成任何投资建议，不代表任何国家的真实市场。",
+    status: "wip",
+    category: "Game Prototype",
+    cardLabels: ["Game Prototype", "Desktop Only"],
+    tags: ["Simulation", "Strategy", "Desktop Only"],
+    featured: false,
+    thumbnail: "/assets/lab/stonks-preview.svg",
+    thumbnailAlt: "STONKS 虚构市场模拟界面预览",
+    href: "/lab/stonks/",
+    customPage: true,
+    deviceSupport: ["desktop", "keyboard", "pointer"],
+    links: [
+      {
+        label: "原始 GitHub 仓库",
+        href: "https://github.com/hdPotato34/STONKS-WIP-",
+        external: true,
+      },
+    ],
+  },
+  {
     slug: "strudel",
     title: "Strudel Playground",
     description:

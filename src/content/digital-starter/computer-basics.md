@@ -2,8 +2,8 @@
 title: "电脑基础速查表"
 description: "面向准大学生的 Windows 电脑基础操作小抄：文件、下载、软件安装、截图、解压、浏览器、备份和常见问题排查。"
 routeId: "computer"
-status: "ready"
-updatedAt: 2026-07-06
+status: "draft"
+updatedAt: 2026-07-08
 tags:
   - Windows
   - 电脑基础

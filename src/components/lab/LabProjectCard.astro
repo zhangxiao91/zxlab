@@ -30,7 +30,15 @@ const action = project.status === "coming-soon" ? "View planned experiment" : "O
   <div class="lab-project-card__content">
     <div class="lab-project-card__topline">
       <LabStatusBadge status={project.status} />
-      {project.category && <span>{project.category}</span>}
+      {
+        project.cardLabels && project.cardLabels.length > 0 ? (
+          <ul class="lab-project-card__labels" aria-label={`${project.title} labels`}>
+            {project.cardLabels.map((label) => <li>{label}</li>)}
+          </ul>
+        ) : (
+          project.category && <span>{project.category}</span>
+        )
+      }
     </div>
     <div>
       <h3>{project.title}</h3>

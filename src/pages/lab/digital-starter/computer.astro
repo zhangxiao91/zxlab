@@ -37,12 +37,12 @@ const routeTasks = digitalStarterTasks.filter((task) => task.routeId === route.i
     <section class="digital-starter-detail-hero" aria-labelledby="computer-route-title">
       <div class="digital-starter-detail-hero__copy">
         <a class="digital-starter-back" href="/lab/digital-starter">← 返回数字技能启动包</a>
-        <p class="digital-starter-kicker">Computer route</p>
+        <p class="digital-starter-kicker">电脑基础路线</p>
         <h1 id="computer-route-title">{route.title}</h1>
         <p class="digital-starter-subtitle">{route.subtitle}</p>
         <p class="digital-starter-intro">{route.description}</p>
         <div class="digital-starter-route-meta" aria-label="路线状态与适合人群">
-          <span>First Route</span>
+          <span>优先路线</span>
           <span>{digitalStarterStatusLabels[route.status]}</span>
           {route.audience?.map((item) => <span>{item}</span>)}
         </div>
@@ -61,7 +61,7 @@ const routeTasks = digitalStarterTasks.filter((task) => task.routeId === route.i
 
       <div class="digital-starter-detail-hero__panel" data-starter-image>
         <div class="digital-starter-detail-hero__screen">
-          <p>route modules</p>
+          <p>路线模块</p>
           <ol>
             {modules.map((module) => <li>{module.title}</li>)}
           </ol>
@@ -117,7 +117,7 @@ const routeTasks = digitalStarterTasks.filter((task) => task.routeId === route.i
     <section class="digital-starter-route-resources" id="computer-resources" aria-labelledby="computer-resources-title">
       <div class="digital-starter-section-heading digital-starter-section-heading--light">
         <p>资源入口</p>
-        <h2 id="computer-resources-title">文档、任务和文件先占好位置。</h2>
+        <h2 id="computer-resources-title">文档和任务已经能用，文件会继续接入。</h2>
       </div>
 
       <div class="digital-starter-resource-grid digital-starter-resource-grid--route">
@@ -146,7 +146,7 @@ const routeTasks = digitalStarterTasks.filter((task) => task.routeId === route.i
     <section class="digital-starter-docs-preview" aria-labelledby="computer-docs-title">
       <div>
         <p>文档索引</p>
-        <h2 id="computer-docs-title">文档先留入口，正文后续逐步补齐。</h2>
+        <h2 id="computer-docs-title">先用 v0.1 解决眼前的问题，再慢慢补细节。</h2>
       </div>
 
       <div class="digital-starter-docs-preview__grid">

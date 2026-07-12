@@ -23,6 +23,12 @@ const config = welcomeGateConfig;
 
   <div class="welcome-gate__ambient" aria-hidden="true"></div>
   <div class="welcome-gate__burst" aria-hidden="true"></div>
+  <div class="welcome-scanlines" aria-hidden="true">
+    <i></i><i></i><i></i>
+  </div>
+  <div class="welcome-stripes" aria-hidden="true">
+    <i>zx</i><i></i><i>01</i><i></i><i>zx</i><i></i><i></i><i>01</i><i></i><i>zx</i>
+  </div>
 
   <div class="welcome-gate__center">
     <WelcomeTarget enterLabel={config.enterLabel} />
@@ -37,6 +43,7 @@ const config = welcomeGateConfig;
 
 <script>
   import { welcomeFinishedEvent, welcomeGateConfig } from "./welcome-config";
+  import { getMotionController } from "../background/motion-state";
 
   type WelcomeState = "idle" | "ready" | "hit" | "leaving" | "finished";
 
@@ -53,6 +60,7 @@ const config = welcomeGateConfig;
     const announcer = gate.querySelector<HTMLElement>("[data-welcome-announcer]");
     const burst = gate.querySelector<HTMLElement>(".welcome-gate__burst");
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const motion = getMotionController();
     const previousFocus = document.activeElement;
     const timers = new Set<number>();
     const hitDuration = Number(gate.dataset.hitDuration ?? 980);
@@ -62,6 +70,7 @@ const config = welcomeGateConfig;
     const hadInert = siteShell?.hasAttribute("inert") ?? false;
     let state: WelcomeState = "idle";
     let completionDispatched = false;
+    let motionPulseTimer = 0;
 
     const browserWindow = window as Window & {
       __zxWelcomeFailsafe?: number;
@@ -76,6 +85,23 @@ const config = welcomeGateConfig;
     const setState = (nextState: WelcomeState) => {
       state = nextState;
       gate.dataset.state = nextState;
+    };
+
+    const setMotion = (patch: Parameters<typeof motion.update>[0]) => motion.update(patch);
+
+    const pulseTextMotion = (index: number) => {
+      const isGlitchStep = index === 1 || index === 3 || index === welcomeGateConfig.messageSteps.length - 1;
+      window.clearTimeout(motionPulseTimer);
+      setMotion({
+        phase: "intro-idle",
+        intensity: 0.12,
+        patternSpeed: 0.48,
+        meteorIntensity: 0,
+        glitchIntensity: isGlitchStep ? 0.18 : 0.06,
+      });
+      motionPulseTimer = window.setTimeout(() => {
+        setMotion({ intensity: 0, patternSpeed: 0.28, glitchIntensity: 0 });
+      }, 74);
     };
 
     const schedule = (callback: () => void, delay: number) => {
@@ -115,7 +141,8 @@ const config = welcomeGateConfig;
           if (index === welcomeGateConfig.messageSteps.length - 1) {
             announcer.textContent = welcomeGateConfig.welcomeText;
           }
-        }, index * messageStepInterval);
+          pulseTextMotion(index);
+        }, welcomeGateConfig.messageStepDelays[index] ?? index * messageStepInterval);
       });
     };
 
@@ -131,6 +158,8 @@ const config = welcomeGateConfig;
 
     const removeListeners = () => {
       target?.removeEventListener("click", enter);
+      target?.removeEventListener("pointerenter", handleTargetEnter);
+      target?.removeEventListener("pointerleave", handleTargetLeave);
       skip?.removeEventListener("click", skipImmediately);
       burst?.removeEventListener("animationend", handleBurstEnd);
       document.removeEventListener("keydown", handleKeydown);
@@ -142,9 +171,18 @@ const config = welcomeGateConfig;
       setState("finished");
       timers.forEach((timer) => window.clearTimeout(timer));
       timers.clear();
+      window.clearTimeout(motionPulseTimer);
       removeListeners();
       unlockPage();
       dispatchCompletion();
+      setMotion({
+        phase: "hero-idle",
+        intensity: 0,
+        direction: 0,
+        patternSpeed: 1,
+        meteorIntensity: 0,
+        glitchIntensity: 0,
+      });
       gate.remove();
 
       if (previousFocus instanceof HTMLElement && previousFocus.isConnected) {
@@ -156,6 +194,14 @@ const config = welcomeGateConfig;
       if (state !== "hit") return;
       setState("leaving");
       html.classList.add("welcome-leaving");
+      setMotion({
+        phase: "intro-transition",
+        intensity: 0.72,
+        direction: 1,
+        patternSpeed: 1.8,
+        meteorIntensity: 0.64,
+        glitchIntensity: 0.12,
+      });
       dispatchCompletion();
       schedule(finish, leaveDuration + 120);
     };
@@ -165,13 +211,37 @@ const config = welcomeGateConfig;
       rememberVisit();
       revealWelcomeMessage();
       setState("hit");
+      setMotion({
+        phase: "intro-hit",
+        intensity: 1,
+        direction: 1,
+        velocity: 28,
+        patternSpeed: 3.1,
+        meteorIntensity: 1,
+        glitchIntensity: 1,
+      });
       schedule(beginLeaving, hitDuration);
     }
 
     function skipImmediately() {
       if (state === "finished") return;
       rememberVisit();
-      finish();
+      gate.classList.add("is-skipping");
+      setMotion({ phase: "hero-idle", intensity: 0, direction: 0, velocity: 0, patternSpeed: 1, meteorIntensity: 0, glitchIntensity: 0 });
+      schedule(finish, reducedMotion.matches ? 180 : 200);
+    }
+
+    function handleTargetEnter() {
+      if (state !== "ready") return;
+      gate.classList.add("is-hovering");
+      setMotion({ phase: "intro-hover", intensity: 0.22, patternSpeed: 0.42, meteorIntensity: 0, glitchIntensity: 0.16 });
+      schedule(() => setMotion({ glitchIntensity: 0 }), 80);
+    }
+
+    function handleTargetLeave() {
+      if (state !== "ready") return;
+      gate.classList.remove("is-hovering");
+      setMotion({ phase: "intro-idle", intensity: 0, patternSpeed: 0.28, meteorIntensity: 0, glitchIntensity: 0 });
     }
 
     function handleBurstEnd(event: AnimationEvent) {
@@ -213,7 +283,7 @@ const config = welcomeGateConfig;
     }
 
     const initialize = () => {
-      if (!html.classList.contains("welcome-pending") || reducedMotion.matches) {
+      if (!html.classList.contains("welcome-pending")) {
         clearFailsafe();
         unlockPage();
         gate.remove();
@@ -234,8 +304,15 @@ const config = welcomeGateConfig;
       body.classList.add("welcome-locked");
       siteShell?.setAttribute("inert", "");
       setState("ready");
+      setMotion({ phase: "intro-idle", intensity: 0, direction: 0, velocity: 0, patternSpeed: reducedMotion.matches ? 0 : 0.28, meteorIntensity: 0, glitchIntensity: 0 });
+      if (!reducedMotion.matches) {
+        gate.classList.add("is-calibrating");
+        schedule(() => gate.classList.remove("is-calibrating"), 380);
+      }
 
       target?.addEventListener("click", enter);
+      target?.addEventListener("pointerenter", handleTargetEnter);
+      target?.addEventListener("pointerleave", handleTargetLeave);
       skip?.addEventListener("click", skipImmediately);
       burst?.addEventListener("animationend", handleBurstEnd);
       document.addEventListener("keydown", handleKeydown);

@@ -163,7 +163,7 @@
 .lab-project-grid {
   display: grid;
   min-height: 43rem;
-  grid-template-columns: repeat(12, minmax(0, 1fr));
+  grid-template-columns: repeat(16, minmax(0, 1fr));
   grid-template-rows: repeat(2, minmax(0, 1fr));
   grid-auto-rows: minmax(20rem, 1fr);
   grid-auto-flow: dense;
@@ -236,6 +236,26 @@
   font-size: 0.68rem;
 }
 
+.lab-project-card__labels {
+  display: flex;
+  margin: 0;
+  padding: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  list-style: none;
+}
+
+.lab-project-card__labels li {
+  padding: 0.38rem 0.58rem;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 999px;
+  background: rgba(10, 11, 9, 0.38);
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 0.62rem;
+  white-space: nowrap;
+}
+
 .lab-status-badge {
   display: inline-flex;
   width: max-content;
@@ -257,6 +277,10 @@
 
 .lab-status-badge[data-status="archived"] > span {
   background: #95978d;
+}
+
+.lab-status-badge[data-status="wip"] > span {
+  background: #f2ca52;
 }
 
 .lab-project-card h3 {
