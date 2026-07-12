@@ -261,7 +261,7 @@ const config = welcomeGateConfig;
     function handleTargetEnter() {
       if (state !== "ready") return;
       gate.classList.add("is-hovering");
-      setMotion({ phase: "intro-hover", intensity: 0.22, patternSpeed: 0.42, meteorIntensity: 0, glitchIntensity: 0.16 });
+      setMotion({ phase: "intro-hover", intensity: 0.22, patternSpeed: 0.28, meteorIntensity: 0, glitchIntensity: 0.16 });
       schedule(() => setMotion({ glitchIntensity: 0 }), 80);
     }
 

@@ -102,6 +102,10 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
     let ambientTimer = 0;
     let lastPatternSpeed = -1;
     let lastMotionPublish = 0;
+    let lastPointerX = 0;
+    let lastPointerY = 0;
+    let lastPointerTime = 0;
+    let lastPointerSpawn = 0;
 
     const randomBetween = (minimum, maximum) => minimum + Math.random() * (maximum - minimum);
     const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
@@ -131,7 +135,23 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
       effect.remove();
     };
 
-    const launchEffect = ({ intensity = 0.2, direction = 1, trace = false, ambient = false } = {}) => {
+    const launchEffect = ({
+      intensity = 0.2,
+      direction = 1,
+      trace = false,
+      ambient = false,
+      pointerAngle,
+      pointerX,
+      pointerY,
+    }: {
+      intensity?: number;
+      direction?: number;
+      trace?: boolean;
+      ambient?: boolean;
+      pointerAngle?: number;
+      pointerX?: number;
+      pointerY?: number;
+    } = {}) => {
       if (disposed || reducedMotion.matches || document.hidden || !(meteorLayer instanceof HTMLElement)) return;
       const isMobile = mobileViewport.matches;
       const maximumCount = isMobile ? METEOR_CONFIG.mobileMaxActiveCount : METEOR_CONFIG.maxActiveCount;
@@ -142,13 +162,13 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
       const length = trace ? mix(30, 100, intensity) : mix(METEOR_CONFIG.minLength, METEOR_CONFIG.maxLength, intensity);
       const duration = trace ? mix(450, 180, intensity) : mix(METEOR_CONFIG.maxDuration, METEOR_CONFIG.minDuration, intensity);
       const angleJitter = randomBetween(-12, 12);
-      const baseAngle = direction > 0 ? -138 : 42;
+      const baseAngle = pointerAngle ?? (direction > 0 ? -138 : 42);
       const movementAngle = baseAngle + angleJitter;
       const trailAngle = movementAngle + 180;
       const radians = movementAngle * Math.PI / 180;
       const distance = trace ? mix(14, 26, intensity) : mix(34, 58, intensity);
-      const startX = direction > 0 ? randomBetween(44, 112) : randomBetween(-12, 56);
-      const startY = direction > 0 ? randomBetween(52, 112) : randomBetween(-12, 48);
+      const startX = pointerX ?? (direction > 0 ? randomBetween(44, 112) : randomBetween(-12, 56));
+      const startY = pointerY ?? (direction > 0 ? randomBetween(52, 112) : randomBetween(-12, 48));
       const strength = trace ? mix(0.16, 0.36, intensity) : ambient ? 0.42 : mix(0.42, 0.88, intensity);
       const blur = trace ? mix(0.5, 1.5, intensity) : mix(1.5, 4, intensity);
 
@@ -254,6 +274,38 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
       }
     };
 
+    const handlePointerMove = (event: PointerEvent) => {
+      if (mobileViewport.matches || event.pointerType === "touch" || reducedMotion.matches || document.hidden) return;
+
+      const now = event.timeStamp;
+      if (!lastPointerTime) {
+        lastPointerX = event.clientX;
+        lastPointerY = event.clientY;
+        lastPointerTime = now;
+        return;
+      }
+
+      const deltaX = event.clientX - lastPointerX;
+      const deltaY = event.clientY - lastPointerY;
+      const elapsed = Math.max(8, now - lastPointerTime);
+      const speed = Math.hypot(deltaX, deltaY) / elapsed;
+      lastPointerX = event.clientX;
+      lastPointerY = event.clientY;
+      lastPointerTime = now;
+
+      if (speed < 0.18) return;
+      const intensity = clamp(speed / 1.4, 0.12, 0.82);
+      const spawnInterval = mix(170, 75, intensity);
+      if (now - lastPointerSpawn < spawnInterval) return;
+      lastPointerSpawn = now;
+
+      const pointerAngle = Math.atan2(deltaY, deltaX) * 180 / Math.PI;
+      const pointerX = clamp(event.clientX / window.innerWidth * 100, 0, 100);
+      const pointerY = clamp(event.clientY / window.innerHeight * 100, 0, 100);
+      launchEffect({ intensity, pointerAngle, pointerX, pointerY });
+      if (intensity > 0.56) launchEffect({ intensity: intensity * 0.72, trace: true, pointerAngle, pointerX, pointerY });
+    };
+
     const resetEffects = () => {
       activeEffects.forEach((effect) => effect.remove());
       activeEffects.clear();
@@ -282,6 +334,7 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
       if (animationFrame) cancelAnimationFrame(animationFrame);
       resetEffects();
       window.removeEventListener("scroll", handleScroll);
+      window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener(motionStateEvent, handleSharedMotion);
       document.removeEventListener("visibilitychange", handleVisibility);
       document.removeEventListener("astro:before-swap", cleanup);
@@ -290,6 +343,7 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
     };
 
     window.addEventListener("scroll", handleScroll, { passive: true });
+    window.addEventListener("pointermove", handlePointerMove, { passive: true });
     window.addEventListener(motionStateEvent, handleSharedMotion);
     document.addEventListener("visibilitychange", handleVisibility);
     document.addEventListener("astro:before-swap", cleanup, { once: true });
