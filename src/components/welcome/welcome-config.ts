@@ -15,14 +15,14 @@ export interface WelcomeGateConfig {
 export const welcomeGateConfig: Readonly<WelcomeGateConfig> = Object.freeze({
   enabled: true,
   storageKey: "zxlab-welcome-seen:v1",
-  welcomeText: "welcome to zxlab",
+  welcomeText: "welcome to zxlab!",
   enterLabel: "Enter ZXLab",
   replayQueryKey: "replay-welcome",
   hitDuration: 520,
   leaveDuration: 930,
   failsafeDuration: 4000,
-  messageSteps: ["wel", "welcome", "welcome to", "welcome to zx", "welcome to zxlab"],
-  messageStepDelays: [0, 135, 295, 485, 710],
+  messageSteps: ["wel", "welcome", "welcome to", "welcome to zx", "welcome to zxlab", "welcome to zxlab!"],
+  messageStepDelays: [0, 135, 295, 485, 710, 875],
   messageStepInterval: 165,
 });
 

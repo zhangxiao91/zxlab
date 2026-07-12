@@ -240,7 +240,7 @@ const sparks = Array.from({ length: BACKGROUND_CONFIG.sparkCount }, (_, index) =
           intensity,
           direction: smoothedVelocity > 0.08 ? 1 : smoothedVelocity < -0.08 ? -1 : 0,
           velocity: smoothedVelocity,
-          patternSpeed: mix(1, 1.7, intensity),
+          patternSpeed: 1,
           meteorIntensity: intensity,
           glitchIntensity: 0,
         });
