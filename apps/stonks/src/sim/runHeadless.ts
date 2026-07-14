@@ -2,14 +2,17 @@ import { createInitialGame } from "../game/createInitialGame";
 import { GAME_CONFIG } from "../game/config";
 import type { TickResult } from "../game/types";
 import { getMarketCapClass } from "../simulation/marketDepth";
-import { findStockTrace, formatTickTraceTable } from "../simulation/scenarioTools";
+import { advanceToIntraday, findStockTrace, formatTickTraceTable } from "../simulation/scenarioTools";
 import { updateTick } from "../simulation/tick";
+import { loadTuningConfigFromArgs } from "./tuningConfig";
 
-const seed = process.argv[2] ?? "demo-seed";
+const tuningArgs = loadTuningConfigFromArgs(process.argv.slice(2));
+const seed = tuningArgs.rest[0] ?? "demo-seed";
 const game = createInitialGame(seed);
 
 console.log(`Whale-Sim headless run`);
 console.log(`Seed: ${game.rngSeed}`);
+if (tuningArgs.path) console.log(`Tuning config: ${tuningArgs.path}`);
 console.log(`Phase: ${game.phase}`);
 console.log("");
 console.log("Initial market:");
@@ -24,8 +27,7 @@ for (const stock of Object.values(game.stocks)) {
 }
 
 const traceResults: TickResult[] = [];
-traceResults.push(updateTick(game, [], { detail: "full" }));
-traceResults.push(updateTick(game, [], { detail: "full" }));
+traceResults.push(...advanceToIntraday(game));
 
 const attackTick = updateTick(game, [
   {

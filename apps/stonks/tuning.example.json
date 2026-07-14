@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "market": {
+    "openingGapMultiplier": 1,
+    "liquidityMultiplier": 1,
+    "ambientTapeMultiplier": 1,
+    "priceImpactMultiplier": 1
+  },
+  "pressure": {
+    "playerMultiplier": 1,
+    "playerFootprintMultiplier": 1,
+    "retailMultiplier": 1,
+    "collectiveMultiplier": 1,
+    "whaleMultiplier": 1,
+    "quantMultiplier": 1,
+    "institutionMultiplier": 1,
+    "fundamentalMultiplier": 1,
+    "newsMultiplier": 1,
+    "newsImpactMultiplier": 1
+  },
+  "heat": {
+    "playerMultiplier": 1,
+    "executionMultiplier": 1,
+    "collectiveMultiplier": 1,
+    "whaleMultiplier": 1,
+    "quantMultiplier": 1,
+    "newsMultiplier": 1,
+    "boardMultiplier": 1,
+    "priceMoveMultiplier": 1
+  },
+  "whale": {
+    "orderSizeMultiplier": 1,
+    "cooldownMultiplier": 1
+  },
+  "notes": "Copy this file to tuning.local.json and change multipliers while probing balance."
+}

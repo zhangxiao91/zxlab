@@ -1,9 +1,7 @@
 import { clamp, roundMoney, roundShares } from "../game/config";
 import { getValuationSnapshot } from "../game/fundamentals";
 import type { ExecutionFill, MarketCapClass, MarketDepth, Stock } from "../game/types";
-import { consumeBoardQueue } from "./boardQueueLedger";
 import { getLowerLimit, getUpperLimit, roundPrice } from "./boardEngine";
-import { MARKET_BEHAVIOR_CONFIG } from "./marketBehaviorConfig";
 
 export type DepthPressureHints = {
   buyPressure: number;
@@ -14,23 +12,24 @@ export type ExecutionConstraints = {
   limitPrice?: number;
 };
 
-const depthConfig = MARKET_BEHAVIOR_CONFIG.marketDepth;
-const unitConfig = MARKET_BEHAVIOR_CONFIG.units;
+const MIN_LEVEL_COUNT = 8;
+const MAX_LEVEL_COUNT = 120;
+const PRICE_TICK = 0.01;
 
 export function getMarketCapClass(stock: Stock): MarketCapClass {
-  if (stock.marketCap < MARKET_BEHAVIOR_CONFIG.marketCap.smallMax) return "small";
-  if (stock.marketCap <= MARKET_BEHAVIOR_CONFIG.marketCap.midMax) return "mid";
+  if (stock.marketCap < 10_000_000_000) return "small";
+  if (stock.marketCap <= 50_000_000_000) return "mid";
   return "large";
 }
 
 export function calculateEffectiveDepth(stock: Stock): number {
   const capClass = getMarketCapClass(stock);
-  const capMultiplier = depthConfig.effectiveDepth.capMultiplier[capClass];
+  const capMultiplier = capClass === "small" ? 0.5 : capClass === "mid" ? 0.95 : 2.65;
   const floatValue = stock.floatShares * stock.price;
-  const floatDepthRatio = depthConfig.effectiveDepth.floatDepthRatio[capClass];
+  const floatDepthRatio = capClass === "small" ? 0.008 : capClass === "mid" ? 0.006 : 0.012;
   const floatDepthCeiling = floatValue * floatDepthRatio;
 
-  return roundMoney(Math.max(depthConfig.minEffectiveDepth, Math.min(stock.currentLiquidity * capMultiplier, floatDepthCeiling)));
+  return roundMoney(Math.max(500_000, Math.min(stock.currentLiquidity * capMultiplier, floatDepthCeiling)));
 }
 
 export function createMarketDepth(stock: Stock, hints: DepthPressureHints): MarketDepth {
@@ -49,19 +48,19 @@ export function createMarketDepth(stock: Stock, hints: DepthPressureHints): Mark
 
   const boardAskModifier =
     stock.boardState === "sealedLimitUp"
-      ? depthConfig.book.sealedLimitUpAskModifier
+      ? 0.08
       : stock.boardState === "weakSeal"
-        ? depthConfig.book.weakSealAskModifier
+        ? 0.25
         : stock.boardState === "panic" || stock.boardState === "limitDown"
-          ? depthConfig.book.panicAskModifier
+          ? 1.75
           : 1;
   const boardBidModifier =
     stock.boardState === "sealedLimitUp"
-      ? depthConfig.book.sealedLimitUpBidModifier
+      ? 1.4
       : stock.boardState === "weakSeal"
-        ? depthConfig.book.weakSealBidModifier
+        ? 0.82
         : stock.boardState === "panic" || stock.boardState === "limitDown"
-          ? depthConfig.book.panicBidModifier
+          ? 0.28
           : 1;
 
   let askFactor = clamp(
@@ -89,13 +88,11 @@ export function createMarketDepth(stock: Stock, hints: DepthPressureHints): Mark
   askFactor *= clamp(1 + overvaluation * 0.28 - undervaluation * 0.22 + stress / 260 + Math.max(0, -flowMemory) / 420, 0.72, 1.75);
   bidFactor *= clamp(1 + undervaluation * 0.42 - overvaluation * 0.16 + stress / 320 + Math.max(0, flowMemory) / 520, 0.76, 1.65);
 
-  const underBoardBid =
-    effectiveDepth * bidFactor * (stock.boardState === "sealedLimitUp" ? depthConfig.book.sealedUnderBoardBidShare : depthConfig.book.underBoardBidShare);
-  const overBoardAsk =
-    effectiveDepth * askFactor * (stock.boardState === "limitDown" ? depthConfig.book.limitDownOverBoardAskShare : depthConfig.book.overBoardAskShare);
+  const underBoardBid = effectiveDepth * bidFactor * (stock.boardState === "sealedLimitUp" ? 0.18 : 0.32);
+  const overBoardAsk = effectiveDepth * askFactor * (stock.boardState === "limitDown" ? 0.18 : 0.32);
 
   if (atUpperLimit) {
-    askFactor *= stock.boardState === "sealedLimitUp" ? depthConfig.book.sealedLimitUpAskModifier : depthConfig.book.limitDownOverBoardAskShare;
+    askFactor *= stock.boardState === "sealedLimitUp" ? 0.08 : 0.18;
   }
 
   if (atLowerLimit) {
@@ -148,7 +145,7 @@ export function executeBuyFromDepth(
   }
 
   if (stock.price <= getLowerLimit(stock) && filledNotional > 0) {
-    consumeBoardQueue(stock, "sell", filledNotional);
+    stock.sellQueue = Math.max(0, stock.sellQueue - filledNotional);
   }
 
   return buildFill({
@@ -197,7 +194,7 @@ export function executeSellIntoDepth(
   }
 
   if (stock.price >= getUpperLimit(stock) && filledNotional > 0) {
-    consumeBoardQueue(stock, "buy", filledNotional);
+    stock.buyQueue = Math.max(0, stock.buyQueue - filledNotional);
   }
 
   return buildFill({
@@ -226,7 +223,7 @@ function buildAskLevels(stock: Stock, totalNotional: number) {
   const totalWeight = weights.reduce((total, weight) => total + weight, 0);
 
   const levels = Array.from({ length: levelCount }, (_, index) => {
-    const boundaryPrice = start >= upper || index === levelCount - 1 ? upper : Math.min(upper, start + unitConfig.priceTick * (index + 1));
+    const boundaryPrice = start >= upper || index === levelCount - 1 ? upper : Math.min(upper, start + PRICE_TICK * (index + 1));
     const price = roundPrice(boundaryPrice);
     return {
       price: Math.max(stock.price, price),
@@ -248,7 +245,7 @@ function buildBidLevels(stock: Stock, totalNotional: number) {
   const totalWeight = weights.reduce((total, weight) => total + weight, 0);
 
   const levels = Array.from({ length: levelCount }, (_, index) => {
-    const boundaryPrice = start <= lower || index === levelCount - 1 ? lower : Math.max(lower, start - unitConfig.priceTick * (index + 1));
+    const boundaryPrice = start <= lower || index === levelCount - 1 ? lower : Math.max(lower, start - PRICE_TICK * (index + 1));
     const price = roundPrice(boundaryPrice);
     return {
       price: Math.min(stock.price, price),
@@ -263,7 +260,7 @@ function getLevelCount(stock: Stock, side: "ask" | "bid"): number {
   const upper = getUpperLimit(stock);
   const lower = getLowerLimit(stock);
   const span = side === "ask" ? Math.max(0, upper - stock.price) : Math.max(0, stock.price - lower);
-  return Math.max(depthConfig.minLevelCount, Math.min(depthConfig.maxLevelCount, Math.ceil(span / unitConfig.priceTick)));
+  return Math.max(MIN_LEVEL_COUNT, Math.min(MAX_LEVEL_COUNT, Math.ceil(span / PRICE_TICK)));
 }
 
 function buildLevelWeights(stock: Stock, side: "ask" | "bid", levelCount: number): number[] {

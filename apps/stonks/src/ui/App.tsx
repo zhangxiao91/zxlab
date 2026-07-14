@@ -4,8 +4,9 @@ import { Activity, BarChart3, ChevronsRight, Pause, Play, RefreshCw, Star, Walle
 import { GAME_CONFIG, roundMoney } from "../game/config";
 import { createInitialGame } from "../game/createInitialGame";
 import { getValuationSnapshot } from "../game/fundamentals";
-import type { BoardState, DailyCandle, ExecutionFill, GameState, PlayerAction, Stock, StockId, TickPrice, TickResult } from "../game/types";
+import type { BoardState, DailyCandle, ExecutionFill, GameState, NewsItem, PlayerAction, Stock, StockId, TickPrice, TickResult } from "../game/types";
 import { getLowerLimit, getUpperLimit } from "../simulation/boardEngine";
+import { canCancelAuctionOrder, canSubmitAuctionOrder, CONTINUOUS_START_TICK } from "../simulation/auctionEngine";
 import { createMarketDepth } from "../simulation/marketDepth";
 import { calculateEffectiveDepth, getMarketCapClass } from "../simulation/marketDepth";
 import { updateTick } from "../simulation/tick";
@@ -53,6 +54,52 @@ type KLineHover = {
   candle: DailyCandle;
   index: number;
 };
+type OrderToast = {
+  id: string;
+  kind: "success" | "failure";
+  side: TradeSide;
+  stockId: StockId;
+  shares: number;
+  price: number;
+  day: number;
+  tick: number;
+  message: string;
+};
+type ConditionSpec =
+  | {
+      type: "day";
+      targetDay: number;
+    }
+  | {
+      type: "tick";
+      targetTick: number;
+    }
+  | {
+      type: "price";
+      operator: "above" | "below";
+      triggerPrice: number;
+    };
+type ConditionalOrder = {
+  id: string;
+  side: TradeSide;
+  stockId: StockId;
+  shares: number;
+  limitPrice: number;
+  condition: ConditionSpec;
+  createdDay: number;
+  createdTick: number;
+  working?: boolean;
+};
+type OrderIntent = {
+  id: string;
+  source: "normal" | "conditional" | "cancel";
+  side: TradeSide;
+  stockId: StockId;
+  shares: number;
+  limitPrice: number;
+  submittedDay: number;
+  submittedTick: number;
+};
 type FastForwardState = {
   active: boolean;
   startDay: number;
@@ -93,10 +140,12 @@ type AutosaveFile = {
     simpleMarketMode: boolean;
     indexBaseValue: number;
     playerFillHistory: PlayerFillRecord[];
+    conditionalOrders?: ConditionalOrder[];
   };
 };
 
 const AUTOSAVE_KEY = "zxlab:stonks:auto-save:v1";
+const SHORTCUTS_SEEN_KEY = "zxlab:stonks:shortcuts-seen:v1";
 
 const stockIds: StockId[] = [
   "DRAGON_SOFT",
@@ -114,7 +163,12 @@ const stockIds: StockId[] = [
   "RIVERSTONE_CEMENT",
   "ORCHID_SNACKS",
   "WESTERN_CLOUD_BANK",
-  "COPPER_CROWN_MINING"
+  "COPPER_CROWN_MINING",
+  "ETF_BROAD_MARKET",
+  "ETF_TECH_GROWTH",
+  "ETF_BIOTECH_INNOVATION",
+  "ETF_PROPERTY_VALUE",
+  "ETF_DEFENSE_SECURITY"
 ];
 
 export function App() {
@@ -126,6 +180,8 @@ export function App() {
   const [selectedStockId, setSelectedStockId] = useState<StockId>(() => getInitialStockId(initialSave, gameRef.current));
   const [recentResults, setRecentResults] = useState<TickResult[]>([]);
   const [playerFillHistory, setPlayerFillHistory] = useState<PlayerFillRecord[]>(() => initialSave?.ui.playerFillHistory ?? []);
+  const [conditionalOrders, setConditionalOrders] = useState<ConditionalOrder[]>(() => initialSave?.ui.conditionalOrders ?? []);
+  const [orderToasts, setOrderToasts] = useState<OrderToast[]>([]);
   const [pendingActions, setPendingActions] = useState<PlayerAction[]>([]);
   const [running, setRunning] = useState(() => !initialSave);
   const [tickIntervalSeconds, setTickIntervalSeconds] = useState<number>(() => initialSave?.ui.tickIntervalSeconds ?? GAME_CONFIG.tickDurationSeconds);
@@ -138,6 +194,13 @@ export function App() {
   const [quantity, setQuantity] = useState("10000");
   const [limitPrice, setLimitPrice] = useState(() => gameRef.current.stocks.DRAGON_SOFT.price.toFixed(2));
   const [navPage, setNavPage] = useState<NavPage>(() => initialSave?.ui.navPage ?? "market");
+  const [shortcutHelpOpen, setShortcutHelpOpen] = useState(() => {
+    try {
+      return window.localStorage.getItem(SHORTCUTS_SEEN_KEY) !== "1";
+    } catch {
+      return true;
+    }
+  });
   const [ticketMessage, setTicketMessage] = useState("");
   const [saveStatus, setSaveStatus] = useState<SaveStatus>(() =>
     initialSave
@@ -151,6 +214,8 @@ export function App() {
         }
   );
   const pendingActionsRef = useRef<PlayerAction[]>([]);
+  const pendingOrderIntentsRef = useRef<OrderIntent[]>([]);
+  const conditionalOrdersRef = useRef<ConditionalOrder[]>(conditionalOrders);
   const fastForwardRef = useRef<FastForwardState>(fastForward);
   const playerFillHistoryRef = useRef<PlayerFillRecord[]>(playerFillHistory);
 
@@ -160,12 +225,21 @@ export function App() {
     return recentResults.map((result) => result.stocks.find((stock) => stock.stockId === selectedStockId)).find(Boolean);
   }, [recentResults, selectedStockId]);
 
-  const queueAction = useCallback((action: PlayerAction) => {
+  const addOrderToast = useCallback((toast: Omit<OrderToast, "id">) => {
+    const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    setOrderToasts((current) => [{ ...toast, id }, ...current].slice(0, 5));
+    window.setTimeout(() => {
+      setOrderToasts((current) => current.filter((item) => item.id !== id));
+    }, 2400);
+  }, []);
+
+  const queueAction = useCallback((action: PlayerAction, intent: OrderIntent) => {
     setPendingActions((current) => {
       const next = [...current, action];
       pendingActionsRef.current = next;
       return next;
     });
+    pendingOrderIntentsRef.current = [...pendingOrderIntentsRef.current, intent];
   }, []);
 
   useEffect(() => {
@@ -175,6 +249,10 @@ export function App() {
   useEffect(() => {
     playerFillHistoryRef.current = playerFillHistory;
   }, [playerFillHistory]);
+
+  useEffect(() => {
+    conditionalOrdersRef.current = conditionalOrders;
+  }, [conditionalOrders]);
 
   const writeCurrentAutosave = useCallback((showStatus = false) => {
     const success = writeAutosave({
@@ -187,7 +265,8 @@ export function App() {
       showTradeMarks,
       simpleMarketMode,
       indexBaseValue: indexBaseValueRef.current,
-      playerFillHistory: playerFillHistoryRef.current
+      playerFillHistory: playerFillHistoryRef.current,
+      conditionalOrders: conditionalOrdersRef.current
     });
     if (showStatus) {
       setSaveStatus(
@@ -209,13 +288,31 @@ export function App() {
   const step = useCallback(() => {
     const nextGame = gameRef.current;
     const actions = pendingActionsRef.current;
+    const orderIntents = pendingOrderIntentsRef.current;
+    const triggered = getTriggeredConditionalOrders(nextGame, conditionalOrdersRef.current);
+    const triggeredActions = triggered.map((order) => conditionalOrderToAction(order));
+    const triggeredIntents = triggered.map((order) => conditionalOrderToIntent(order, nextGame.day, nextGame.tick));
+    const submittedActions = [...actions, ...triggeredActions];
+    const submittedIntents = [...orderIntents, ...triggeredIntents];
     pendingActionsRef.current = [];
+    pendingOrderIntentsRef.current = [];
     setPendingActions([]);
-    const result = updateTick(nextGame, actions);
+    if (triggered.length > 0) {
+      setTicketMessage(`${triggered.length} conditional order${triggered.length === 1 ? "" : "s"} triggered.`);
+    }
+    const result = updateTick(nextGame, submittedActions);
     const shouldAutosave = result.phaseChanged === "preMarket" || nextGame.phase === "ended";
+    if (triggered.length > 0 || result.playerFills.length > 0) {
+      setConditionalOrders((current) => {
+        const next = reconcileConditionalOrdersAfterTick(current, triggered, result);
+        conditionalOrdersRef.current = next;
+        return next;
+      });
+    }
 
     setGameVersion((version) => version + 1);
     setRecentResults((current) => [result, ...current].slice(0, 120));
+    createOrderToasts(result, submittedIntents, nextGame).forEach(addOrderToast);
     if (result.playerFills.length > 0) {
       const fillRecords = result.playerFills.map((fill) => ({ day: result.day, tick: result.tick, fill }));
       setPlayerFillHistory((current) => {
@@ -235,7 +332,8 @@ export function App() {
         showTradeMarks,
         simpleMarketMode,
         indexBaseValue: indexBaseValueRef.current,
-        playerFillHistory: playerFillHistoryRef.current
+        playerFillHistory: playerFillHistoryRef.current,
+        conditionalOrders: conditionalOrdersRef.current
       });
       setSaveStatus(
         success
@@ -253,7 +351,7 @@ export function App() {
       setFastForward(fastForwardRef.current);
       setRunning(restoreRunning);
     }
-  }, [kLineAxisMode, kLineRange, navPage, selectedStockId, showTradeMarks, simpleMarketMode, tickIntervalSeconds]);
+  }, [addOrderToast, kLineAxisMode, kLineRange, navPage, selectedStockId, showTradeMarks, simpleMarketMode, tickIntervalSeconds]);
 
   const effectiveTickIntervalSeconds = fastForward.active ? 0.02 : tickIntervalSeconds;
 
@@ -277,7 +375,11 @@ export function App() {
     setGameVersion((version) => version + 1);
     setRecentResults([]);
     setPlayerFillHistory([]);
+    setConditionalOrders([]);
+    setOrderToasts([]);
     pendingActionsRef.current = [];
+    pendingOrderIntentsRef.current = [];
+    conditionalOrdersRef.current = [];
     setPendingActions([]);
     setRunning(true);
     fastForwardRef.current = { active: false, startDay: 0, restoreRunning: true };
@@ -331,8 +433,8 @@ export function App() {
     const shares = Math.max(0, Math.floor(Number(quantity)));
     const price = Math.max(0, Number(limitPrice));
 
-    if (game.phase !== "intraday" && game.phase !== "closingAuction") {
-      setTicketMessage("Trading opens during intraday or closing auction.");
+    if (!canSubmitAuctionOrder(game.tick) && game.phase !== "intraday" && game.phase !== "closingAuction") {
+      setTicketMessage("Trading is closed in the current stage.");
       return;
     }
     if (shares <= 0 || price <= 0) {
@@ -355,9 +457,142 @@ export function App() {
             limitPrice: price
           };
 
-    queueAction(action);
+    queueAction(action, {
+      id: `normal-${game.day}-${game.tick}-${selectedStockId}-${Date.now()}`,
+      source: "normal",
+      side: tradeSide,
+      stockId: selectedStockId,
+      shares,
+      limitPrice: price,
+      submittedDay: game.day,
+      submittedTick: game.tick
+    });
     setTicketMessage(`${tradeSide === "buy" ? "Buy" : "Sell"} order queued for the next tick at limit ${price.toFixed(2)}.`);
   };
+
+  const cancelAuctionOrder = (orderId: string) => {
+    queueAction({ type: "cancelAuctionOrder", orderId }, {
+      id: `cancel-${game.day}-${game.tick}-${orderId}`,
+      source: "cancel",
+      side: "buy",
+      stockId: selectedStockId,
+      shares: 0,
+      limitPrice: 0,
+      submittedDay: game.day,
+      submittedTick: game.tick
+    });
+    setTicketMessage(`Cancel request queued for ${orderId}.`);
+  };
+
+  const submitConditionalOrder = (order: Omit<ConditionalOrder, "id" | "stockId" | "createdDay" | "createdTick">) => {
+    const conditionalOrder: ConditionalOrder = {
+      ...order,
+      id: `cond-${game.day}-${game.tick}-${selectedStockId}-${Date.now()}`,
+      stockId: selectedStockId,
+      createdDay: game.day,
+      createdTick: game.tick
+    };
+    setConditionalOrders((current) => {
+      const next = [conditionalOrder, ...current].slice(0, 12);
+      conditionalOrdersRef.current = next;
+      return next;
+    });
+    setTicketMessage(`Conditional ${order.side} order armed: ${formatCondition(order.condition)}.`);
+  };
+
+  const cancelConditionalOrder = (orderId: string) => {
+    setConditionalOrders((current) => {
+      const next = current.filter((order) => order.id !== orderId);
+      conditionalOrdersRef.current = next;
+      return next;
+    });
+  };
+
+  const closeShortcutHelp = () => {
+    setShortcutHelpOpen(false);
+    try {
+      window.localStorage.setItem(SHORTCUTS_SEEN_KEY, "1");
+    } catch {
+      // The help remains available through ? even when storage is unavailable.
+    }
+  };
+
+  const selectAdjacentStock = (direction: 1 | -1) => {
+    const currentIndex = stockIds.indexOf(selectedStockId);
+    const nextIndex = (currentIndex + direction + stockIds.length) % stockIds.length;
+    setSelectedStockId(stockIds[nextIndex]);
+  };
+
+  useEffect(() => {
+    const handleShortcut = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const isEditable = Boolean(target?.closest("input, textarea, select, [contenteditable='true']"));
+
+      if (event.key === "Escape") {
+        if (shortcutHelpOpen) {
+          event.preventDefault();
+          closeShortcutHelp();
+        }
+        return;
+      }
+
+      if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+        event.preventDefault();
+        submitOrder();
+        return;
+      }
+
+      if (isEditable || event.repeat) return;
+
+      if (event.key === "?") {
+        event.preventDefault();
+        setShortcutHelpOpen(true);
+        return;
+      }
+
+      switch (event.key.toLowerCase()) {
+        case " ":
+          event.preventDefault();
+          toggleRunning();
+          break;
+        case "f":
+          event.preventDefault();
+          toggleFastForward();
+          break;
+        case "j":
+          event.preventDefault();
+          selectAdjacentStock(-1);
+          break;
+        case "k":
+          event.preventDefault();
+          selectAdjacentStock(1);
+          break;
+        case "1":
+          event.preventDefault();
+          setNavPage("market");
+          break;
+        case "2":
+          event.preventDefault();
+          setNavPage("fundamentals");
+          break;
+        case "3":
+          event.preventDefault();
+          setNavPage("portfolio");
+          break;
+        case "b":
+          event.preventDefault();
+          setTradeSide("buy");
+          break;
+        case "s":
+          event.preventDefault();
+          setTradeSide("sell");
+          break;
+      }
+    };
+
+    window.addEventListener("keydown", handleShortcut);
+    return () => window.removeEventListener("keydown", handleShortcut);
+  });
 
   const depth = useMemo(() => {
     const pressure = selectedTrace?.pressure;
@@ -403,9 +638,9 @@ export function App() {
         <WhaleIndexBar index={whaleIndex} />
 
         <nav className="main-nav" aria-label="Main views">
-          {(["market", "fundamentals", "portfolio"] as NavPage[]).map((page) => (
-            <button className={navPage === page ? "active" : ""} key={page} onClick={() => setNavPage(page)}>
-              {titleCase(page)}
+          {(["market", "fundamentals", "portfolio"] as NavPage[]).map((page, index) => (
+            <button className={navPage === page ? "active" : ""} key={page} onClick={() => setNavPage(page)} title={`${titleCase(page)} · ${index + 1}`}>
+              {titleCase(page)} <kbd>{index + 1}</kbd>
             </button>
           ))}
         </nav>
@@ -419,13 +654,14 @@ export function App() {
             <ProgressBar
               value={(game.day - 1) / GAME_CONFIG.totalDays}
               dayValue={game.tick / GAME_CONFIG.ticksPerDay}
+              tick={game.tick}
             />
             <button
               className={fastForward.active ? "fast-forward-button active" : "fast-forward-button"}
               onClick={toggleFastForward}
               type="button"
               aria-label={fastForward.active ? "Stop fast forward" : "Fast forward to next day"}
-              title={fastForward.active ? "Stop fast forward" : "Fast forward to next day"}
+              title={`${fastForward.active ? "Stop fast forward" : "Fast forward to next day"} · F`}
             >
               <ChevronsRight size={14} strokeWidth={2.4} />
             </button>
@@ -437,7 +673,7 @@ export function App() {
         </div>
 
         <div className="run-controls">
-          <button className="icon-button primary" onClick={toggleRunning} aria-label={running ? "Pause" : "Play"}>
+          <button className="icon-button primary" onClick={toggleRunning} aria-label={running ? "Pause" : "Play"} title={`${running ? "Pause" : "Play"} · Space`}>
             {running ? <Pause size={18} /> : <Play size={18} />}
           </button>
           <button className="icon-button" onClick={resetRun} aria-label="Reset run">
@@ -488,10 +724,11 @@ export function App() {
           onKLineAxisModeChange={setKLineAxisMode}
         />
         <aside className="side-stack">
-          <OrderBook depth={depth} />
+          <OrderBook depth={depth} stock={selectedStock} />
           <OrderTicket
             game={game}
             stock={selectedStock}
+            conditionalOrders={conditionalOrders.filter((order) => order.stockId === selectedStock.id)}
             side={tradeSide}
             quantity={quantity}
             limitPrice={limitPrice}
@@ -501,11 +738,57 @@ export function App() {
             onQuantityChange={setQuantity}
             onLimitPriceChange={setLimitPrice}
             onSubmit={submitOrder}
+            onSubmitConditional={submitConditionalOrder}
+            onCancelConditional={cancelConditionalOrder}
+            onCancelAuctionOrder={cancelAuctionOrder}
           />
           <WhaleFeed rows={whaleRows} />
         </aside>
         <LowerPanel mode={lowerPanelMode} game={game} stock={selectedStock} />
       </main>
+      {shortcutHelpOpen ? (
+        <ShortcutHelp onClose={closeShortcutHelp} firstVisit />
+      ) : null}
+      <OrderToastStack toasts={orderToasts} />
+    </div>
+  );
+}
+
+function ShortcutHelp({ onClose, firstVisit = false }: { onClose: () => void; firstVisit?: boolean }) {
+  const shortcuts = [
+    ["Space", "播放 / 暂停"],
+    ["F", "快进下一日"],
+    ["J / K", "切换上一只 / 下一只股票"],
+    ["1 / 2 / 3", "切换市场 / 基本面 / 持仓页面"],
+    ["B / S", "切换买入 / 卖出"],
+    ["⌘ / Ctrl + Enter", "提交订单"],
+    ["Esc", "关闭弹层"],
+    ["?", "打开快捷键帮助"],
+  ];
+
+  return (
+    <div className="shortcut-overlay" role="presentation">
+      <section className="shortcut-dialog" role="dialog" aria-modal="true" aria-labelledby="shortcut-dialog-title">
+        <div className="shortcut-dialog__topline">
+          <span>{firstVisit ? "Welcome to STONKS" : "Keyboard map"}</span>
+          <button type="button" className="shortcut-dialog__close" onClick={onClose} autoFocus aria-label="关闭快捷键帮助">
+            Esc
+          </button>
+        </div>
+        <h2 id="shortcut-dialog-title">用键盘掌控市场。</h2>
+        {firstVisit ? <p className="shortcut-dialog__intro">第一次进入？记住按 <kbd>?</kbd>，随时呼出这张快捷键提示。</p> : null}
+        <div className="shortcut-list">
+          {shortcuts.map(([key, label]) => (
+            <div className="shortcut-row" key={key}>
+              <kbd>{key}</kbd>
+              <span>{label}</span>
+            </div>
+          ))}
+        </div>
+        <button type="button" className="shortcut-dialog__confirm" onClick={onClose}>
+          {firstVisit ? "开始交易" : "关闭提示"}
+        </button>
+      </section>
     </div>
   );
 }
@@ -528,7 +811,7 @@ function MarketOverview({
       <div className="panel-title market-head">
         <div>
           <BarChart3 size={15} />
-          <span>Market Overview (A-Share)</span>
+          <span>Market Overview (A-Share + ETF)</span>
         </div>
         <label className="simple-toggle">
           <input type="checkbox" checked={simpleMode} onChange={(event) => onSimpleModeChange(event.target.checked)} />
@@ -758,45 +1041,96 @@ function StockWorkspace({
         <InfoCell label="Locked" value={position ? shortShares(position.lockedShares) : "0"} />
         <InfoCell label="Average Cost" value={position ? position.avgCost.toFixed(2) : "-"} />
         <InfoCell label="Active News" value={activeNews.length.toString()} />
-        <InfoCell label="Whale Prints" value={recentResults.reduce((total, result) => total + result.whaleTrades.filter((trade) => trade.stockId === stock.id).length, 0).toString()} />
+        <InfoCell
+          label={stock.assetType === "etf" ? "ETF Premium" : "Whale Prints"}
+          value={stock.assetType === "etf" ? formatEtfPremium(stock) : recentResults.reduce((total, result) => total + result.whaleTrades.filter((trade) => trade.stockId === stock.id).length, 0).toString()}
+        />
         <InfoCell label="Quant Activity" value={quantHint(stock.quantPresence, trace)} />
       </div>
     </section>
   );
 }
 
-function OrderBook({ depth }: { depth: ReturnType<typeof createMarketDepth> }) {
-  const asks = depth.askLevels.slice(0, 5).reverse();
-  const bids = depth.bidLevels.slice(0, 5);
+function OrderBook({ depth, stock }: { depth: ReturnType<typeof createMarketDepth>; stock: Stock }) {
+  const [expanded, setExpanded] = useState(false);
+  const auctionActive = !stock.auction.settled && (stock.auction.phase === "cancelable" || stock.auction.phase === "locked");
+  const asks = depth.askLevels.slice(0, 10);
+  const bids = depth.bidLevels.slice(0, 10);
+  const bestAsk = asks[0];
+  const bestBid = bids[0];
 
   return (
-    <section className="panel side-panel order-book">
-      <PanelTitle title="Order Book (5)" />
-      <div className="book-table">
-        <div className="book-row book-head">
-          <span>Ask</span>
-          <span>Price</span>
-          <span>Available</span>
-        </div>
-        {asks.map((level, index) => (
-          <div className="book-row ask" key={`ask-${level.price}-${index}`}>
-            <span>{asks.length - index}</span>
-            <strong>{level.price.toFixed(2)}</strong>
-            <span>{shortMoney(level.availableNotional)}</span>
-          </div>
-        ))}
-        <div className="spread-line">
-          <span>Spread</span>
-          <strong>{spread(depth).toFixed(2)}</strong>
-        </div>
-        {bids.map((level, index) => (
-          <div className="book-row bid" key={`bid-${level.price}-${index}`}>
-            <span>{index + 1}</span>
-            <strong>{level.price.toFixed(2)}</strong>
-            <span>{shortMoney(level.availableNotional)}</span>
-          </div>
-        ))}
+    <section className="panel side-panel order-book compact">
+      <div className="panel-title book-title">
+        <div>Order Book</div>
+        <button type="button" onClick={() => setExpanded((value) => !value)} aria-expanded={expanded}>
+          {expanded ? "Hide" : "10L"}
+        </button>
       </div>
+      {auctionActive ? (
+        <div className="book-compact auction-compact">
+          <div className="book-best">
+            <span>{titleCase(stock.auction.phase)}</span>
+            <strong>{stock.auction.referencePrice.toFixed(2)}</strong>
+            <em>Ref price</em>
+          </div>
+          <div className="book-best">
+            <span>Match</span>
+            <strong>{shortShares(stock.auction.referenceMatchedShares)}</strong>
+            <em>{shortMoney(stock.auction.referenceMatchedNotional)}</em>
+          </div>
+        </div>
+      ) : (
+        <div className="book-compact">
+          <div className="book-best ask">
+            <span>Ask 1</span>
+            <strong>{bestAsk ? bestAsk.price.toFixed(2) : "-"}</strong>
+            <em>{bestAsk ? shortMoney(bestAsk.availableNotional) : "-"}</em>
+          </div>
+          <div className="book-best bid">
+            <span>Bid 1</span>
+            <strong>{bestBid ? bestBid.price.toFixed(2) : "-"}</strong>
+            <em>{bestBid ? shortMoney(bestBid.availableNotional) : "-"}</em>
+          </div>
+        </div>
+      )}
+      {expanded ? (
+        <div className="book-popover">
+          {auctionActive ? (
+            <div className="book-table">
+              <div className="data-row"><span>Buy imbalance</span><strong className="tone-up">{shortShares(Math.max(0, stock.auction.imbalanceShares))}</strong></div>
+              <div className="data-row"><span>Sell imbalance</span><strong className="tone-down">{shortShares(Math.max(0, -stock.auction.imbalanceShares))}</strong></div>
+              <div className="data-row"><span>Auction orders</span><strong>{stock.auction.orders.filter((order) => order.status === "open").length.toString()}</strong></div>
+            </div>
+          ) : (
+          <div className="book-table">
+            <div className="book-row book-head">
+              <span>Level</span>
+              <span>Price</span>
+              <span>Available</span>
+            </div>
+            {[...asks].reverse().map((level, index) => (
+              <div className="book-row ask" key={`ask-${level.price}-${index}`}>
+                <span>Ask {asks.length - index}</span>
+                <strong>{level.price.toFixed(2)}</strong>
+                <span>{shortMoney(level.availableNotional)}</span>
+              </div>
+            ))}
+            <div className="spread-line">
+              <span>Spread</span>
+              <strong>{spread(depth).toFixed(2)}</strong>
+            </div>
+            {bids.map((level, index) => (
+              <div className="book-row bid" key={`bid-${level.price}-${index}`}>
+                <span>Bid {index + 1}</span>
+                <strong>{level.price.toFixed(2)}</strong>
+                <span>{shortMoney(level.availableNotional)}</span>
+              </div>
+            ))}
+          </div>
+          )}
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -804,6 +1138,7 @@ function OrderBook({ depth }: { depth: ReturnType<typeof createMarketDepth> }) {
 function OrderTicket({
   game,
   stock,
+  conditionalOrders,
   side,
   quantity,
   limitPrice,
@@ -812,10 +1147,14 @@ function OrderTicket({
   onSideChange,
   onQuantityChange,
   onLimitPriceChange,
-  onSubmit
+  onSubmit,
+  onSubmitConditional,
+  onCancelConditional,
+  onCancelAuctionOrder
 }: {
   game: GameState;
   stock: Stock;
+  conditionalOrders: ConditionalOrder[];
   side: TradeSide;
   quantity: string;
   limitPrice: string;
@@ -825,12 +1164,24 @@ function OrderTicket({
   onQuantityChange: (value: string) => void;
   onLimitPriceChange: (value: string) => void;
   onSubmit: () => void;
+  onSubmitConditional: (order: Omit<ConditionalOrder, "id" | "stockId" | "createdDay" | "createdTick">) => void;
+  onCancelConditional: (orderId: string) => void;
+  onCancelAuctionOrder: (orderId: string) => void;
 }) {
+  const [ticketMode, setTicketMode] = useState<"normal" | "conditional">("normal");
+  const [conditionType, setConditionType] = useState<ConditionSpec["type"]>("tick");
+  const [timeTarget, setTimeTarget] = useState(() => Math.max(1, game.tick + 10).toString());
+  const [priceOperator, setPriceOperator] = useState<"above" | "below">("above");
+  const [triggerPrice, setTriggerPrice] = useState(() => stock.price.toFixed(2));
   const shares = Math.max(0, Math.floor(Number(quantity) || 0));
   const price = Math.max(0, Number(limitPrice) || 0);
   const notional = shares * price;
   const position = game.player.positions[stock.id];
-  const canTrade = game.phase === "intraday" || game.phase === "closingAuction";
+  const canAuctionSubmit = canSubmitAuctionOrder(game.tick);
+  const canAuctionCancel = canCancelAuctionOrder(game.tick);
+  const canContinuousTrade = game.phase === "intraday" || game.phase === "closingAuction";
+  const canTrade = canAuctionSubmit || canContinuousTrade;
+  const playerAuctionOrders = stock.auction.orders.filter((order) => order.owner === "player" && order.status === "open");
   const applyPositionFraction = (fraction: number) => {
     if (side === "buy") {
       const referencePrice = price > 0 ? price : stock.price;
@@ -845,11 +1196,36 @@ function OrderTicket({
   const applyPrice = (nextPrice: number) => {
     onLimitPriceChange(Math.max(0, nextPrice).toFixed(2));
   };
+  useEffect(() => {
+    setTriggerPrice(stock.price.toFixed(2));
+  }, [stock.id]);
+  const submitConditional = () => {
+    if (shares <= 0 || price <= 0) return;
+    const numericTarget = Math.max(0, Math.floor(Number(timeTarget) || 0));
+    const numericTriggerPrice = Math.max(0, Number(triggerPrice) || 0);
+    const condition: ConditionSpec =
+      conditionType === "day"
+        ? { type: "day", targetDay: Math.max(1, numericTarget) }
+        : conditionType === "tick"
+          ? { type: "tick", targetTick: numericTarget }
+          : { type: "price", operator: priceOperator, triggerPrice: numericTriggerPrice };
+    if (condition.type === "price" && condition.triggerPrice <= 0) return;
+    onSubmitConditional({
+      side,
+      shares,
+      limitPrice: price,
+      condition
+    });
+  };
 
   return (
     <section className="panel side-panel ticket-panel">
       <PanelTitle title="Order Ticket" icon={<Wallet size={14} />} />
       <div className="ticket-body">
+        <div className="ticket-tabs" aria-label="Order mode">
+          <button className={ticketMode === "normal" ? "active" : ""} type="button" onClick={() => setTicketMode("normal")}>Normal</button>
+          <button className={ticketMode === "conditional" ? "active" : ""} type="button" onClick={() => setTicketMode("conditional")}>Conditional</button>
+        </div>
         <div className="segmented">
           <button
             aria-pressed={side === "buy"}
@@ -857,7 +1233,7 @@ function OrderTicket({
             onClick={() => onSideChange("buy")}
             type="button"
           >
-            Buy
+            Buy <kbd>B</kbd>
           </button>
           <button
             aria-pressed={side === "sell"}
@@ -865,7 +1241,7 @@ function OrderTicket({
             onClick={() => onSideChange("sell")}
             type="button"
           >
-            Sell
+            Sell <kbd>S</kbd>
           </button>
         </div>
         <div className="field-row">
@@ -906,11 +1282,60 @@ function OrderTicket({
             <strong>{side === "buy" ? money(game.player.cash) : shortShares(position?.sellableShares ?? 0)}</strong>
           </div>
         </div>
-        <button className={`submit-order ${side}`} onClick={onSubmit} disabled={!canTrade}>
-          {canTrade ? `Queue ${side === "buy" ? "Buy" : "Sell"} Order` : "Trading Closed"}
+        {ticketMode === "conditional" ? (
+          <div className="condition-box">
+            <div className="condition-row">
+              <select value={conditionType} onChange={(event) => setConditionType(event.target.value as ConditionSpec["type"])} aria-label="Condition type">
+                <option value="tick">Tick &gt;=</option>
+                <option value="day">Day &gt;=</option>
+                <option value="price">Price</option>
+              </select>
+              {conditionType === "price" ? (
+                <>
+                  <select value={priceOperator} onChange={(event) => setPriceOperator(event.target.value as "above" | "below")} aria-label="Price trigger direction">
+                    <option value="above">Above</option>
+                    <option value="below">Below</option>
+                  </select>
+                  <input inputMode="decimal" value={triggerPrice} onChange={(event) => setTriggerPrice(event.target.value)} />
+                </>
+              ) : (
+                <input inputMode="numeric" value={timeTarget} onChange={(event) => setTimeTarget(event.target.value)} />
+              )}
+            </div>
+          </div>
+        ) : null}
+        <button className={`submit-order ${side}`} onClick={ticketMode === "normal" ? onSubmit : submitConditional} disabled={ticketMode === "normal" && !canTrade} title="提交订单 · Cmd/Ctrl + Enter">
+          {ticketMode === "normal"
+            ? canTrade ? `${canAuctionSubmit ? "Auction" : "Queue"} ${side === "buy" ? "Buy" : "Sell"} Order` : "Trading Closed"
+            : `Arm Conditional ${side === "buy" ? "Buy" : "Sell"}`}
+          {ticketMode === "normal" ? <kbd>⌘ / Ctrl + Enter</kbd> : null}
         </button>
         <div className="ticket-message">{message || `${stock.id} ${game.phase}`}</div>
-        <div className="pending-line">{pendingCount > 0 ? `${pendingCount} queued for next tick` : "Orders execute on the next timed tick."}</div>
+        <div className="pending-line">{pendingCount > 0 ? `${pendingCount} queued for next tick` : canAuctionSubmit ? "Auction orders join the indicative book." : "Orders execute on the next timed tick."}</div>
+        {playerAuctionOrders.length > 0 ? (
+          <div className="conditional-list">
+            {playerAuctionOrders.map((order) => (
+              <div className={`conditional-item ${order.side}`} key={order.id}>
+                <span>{order.side.toUpperCase()} {shortShares(order.remainingShares)} @ {order.price.toFixed(2)}</span>
+                <strong>{canAuctionCancel && order.cancellable ? "Cancelable" : "Locked"}</strong>
+                {canAuctionCancel && order.cancellable ? (
+                  <button type="button" onClick={() => onCancelAuctionOrder(order.id)} aria-label="Cancel auction order">撤</button>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        ) : null}
+        {conditionalOrders.length > 0 ? (
+          <div className="conditional-list">
+            {conditionalOrders.map((order) => (
+              <div className={`conditional-item ${order.side}`} key={order.id}>
+                <span>{order.side.toUpperCase()} {shortShares(order.shares)} @ {order.limitPrice.toFixed(2)}{order.working ? " working" : ""}</span>
+                <strong>{formatCondition(order.condition)}</strong>
+                <button type="button" onClick={() => onCancelConditional(order.id)} aria-label="Cancel conditional order">撤</button>
+              </div>
+            ))}
+          </div>
+        ) : null}
       </div>
     </section>
   );
@@ -943,6 +1368,21 @@ function AutosaveStatus({
       <span title={status.label}>{status.label}</span>
       <button type="button" onClick={onSave}>Save</button>
       <button type="button" onClick={onClear}>Clear</button>
+    </div>
+  );
+}
+
+function OrderToastStack({ toasts }: { toasts: OrderToast[] }) {
+  if (toasts.length === 0) return null;
+
+  return (
+    <div className="order-toast-stack" aria-live="polite">
+      {toasts.map((toast) => (
+        <div className={`order-toast ${toast.kind} ${toast.side}`} key={toast.id}>
+          <strong>{toast.kind === "success" ? (toast.side === "buy" ? "Buy Filled" : "Sell Filled") : "Order Failed"}</strong>
+          <span>{toast.message}</span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -1052,53 +1492,122 @@ function LowerPanel({ mode, game, stock }: { mode: "fundamentals" | "portfolio";
 }
 
 function FundamentalsPanel({ game, stock }: { game: GameState; stock: Stock }) {
+  const [activeTab, setActiveTab] = useState<"fundamentals" | "financials" | "news" | "notes">("fundamentals");
   const valuation = getValuationSnapshot(stock);
   const news = game.news.filter((item) => item.scope === "market" || item.targetId === stock.id || item.targetId === stock.sector);
 
   return (
     <>
       <div className="lower-tabs">
-        <button className="active">Fundamentals</button>
-        <button>Financials</button>
-        <button>News</button>
-        <button>Notes</button>
+        <button type="button" className={activeTab === "fundamentals" ? "active" : ""} onClick={() => setActiveTab("fundamentals")}>Fundamentals</button>
+        <button type="button" className={activeTab === "financials" ? "active" : ""} onClick={() => setActiveTab("financials")}>Financials</button>
+        <button type="button" className={activeTab === "news" ? "active" : ""} onClick={() => setActiveTab("news")}>News</button>
+        <button type="button" className={activeTab === "notes" ? "active" : ""} onClick={() => setActiveTab("notes")}>Notes</button>
       </div>
-      <div className="fundamentals-grid">
-        <DataCard title="Valuation" rows={[
-          ["P/E", stock.pe.toFixed(1)],
-          ["Fair P/E", stock.fairPe.toFixed(1)],
-          ["Fair Value", valuation.fairValue.toFixed(2)],
-          ["Profit Yield", `${valuation.profitYield.toFixed(2)}%`]
-        ]} />
-        <DataCard title="Profitability" rows={[
-          ["Net Profit", shortMoney(stock.netProfit)],
-          ["EPS", stock.earningsPerShare.toFixed(2)],
-          ["Growth", signedPct(stock.profitGrowth)],
-          ["Health", stock.financialHealth.toFixed(0)]
-        ]} />
-        <DataCard title="Market Texture" rows={[
-          ["Cap Class", titleCase(getMarketCapClass(stock))],
-          ["Float", shortShares(stock.floatShares)],
-          ["Liquidity", shortMoney(stock.currentLiquidity)],
-          ["Turnover", shortMoney(stock.turnover)]
-        ]} />
-        <CostDistributionCard stock={stock} />
-        <div className="data-card news-card">
-          <h3>Active News</h3>
-          {news.length === 0 ? (
-            <p className="muted">No active news for this stock.</p>
-          ) : (
-            news.slice(0, 3).map((item) => (
-              <div className="news-line" key={item.id}>
-                <strong>{item.title}</strong>
-                <span>{titleCase(item.source)} | strength {item.strength} | credibility {item.credibility}</span>
+      {activeTab === "news" ? (
+        <ActiveNewsPanel game={game} stock={stock} relevantNews={news} />
+      ) : activeTab === "notes" ? (
+        <div className="news-grid">
+          <div className="data-card news-board wide">
+            <h3>Recent Market Notes</h3>
+            {game.eventLog.slice(-12).reverse().map((event) => (
+              <div className="news-line" key={`${event.day}-${event.tick}-${event.message}`}>
+                <strong>{event.message}</strong>
+                <span>Day {event.day} | tick {event.tick} | {titleCase(event.type)}</span>
               </div>
-            ))
-          )}
+            ))}
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="fundamentals-grid">
+          <DataCard title="Valuation" rows={[
+            ["P/E", stock.pe.toFixed(1)],
+            ["Fair P/E", stock.fairPe.toFixed(1)],
+            ["Fair Value", valuation.fairValue.toFixed(2)],
+            ["Profit Yield", `${valuation.profitYield.toFixed(2)}%`]
+          ]} />
+          <DataCard title="Profitability" rows={[
+            ["Net Profit", shortMoney(stock.netProfit)],
+            ["EPS", stock.earningsPerShare.toFixed(2)],
+            ["Growth", signedPct(stock.profitGrowth)],
+            ["Health", stock.financialHealth.toFixed(0)]
+          ]} />
+          <DataCard title={activeTab === "financials" ? "Balance Texture" : "Market Texture"} rows={stock.assetType === "etf" ? [
+            ["NAV", (stock.etf?.nav ?? stock.price).toFixed(2)],
+            ["Premium", formatEtfPremium(stock)],
+            ["Components", (stock.etf?.components.length ?? 0).toString()],
+            ["Liquidity", shortMoney(stock.currentLiquidity)]
+          ] : [
+            ["Cap Class", titleCase(getMarketCapClass(stock))],
+            ["Float", shortShares(stock.floatShares)],
+            ["Liquidity", shortMoney(stock.currentLiquidity)],
+            ["Turnover", shortMoney(stock.turnover)]
+          ]} />
+          <CostDistributionCard stock={stock} />
+          <div className="data-card news-card">
+            <h3>Active News</h3>
+            {news.length === 0 ? (
+              <p className="muted">No active news for this stock.</p>
+            ) : (
+              news.slice(0, 3).map((item) => <NewsLine item={item} game={game} key={item.id} />)
+            )}
+          </div>
+        </div>
+      )}
     </>
   );
+}
+
+function ActiveNewsPanel({ game, stock, relevantNews }: { game: GameState; stock: Stock; relevantNews: NewsItem[] }) {
+  const activeNews = [...game.news].sort((first, second) => getNewsSortScore(second, stock) - getNewsSortScore(first, stock));
+
+  return (
+    <div className="news-grid">
+      <div className="data-card news-board">
+        <h3>Relevant Active News</h3>
+        {relevantNews.length === 0 ? (
+          <p className="muted">No active news is attached to this stock, its sector, or the broad market.</p>
+        ) : (
+          relevantNews.map((item) => <NewsLine item={item} game={game} key={item.id} />)
+        )}
+      </div>
+      <div className="data-card news-board">
+        <h3>Market News Tape</h3>
+        {activeNews.length === 0 ? (
+          <p className="muted">No active news.</p>
+        ) : (
+          activeNews.map((item) => <NewsLine item={item} game={game} compact key={item.id} />)
+        )}
+      </div>
+    </div>
+  );
+}
+
+function NewsLine({ item, game, compact = false }: { item: NewsItem; game: GameState; compact?: boolean }) {
+  return (
+    <div className={`news-line ${compact ? "compact" : ""}`}>
+      <strong>{item.title}</strong>
+      <span>
+        {formatNewsPolarity(item)} | {titleCase(item.source)} | {formatNewsTarget(item, game)} | strength {item.strength} | credibility {item.credibility} | {item.remainingDays}d
+      </span>
+    </div>
+  );
+}
+
+function getNewsSortScore(item: NewsItem, stock: Stock): number {
+  const relevance = item.targetId === stock.id ? 30 : item.targetId === stock.sector ? 20 : item.scope === "market" ? 10 : 0;
+  return relevance + item.strength * 0.5 + item.credibility * 0.15 + item.heatImpact;
+}
+
+function formatNewsPolarity(item: NewsItem): string {
+  return item.polarity > 0 ? "Positive" : item.polarity < 0 ? "Negative" : "Neutral";
+}
+
+function formatNewsTarget(item: NewsItem, game: GameState): string {
+  if (item.scope === "market") return "Market";
+  if (item.scope === "sector" && item.targetId && item.targetId in game.sectors) return game.sectors[item.targetId as keyof typeof game.sectors].name;
+  if (item.scope === "stock" && item.targetId && item.targetId in game.stocks) return game.stocks[item.targetId as StockId].name;
+  return item.targetId ?? titleCase(item.scope);
 }
 
 function PortfolioPanel({ game }: { game: GameState }) {
@@ -1235,6 +1744,10 @@ function IntradayChart({
         <GridLines width={width} height={height} xLines={[0.25, 0.5, 0.75]} />
         <line x1="0" x2={width} y1={baseline} y2={baseline} className="baseline" />
         <polyline points={path} className="intraday-line" />
+        <polyline
+          points={points.filter((point) => point.kind === "auctionIndicative").map((point) => `${xFor(point).toFixed(1)},${yFor(point.price).toFixed(1)}`).join(" ")}
+          className="auction-indicative-line"
+        />
         {points.map((point) =>
           point.boardState === "sealedLimitUp" || point.boardState === "limitDown" ? (
             <circle
@@ -1276,7 +1789,7 @@ function IntradayChart({
             <line x1="0" x2={width} y1={hover.y} y2={hover.y} />
             <circle cx={xFor(hover.point)} cy={yFor(hover.point.price)} r="3.4" />
             <rect x="4" y="4" width="122" height="34" rx="4" />
-            <text x="10" y="17">{formatIntradayTime(hover.point.tick)} price {hover.point.price.toFixed(2)}</text>
+            <text x="10" y="17">{formatIntradayTime(hover.point.tick)} {hover.point.kind === "auctionIndicative" ? "ref" : "price"} {hover.point.price.toFixed(2)}</text>
             <text x="10" y="31">{signedPct(((hover.point.price - previousClose) / previousClose) * 100)}</text>
             <text x={width} y={Math.min(height - 20, Math.max(12, hover.y - 5))} textAnchor="end">
               cursor {hover.coordPrice.toFixed(2)}
@@ -1554,12 +2067,21 @@ function Signal({ label, value, tone }: { label: string; value: string; tone?: "
   );
 }
 
-function ProgressBar({ value, dayValue }: { value: number; dayValue?: number }) {
+function ProgressBar({ value, dayValue, tick }: { value: number; dayValue?: number; tick?: number }) {
+  const auctionValue = tick === undefined ? 0 : Math.max(0, Math.min(1, tick / Math.max(1, CONTINUOUS_START_TICK)));
   return (
     <div className="progress">
       <div className="run-progress-track">
         <div className="run-progress-fill" style={{ width: `${Math.max(2, Math.min(100, value * 100))}%` }} />
       </div>
+      {tick === undefined ? null : (
+        <div className="auction-progress-track" aria-hidden="true">
+          <div className="auction-progress-fill" style={{ width: `${Math.max(2, Math.min(100, auctionValue * 100))}%` }} />
+          <span className="auction-marker cancelable" />
+          <span className="auction-marker locked" />
+          <span className="auction-marker match" />
+        </div>
+      )}
       {dayValue === undefined ? null : (
         <div className="day-progress-track" aria-hidden="true">
           <div className="day-progress-fill" style={{ width: `${Math.max(2, Math.min(100, dayValue * 100))}%` }} />
@@ -1571,11 +2093,15 @@ function ProgressBar({ value, dayValue }: { value: number; dayValue?: number }) 
 }
 
 function calculateWeightedMarketValue(game: GameState): number {
-  return Object.values(game.stocks).reduce((total, stock) => total + stock.sharesOutstanding * stock.price, 0);
+  return Object.values(game.stocks)
+    .filter((stock) => stock.assetType === "stock")
+    .reduce((total, stock) => total + stock.sharesOutstanding * stock.price, 0);
 }
 
 function calculatePreviousCloseWeightedMarketValue(game: GameState): number {
-  return Object.values(game.stocks).reduce((total, stock) => total + stock.sharesOutstanding * stock.previousClose, 0);
+  return Object.values(game.stocks)
+    .filter((stock) => stock.assetType === "stock")
+    .reduce((total, stock) => total + stock.sharesOutstanding * stock.previousClose, 0);
 }
 
 function calculateWhaleIndex(game: GameState, baseValue: number): WhaleIndexSnapshot {
@@ -1673,11 +2199,184 @@ function createDailyTradeMarks(fillHistory: PlayerFillRecord[], stockId: StockId
   return Array.from(grouped.values()).sort((first, second) => first.day - second.day || first.side.localeCompare(second.side));
 }
 
+function getTriggeredConditionalOrders(game: GameState, orders: ConditionalOrder[]): ConditionalOrder[] {
+  if ((game.phase !== "intraday" && game.phase !== "closingAuction") || game.tick < CONTINUOUS_START_TICK) return [];
+
+  return orders.filter((order) => {
+    const stock = game.stocks[order.stockId];
+    if (!stock) return false;
+    if (order.condition.type === "day") return game.day >= order.condition.targetDay;
+    if (order.condition.type === "tick") return game.tick >= order.condition.targetTick;
+    return order.condition.operator === "above"
+      ? stock.price >= order.condition.triggerPrice
+      : stock.price <= order.condition.triggerPrice;
+  });
+}
+
+function conditionalOrderToAction(order: ConditionalOrder): PlayerAction {
+  return order.side === "buy"
+    ? {
+        type: "marketBuy",
+        stockId: order.stockId,
+        amountCash: roundMoney(order.shares * order.limitPrice),
+        limitPrice: order.limitPrice
+      }
+    : {
+        type: "marketSell",
+        stockId: order.stockId,
+        shares: order.shares,
+        limitPrice: order.limitPrice
+      };
+}
+
+function conditionalOrderToIntent(order: ConditionalOrder, submittedDay: number, submittedTick: number): OrderIntent {
+  return {
+    id: order.id,
+    source: "conditional",
+    side: order.side,
+    stockId: order.stockId,
+    shares: order.shares,
+    limitPrice: order.limitPrice,
+    submittedDay,
+    submittedTick
+  };
+}
+
+function reconcileConditionalOrdersAfterTick(
+  current: ConditionalOrder[],
+  triggered: ConditionalOrder[],
+  result: TickResult
+): ConditionalOrder[] {
+  const triggeredById = new Map(triggered.map((order) => [order.id, order]));
+  if (triggeredById.size === 0 && !current.some((order) => order.working)) return current;
+
+  const filledShares = new Map<string, number>();
+  for (const fill of result.playerFills) {
+    if (fill.filledShares <= 0) continue;
+    const key = `${fill.stockId}-${fill.side}`;
+    filledShares.set(key, (filledShares.get(key) ?? 0) + fill.filledShares);
+  }
+
+  return current.flatMap((order) => {
+    const triggeredOrder = triggeredById.get(order.id);
+    const shouldReconcile = Boolean(triggeredOrder || order.working);
+    if (!shouldReconcile) return [order];
+
+    const key = `${order.stockId}-${order.side}`;
+    const availableFill = filledShares.get(key) ?? 0;
+    const consumed = Math.min(order.shares, availableFill);
+    filledShares.set(key, Math.max(0, availableFill - consumed));
+    const remainingShares = Math.max(0, order.shares - consumed);
+    return remainingShares > 0 ? [{ ...order, shares: remainingShares, working: true }] : [];
+  });
+}
+
+function createOrderToasts(result: TickResult, intents: OrderIntent[], game: GameState): Array<Omit<OrderToast, "id">> {
+  const toasts: Array<Omit<OrderToast, "id">> = [];
+  const fillGroups = new Map<string, { side: TradeSide; stockId: StockId; shares: number; notional: number }>();
+
+  for (const fill of result.playerFills) {
+    if (fill.filledShares <= 0 || fill.filledNotional <= 0) continue;
+    const key = `${fill.stockId}-${fill.side}`;
+    const existing = fillGroups.get(key);
+    if (existing) {
+      existing.shares += fill.filledShares;
+      existing.notional += fill.filledNotional;
+    } else {
+      fillGroups.set(key, {
+        side: fill.side,
+        stockId: fill.stockId,
+        shares: fill.filledShares,
+        notional: fill.filledNotional
+      });
+    }
+  }
+
+  for (const group of fillGroups.values()) {
+    const price = group.notional / Math.max(1, group.shares);
+    toasts.push({
+      kind: "success",
+      side: group.side,
+      stockId: group.stockId,
+      shares: group.shares,
+      price,
+      day: result.day,
+      tick: result.tick,
+      message: `${tradeSideLabel(group.side)}成功（${formatToastShares(group.shares)}股，${price.toFixed(2)}，${group.stockId}，${result.tick}tick）`
+    });
+  }
+
+  for (const intent of intents) {
+    if (intent.source === "cancel") continue;
+    const filled = result.playerFills.some((fill) => fill.stockId === intent.stockId && fill.side === intent.side && fill.filledShares > 0);
+    if (filled) continue;
+    if (intent.side === "buy" && hasRestingBuyFromIntent(game, intent, result)) continue;
+
+    toasts.push({
+      kind: "failure",
+      side: intent.side,
+      stockId: intent.stockId,
+      shares: intent.shares,
+      price: intent.limitPrice,
+      day: result.day,
+      tick: result.tick,
+      message: `${tradeSideLabel(intent.side)}失败（${formatToastShares(intent.shares)}股，${intent.limitPrice.toFixed(2)}，${intent.stockId}，${result.tick}tick）`
+    });
+  }
+
+  for (const event of result.events) {
+    if (event.type !== "playerOrderExpired" || !event.stockId) continue;
+    const stock = game.stocks[event.stockId];
+    toasts.push({
+      kind: "failure",
+      side: "buy",
+      stockId: event.stockId,
+      shares: 0,
+      price: stock?.price ?? 0,
+      day: result.day,
+      tick: result.tick,
+      message: `买入失败（挂单过期，${event.stockId}，${result.tick}tick）`
+    });
+  }
+
+  return toasts;
+}
+
+function hasRestingBuyFromIntent(game: GameState, intent: OrderIntent, result: TickResult): boolean {
+  return game.player.activeOrders.some(
+    (order) =>
+      order.owner === "player" &&
+      order.side === "buy" &&
+      order.stockId === intent.stockId &&
+      order.createdDay === result.day &&
+      order.createdTick === result.tick
+  );
+}
+
+function tradeSideLabel(side: TradeSide): string {
+  return side === "buy" ? "买入" : "卖出";
+}
+
+function formatToastShares(value: number): string {
+  return Math.floor(value).toLocaleString();
+}
+
+function formatCondition(condition: ConditionSpec): string {
+  if (condition.type === "day") return `Day >= ${condition.targetDay}`;
+  if (condition.type === "tick") return `Tick >= ${condition.targetTick}`;
+  return `${condition.operator === "above" ? "Price >=" : "Price <="} ${condition.triggerPrice.toFixed(2)}`;
+}
+
 function findNearestTickPoint(points: TickPrice[], tick: number): TickPrice {
   return points.reduce((nearest, point) => (Math.abs(point.tick - tick) < Math.abs(nearest.tick - tick) ? point : nearest), points[0]);
 }
 
 function formatIntradayTime(tick: number): string {
+  if (tick <= 5) return `Pre ${tick}`;
+  if (tick <= 15) return `Auc-C ${tick}`;
+  if (tick <= 24) return `Auc-L ${tick}`;
+  if (tick === 25) return "Open";
+  if (tick <= 30) return `Break ${tick}`;
   const clampedTick = Math.max(0, Math.min(GAME_CONFIG.ticksPerDay, tick));
   const minutes = clampedTick <= 120 ? clampedTick : clampedTick <= 150 ? 120 : clampedTick - 30;
   const totalMinutes = 9 * 60 + 30 + minutes;
@@ -1688,8 +2387,6 @@ function formatIntradayTime(tick: number): string {
 
 function createInitialUiGame(seed: string) {
   const game = createInitialGame(seed);
-  updateTick(game);
-  updateTick(game);
   return game;
 }
 
@@ -1730,6 +2427,7 @@ function writeAutosave(args: {
   simpleMarketMode: boolean;
   indexBaseValue: number;
   playerFillHistory: PlayerFillRecord[];
+  conditionalOrders: ConditionalOrder[];
 }): boolean {
   if (typeof window === "undefined") return false;
 
@@ -1746,7 +2444,8 @@ function writeAutosave(args: {
       showTradeMarks: args.showTradeMarks,
       simpleMarketMode: args.simpleMarketMode,
       indexBaseValue: args.indexBaseValue,
-      playerFillHistory: args.playerFillHistory
+      playerFillHistory: args.playerFillHistory,
+      conditionalOrders: args.conditionalOrders
     }
   };
 
@@ -1825,6 +2524,10 @@ function shortShares(value: number) {
 
 function signedPct(value: number) {
   return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
+}
+
+function formatEtfPremium(stock: Stock): string {
+  return signedPct((stock.etf?.premiumDiscount ?? 0) * 100);
 }
 
 function formatDayLabel(day: number) {

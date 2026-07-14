@@ -1,18 +1,19 @@
-import type { Stock, StockId } from "../game/types";
+import type { EquityStockId, Stock, StockId } from "../game/types";
 import { deriveInitialFundamentals } from "../game/fundamentals";
 import { buildInitialDailyCandles } from "../game/charting";
 import { createInitialShrimpCohorts } from "./shrimpCohorts";
-import { deriveStockOptions } from "./stockOptions";
+import { createEtfs } from "./etfs";
 
 type StockTemplate = Omit<
   Stock,
   | "chart"
   | "dailyCandles"
+  | "assetType"
+  | "etf"
+  | "auction"
   | "microPrice"
   | "microstructure"
   | "shrimpCohorts"
-  | "options"
-  | "boardQueueLedger"
   | "sharesOutstanding"
   | "fairPe"
   | "earningsPerShare"
@@ -20,7 +21,7 @@ type StockTemplate = Omit<
   | "profitGrowth"
 >;
 
-export const stockTemplates: Record<StockId, StockTemplate> = {
+export const stockTemplates: Record<EquityStockId, StockTemplate> = {
   DRAGON_SOFT: {
     id: "DRAGON_SOFT",
     name: "DragonSoft Systems",
@@ -840,56 +841,68 @@ export const stockTemplates: Record<StockId, StockTemplate> = {
 };
 
 export function createStocks(): Record<StockId, Stock> {
-  return Object.fromEntries(
+  const equities = Object.fromEntries(
     Object.entries(stockTemplates).map(([id, stock]) => {
-      const fundamentals = deriveInitialFundamentals(stock);
-
-      const initializedStock: Stock = {
-        ...stock,
-        ...fundamentals,
-        microPrice: stock.price,
-        microstructure: {
-          flowMemory: 0,
-          liquidityStress: 0,
-          shockMemory: 0,
-          lastPrintSign: 0
-        },
-        options: deriveStockOptions(stock),
-        boardQueueLedger: {
-          buy: {
-            quality: 0,
-            dominantSource: "mixed",
-            addedNotional: 0,
-            consumedNotional: 0,
-            lockedTicks: 0,
-            openedTicks: 0
-          },
-          sell: {
-            quality: 0,
-            dominantSource: "mixed",
-            addedNotional: 0,
-            consumedNotional: 0,
-            lockedTicks: 0,
-            openedTicks: 0
-          }
-        },
-        shrimpCohorts: createInitialShrimpCohorts(stock),
-        retail: { ...stock.retail },
-        costDistribution: { ...stock.costDistribution },
-        activeModifiers: [...stock.activeModifiers],
-        chart: [
-          {
-            day: 1,
-            tick: 0,
-            price: stock.price,
-            boardState: stock.boardState
-          }
-        ],
-        dailyCandles: []
-      };
-      initializedStock.dailyCandles = buildInitialDailyCandles(initializedStock);
-
-      return [id, initializedStock];
+      return [id, createEquityStock(stock)];
     })
   ) as Record<StockId, Stock>;
+
+  return {
+    ...equities,
+    ...createEtfs(equities)
+  } as Record<StockId, Stock>;
+}
+
+function createEquityStock(stock: StockTemplate): Stock {
+  const fundamentals = deriveInitialFundamentals(stock);
+
+  const initializedStock: Stock = {
+    ...stock,
+    ...fundamentals,
+    assetType: "stock",
+    microPrice: stock.price,
+    microstructure: {
+      flowMemory: 0,
+      liquidityStress: 0,
+      shockMemory: 0,
+      lastPrintSign: 0
+    },
+    shrimpCohorts: createInitialShrimpCohorts(stock),
+    retail: { ...stock.retail },
+    costDistribution: { ...stock.costDistribution },
+    activeModifiers: [...stock.activeModifiers],
+    auction: {
+      phase: "preOpen",
+      bias: {
+        randomGap: 0,
+        closeMovePct: 0,
+        overrunFatigue: 0,
+        richFatigue: 0,
+        boardCarry: 0,
+        repeatedLimitRelief: 0,
+        washoutAttention: 0,
+        openingDemandBias: 0
+      },
+      orders: [],
+      referencePrice: stock.price,
+      referenceMatchedShares: 0,
+      referenceMatchedNotional: 0,
+      buyRemainingShares: 0,
+      sellRemainingShares: 0,
+      imbalanceShares: 0,
+      settled: false
+    },
+    chart: [
+      {
+        day: 1,
+        tick: 0,
+        price: stock.price,
+        boardState: stock.boardState
+      }
+    ],
+    dailyCandles: []
+  };
+  initializedStock.dailyCandles = buildInitialDailyCandles(initializedStock);
+
+  return initializedStock;
 }

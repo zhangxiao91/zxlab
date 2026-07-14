@@ -28,7 +28,7 @@ export type SectorId =
   | "defense"
   | "energy";
 
-export type StockId =
+export type EquityStockId =
   | "DRAGON_SOFT"
   | "NEW_HORIZON_BIO"
   | "GOLDEN_ROOF"
@@ -45,6 +45,15 @@ export type StockId =
   | "ORCHID_SNACKS"
   | "WESTERN_CLOUD_BANK"
   | "COPPER_CROWN_MINING";
+
+export type EtfId =
+  | "ETF_BROAD_MARKET"
+  | "ETF_TECH_GROWTH"
+  | "ETF_BIOTECH_INNOVATION"
+  | "ETF_PROPERTY_VALUE"
+  | "ETF_DEFENSE_SECURITY";
+
+export type StockId = EquityStockId | EtfId;
 
 export type Modifier = {
   id: string;
@@ -92,20 +101,12 @@ export type CostDistribution = {
   deepLoss: number;
 };
 
-export type StockOptionProfile = {
-  marketCapClass: MarketCapClass;
-  liquidityTier: "thin" | "normal" | "deep";
-  speculationTier: "low" | "medium" | "high";
-  qualityTier: "distressed" | "ordinary" | "quality";
-  valuationStyle: "deepValue" | "fair" | "expensive" | "story";
-  behaviorTags: string[];
-};
-
 export type TickPrice = {
   day: number;
   tick: number;
   price: number;
   boardState: BoardState;
+  kind?: "trade" | "auctionIndicative" | "auctionOpen";
 };
 
 export type DailyCandle = {
@@ -145,36 +146,25 @@ export type ShrimpCohort = {
   flowMemory: number;
 };
 
-export type BoardQueueSource =
-  | "player"
-  | "whale"
-  | "institution"
-  | "quant"
-  | "retail"
-  | "shrimp"
-  | "fundamental"
-  | "news"
-  | "opening"
-  | "noise"
-  | "mixed";
-
-export type BoardQueueSideLedger = {
-  quality: number;
-  dominantSource: BoardQueueSource;
-  addedNotional: number;
-  consumedNotional: number;
-  lockedTicks: number;
-  openedTicks: number;
+export type EtfComponent = {
+  stockId: EquityStockId;
+  weight: number;
+  basePrice: number;
 };
 
-export type BoardQueueLedger = {
-  buy: BoardQueueSideLedger;
-  sell: BoardQueueSideLedger;
+export type EtfState = {
+  components: EtfComponent[];
+  basePrice: number;
+  nav: number;
+  premiumDiscount: number;
+  expenseRatioBps: number;
+  trackingError: number;
 };
 
 export type Stock = {
   id: StockId;
   name: string;
+  assetType: "stock" | "etf";
   sector: SectorId;
   boardType: BoardType;
 
@@ -208,7 +198,6 @@ export type Stock = {
 
   buyQueue: number;
   sellQueue: number;
-  boardQueueLedger: BoardQueueLedger;
   boardStrength: number;
   boardState: BoardState;
 
@@ -219,8 +208,9 @@ export type Stock = {
 
   avgHolderCost: number;
   costDistribution: CostDistribution;
-  options: StockOptionProfile;
   activeModifiers: Modifier[];
+  etf?: EtfState;
+  auction: AuctionState;
   chart: TickPrice[];
   dailyCandles: DailyCandle[];
   halted: boolean;
@@ -249,6 +239,58 @@ export type Order = {
   heatImpact: number;
   createdDay?: number;
   createdTick?: number;
+};
+
+export type AuctionPhase = "preOpen" | "cancelable" | "locked" | "match" | "break" | "continuous";
+
+export type AuctionOrderOwner = "player" | "whale" | "retail" | "quant" | "institution" | "synthetic";
+
+export type AuctionOrderStatus = "open" | "cancelled" | "filled" | "partial" | "expired";
+
+export type AuctionOrder = {
+  id: string;
+  owner: AuctionOrderOwner;
+  ownerId?: string;
+  ownerName?: string;
+  stockId: StockId;
+  side: "buy" | "sell";
+  price: number;
+  shares: number;
+  remainingShares: number;
+  frozenCash?: number;
+  frozenShares?: number;
+  cancellable: boolean;
+  submittedDay: number;
+  submittedTick: number;
+  status: AuctionOrderStatus;
+  intention?: WhaleIntention;
+};
+
+export type AuctionBias = {
+  randomGap: number;
+  closeMovePct: number;
+  overrunFatigue: number;
+  richFatigue: number;
+  boardCarry: number;
+  repeatedLimitRelief: number;
+  washoutAttention: number;
+  openingDemandBias: number;
+};
+
+export type AuctionState = {
+  phase: AuctionPhase;
+  bias: AuctionBias;
+  orders: AuctionOrder[];
+  referencePrice: number;
+  referenceMatchedShares: number;
+  referenceMatchedNotional: number;
+  buyRemainingShares: number;
+  sellRemainingShares: number;
+  imbalanceShares: number;
+  matchedPrice?: number;
+  matchedShares?: number;
+  matchedNotional?: number;
+  settled: boolean;
 };
 
 export type BearContract = {
@@ -387,6 +429,10 @@ export type PlayerAction =
       stockId: StockId;
       shares: number;
       limitPrice?: number;
+    }
+  | {
+      type: "cancelAuctionOrder";
+      orderId: string;
     };
 
 export type PressureBreakdown = {
@@ -476,7 +522,6 @@ export type StockTickTrace = {
   boardState: BoardState;
   buyQueue: number;
   sellQueue: number;
-  boardQueueLedger: BoardQueueLedger;
   boardStrength: number;
   currentLiquidity: number;
   effectiveDepth: number;

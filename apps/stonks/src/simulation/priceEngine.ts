@@ -1,12 +1,10 @@
 import { clamp, GAME_CONFIG } from "../game/config";
-import { refreshStockOptions } from "../content/stockOptions";
 import { getValuationSnapshot, updateValuationFromPrice } from "../game/fundamentals";
 import { createRng } from "../game/rng";
+import { getTuningConfig } from "../game/tuning";
 import type { ExecutionFill, GameState, MicrostructureState, Pressure, PressureBreakdown, Stock } from "../game/types";
 import type { AmbientTapeTrace } from "./ambientTape";
-import { getBoardQueueBufferMultiplier, recordBoardQueueLockTick, recordBoardQueueOpenTick } from "./boardQueueLedger";
 import { getLimitRatio, getLowerLimit, getUpperLimit, roundPrice } from "./boardEngine";
-import { MARKET_BEHAVIOR_CONFIG } from "./marketBehaviorConfig";
 import { getMarketMemory, type MarketMemorySnapshot } from "./marketMemory";
 import { getMarketCapClass } from "./marketDepth";
 
@@ -44,15 +42,35 @@ const BASELINE_TICK_SECONDS = 5;
 
 export function createPressure(game: GameState, stock: Stock, input: PressureInput): Pressure {
   const rng = createRng(`${game.rngSeed}:day:${game.day}:tick:${game.tick}:stock:${stock.id}`);
+  const tuning = getTuningConfig();
   const emotionalNoiseScale =
     1 +
     stock.heat / 180 +
     Math.max(0, Math.max(stock.retail.fear, stock.retail.greed) - 68) / 85 +
     stock.microstructure.liquidityStress / 160;
-  const breakdown: PressureBreakdown = {
+  const rawBreakdown: PressureBreakdown = {
     ...zeroBreakdown,
     ...input,
     noise: input.noise ?? rng.float(-0.11, 0.11) * stock.currentLiquidity * (game.market.volatility / 100) * emotionalNoiseScale
+  };
+  const breakdown: PressureBreakdown = {
+    ...rawBreakdown,
+    playerBuyPressure: rawBreakdown.playerBuyPressure * tuning.pressure.playerMultiplier,
+    playerSellPressure: rawBreakdown.playerSellPressure * tuning.pressure.playerMultiplier,
+    retailBuyPressure: rawBreakdown.retailBuyPressure * tuning.pressure.retailMultiplier,
+    retailSellPressure: rawBreakdown.retailSellPressure * tuning.pressure.retailMultiplier,
+    whaleBuyPressure: rawBreakdown.whaleBuyPressure * tuning.pressure.whaleMultiplier,
+    whaleSellPressure: rawBreakdown.whaleSellPressure * tuning.pressure.whaleMultiplier,
+    quantBuyPressure: rawBreakdown.quantBuyPressure * tuning.pressure.quantMultiplier,
+    quantSellPressure: rawBreakdown.quantSellPressure * tuning.pressure.quantMultiplier,
+    institutionBuyPressure: rawBreakdown.institutionBuyPressure * tuning.pressure.institutionMultiplier,
+    institutionSellPressure: rawBreakdown.institutionSellPressure * tuning.pressure.institutionMultiplier,
+    collectiveBuyPressure: rawBreakdown.collectiveBuyPressure * tuning.pressure.collectiveMultiplier,
+    collectiveSellPressure: rawBreakdown.collectiveSellPressure * tuning.pressure.collectiveMultiplier,
+    fundamentalBuyPressure: rawBreakdown.fundamentalBuyPressure * tuning.pressure.fundamentalMultiplier,
+    fundamentalSellPressure: rawBreakdown.fundamentalSellPressure * tuning.pressure.fundamentalMultiplier,
+    newsBuyPressure: rawBreakdown.newsBuyPressure * tuning.pressure.newsMultiplier,
+    newsSellPressure: rawBreakdown.newsSellPressure * tuning.pressure.newsMultiplier
   };
 
   const buyPressure =
@@ -104,7 +122,7 @@ export function updateLiquidity(game: GameState, stock: Stock): void {
 
   stock.currentLiquidity = Math.max(
     1_000_000,
-    stock.baseLiquidity * marketLiquidityModifier * attentionModifier * boardStateModifier * stressModifier * panicThinModifier
+    stock.baseLiquidity * marketLiquidityModifier * attentionModifier * boardStateModifier * stressModifier * panicThinModifier * getTuningConfig().market.liquidityMultiplier
   );
 }
 
@@ -172,14 +190,11 @@ export function applyResidualPriceImpact(
   const regimeFrictionTicks = getRegimeFrictionTicks(stock, dayChangePct, limitPct, memory, capClass);
   const printTicks =
     (directionalTicks + reversionTicks + jitterTicks + battleTicks + cascadeTicks + emotionalTicks + regimeFrictionTicks) * timeScale;
-  const boardAdjustedPrintTicks = enforceQueuePin(stock, pressure, rawExecutionNet, maybeThinPrint(printTicks, rng, state, grossFlowRatio), upperLimit, lowerLimit);
+  const tunedPrintTicks = printTicks * getTuningConfig().market.priceImpactMultiplier;
+  const boardAdjustedPrintTicks = enforceQueuePin(stock, pressure, rawExecutionNet, maybeThinPrint(tunedPrintTicks, rng, state, grossFlowRatio), upperLimit, lowerLimit);
   const nextMicroTicks = currentPrice * 100 + boardAdjustedPrintTicks;
   const unclampedNextPrice = nextMicroTicks / 100;
   let nextPrice = clamp(unclampedNextPrice, lowerLimit, upperLimit);
-  const lockedBoardPrice = getLockedBoardPinnedPrice(stock, pressure, rawExecutionNet, upperLimit, lowerLimit);
-  if (lockedBoardPrice !== undefined) {
-    nextPrice = lockedBoardPrice;
-  }
   if (nextPrice === lowerLimit && unclampedNextPrice < lowerLimit && stock.price > lowerLimit + 0.01 && stock.sellQueue <= 0) {
     nextPrice = lowerLimit + 0.01;
   }
@@ -503,7 +518,7 @@ function applyExecutionAftermath(stock: Stock, executionNet: number, executionGr
 
   const shockRatio = clamp(executionGross / depth, 0, 3);
   const signedShock = clamp(executionNet / depth, -3, 3);
-  stock.heat = clamp(stock.heat + shockRatio * 1.1, 0, GAME_CONFIG.maxStockHeat);
+  stock.heat = clamp(stock.heat + shockRatio * 1.1 * getTuningConfig().heat.executionMultiplier, 0, GAME_CONFIG.maxStockHeat);
   stock.attention = clamp(stock.attention + shockRatio * 1.45, 0, 100);
   stock.sentiment = clamp(stock.sentiment + signedShock * 0.9, 0, 100);
 
@@ -527,13 +542,13 @@ function signOrZero(value: number): -1 | 0 | 1 {
 function getBoardAdjustedImbalance(stock: Stock, pressure: Pressure, upperLimit: number, lowerLimit: number): number {
   if (stock.price >= upperLimit && pressure.imbalance < 0 && stock.buyQueue > 0) {
     const sellExcess = Math.max(0, pressure.sellPressure - pressure.buyPressure);
-    const queueBuffer = stock.buyQueue * (stock.boardState === "sealedLimitUp" ? 0.62 : 0.42) * getBoardQueueBufferMultiplier(stock, "buy");
+    const queueBuffer = stock.buyQueue * (stock.boardState === "sealedLimitUp" ? 0.62 : 0.42);
     return sellExcess <= queueBuffer ? 0 : -(sellExcess - queueBuffer);
   }
 
   if (stock.price <= lowerLimit && pressure.imbalance > 0 && stock.sellQueue > 0) {
     const buyExcess = Math.max(0, pressure.buyPressure - pressure.sellPressure);
-    const queueResistance = stock.sellQueue * (stock.boardState === "limitDown" ? 0.58 : 0.38) * getBoardQueueBufferMultiplier(stock, "sell");
+    const queueResistance = stock.sellQueue * (stock.boardState === "limitDown" ? 0.58 : 0.38);
     return buyExcess <= queueResistance ? 0 : buyExcess - queueResistance;
   }
 
@@ -542,12 +557,12 @@ function getBoardAdjustedImbalance(stock: Stock, pressure: Pressure, upperLimit:
 
 function getBoardAdjustedExecutionNet(stock: Stock, executionNet: number, upperLimit: number, lowerLimit: number): number {
   if (stock.price >= upperLimit && executionNet < 0 && stock.buyQueue > 0) {
-    const absorbed = stock.buyQueue * (stock.boardState === "sealedLimitUp" ? 0.78 : 0.52) * getBoardQueueBufferMultiplier(stock, "buy");
+    const absorbed = stock.buyQueue * (stock.boardState === "sealedLimitUp" ? 0.78 : 0.52);
     return Math.abs(executionNet) <= absorbed ? 0 : -(Math.abs(executionNet) - absorbed);
   }
 
   if (stock.price <= lowerLimit && executionNet > 0 && stock.sellQueue > 0) {
-    const absorbed = stock.sellQueue * (stock.boardState === "limitDown" ? 0.72 : 0.48) * getBoardQueueBufferMultiplier(stock, "sell");
+    const absorbed = stock.sellQueue * (stock.boardState === "limitDown" ? 0.72 : 0.48);
     return executionNet <= absorbed ? 0 : executionNet - absorbed;
   }
 
@@ -564,50 +579,17 @@ function enforceQueuePin(
 ): number {
   if (stock.price >= upperLimit && stock.buyQueue > 0 && printTicks < 0) {
     const sellLoad = pressure.sellPressure + Math.max(0, -rawExecutionNet);
-    const buyBuffer = pressure.buyPressure + stock.buyQueue * (stock.boardState === "sealedLimitUp" ? 0.72 : 0.48) * getBoardQueueBufferMultiplier(stock, "buy");
+    const buyBuffer = pressure.buyPressure + stock.buyQueue * (stock.boardState === "sealedLimitUp" ? 0.72 : 0.48);
     return sellLoad <= buyBuffer ? 0 : printTicks;
   }
 
   if (stock.price <= lowerLimit && stock.sellQueue > 0 && printTicks > 0) {
     const buyLoad = pressure.buyPressure + Math.max(0, rawExecutionNet);
-    const sellBuffer = pressure.sellPressure + stock.sellQueue * (stock.boardState === "limitDown" ? 0.66 : 0.44) * getBoardQueueBufferMultiplier(stock, "sell");
+    const sellBuffer = pressure.sellPressure + stock.sellQueue * (stock.boardState === "limitDown" ? 0.66 : 0.44);
     return buyLoad <= sellBuffer ? 0 : printTicks;
   }
 
   return printTicks;
-}
-
-function getLockedBoardPinnedPrice(
-  stock: Stock,
-  pressure: Pressure,
-  rawExecutionNet: number,
-  upperLimit: number,
-  lowerLimit: number
-): number | undefined {
-  const config = MARKET_BEHAVIOR_CONFIG.board.lockedBoard;
-  const minQueue = stock.currentLiquidity * config.queueMinLiquidityShare;
-
-  if ((stock.boardState === "sealedLimitUp" || stock.price >= upperLimit) && stock.buyQueue > minQueue) {
-    const sellLoad = pressure.sellPressure + Math.max(0, -rawExecutionNet);
-    const buyBuffer = pressure.buyPressure + stock.buyQueue * config.queueBufferWeight * getBoardQueueBufferMultiplier(stock, "buy");
-    if (sellLoad * config.unlockPressureMultiple <= buyBuffer) {
-      recordBoardQueueLockTick(stock, "buy");
-      return upperLimit;
-    }
-    recordBoardQueueOpenTick(stock, "buy");
-  }
-
-  if ((stock.boardState === "limitDown" || stock.price <= lowerLimit) && stock.sellQueue > minQueue) {
-    const buyLoad = pressure.buyPressure + Math.max(0, rawExecutionNet);
-    const sellBuffer = pressure.sellPressure + stock.sellQueue * config.queueBufferWeight * getBoardQueueBufferMultiplier(stock, "sell");
-    if (buyLoad * config.unlockPressureMultiple <= sellBuffer) {
-      recordBoardQueueLockTick(stock, "sell");
-      return lowerLimit;
-    }
-    recordBoardQueueOpenTick(stock, "sell");
-  }
-
-  return undefined;
 }
 
 export function updateStockDerivedMetrics(stock: Stock): void {
@@ -636,7 +618,6 @@ export function updateStockDerivedMetrics(stock: Stock): void {
   );
   stock.sentiment = clamp(stock.sentiment + ((50 - stock.sentiment) * 0.006 + stock.momentum * 0.006) * timeScale, 0, 100);
   stock.heat = clamp(stock.heat + (extremeMove * 0.0045 - heatDecay) * timeScale, 0, 100);
-  refreshStockOptions(stock);
 }
 
 function updatePriceDerivedFields(stock: Stock): void {
@@ -644,5 +625,4 @@ function updatePriceDerivedFields(stock: Stock): void {
   stock.low = Math.min(stock.low, stock.price);
   stock.momentum = clamp((stock.price / stock.previousClose - 1) * 1000, -100, 100);
   updateValuationFromPrice(stock);
-  refreshStockOptions(stock);
 }

@@ -1,26 +1,27 @@
-import { GAME_CONFIG } from "../game/config";
+import { clamp, GAME_CONFIG } from "../game/config";
 import { syncDailyCandle } from "../game/charting";
+import type { ValuationSnapshot } from "../game/fundamentals";
+import { getTuningConfig } from "../game/tuning";
 import type { GameEvent, GameState, HeatCauseTrace, PlayerAction, Pressure, Stock, StockTickTrace, TickOptions, TickResult } from "../game/types";
 import { calculateRestingBuyVisibility, processPlayerOrdersForStock } from "../player/actions";
 import { recalculatePlayerNetWorth } from "../player/portfolio";
+import { CONTINUOUS_START_TICK, getAuctionPhaseForTick, processAuctionTick } from "./auctionEngine";
 import { executeAmbientTape } from "./ambientTape";
 import { updateBoardState } from "./boardEngine";
+import { processEtfMarketTick } from "./etfEngine";
 import { calculateFundamentalPressure } from "./fundamentalEngine";
-import { calculateInstitutionPressure } from "./institutionEngine";
-import { updateMarketBreadth } from "./marketBreadthEngine";
 import { createMarketDepth } from "./marketDepth";
-import { applyNewsActorEffects, calculateNewsPressure } from "./newsEngine";
-import { runOpeningAuction } from "./openingAuctionEngine";
+import { calculateNewsPressure, sampleScheduledNews } from "./newsEngine";
 import { applyResidualPriceImpact, createPressure, updateLiquidity, updateStockDerivedMetrics } from "./priceEngine";
 import { calculateQuantPressure } from "./quantEngine";
 import { applyBoardStateTransitionEffects, calculateRetailPressure, updateRetailProfile } from "./retailEngine";
 import { settleDay } from "./settlement";
 import { applyShrimpCollectiveEffects, calculateShrimpCollectivePressure } from "./shrimpCollectiveEngine";
-import { MARKET_BEHAVIOR_CONFIG } from "./marketBehaviorConfig";
+import { getMarketMemory } from "./marketMemory";
 import { markAllWhalesToMarket } from "./whaleAccounting";
 import { createWhaleOrders, executeWhaleOrders } from "./whaleEngine";
 
-const tickConfig = MARKET_BEHAVIOR_CONFIG.tick;
+const EVENT_LOG_LIMIT = 2_000;
 
 export function advancePhase(game: GameState): string | undefined {
   if (game.phase === "preMarket") {
@@ -30,12 +31,6 @@ export function advancePhase(game: GameState): string | undefined {
   }
 
   if (game.phase === "openingAuction") {
-    for (let auctionTick = 1; auctionTick < MARKET_BEHAVIOR_CONFIG.openingAuction.phaseTicks; auctionTick += 1) {
-      game.tick = auctionTick;
-      appendEvent(game, "phase", "Opening auction indicative book updates.");
-    }
-    runOpeningAuction(game);
-    game.tick = 0;
     game.phase = "intraday";
     appendEvent(game, "phase", "Intraday trading begins.");
     return "intraday";
@@ -68,8 +63,16 @@ export function updateTick(game: GameState, playerActions: PlayerAction[] = [], 
     return buildTickResult(game, resultDay, resultTick, eventStart, stocks, undefined, options);
   }
 
+  syncPhaseFromTick(game);
+  sampleScheduledNews(game);
+
   if (game.phase === "preMarket" || game.phase === "openingAuction") {
-    phaseChanged = advancePhase(game);
+    const auctionResult = processAuctionTick(game, playerActions);
+    stocks = auctionResult.traces.map(({ stock, playerFills, whaleFills }) => buildAuctionTrace(game, stock, playerFills, whaleFills));
+    const previousPhase = game.phase;
+    game.tick += 1;
+    syncPhaseFromTick(game);
+    phaseChanged = previousPhase !== game.phase ? game.phase : undefined;
     return buildTickResult(game, resultDay, resultTick, eventStart, stocks, phaseChanged, options);
   }
 
@@ -91,6 +94,31 @@ export function updateTick(game: GameState, playerActions: PlayerAction[] = [], 
   return buildTickResult(game, resultDay, resultTick, eventStart, stocks, phaseChanged, options);
 }
 
+function syncPhaseFromTick(game: GameState): void {
+  if (game.phase === "ended" || game.phase === "closingAuction" || game.phase === "settlement") return;
+
+  const nextPhase = game.tick < CONTINUOUS_START_TICK ? (getAuctionPhaseForTick(game.tick) === "preOpen" ? "preMarket" : "openingAuction") : "intraday";
+  if (
+    game.tick === 0 &&
+    nextPhase === "preMarket" &&
+    !game.eventLog.some((event) => event.day === game.day && event.tick === 0 && event.type === "phase" && event.message === "Pre-open preparation begins.")
+  ) {
+    appendEvent(game, "phase", "Pre-open preparation begins.");
+  }
+  if (game.phase !== nextPhase) {
+    game.phase = nextPhase;
+    appendEvent(
+      game,
+      "phase",
+      nextPhase === "preMarket"
+        ? "Pre-open preparation begins."
+        : nextPhase === "openingAuction"
+          ? "Opening auction begins."
+          : "Intraday trading begins."
+    );
+  }
+}
+
 export function runTicks(game: GameState, count: number): TickResult[] {
   const results: TickResult[] = [];
   for (let i = 0; i < count && game.phase !== "ended"; i += 1) {
@@ -104,6 +132,10 @@ function processMarketTick(game: GameState, playerActions: PlayerAction[]): Stoc
 
   for (const stock of Object.values(game.stocks)) {
     if (stock.halted) continue;
+    if (stock.assetType === "etf") {
+      traces.push(processEtfMarketTick(game, stock, playerActions));
+      continue;
+    }
 
     const priceBefore = stock.price;
     const previousState = stock.boardState;
@@ -111,11 +143,10 @@ function processMarketTick(game: GameState, playerActions: PlayerAction[]): Stoc
     const sentimentBefore = stock.sentiment;
     const attentionBefore = stock.attention;
 
-    const news = calculateNewsPressure(game, stock);
-    applyNewsActorEffects(stock, news);
     updateRetailProfile(stock);
     updateLiquidity(game, stock);
 
+    const news = calculateNewsPressure(game, stock);
     const retail = calculateRetailPressure(stock, news.impact);
     const fundamental = calculateFundamentalPressure(game, stock);
     const collective = calculateShrimpCollectivePressure(game, stock, news.impact, fundamental.valuation);
@@ -153,14 +184,15 @@ function processMarketTick(game: GameState, playerActions: PlayerAction[]): Stoc
       .reduce((total, fill) => total + fill.filledNotional, 0);
     const playerResidualBuyPressure = Math.max(0, player.buyPressure - playerFilledBuyPressure);
     const playerResidualSellPressure = Math.max(0, player.sellPressure - playerFilledSellPressure);
-    const playerExecutedBuyFootprint = playerFilledBuyPressure * tickConfig.participantFootprint.playerExecutedBuy;
-    const playerExecutedSellFootprint = playerFilledSellPressure * tickConfig.participantFootprint.playerExecutedSell;
+    const tuning = getTuningConfig();
+    const playerExecutedBuyFootprint = playerFilledBuyPressure * 0.05 * tuning.pressure.playerFootprintMultiplier;
+    const playerExecutedSellFootprint = playerFilledSellPressure * 0.08 * tuning.pressure.playerFootprintMultiplier;
     const whaleBuyPressure = whaleTrades
       .filter((fill) => fill.side === "buy")
-      .reduce((total, fill) => total + fill.filledNotional * tickConfig.participantFootprint.whaleExecuted, 0);
+      .reduce((total, fill) => total + fill.filledNotional * 0.12, 0);
     const whaleSellPressure = whaleTrades
       .filter((fill) => fill.side === "sell")
-      .reduce((total, fill) => total + fill.filledNotional * tickConfig.participantFootprint.whaleExecuted, 0);
+      .reduce((total, fill) => total + fill.filledNotional * 0.12, 0);
 
     const pressure = createPressure(game, stock, {
       playerBuyPressure: playerResidualBuyPressure + playerExecutedBuyFootprint,
@@ -222,8 +254,30 @@ function processMarketTick(game: GameState, playerActions: PlayerAction[]): Stoc
 
   markAllWhalesToMarket(game);
   recalculatePlayerNetWorth(game);
-  updateMarketBreadth(game);
   return traces;
+}
+
+function calculateInstitutionPressure(game: GameState, stock: Stock, valuation: ValuationSnapshot): { buyPressure: number; sellPressure: number } {
+  const memory = getMarketMemory(game, stock);
+  const institutionBias = (stock.financialHealth - 50) * (stock.institutionPresence / 100);
+  const overvaluation = Math.max(0, valuation.valuationGap);
+  const undervaluation = Math.max(0, -valuation.valuationGap);
+  const overrunSupply =
+    stock.currentLiquidity *
+    (stock.institutionPresence / 100) *
+    (Math.max(0, overvaluation - 0.18) * 0.11 +
+      Math.max(0, memory.return10d - 28) * 0.0018 +
+      Math.max(0, memory.ma5Deviation - 7) * 0.0022 +
+      Math.max(0, memory.openToNowPct - 2.5) * 0.004);
+  const discountSupport =
+    stock.currentLiquidity *
+    (stock.institutionPresence / 100) *
+    Math.max(0, undervaluation - 0.08) *
+    (stock.financialHealth > 55 ? 0.04 : 0.018);
+  return {
+    buyPressure: Math.max(0, institutionBias) * 16_000 * clamp(1 - overvaluation * 1.9, 0.02, 1) + discountSupport,
+    sellPressure: Math.max(0, -institutionBias) * 16_000 + overrunSupply
+  };
 }
 
 function buildStockTrace(
@@ -246,10 +300,6 @@ function buildStockTrace(
     boardState: stock.boardState,
     buyQueue: stock.buyQueue,
     sellQueue: stock.sellQueue,
-    boardQueueLedger: {
-      buy: { ...stock.boardQueueLedger.buy },
-      sell: { ...stock.boardQueueLedger.sell }
-    },
     boardStrength: stock.boardStrength,
     currentLiquidity: stock.currentLiquidity,
     effectiveDepth: depth.effectiveDepth,
@@ -260,6 +310,48 @@ function buildStockTrace(
     restingOrders,
     whaleTrades,
     heatCauses
+  };
+}
+
+function buildAuctionTrace(
+  game: GameState,
+  stock: Stock,
+  playerFills: StockTickTrace["playerFills"],
+  whaleTrades: StockTickTrace["whaleTrades"]
+): StockTickTrace {
+  const pressure = createPressure(game, stock, { noise: 0 });
+  const depth = createMarketDepth(stock, {
+    buyPressure: stock.auction.buyRemainingShares * stock.auction.referencePrice,
+    sellPressure: stock.auction.sellRemainingShares * stock.auction.referencePrice
+  });
+
+  return {
+    stockId: stock.id,
+    name: stock.name,
+    marketCapClass: depth.marketCapClass,
+    priceBefore: stock.price,
+    priceAfter: stock.auction.settled ? stock.price : stock.auction.referencePrice,
+    changePct: (((stock.auction.settled ? stock.price : stock.auction.referencePrice) - stock.previousClose) / stock.previousClose) * 100,
+    boardState: stock.boardState,
+    buyQueue: stock.buyQueue,
+    sellQueue: stock.sellQueue,
+    boardStrength: stock.boardStrength,
+    currentLiquidity: stock.currentLiquidity,
+    effectiveDepth: depth.effectiveDepth,
+    bidNotional: stock.auction.buyRemainingShares * stock.auction.referencePrice,
+    askNotional: stock.auction.sellRemainingShares * stock.auction.referencePrice,
+    pressure: {
+      ...pressure,
+      playerBuyPressure: 0,
+      playerSellPressure: 0,
+      buyPressure: stock.auction.buyRemainingShares * stock.auction.referencePrice,
+      sellPressure: stock.auction.sellRemainingShares * stock.auction.referencePrice,
+      imbalance: stock.auction.imbalanceShares * stock.auction.referencePrice
+    },
+    playerFills,
+    restingOrders: [],
+    whaleTrades,
+    heatCauses: []
   };
 }
 
@@ -281,13 +373,12 @@ function buildHeatCauses(args: {
   fundamentalSellPressure: number;
 }): HeatCauseTrace[] {
   const causes: HeatCauseTrace[] = [];
+  const tuning = getTuningConfig();
 
   if (args.playerFilledBuyPressure > 0 || args.playerFilledSellPressure > 0) {
     causes.push({
       source: "player",
-      heatDelta:
-        (Math.max(args.playerFilledBuyPressure, args.playerFilledSellPressure) / Math.max(1, args.stock.currentLiquidity)) *
-        tickConfig.heatCauses.playerLiquidityScale,
+      heatDelta: Math.max(args.playerFilledBuyPressure, args.playerFilledSellPressure) / Math.max(1, args.stock.currentLiquidity) * 0.45 * tuning.heat.playerMultiplier,
       buyPressure: args.playerFilledBuyPressure,
       sellPressure: args.playerFilledSellPressure,
       note: args.playerFilledSellPressure > args.playerFilledBuyPressure ? "visible player sell left a footprint" : "visible player buy left a footprint"
@@ -297,7 +388,7 @@ function buildHeatCauses(args: {
   if (args.collective.buyPressure > 0 || args.collective.sellPressure > 0 || args.collective.heatDelta !== 0) {
     causes.push({
       source: "collective",
-      heatDelta: args.collective.heatDelta,
+      heatDelta: args.collective.heatDelta * tuning.heat.collectiveMultiplier,
       sentimentDelta: args.collective.sentimentDelta,
       attentionDelta: args.collective.attentionDelta,
       buyPressure: args.collective.buyPressure,
@@ -311,7 +402,7 @@ function buildHeatCauses(args: {
   if (whaleBuy > 0 || whaleSell > 0) {
     causes.push({
       source: "whale",
-      heatDelta: (Math.max(whaleBuy, whaleSell) / Math.max(1, args.stock.currentLiquidity)) * tickConfig.heatCauses.whaleLiquidityScale,
+      heatDelta: Math.max(whaleBuy, whaleSell) / Math.max(1, args.stock.currentLiquidity) * 0.22 * tuning.heat.whaleMultiplier,
       buyPressure: whaleBuy,
       sellPressure: whaleSell,
       note: whaleSell > whaleBuy ? "large traders supplied stock" : "large traders absorbed stock"
@@ -321,9 +412,7 @@ function buildHeatCauses(args: {
   if (args.quant.buyPressure > 0 || args.quant.sellPressure > 0) {
     causes.push({
       source: "quant",
-      heatDelta:
-        (Math.max(args.quant.buyPressure, args.quant.sellPressure) / Math.max(1, args.stock.currentLiquidity)) *
-        tickConfig.heatCauses.quantLiquidityScale,
+      heatDelta: Math.max(args.quant.buyPressure, args.quant.sellPressure) / Math.max(1, args.stock.currentLiquidity) * 0.08 * tuning.heat.quantMultiplier,
       buyPressure: args.quant.buyPressure,
       sellPressure: args.quant.sellPressure,
       note: args.quant.sellPressure > args.quant.buyPressure ? "quant signal leaned short" : "quant signal leaned long"
@@ -333,11 +422,7 @@ function buildHeatCauses(args: {
   if (args.fundamentalBuyPressure > 0 || args.fundamentalSellPressure > 0) {
     causes.push({
       source: "fundamental",
-      heatDelta: -Math.min(
-        tickConfig.heatCauses.fundamentalHeatCap,
-        (Math.max(args.fundamentalBuyPressure, args.fundamentalSellPressure) / Math.max(1, args.stock.currentLiquidity)) *
-          tickConfig.heatCauses.fundamentalLiquidityScale
-      ),
+      heatDelta: -Math.min(0.4, Math.max(args.fundamentalBuyPressure, args.fundamentalSellPressure) / Math.max(1, args.stock.currentLiquidity) * 0.06),
       buyPressure: args.fundamentalBuyPressure,
       sellPressure: args.fundamentalSellPressure,
       note: args.fundamentalSellPressure > args.fundamentalBuyPressure ? "valuation created supply" : "valuation attracted dip buyers"
@@ -347,8 +432,8 @@ function buildHeatCauses(args: {
   if (Math.abs(args.newsImpact) > 0) {
     causes.push({
       source: "news",
-      heatDelta: Math.min(tickConfig.heatCauses.newsHeatCap, Math.abs(args.newsImpact) / tickConfig.heatCauses.newsImpactHeatScale),
-      sentimentDelta: args.newsImpact / tickConfig.heatCauses.newsSentimentScale,
+      heatDelta: Math.min(0.45, Math.abs(args.newsImpact) / 120) * tuning.heat.newsMultiplier,
+      sentimentDelta: args.newsImpact / 70,
       note: args.newsImpact > 0 ? "active news supported risk appetite" : "active news fed risk aversion"
     });
   }
@@ -356,26 +441,23 @@ function buildHeatCauses(args: {
   if (args.previousState !== args.stock.boardState) {
     causes.push({
       source: "board",
-      heatDelta:
-        args.stock.boardState === "sealedLimitUp" || args.stock.boardState === "limitDown"
-          ? tickConfig.heatCauses.boardHardStateHeat
-          : tickConfig.heatCauses.boardSoftStateHeat,
+      heatDelta: (args.stock.boardState === "sealedLimitUp" || args.stock.boardState === "limitDown" ? 0.8 : 0.45) * tuning.heat.boardMultiplier,
       note: `board state changed from ${args.previousState} to ${args.stock.boardState}`
     });
   }
 
   const priceMovePct = ((args.stock.price - args.priceBefore) / Math.max(0.01, args.priceBefore)) * 100;
-  if (Math.abs(priceMovePct) > tickConfig.heatCauses.priceMovePctThreshold) {
+  if (Math.abs(priceMovePct) > 1.5) {
     causes.push({
       source: "price",
-      heatDelta: Math.min(tickConfig.heatCauses.priceMoveHeatCap, Math.abs(priceMovePct) * tickConfig.heatCauses.priceMoveHeatPerPct),
-      sentimentDelta: priceMovePct > 0 ? tickConfig.heatCauses.priceMoveSentimentDelta : -tickConfig.heatCauses.priceMoveSentimentDelta,
+      heatDelta: Math.min(0.9, Math.abs(priceMovePct) * 0.08) * tuning.heat.priceMoveMultiplier,
+      sentimentDelta: priceMovePct > 0 ? 0.2 : -0.2,
       note: `fast price move ${priceMovePct.toFixed(1)}% changed attention`
     });
   }
 
   const netHeatDelta = args.stock.heat - args.heatBefore;
-  if (Math.abs(netHeatDelta) > tickConfig.heatCauses.netHeatTraceThreshold) {
+  if (Math.abs(netHeatDelta) > 0.01) {
     causes.push({
       source: "price",
       heatDelta: netHeatDelta,
@@ -459,6 +541,6 @@ function compactStockTrace(stock: StockTickTrace): StockTickTrace {
 }
 
 function trimEventLog(game: GameState): void {
-  if (game.eventLog.length <= MARKET_BEHAVIOR_CONFIG.eventLog.maxEntries) return;
-  game.eventLog = game.eventLog.slice(-MARKET_BEHAVIOR_CONFIG.eventLog.maxEntries);
+  if (game.eventLog.length <= EVENT_LOG_LIMIT) return;
+  game.eventLog = game.eventLog.slice(-EVENT_LOG_LIMIT);
 }

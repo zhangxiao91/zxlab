@@ -5,12 +5,15 @@ import { GAME_CONFIG } from "../game/config";
 import { createInitialGame } from "../game/createInitialGame";
 import type { GameEvent, GameState, PlayerAction, Stock, StockId, TickResult } from "../game/types";
 import { calculateEffectiveDepth, getMarketCapClass } from "../simulation/marketDepth";
+import { canCancelAuctionOrder, canSubmitAuctionOrder } from "../simulation/auctionEngine";
 import { findStockTrace, formatTickTraceTable } from "../simulation/scenarioTools";
 import { updateTick } from "../simulation/tick";
 import { getOrCreatePosition, getReservedCash, recalculatePlayerNetWorth } from "../player/portfolio";
 import { money, moneyShort, pad } from "./format";
+import { loadTuningConfigFromArgs } from "./tuningConfig";
 
-const seed = process.argv[2] ?? "play-seed";
+const tuningArgs = loadTuningConfigFromArgs(process.argv.slice(2));
+const seed = tuningArgs.rest[0] ?? "play-seed";
 const game = createInitialGame(seed);
 const recentResults: TickResult[] = [];
 
@@ -139,6 +142,20 @@ function handleCommand(raw: string): boolean {
     return false;
   }
 
+  if (normalized === "cancel") {
+    const orderId = args[0];
+    if (!orderId) {
+      console.log("Usage: cancel AUCTION_ORDER_ID");
+      return false;
+    }
+    if (!canCancelAuctionOrder(game.tick)) {
+      console.log("Auction orders can only be cancelled during ticks 6-15.");
+      return false;
+    }
+    runOneTick([{ type: "cancelAuctionOrder", orderId }]);
+    return false;
+  }
+
   if (normalized === "debug" || normalized === "dbg") {
     handleDebugCommand(args);
     return false;
@@ -164,6 +181,7 @@ function printBanner(): void {
   console.log("=".repeat(88));
   console.log("Whale-Sim CLI");
   console.log(`Seed: ${seed}`);
+  if (tuningArgs.path) console.log(`Tuning config: ${tuningArgs.path}`);
   console.log("=".repeat(88));
 }
 
@@ -180,8 +198,9 @@ Commands:
   trace STOCK_ID [N]          Recent per-tick trace table for one stock
   next/n                      Advance one phase or one tick
   advance/a N                 Advance N ticks/phases, max 60
-  buy/b STOCK_ID AMOUNT       Visible market buy. Example: buy DRAGON_SOFT 20m
-  sell STOCK_ID SHARES        Market sell sellable shares. Example: sell DRAGON_SOFT 50000
+  buy/b STOCK_ID AMOUNT       Buy. During ticks 6-24 this submits an auction order.
+  sell STOCK_ID SHARES        Sell. During ticks 6-24 this submits an auction order.
+  cancel ORDER_ID             Cancel auction order during ticks 6-15
   debug cash AMOUNT           Set cash. Example: debug cash 500m
   debug addcash AMOUNT        Add/subtract cash. Example: debug addcash -20m
   debug pos STOCK TOTAL [SELLABLE] [LOCKED] [AVG]
@@ -193,8 +212,7 @@ Commands:
   help/h/?                    Show this help
   quit/q                      Exit
 
-Trading is currently available during intraday and closingAuction phases. Use "next" twice at
-the start of a day to enter intraday trading.
+Trading is available during auction submission ticks 6-24, intraday, and closingAuction.
 `);
 }
 
@@ -301,6 +319,17 @@ function printStockDetail(state: GameState, stock: Stock): void {
     for (const order of resting) {
       console.log(
         `  ${order.id} ${order.side} ${money(order.amountCash ?? 0)} ticks=${order.remainingTicks ?? 0} visibility=${order.visibility.toFixed(1)}`
+      );
+    }
+  }
+  const auctionOrders = stock.auction.orders.filter((order) => order.owner === "player" && order.status === "open");
+  if (auctionOrders.length > 0) {
+    console.log("Auction player orders:");
+    for (const order of auctionOrders) {
+      console.log(
+        `  ${order.id} ${order.side} ${order.remainingShares.toLocaleString()} @ ${order.price.toFixed(2)} ${
+          order.cancellable ? "cancelable" : "locked"
+        }`
       );
     }
   }
@@ -703,8 +732,8 @@ function resolveStock(inputId?: string): Stock | undefined {
 }
 
 function canTrade(): boolean {
-  if (game.phase === "intraday" || game.phase === "closingAuction") return true;
-  console.log(`Trading commands are not active during ${game.phase}. Use "next" to reach intraday.`);
+  if (canSubmitAuctionOrder(game.tick) || game.phase === "intraday" || game.phase === "closingAuction") return true;
+  console.log(`Trading commands are not active during ${game.phase} tick ${game.tick}.`);
   return false;
 }
 

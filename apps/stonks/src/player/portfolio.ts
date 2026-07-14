@@ -109,10 +109,20 @@ export function recordSellFill(game: GameState, stock: Stock, shares: number, pr
 }
 
 export function getReservedCash(game: GameState): number {
+  const auctionCash = Object.values(game.stocks).reduce(
+    (total, stock) =>
+      total +
+      stock.auction.orders
+        .filter((order) => order.owner === "player" && order.side === "buy" && order.status === "open")
+        .reduce((stockTotal, order) => stockTotal + (order.frozenCash ?? 0), 0),
+    0
+  );
+
   return roundMoney(
-    game.player.activeOrders
-      .filter((order) => order.owner === "player" && order.side === "buy")
-      .reduce((total, order) => total + (order.amountCash ?? 0), 0)
+    auctionCash +
+      game.player.activeOrders
+        .filter((order) => order.owner === "player" && order.side === "buy")
+        .reduce((total, order) => total + (order.amountCash ?? 0), 0)
   );
 }
 

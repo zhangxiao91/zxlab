@@ -1,9 +1,9 @@
 import { clamp, GAME_CONFIG, roundMoney } from "../game/config";
 import { createRng } from "../game/rng";
+import { getTuningConfig } from "../game/tuning";
 import type { GameState, ShrimpCohort, ShrimpStrategy, Stock } from "../game/types";
 import type { ValuationSnapshot } from "../game/fundamentals";
 import { getLimitRatio, getLowerLimit, getUpperLimit } from "./boardEngine";
-import { MARKET_BEHAVIOR_CONFIG } from "./marketBehaviorConfig";
 import { getMarketMemory } from "./marketMemory";
 
 export type ShrimpCollectivePressure = {
@@ -17,7 +17,7 @@ export type ShrimpCollectivePressure = {
   narrative: string;
 };
 
-type CrowdNarrativePressure = Pick<ShrimpCollectivePressure, "buyPressure" | "sellPressure" | "heatDelta" | "sentimentDelta" | "attentionDelta"> & {
+type LegacyPressure = Pick<ShrimpCollectivePressure, "buyPressure" | "sellPressure" | "heatDelta" | "sentimentDelta" | "attentionDelta"> & {
   notes: string[];
 };
 
@@ -69,7 +69,7 @@ type MarketContext = {
   limitDownDays5d: number;
 };
 
-const shrimpConfig = MARKET_BEHAVIOR_CONFIG.shrimp;
+const BASELINE_TICK_SECONDS = 5;
 
 export function calculateShrimpCollectivePressure(
   game: GameState,
@@ -79,31 +79,27 @@ export function calculateShrimpCollectivePressure(
 ): ShrimpCollectivePressure {
   const rng = createRng(`${game.rngSeed}:shrimp:${game.day}:${game.tick}:${stock.id}`);
   const context = buildContext(game, stock, newsImpact, valuation);
-  const narrative = calculateCrowdNarrativePressure(stock, rng, valuation, context);
+  const legacy = calculateLegacyCrowdPressure(stock, rng, valuation, context);
   const cohortFlow = calculateCohortFlow(game, stock, rng, newsImpact, valuation, context);
 
   const buyPressure = clamp(
-    narrative.buyPressure * shrimpConfig.narrativePressureWeight + cohortFlow.buyPressure,
+    legacy.buyPressure * 0.42 + cohortFlow.buyPressure,
     0,
     stock.currentLiquidity * getShrimpPressureCap(stock, "buy", cohortFlow.dominantStrategy)
   );
   const sellPressure = clamp(
-    narrative.sellPressure * shrimpConfig.narrativePressureWeight + cohortFlow.sellPressure,
+    legacy.sellPressure * 0.42 + cohortFlow.sellPressure,
     0,
     stock.currentLiquidity * getShrimpPressureCap(stock, "sell", cohortFlow.dominantStrategy)
   );
-  const notes = [...cohortFlow.notes, ...narrative.notes].slice(0, shrimpConfig.narrativeNoteLimit);
+  const notes = [...cohortFlow.notes, ...legacy.notes].slice(0, 3);
 
   return {
     buyPressure,
     sellPressure,
-    heatDelta: clamp(narrative.heatDelta * shrimpConfig.narrativeEffectWeight + cohortFlow.heatDelta, 0, shrimpConfig.heatDeltaMax),
-    sentimentDelta: clamp(
-      narrative.sentimentDelta * shrimpConfig.narrativeEffectWeight + cohortFlow.sentimentDelta,
-      shrimpConfig.sentimentDeltaMin,
-      shrimpConfig.sentimentDeltaMax
-    ),
-    attentionDelta: clamp(narrative.attentionDelta * shrimpConfig.narrativeEffectWeight + cohortFlow.attentionDelta, 0, shrimpConfig.attentionDeltaMax),
+    heatDelta: clamp(legacy.heatDelta * 0.55 + cohortFlow.heatDelta, 0, 1.6),
+    sentimentDelta: clamp(legacy.sentimentDelta * 0.55 + cohortFlow.sentimentDelta, -1.1, 1.1),
+    attentionDelta: clamp(legacy.attentionDelta * 0.55 + cohortFlow.attentionDelta, 0, 1.6),
     burstCount: cohortFlow.burstCount,
     dominantStrategy: cohortFlow.dominantStrategy,
     narrative: notes.length > 0 ? notes.join("; ") : "retail cohorts are trading mixed small orders"
@@ -111,8 +107,8 @@ export function calculateShrimpCollectivePressure(
 }
 
 export function applyShrimpCollectiveEffects(stock: Stock, pressure: ShrimpCollectivePressure): void {
-  const timeScale = GAME_CONFIG.tickDurationSeconds / shrimpConfig.baselineTickSeconds;
-  stock.heat = clamp(stock.heat + pressure.heatDelta * timeScale, 0, 100);
+  const timeScale = GAME_CONFIG.tickDurationSeconds / BASELINE_TICK_SECONDS;
+  stock.heat = clamp(stock.heat + pressure.heatDelta * timeScale * getTuningConfig().heat.collectiveMultiplier, 0, 100);
   stock.sentiment = clamp(stock.sentiment + pressure.sentimentDelta * timeScale, 0, 100);
   stock.attention = clamp(stock.attention + pressure.attentionDelta * timeScale, 0, 100);
 }
@@ -608,17 +604,8 @@ function quantizeSmallOrderBurst(
   rawSellIntent: number,
   urgency: number
 ): { buyPressure: number; sellPressure: number; orderCount: number } {
-  const burstConfig = shrimpConfig.smallOrderBurst;
-  const buyIntent = Math.min(
-    rawBuyIntent,
-    Math.max(0, cohort.capital) *
-      clamp(burstConfig.buyCapitalBase + urgency * burstConfig.buyCapitalUrgency, burstConfig.buyCapitalBase, burstConfig.buyCapitalMax)
-  );
-  const sellIntent = Math.min(
-    rawSellIntent,
-    Math.max(0, cohort.inventoryNotional) *
-      clamp(burstConfig.sellInventoryBase + urgency * burstConfig.sellInventoryUrgency, burstConfig.sellInventoryBase, burstConfig.sellInventoryMax)
-  );
+  const buyIntent = Math.min(rawBuyIntent, Math.max(0, cohort.capital) * clamp(0.1 + urgency * 0.045, 0.1, 0.24));
+  const sellIntent = Math.min(rawSellIntent, Math.max(0, cohort.inventoryNotional) * clamp(0.16 + urgency * 0.06, 0.16, 0.34));
   const buyBurst = quantizeSide(cohort, stock, rng, buyIntent, urgency);
   const sellBurst = quantizeSide(cohort, stock, rng, sellIntent, urgency);
 
@@ -638,31 +625,16 @@ function quantizeSide(
 ): { notional: number; count: number } {
   if (notional <= 0) return { notional: 0, count: 0 };
 
-  const burstConfig = shrimpConfig.smallOrderBurst;
-  const sharesPerOrder =
-    Math.max(
-      burstConfig.minOrderShares,
-      Math.round((cohort.orderSize * rng.float(burstConfig.orderSizeNoiseMin, burstConfig.orderSizeNoiseMax)) / burstConfig.minOrderShares) *
-        burstConfig.minOrderShares
-    );
-  const orderNotional = Math.max(burstConfig.minOrderShares * stock.price, sharesPerOrder * stock.price);
+  const sharesPerOrder = Math.max(100, Math.round(cohort.orderSize * rng.float(0.55, 1.75) / 100) * 100);
+  const orderNotional = Math.max(100 * stock.price, sharesPerOrder * stock.price);
   const expectedCount = notional / orderNotional;
-  const count = Math.min(
-    burstConfig.maxOrderCount,
-    Math.max(1, Math.round(expectedCount * rng.float(burstConfig.countNoiseMin, burstConfig.countNoiseMax + urgency * burstConfig.countUrgencyWeight)))
-  );
-  const clusterChance = clamp(
-    burstConfig.clusterChanceBase + urgency * burstConfig.clusterChanceUrgencyWeight + stock.microstructure.liquidityStress / burstConfig.clusterChanceStressScale,
-    burstConfig.clusterChanceBase,
-    burstConfig.clusterChanceMax
-  );
-  const clusterMultiplier = rng.chance(clusterChance)
-    ? rng.float(burstConfig.clusterMultiplierMin, burstConfig.clusterMultiplierMax + urgency * burstConfig.clusterMultiplierUrgencyWeight)
-    : rng.float(burstConfig.normalMultiplierMin, burstConfig.normalMultiplierMax);
+  const count = Math.min(320, Math.max(1, Math.round(expectedCount * rng.float(0.38, 1.82 + urgency * 0.22))));
+  const clusterChance = clamp(0.05 + urgency * 0.08 + stock.microstructure.liquidityStress / 520, 0.05, 0.34);
+  const clusterMultiplier = rng.chance(clusterChance) ? rng.float(1.35, 2.55 + urgency * 0.32) : rng.float(0.68, 1.18);
   const realized = roundMoney(orderNotional * count * clusterMultiplier);
 
   return {
-    notional: Math.min(notional * (burstConfig.realizedIntentBase + urgency * burstConfig.realizedIntentUrgencyWeight), realized),
+    notional: Math.min(notional * (1.05 + urgency * 0.28), realized),
     count
   };
 }
@@ -725,12 +697,12 @@ function getCohortCapitalTarget(cohort: ShrimpCohort, stock: Stock, context: Mar
   return stock.baseLiquidity * (0.58 + stock.attention / 180);
 }
 
-function calculateCrowdNarrativePressure(
+function calculateLegacyCrowdPressure(
   stock: Stock,
   rng: ReturnType<typeof createRng>,
   valuation: ValuationSnapshot,
   context: MarketContext
-): CrowdNarrativePressure {
+): LegacyPressure {
   const panicFatigue =
     stock.boardState === "limitDown" || stock.boardState === "panic"
       ? clamp((stock.retail.panicSellers + stock.retail.fear - stock.retail.dipBuyers * 1.2) / 220, 0.08, 0.72) *
@@ -798,13 +770,7 @@ function calculateCrowdNarrativePressure(
     notes.push(washoutBurst ? "dip buyers are organizing around a washout" : "dip buyers are quietly absorbing fear");
   }
 
-  const hotBoardGapFadeDebate = context.previousBoardWasHot && context.openingGapPct > 0.8 && context.openChangePct < -0.8;
-  if (
-    context.previousBoardWasHot &&
-    (context.dayChangePct < -1.4 || hotBoardGapFadeDebate) &&
-    context.dayChangePct > -8.8 &&
-    stock.boardState !== "limitDown"
-  ) {
+  if (context.previousBoardWasHot && context.dayChangePct < -1.4 && context.dayChangePct > -8.8 && stock.boardState !== "limitDown") {
     const bargainDebate = rng.chance(0.38 + stock.retail.boardFaith / 420);
     const failedBoardBid =
       stock.currentLiquidity *
@@ -914,22 +880,9 @@ function calculateCrowdNarrativePressure(
 }
 
 function getShrimpPressureCap(stock: Stock, side: "buy" | "sell", dominantStrategy: ShrimpStrategy): number {
-  const pressureCap = shrimpConfig.pressureCap;
-  const base =
-    dominantStrategy === "boardChaser"
-      ? pressureCap.boardChaser
-      : dominantStrategy === "panicCutter"
-        ? pressureCap.panicCutter
-        : dominantStrategy === "valueHolder"
-          ? pressureCap.valueHolder
-          : pressureCap.default;
-  const boardBoost = stock.boardState === "sealedLimitUp" || stock.boardState === "limitDown" ? pressureCap.boardLockedBoost : 0;
-  const sideBoost =
-    side === "buy" && dominantStrategy === "boardChaser"
-      ? pressureCap.boardChaserBuyBoost
-      : side === "sell" && dominantStrategy === "panicCutter"
-        ? pressureCap.panicCutterSellBoost
-        : 0;
+  const base = dominantStrategy === "boardChaser" ? 2.05 : dominantStrategy === "panicCutter" ? 2.05 : dominantStrategy === "valueHolder" ? 1 : 1.28;
+  const boardBoost = stock.boardState === "sealedLimitUp" || stock.boardState === "limitDown" ? 0.5 : 0;
+  const sideBoost = side === "buy" && dominantStrategy === "boardChaser" ? 0.45 : side === "sell" && dominantStrategy === "panicCutter" ? 0.55 : 0;
   return base + boardBoost + sideBoost;
 }
 

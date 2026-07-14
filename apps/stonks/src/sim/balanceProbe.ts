@@ -3,6 +3,7 @@ import { GAME_CONFIG } from "../game/config";
 import type { BoardState, GameState, StockId, TickResult } from "../game/types";
 import { updateTick } from "../simulation/tick";
 import { moneyShort, pad } from "./format";
+import { loadTuningConfigFromArgs } from "./tuningConfig";
 
 type ProbeSummary = {
   seed: string;
@@ -38,8 +39,9 @@ type WhaleProbeRow = {
   cash: number;
 };
 
-const seedArg = process.argv[2];
-const dayArg = Number.parseInt(process.argv[3] ?? "", 10);
+const tuningArgs = loadTuningConfigFromArgs(process.argv.slice(2));
+const seedArg = tuningArgs.rest[0];
+const dayArg = Number.parseInt(tuningArgs.rest[1] ?? "", 10);
 const seeds = seedArg ? seedArg.split(",").map((seed) => seed.trim()).filter(Boolean) : buildDefaultSeeds();
 const days = Number.isFinite(dayArg) && dayArg > 0 ? Math.min(dayArg, GAME_CONFIG.totalDays) : 10;
 
@@ -64,7 +66,7 @@ function runProbe(seed: string, targetDays: number): ProbeSummary {
     Object.keys(game.stocks).map((stockId) => [stockId, { panicTicks: 0, limitUpTicks: 0, limitDownTicks: 0 }])
   ) as Record<StockId, { panicTicks: number; limitUpTicks: number; limitDownTicks: number }>;
 
-  while (game.phase !== "ended" && (game.day < targetDays || game.phase !== "preMarket" || game.tick !== 0)) {
+  while (game.phase !== "ended" && !(game.day >= targetDays + 1 && game.phase === "preMarket" && game.tick === 0)) {
     const result = updateTick(game);
     ticks += 1;
     whaleTrades += result.whaleTrades.length;
@@ -80,8 +82,6 @@ function runProbe(seed: string, targetDays: number): ProbeSummary {
       }
       if (stock.boardState === "limitDown") counter.limitDownTicks += 1;
     }
-
-    if (game.day >= targetDays + 1 && game.phase === "preMarket" && game.tick === 0) break;
   }
 
   const returns = Object.values(game.stocks).map((stock) => (stock.price / initialPrices[stock.id] - 1) * 100);
@@ -140,6 +140,7 @@ function countBoardStates(result: TickResult): Record<BoardState, number> {
 
 function printSummaries(summaries: ProbeSummary[]): void {
   console.log(`Whale-Sim balance probe`);
+  if (tuningArgs.path) console.log(`Tuning config=${tuningArgs.path}`);
   console.log(`Seeds=${summaries.length} targetDays=${days}`);
   console.log("");
   console.log(

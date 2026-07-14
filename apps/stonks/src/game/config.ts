@@ -1,22 +1,20 @@
-import gameRules from "../config/gameRules.json";
-
 export const GAME_CONFIG = {
-  totalDays: gameRules.totalDays,
-  dayDurationSeconds: gameRules.dayDurationSeconds,
-  ticksPerDay: gameRules.ticksPerDay,
-  tickDurationSeconds: gameRules.tickDurationSeconds,
+  totalDays: 30,
+  dayDurationSeconds: 300,
+  ticksPerDay: 300,
+  tickDurationSeconds: 1,
 
-  startingCash: gameRules.startingCash,
-  targetNetWorth: gameRules.targetNetWorth,
+  startingCash: 1_000_000_000,
+  targetNetWorth: 2_500_000_000,
 
-  stockCount: gameRules.stockCount,
+  stockCount: 21,
 
-  mainBoardLimit: gameRules.boardLimits.main,
-  growthBoardLimit: gameRules.boardLimits.growth,
-  stBoardLimit: gameRules.boardLimits.st,
+  mainBoardLimit: 0.1,
+  growthBoardLimit: 0.2,
+  stBoardLimit: 0.05,
 
-  maxAccountHeat: gameRules.maxAccountHeat,
-  maxStockHeat: gameRules.maxStockHeat
+  maxAccountHeat: 100,
+  maxStockHeat: 100
 } as const;
 
 export function clamp(value: number, min: number, max: number): number {

@@ -19,7 +19,7 @@ export const labProjects: LabProject[] = [
     links: [
       {
         label: "原始 GitHub 仓库",
-        href: "https://github.com/hdPotato34/STONKS-WIP-",
+        href: "https://github.com/zhangxiao91/STONKS-WIP-zx",
         external: true,
       },
     ],

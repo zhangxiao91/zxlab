@@ -10,6 +10,7 @@
     "play": "tsx src/sim/playCli.ts",
     "sim": "tsx src/sim/runHeadless.ts",
     "balance": "tsx src/sim/balanceProbe.ts",
+    "tune": "tsx src/sim/tune.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
