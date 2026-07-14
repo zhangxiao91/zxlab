@@ -266,6 +266,10 @@ body.welcome-locked {
   animation: welcome-message-glitch-b var(--welcome-message-step-duration) cubic-bezier(0.32, 0.72, 0, 1) both;
 }
 
+.welcome-message.is-glitch-step > span {
+  animation: welcome-message-final-glitch 180ms steps(2, jump-none) both;
+}
+
 .welcome-skip {
   position: absolute;
   right: clamp(1.25rem, 3vw, 2.5rem);
@@ -574,6 +578,21 @@ body.welcome-locked {
   100% {
     opacity: 0;
     transform: translateX(0);
+  }
+}
+
+@keyframes welcome-message-final-glitch {
+  0%, 100% {
+    filter: none;
+    transform: translateX(0) skewX(0);
+  }
+  28% {
+    filter: brightness(1.2);
+    transform: translateX(-0.08rem) skewX(-1.5deg);
+  }
+  56% {
+    filter: brightness(0.92);
+    transform: translateX(0.06rem) skewX(1deg);
   }
 }
 

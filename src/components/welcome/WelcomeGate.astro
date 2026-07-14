@@ -142,6 +142,7 @@ const config = welcomeGateConfig;
 
       welcomeGateConfig.messageSteps.forEach((text, index) => {
         schedule(() => {
+          const isFinalStep = index === welcomeGateConfig.messageSteps.length - 1;
           message.classList.remove("is-updating");
           message.classList.remove("is-glitch-step");
           message.dataset.step = String(index);
@@ -150,9 +151,10 @@ const config = welcomeGateConfig;
           void message.offsetWidth;
           message.classList.add("is-updating");
 
-          if (index === welcomeGateConfig.messageSteps.length - 1) {
+          if (isFinalStep) {
             announcer.textContent = welcomeGateConfig.welcomeText;
-            schedule(beginHit, messageStepInterval);
+            schedule(() => message.classList.add("is-glitch-step"), 72);
+            schedule(beginHit, messageStepInterval + 90);
           }
           pulseTextMotion();
         }, welcomeGateConfig.messageStepDelays[index] ?? index * messageStepInterval);
