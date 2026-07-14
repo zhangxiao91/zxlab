@@ -5,3 +5,12 @@ vite.config.d.ts
 worker/.dev.vars
 worker/.wrangler/
 worker/worker-configuration.d.ts
+desktop/src-tauri/target/
+desktop/src-tauri/gen/schemas/
+desktop/src-tauri/icons/android/
+desktop/src-tauri/icons/ios/
+desktop/src-tauri/icons/Square*.png
+desktop/src-tauri/icons/StoreLogo.png
+desktop/src-tauri/icons/64x64.png
+desktop/src-tauri/icons/icon.ico
+desktop/src-tauri/icons/icon.png

@@ -1,14 +1,22 @@
 import { TransferSession } from "./session";
 import { MAX_FILE_BYTES, SESSION_TTL_MS, validateUpload, type TransferRecord } from "./protocol";
 import { hashToken, randomToken } from "./security";
+import { PairingSession } from "./pairing";
+import { DeviceMailbox } from "./device-mailbox";
+import type { DeviceType } from "../../shared/types";
+import { validateDropPayload } from "../../shared/payload";
 
-export { TransferSession };
+export { TransferSession, PairingSession, DeviceMailbox };
 
 const SESSION_PATH = /^\/api\/sessions\/([a-f0-9-]+)$/;
 const UPLOAD_PATH = /^\/api\/sessions\/([a-f0-9-]+)\/upload$/;
 const SOCKET_PATH = /^\/api\/sessions\/([a-f0-9-]+)\/socket$/;
 const FILE_PATH = /^\/api\/sessions\/([a-f0-9-]+)\/files\/([a-f0-9-]+)$/;
 const CLAIM_PATH = /^\/api\/sessions\/([a-f0-9-]+)\/files\/([a-f0-9-]+)\/claim$/;
+const PAIRING_PATH = /^\/api\/pairing\/sessions\/([a-f0-9-]+)$/;
+const PAIRING_CONFIRM_PATH = /^\/api\/pairing\/sessions\/([a-f0-9-]+)\/confirm$/;
+const DEVICE_PATH = /^\/api\/devices\/([a-f0-9-]+)$/;
+const DROP_OPEN_PATH = /^\/api\/drops\/([a-f0-9-]+)\/opened$/;
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -18,6 +26,23 @@ export default {
     try {
       if (request.method === "GET" && url.pathname === "/api/health") return json({ ok: true }, 200, cors);
       if (request.method === "POST" && url.pathname === "/api/sessions") return createSession(env, cors);
+      if (request.method === "POST" && url.pathname === "/api/pairing/sessions") return createPairing(request, env, cors);
+      if (request.method === "GET" && url.pathname === "/api/devices") return listDevices(request, env, cors);
+      if (request.method === "POST" && url.pathname === "/api/drops") return createDrop(request, env, cors);
+      if (request.method === "GET" && url.pathname === "/api/drops/recent") return recentDrops(request, env, cors);
+      if (request.method === "GET" && url.pathname === "/api/inbox") return inbox(request, env, cors);
+
+      const pairingConfirmMatch = url.pathname.match(PAIRING_CONFIRM_PATH);
+      if (pairingConfirmMatch && request.method === "POST") return confirmPairing(request, env, pairingConfirmMatch[1], cors);
+
+      const pairingMatch = url.pathname.match(PAIRING_PATH);
+      if (pairingMatch && request.method === "GET") return pairingStatus(request, env, pairingMatch[1], cors);
+
+      const deviceMatch = url.pathname.match(DEVICE_PATH);
+      if (deviceMatch && request.method === "DELETE") return removeDevice(request, env, deviceMatch[1], cors);
+
+      const dropOpenMatch = url.pathname.match(DROP_OPEN_PATH);
+      if (dropOpenMatch && request.method === "POST") return markDropOpened(request, env, dropOpenMatch[1], cors);
 
       const socketMatch = url.pathname.match(SOCKET_PATH);
       if (socketMatch && request.method === "GET") {
@@ -55,6 +80,88 @@ async function createSession(env: Env, cors: Headers): Promise<Response> {
   const expiresAt = Date.now() + ttlMs(env);
   await env.SESSIONS.getByName(id).initialize(await hashToken(token), expiresAt);
   return json({ id, token, expiresAt }, 201, cors);
+}
+
+async function createPairing(request: Request, env: Env, cors: Headers): Promise<Response> {
+  const body = await safeJson(request);
+  const desktopName = cleanName(body?.desktopName, "这台 Mac");
+  const id = crypto.randomUUID();
+  const claimToken = randomToken();
+  const expiresAt = Date.now() + 10 * 60 * 1000;
+  await env.PAIRINGS.getByName(id).initialize(await hashToken(claimToken), desktopName, expiresAt);
+  return json({
+    id,
+    claimToken,
+    pairUrl: `${env.APP_ORIGIN.replace(/\/$/, "")}/pair/${id}`,
+    expiresAt: new Date(expiresAt).toISOString()
+  }, 201, cors);
+}
+
+async function pairingStatus(request: Request, env: Env, pairingId: string, cors: Headers): Promise<Response> {
+  const status = await env.PAIRINGS.getByName(pairingId).status(requestToken(request, new URL(request.url)));
+  return status ? json(status, 200, cors) : problem("PAIRING_UNAUTHORIZED", "配对会话无效或无权访问", 401, cors);
+}
+
+async function confirmPairing(request: Request, env: Env, pairingId: string, cors: Headers): Promise<Response> {
+  const body = await safeJson(request);
+  const name = cleanName(body?.name, "我的手机");
+  const type = deviceType(body?.type);
+  const credential = await env.PAIRINGS.getByName(pairingId).confirm(name, type);
+  return credential ? json({ credential }, 201, cors) : problem("PAIRING_UNAVAILABLE", "配对码已使用或已过期", 409, cors);
+}
+
+async function listDevices(request: Request, env: Env, cors: Headers): Promise<Response> {
+  const auth = deviceAuth(request);
+  if (!auth) return problem("DEVICE_UNAUTHORIZED", "设备凭证缺失", 401, cors);
+  const result = await env.DEVICES.getByName(auth.deviceId).listDevices(auth.token);
+  return result ? json(result, 200, cors) : problem("DEVICE_UNAUTHORIZED", "设备凭证无效或已被吊销", 401, cors);
+}
+
+async function removeDevice(request: Request, env: Env, targetId: string, cors: Headers): Promise<Response> {
+  const auth = deviceAuth(request);
+  if (!auth) return problem("DEVICE_UNAUTHORIZED", "设备凭证缺失", 401, cors);
+  const removed = await env.DEVICES.getByName(auth.deviceId).removePair(auth.token, targetId);
+  if (!removed) return problem("DEVICE_UNAUTHORIZED", "设备凭证无效", 401, cors);
+  await env.DEVICES.getByName(targetId).removePairInternal(auth.deviceId);
+  return json({ removed: true }, 200, cors);
+}
+
+async function createDrop(request: Request, env: Env, cors: Headers): Promise<Response> {
+  const auth = deviceAuth(request);
+  if (!auth) return problem("DEVICE_UNAUTHORIZED", "设备凭证缺失", 401, cors);
+  const body = await safeJson(request);
+  const receiverDeviceId = typeof body?.receiverDeviceId === "string" ? body.receiverDeviceId : "";
+  const payload = validateDropPayload(body?.payload);
+  if (!receiverDeviceId || !payload) return problem("INVALID_DROP", "投递内容或目标设备无效", 400, cors);
+  const prepared = await env.DEVICES.getByName(auth.deviceId).prepareDrop(auth.token, receiverDeviceId, payload);
+  if (!prepared) return problem("DROP_FORBIDDEN", "目标设备未与当前设备绑定", 403, cors);
+  const delivered = await env.DEVICES.getByName(receiverDeviceId).receiveDrop(prepared.sender, prepared.item);
+  if (!delivered) return problem("RECEIVER_UNAVAILABLE", "目标设备已解除绑定", 409, cors);
+  await env.DEVICES.getByName(auth.deviceId).markStatus(prepared.item.id, "delivered");
+  return json({ item: { ...prepared.item, status: "delivered" } }, 201, cors);
+}
+
+async function inbox(request: Request, env: Env, cors: Headers): Promise<Response> {
+  const auth = deviceAuth(request);
+  if (!auth) return problem("DEVICE_UNAUTHORIZED", "设备凭证缺失", 401, cors);
+  const items = await env.DEVICES.getByName(auth.deviceId).getInbox(auth.token);
+  return items ? json({ items }, 200, cors) : problem("DEVICE_UNAUTHORIZED", "设备凭证无效或已被吊销", 401, cors);
+}
+
+async function recentDrops(request: Request, env: Env, cors: Headers): Promise<Response> {
+  const auth = deviceAuth(request);
+  if (!auth) return problem("DEVICE_UNAUTHORIZED", "设备凭证缺失", 401, cors);
+  const items = await env.DEVICES.getByName(auth.deviceId).getRecent(auth.token);
+  return items ? json({ items }, 200, cors) : problem("DEVICE_UNAUTHORIZED", "设备凭证无效或已被吊销", 401, cors);
+}
+
+async function markDropOpened(request: Request, env: Env, dropId: string, cors: Headers): Promise<Response> {
+  const auth = deviceAuth(request);
+  if (!auth) return problem("DEVICE_UNAUTHORIZED", "设备凭证缺失", 401, cors);
+  const item = await env.DEVICES.getByName(auth.deviceId).markOpened(auth.token, dropId);
+  if (!item) return problem("DROP_UNAVAILABLE", "投递内容不存在或已过期", 404, cors);
+  await env.DEVICES.getByName(item.senderDeviceId).markStatus(item.id, "opened");
+  return json({ opened: true }, 200, cors);
 }
 
 async function uploadFile(request: Request, env: Env, sessionId: string, cors: Headers): Promise<Response> {
@@ -135,6 +242,26 @@ function requestToken(request: Request, url: URL): string {
   return url.searchParams.get("token") ?? "";
 }
 
+function deviceAuth(request: Request): { deviceId: string; token: string } | null {
+  const deviceId = request.headers.get("x-device-id") ?? "";
+  const token = requestToken(request, new URL(request.url));
+  return deviceId && token ? { deviceId, token } : null;
+}
+
+async function safeJson(request: Request): Promise<Record<string, unknown> | null> {
+  const length = Number(request.headers.get("content-length") ?? 0);
+  if (length > 64 * 1024) return null;
+  try { return await request.json() as Record<string, unknown>; } catch { return null; }
+}
+
+function cleanName(value: unknown, fallback: string): string {
+  return typeof value === "string" && value.trim() ? value.trim().slice(0, 48) : fallback;
+}
+
+function deviceType(value: unknown): DeviceType {
+  return value === "phone" || value === "tablet" || value === "windows" || value === "web" ? value : "web";
+}
+
 function safeFileName(value: string): string {
   let decoded = value;
   try { decoded = decodeURIComponent(value); } catch { decoded = "image"; }
@@ -148,10 +275,10 @@ function ttlMs(env: Env): number {
 
 function corsHeaders(request: Request, env: Env): Headers {
   const origin = request.headers.get("origin") ?? "";
-  const allowed = new Set([env.APP_ORIGIN, "http://localhost:4173", "http://127.0.0.1:4173"]);
+  const allowed = new Set([env.APP_ORIGIN, "http://localhost:4173", "http://127.0.0.1:4173", "http://localhost:4174", "http://tauri.localhost", "tauri://localhost"]);
   const headers = new Headers({
     "access-control-allow-methods": "GET,POST,DELETE,OPTIONS",
-    "access-control-allow-headers": "authorization,content-type,content-length,x-file-name",
+    "access-control-allow-headers": "authorization,content-type,content-length,x-file-name,x-device-id",
     "access-control-expose-headers": "content-length,content-type,content-disposition",
     "vary": "Origin"
   });

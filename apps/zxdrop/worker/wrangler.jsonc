@@ -18,11 +18,14 @@
   ],
   "durable_objects": {
     "bindings": [
-      { "name": "SESSIONS", "class_name": "TransferSession" }
+      { "name": "SESSIONS", "class_name": "TransferSession" },
+      { "name": "PAIRINGS", "class_name": "PairingSession" },
+      { "name": "DEVICES", "class_name": "DeviceMailbox" }
     ]
   },
   "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["TransferSession"] }
+    { "tag": "v1", "new_sqlite_classes": ["TransferSession"] },
+    { "tag": "v2", "new_sqlite_classes": ["PairingSession", "DeviceMailbox"] }
   ],
   "observability": {
     "enabled": true,
