@@ -19,10 +19,10 @@ pub fn run() {
 
             let quit = MenuItem::with_id(app, "quit", "退出 zxdrop", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&quit])?;
-            let icon = app
-                .default_window_icon()
-                .cloned()
-                .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "missing app icon"))?;
+            // Menu bar template images use alpha as the system-rendered mask. The regular
+            // app icon has an opaque rounded background, so using it here becomes a solid
+            // square. Keep the tray glyph transparent and separate from the app artwork.
+            let icon = tauri::include_image!("icons/tray-template.png");
 
             TrayIconBuilder::with_id("zxdrop-tray")
                 .tooltip("zxdrop")
