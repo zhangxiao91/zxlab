@@ -46,6 +46,13 @@ const downloadSafety = [
   "浏览器插件要看权限。",
   "不常用的软件可以卸载。",
 ];
+
+const trustedSourceLabels = [
+  "产品官网",
+  "Microsoft Store",
+  "浏览器扩展商店",
+  "官方支持页面",
+];
 ---
 
 <Layout
@@ -58,8 +65,12 @@ const downloadSafety = [
     <section class="digital-starter-toolbox-hero" aria-labelledby="software-toolbox-title">
       <div>
         <a class="digital-starter-back" href="/lab/digital-starter/computer">← 返回 {route?.title ?? "只想会用电脑"}</a>
-        <p class="digital-starter-kicker">Software toolbox</p>
-        <h1 id="software-toolbox-title">推荐插件与软件列表</h1>
+        <p class="digital-starter-kicker">软件工具箱</p>
+        <h1 id="software-toolbox-title">
+          推荐插件与
+          <span class="digital-starter-toolbox-title-image" aria-hidden="true"></span>
+          软件列表
+        </h1>
         <p>给准大学生的 Windows 基础工具箱：先装真正用得上的，再慢慢扩展。</p>
       </div>
       <aside aria-label="文档定位">
@@ -68,6 +79,17 @@ const downloadSafety = [
         </p>
       </aside>
     </section>
+
+    <div
+      class="digital-starter-toolbox-source-marquee"
+      aria-label="可信获取来源：产品官网、Microsoft Store、浏览器扩展商店、官方支持页面"
+    >
+      <div class="digital-starter-toolbox-source-track" aria-hidden="true">
+        {[...trustedSourceLabels, ...trustedSourceLabels].map((label) => (
+          <span>{label}<i></i></span>
+        ))}
+      </div>
+    </div>
 
     <section class="digital-starter-toolbox-principles" aria-labelledby="toolbox-principles-title">
       <div>
@@ -82,7 +104,7 @@ const downloadSafety = [
     <section class="digital-starter-toolbox-catalog" aria-labelledby="toolbox-catalog-title">
       <div class="digital-starter-section-heading digital-starter-section-heading--light">
         <p>分类列表</p>
-        <h2 id="toolbox-catalog-title">按使用场景预留工具入口。</h2>
+        <h2 id="toolbox-catalog-title">按使用场景找到工具，再从官方入口获取。</h2>
       </div>
 
       <div class="digital-starter-toolbox-category-list" aria-label="软件分类">
@@ -136,10 +158,27 @@ const downloadSafety = [
                             </div>
                           )}
                         </dl>
-                        <a href={tool.officialUrl}>
-                          <span>访问官网</span>
-                          <span aria-hidden="true">↗</span>
-                        </a>
+                        <div class="digital-starter-tool-card__sources">
+                          <p>官方获取方式</p>
+                          <div class="digital-starter-tool-card__source-links">
+                            {tool.officialLinks.map((link) => (
+                              <a
+                                href={link.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                data-tool-source
+                                data-source-channel={link.channel}
+                                aria-label={link.label + "，" + link.channel + "，在新窗口打开"}
+                              >
+                                <span>
+                                  <strong>{link.label}</strong>
+                                  <small>{link.channel}</small>
+                                </span>
+                                <span aria-hidden="true">↗</span>
+                              </a>
+                            ))}
+                          </div>
+                        </div>
                       </article>
                     ))}
                   </div>
@@ -182,7 +221,9 @@ const downloadSafety = [
 
   gsap.registerPlugin(ScrollTrigger);
 
-  if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+  const toolboxMotion = gsap.matchMedia();
+
+  toolboxMotion.add("(prefers-reduced-motion: no-preference)", () => {
     gsap.from("[data-starter-reveal]", {
       y: 36,
       opacity: 0,
@@ -194,5 +235,40 @@ const downloadSafety = [
         start: "top 72%",
       },
     });
-  }
+
+    gsap.timeline({
+      scrollTrigger: {
+        trigger: ".digital-starter-toolbox-hero",
+        start: "top top",
+        end: "bottom top",
+        scrub: 0.8,
+      },
+    })
+      .fromTo(
+        ".digital-starter-toolbox-title-image",
+        { scale: 0.8, opacity: 0.45 },
+        { scale: 1, opacity: 1, ease: "none" },
+      )
+      .to(".digital-starter-toolbox-title-image", {
+        opacity: 0.2,
+        filter: "grayscale(1) brightness(0.45)",
+        ease: "none",
+      });
+  });
+
+  toolboxMotion.add("(min-width: 65rem) and (prefers-reduced-motion: no-preference)", () => {
+    gsap.utils.toArray<HTMLElement>(".digital-starter-toolbox-category__heading").forEach((heading) => {
+      const category = heading.parentElement;
+
+      if (!category) return;
+
+      ScrollTrigger.create({
+        trigger: category,
+        start: "top 7rem",
+        end: "bottom 12rem",
+        pin: heading,
+        pinSpacing: false,
+      });
+    });
+  });
 </script>

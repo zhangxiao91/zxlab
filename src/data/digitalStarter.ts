@@ -18,6 +18,17 @@ export type DigitalStarterResourceType =
   | "task";
 
 export type DigitalStarterSoftwareToolType = "software" | "plugin" | "web" | "system";
+export type DigitalStarterSoftwareLinkChannel =
+  | "官网"
+  | "Microsoft Store"
+  | "扩展商店"
+  | "官方支持";
+
+export interface DigitalStarterSoftwareLink {
+  label: string;
+  url: string;
+  channel: DigitalStarterSoftwareLinkChannel;
+}
 
 export interface DigitalStarterRoute {
   id: DigitalStarterRouteId;
@@ -100,7 +111,7 @@ export interface DigitalStarterSoftwareTool {
   description: string;
   useCase: string;
   recommendedFor: string;
-  officialUrl: string;
+  officialLinks: DigitalStarterSoftwareLink[];
   alternatives?: string[];
   caution?: string;
   status: "ready" | "draft" | "todo";
@@ -594,7 +605,11 @@ export const digitalStarterSoftwareTools: DigitalStarterSoftwareTool[] = [
     description: "常用浏览器，用于搜索资料、访问课程平台、管理书签和下载文件。",
     useCase: "日常搜索、课程平台、资料下载、账号登录和书签管理。",
     recommendedFor: "所有刚开始管理电脑和学习资料的同学。",
-    officialUrl: "#",
+    officialLinks: [
+      { label: "Microsoft Edge", url: "https://www.microsoft.com/edge/download", channel: "官网" },
+      { label: "Google Chrome", url: "https://www.google.com/chrome/", channel: "官网" },
+      { label: "Mozilla Firefox", url: "https://www.mozilla.org/firefox/new/", channel: "官网" },
+    ],
     alternatives: ["Safari"],
     caution: "登录重要账号时看清网址，浏览器插件不要乱装。",
     status: "draft",
@@ -609,9 +624,25 @@ export const digitalStarterSoftwareTools: DigitalStarterSoftwareTool[] = [
     description: "用于减少网页广告和部分追踪，提高浏览体验。",
     useCase: "浏览资料页、论坛和下载页时减少干扰。",
     recommendedFor: "经常查资料、阅读网页和访问课程站点的同学。",
-    officialUrl: "#",
+    officialLinks: [
+      {
+        label: "uBlock Origin（Firefox）",
+        url: "https://addons.mozilla.org/firefox/addon/ublock-origin/",
+        channel: "扩展商店",
+      },
+      {
+        label: "uBlock Origin Lite（Chrome）",
+        url: "https://chromewebstore.google.com/detail/ublock-origin-lite/ddkjiahejlhfcafbddmgiahcphecmpfh",
+        channel: "扩展商店",
+      },
+      {
+        label: "AdGuard 浏览器扩展",
+        url: "https://adguard.com/adguard-browser-extension/overview.html",
+        channel: "官网",
+      },
+    ],
     alternatives: ["浏览器内置跟踪防护"],
-    caution: "插件权限较高，优先从浏览器官方扩展商店安装。",
+    caution: "插件权限较高，优先从浏览器官方扩展商店安装。Chrome 使用 uBlock Origin Lite，Firefox 可使用完整 uBlock Origin。",
     status: "draft",
     tags: ["Plugin", "广告过滤", "Browser"],
   },
@@ -624,7 +655,10 @@ export const digitalStarterSoftwareTools: DigitalStarterSoftwareTool[] = [
     description: "用于播放本地视频、课程录像和多种格式的视频文件。",
     useCase: "打开下载到电脑里的课程录像、讲座视频和常见视频格式。",
     recommendedFor: "需要保存网课录像或经常看本地视频文件的同学。",
-    officialUrl: "#",
+    officialLinks: [
+      { label: "VLC media player", url: "https://www.videolan.org/vlc/", channel: "官网" },
+      { label: "PotPlayer", url: "https://potplayer.daum.net/", channel: "官网" },
+    ],
     alternatives: ["系统自带播放器"],
     caution: "优先从官网或可信来源下载。",
     status: "draft",
@@ -639,7 +673,10 @@ export const digitalStarterSoftwareTools: DigitalStarterSoftwareTool[] = [
     description: "用于解压 zip、rar、7z 等压缩包，也可以把多个文件打包发送。",
     useCase: "处理老师、同学或网站提供的压缩包，整理多个文件后统一发送。",
     recommendedFor: "需要交作业、收课件、下载资料包的新生。",
-    officialUrl: "#",
+    officialLinks: [
+      { label: "7-Zip", url: "https://www.7-zip.org/download.html", channel: "官网" },
+      { label: "Bandizip", url: "https://www.bandisoft.com/bandizip/", channel: "官网" },
+    ],
     alternatives: ["系统自带压缩功能"],
     caution: "安装时留意是否有额外推荐软件。",
     status: "draft",
@@ -654,7 +691,15 @@ export const digitalStarterSoftwareTools: DigitalStarterSoftwareTool[] = [
     description: "用于截图、标注、保存问题现场或制作简单说明图。",
     useCase: "记录报错、截取资料、标注问题位置和制作简单说明。",
     recommendedFor: "所有需要写作业、求助或整理资料的同学。",
-    officialUrl: "#",
+    officialLinks: [
+      {
+        label: "Windows 截图工具",
+        url: "https://apps.microsoft.com/detail/9MZ95KL8MR0L",
+        channel: "Microsoft Store",
+      },
+      { label: "Snipaste", url: "https://www.snipaste.com/", channel: "官网" },
+      { label: "ShareX", url: "https://getsharex.com/", channel: "官网" },
+    ],
     alternatives: ["macOS 截图工具"],
     caution: "新手先熟悉 Win + Shift + S，再考虑安装额外工具。",
     status: "draft",
@@ -669,7 +714,9 @@ export const digitalStarterSoftwareTools: DigitalStarterSoftwareTool[] = [
     description: "用于在 Windows 上快速搜索文件，适合找不到下载文件或资料时使用。",
     useCase: "按文件名快速找下载、课件、截图和临时保存的资料。",
     recommendedFor: "经常找不到文件位置的同学。",
-    officialUrl: "#",
+    officialLinks: [
+      { label: "Everything", url: "https://www.voidtools.com/downloads/", channel: "官网" },
+    ],
     alternatives: ["Windows 搜索"],
     caution: "第一次使用需要建立索引，搜索结果要看清文件所在路径。",
     status: "draft",
@@ -684,7 +731,11 @@ export const digitalStarterSoftwareTools: DigitalStarterSoftwareTool[] = [
     description: "用于处理作业、报告、PPT、表格和 PDF 阅读批注。",
     useCase: "写报告、做 PPT、看论文或阅读课程 PDF。",
     recommendedFor: "需要提交文档、表格、PPT 和 PDF 作业的同学。",
-    officialUrl: "#",
+    officialLinks: [
+      { label: "WPS Office", url: "https://www.wps.cn/", channel: "官网" },
+      { label: "Microsoft 365", url: "https://www.microsoft.com/zh-cn/microsoft-365", channel: "官网" },
+      { label: "Adobe Acrobat Reader", url: "https://get.adobe.com/cn/reader/", channel: "官网" },
+    ],
     alternatives: ["LibreOffice", "浏览器 PDF 阅读器"],
     caution: "注意文件格式兼容，提交作业前确认格式要求。",
     status: "draft",
@@ -699,7 +750,11 @@ export const digitalStarterSoftwareTools: DigitalStarterSoftwareTool[] = [
     description: "用于写笔记、Markdown 文档、说明文件和简单网页内容。",
     useCase: "整理课程笔记、项目说明、学习记录和 Markdown 文档。",
     recommendedFor: "想把笔记和资料整理得更清楚的同学。",
-    officialUrl: "#",
+    officialLinks: [
+      { label: "Obsidian", url: "https://obsidian.md/download", channel: "官网" },
+      { label: "Typora", url: "https://typora.io/", channel: "官网" },
+      { label: "Visual Studio Code", url: "https://code.visualstudio.com/Download", channel: "官网" },
+    ],
     alternatives: ["Notion", "系统备忘录"],
     caution: "新手可以先从 Markdown 标题、列表、链接和代码块开始。",
     status: "draft",
@@ -714,7 +769,20 @@ export const digitalStarterSoftwareTools: DigitalStarterSoftwareTool[] = [
     description: "用于在电脑、手机和平板之间同步资料或备份重要文件。",
     useCase: "同步课程资料、备份证件材料、跨设备传文件。",
     recommendedFor: "有多台设备或担心重要资料丢失的同学。",
-    officialUrl: "#",
+    officialLinks: [
+      {
+        label: "Microsoft OneDrive",
+        url: "https://support.microsoft.com/onedrive/download-onedrive",
+        channel: "官方支持",
+      },
+      {
+        label: "Windows 版 iCloud",
+        url: "https://apps.microsoft.com/detail/9PKTQ5699M62",
+        channel: "Microsoft Store",
+      },
+      { label: "坚果云", url: "https://www.jianguoyun.com/s/downloads", channel: "官网" },
+      { label: "百度网盘", url: "https://pan.baidu.com/download", channel: "官网" },
+    ],
     alternatives: ["移动硬盘", "U 盘"],
     caution: "同步不等于备份，误删可能会同步到其他设备。",
     status: "draft",
@@ -729,7 +797,10 @@ export const digitalStarterSoftwareTools: DigitalStarterSoftwareTool[] = [
     description: "用于管理多个账号密码，减少重复使用弱密码的风险。",
     useCase: "保存课程平台、邮箱、GitHub 和常用网站账号。",
     recommendedFor: "开始拥有多个学习、生活和工具账号的同学。",
-    officialUrl: "#",
+    officialLinks: [
+      { label: "Bitwarden", url: "https://bitwarden.com/download/", channel: "官网" },
+      { label: "1Password", url: "https://1password.com/downloads/", channel: "官网" },
+    ],
     alternatives: ["浏览器密码管理器"],
     caution: "主密码一定要记牢，重要账号建议开启两步验证。",
     status: "draft",
@@ -744,7 +815,9 @@ export const digitalStarterSoftwareTools: DigitalStarterSoftwareTool[] = [
     description: "代码编辑器，也可以写 Markdown、HTML 和简单项目。",
     useCase: "打开文件夹、编辑代码、预览 HTML、写 Markdown。",
     recommendedFor: "对编程、网页或 AI 辅助写代码有兴趣的同学。",
-    officialUrl: "#",
+    officialLinks: [
+      { label: "Visual Studio Code", url: "https://code.visualstudio.com/Download", channel: "官网" },
+    ],
     alternatives: ["Cursor", "系统文本编辑器"],
     caution: "第一次使用先学会打开文件夹、编辑文件和预览 HTML。",
     status: "draft",
@@ -759,7 +832,18 @@ export const digitalStarterSoftwareTools: DigitalStarterSoftwareTool[] = [
     description: "微软提供的 Windows 效率工具合集，包含窗口管理、批量重命名、颜色拾取等功能。",
     useCase: "进阶窗口管理、批量整理文件名、屏幕取色和快捷启动。",
     recommendedFor: "已经熟悉基础操作，想继续提升 Windows 效率的同学。",
-    officialUrl: "#",
+    officialLinks: [
+      {
+        label: "PowerToys",
+        url: "https://apps.microsoft.com/detail/XP89DCGQ3K6VLD",
+        channel: "Microsoft Store",
+      },
+      {
+        label: "安装说明",
+        url: "https://learn.microsoft.com/zh-cn/windows/powertoys/install",
+        channel: "官方支持",
+      },
+    ],
     alternatives: ["Windows 自带设置"],
     caution: "新手可以先不用急着装，熟悉基础操作后再探索。",
     status: "draft",

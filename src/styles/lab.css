@@ -1795,12 +1795,30 @@
 }
 
 .digital-starter-toolbox-hero h1 {
-  max-width: 12ch;
+  width: 100%;
+  max-width: 14ch;
   margin-top: 1.4rem;
   font-size: clamp(3rem, 6vw, 6rem);
   font-weight: 500;
   line-height: 0.98;
   letter-spacing: -0.058em;
+}
+
+.digital-starter-toolbox-title-image {
+  display: inline-block;
+  width: clamp(4.8rem, 9vw, 8.8rem);
+  height: 0.62em;
+  margin: 0 0.08em;
+  border-radius: 999px;
+  background:
+    linear-gradient(90deg, rgba(12, 13, 10, 0.16), rgba(12, 13, 10, 0)),
+    url("https://picsum.photos/seed/software-store-interface/640/240") center / cover;
+  box-shadow:
+    inset 0 0 0 1px rgba(24, 25, 20, 0.12),
+    0 0.14em 0.4em rgba(24, 25, 20, 0.12);
+  filter: grayscale(1) contrast(1.18);
+  vertical-align: 0.02em;
+  transform-origin: center;
 }
 
 .digital-starter-toolbox-hero div > p:last-child,
@@ -1820,6 +1838,44 @@
 
 .digital-starter-toolbox-hero aside p {
   margin-top: 0;
+}
+
+.digital-starter-toolbox-source-marquee {
+  overflow: hidden;
+  border-block: 1px solid rgba(255, 255, 255, 0.09);
+  background: #181914;
+  color: #f5f5ed;
+}
+
+.digital-starter-toolbox-source-track {
+  display: flex;
+  width: max-content;
+  padding: 1rem 0;
+  align-items: center;
+  animation: digital-starter-source-marquee 28s linear infinite;
+}
+
+.digital-starter-toolbox-source-track span {
+  display: inline-flex;
+  padding-left: 2.2rem;
+  align-items: center;
+  gap: 2.2rem;
+  color: rgba(245, 245, 237, 0.68);
+  font-size: clamp(0.78rem, 1.1vw, 0.94rem);
+  letter-spacing: 0.08em;
+}
+
+.digital-starter-toolbox-source-track i {
+  width: 0.38rem;
+  height: 0.38rem;
+  border-radius: 50%;
+  background: #d8ff73;
+}
+
+@keyframes digital-starter-source-marquee {
+  to {
+    transform: translateX(-50%);
+  }
 }
 
 .digital-starter-toolbox-principles,
@@ -1935,17 +1991,23 @@
 
 .digital-starter-tool-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   grid-auto-flow: dense;
   gap: 0.65rem;
 }
 
 .digital-starter-tool-card {
-  display: flex;
-  min-height: 28rem;
+  display: grid;
+  min-height: 30rem;
   padding: 1.15rem;
   border-radius: 1.45rem;
-  flex-direction: column;
+  grid-template-columns: minmax(0, 0.82fr) minmax(28rem, 1.18fr);
+  grid-template-areas:
+    "top top"
+    "title sources"
+    "description sources"
+    "details sources";
+  column-gap: clamp(2rem, 6vw, 6rem);
   background: #f4f3ec;
   color: #181914;
   transition:
@@ -1960,6 +2022,7 @@
 
 .digital-starter-tool-card__top {
   display: flex;
+  grid-area: top;
   justify-content: space-between;
   gap: 1rem;
   color: #77786f;
@@ -1974,6 +2037,7 @@
 }
 
 .digital-starter-tool-card h4 {
+  grid-area: title;
   margin-top: 1.35rem;
   font-size: clamp(1.35rem, 2vw, 2rem);
   font-weight: 500;
@@ -1982,6 +2046,7 @@
 }
 
 .digital-starter-tool-card > p {
+  grid-area: description;
   margin-top: 0.75rem;
   color: #606159;
   line-height: 1.6;
@@ -1989,6 +2054,7 @@
 
 .digital-starter-tool-card dl {
   display: grid;
+  grid-area: details;
   margin: 1.2rem 0 0;
   gap: 0.8rem;
 }
@@ -2005,21 +2071,101 @@
   line-height: 1.55;
 }
 
-.digital-starter-tool-card a {
-  display: inline-flex;
-  width: max-content;
-  margin-top: auto;
-  padding: 0.62rem 0.7rem 0.62rem 0.92rem;
-  border-radius: 999px;
-  align-items: center;
-  gap: 0.65rem;
-  background: #181914;
-  color: #f5f5ed;
-  font-size: 0.78rem;
-  text-decoration: none;
+.digital-starter-tool-card__sources {
+  display: flex;
+  min-width: 0;
+  padding: 1rem;
+  border-radius: 1.2rem;
+  grid-area: sources;
+  flex-direction: column;
+  background:
+    radial-gradient(circle at 85% 12%, rgba(216, 255, 115, 0.16), transparent 15rem),
+    #deddd5;
 }
 
-.digital-starter-tool-card a > span:last-child {
+.digital-starter-tool-card__sources > p {
+  color: #66675f;
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+}
+
+.digital-starter-tool-card__source-links {
+  display: flex;
+  min-height: 19rem;
+  margin-top: 0.8rem;
+  gap: 0.45rem;
+}
+
+.digital-starter-tool-card__source-links a {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  padding: 1rem;
+  overflow: hidden;
+  border-radius: 1rem;
+  flex: 1 1 0;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 1rem;
+  background:
+    radial-gradient(circle at 82% 16%, rgba(216, 255, 115, 0.2), transparent 9rem),
+    #181914;
+  color: #f5f5ed;
+  text-decoration: none;
+  transition:
+    flex-grow 650ms cubic-bezier(0.32, 0.72, 0, 1),
+    transform 650ms cubic-bezier(0.32, 0.72, 0, 1),
+    background-color 650ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.digital-starter-tool-card__source-links a:hover,
+.digital-starter-tool-card__source-links a:focus-visible {
+  flex-grow: 1.45;
+  background-color: #27291f;
+  transform: scale(1.02);
+}
+
+.digital-starter-tool-card__source-links a:focus-visible {
+  outline: 3px solid #d8ff73;
+  outline-offset: 2px;
+}
+
+.digital-starter-tool-card__source-links a[data-source-channel="Microsoft Store"] {
+  background:
+    radial-gradient(circle at 82% 16%, rgba(95, 174, 255, 0.28), transparent 10rem),
+    #17212b;
+}
+
+.digital-starter-tool-card__source-links a[data-source-channel="扩展商店"] {
+  background:
+    radial-gradient(circle at 82% 16%, rgba(255, 171, 86, 0.26), transparent 10rem),
+    #261e17;
+}
+
+.digital-starter-tool-card__source-links a[data-source-channel="官方支持"] {
+  background:
+    radial-gradient(circle at 82% 16%, rgba(197, 174, 255, 0.25), transparent 10rem),
+    #201c29;
+}
+
+.digital-starter-tool-card__source-links strong,
+.digital-starter-tool-card__source-links small {
+  display: block;
+}
+
+.digital-starter-tool-card__source-links strong {
+  font-size: clamp(0.86rem, 1.2vw, 1.05rem);
+  font-weight: 500;
+  line-height: 1.25;
+}
+
+.digital-starter-tool-card__source-links small {
+  margin-top: 0.45rem;
+  color: rgba(245, 245, 237, 0.5);
+  font-size: 0.66rem;
+}
+
+.digital-starter-tool-card__source-links a > span:last-child {
   display: grid;
   width: 1.8rem;
   height: 1.8rem;
@@ -2070,6 +2216,20 @@
   .digital-starter-module-card {
     min-height: auto;
     grid-column: 1;
+  }
+
+  .digital-starter-tool-card {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "top"
+      "title"
+      "description"
+      "details"
+      "sources";
+  }
+
+  .digital-starter-tool-card__sources {
+    margin-top: 1.5rem;
   }
 
   .digital-starter-roadmap-grid {
@@ -2155,6 +2315,15 @@
   .digital-starter-toolbox-priority > p {
     grid-column: 1;
     margin-top: 0;
+  }
+
+  .digital-starter-tool-card__source-links {
+    min-height: auto;
+    flex-direction: column;
+  }
+
+  .digital-starter-tool-card__source-links a {
+    min-height: 8.5rem;
   }
 }
 
