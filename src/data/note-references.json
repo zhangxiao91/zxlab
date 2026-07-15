@@ -1,4 +1,32 @@
 {
   "version": 1,
-  "nodes": {}
+  "nodes": {
+    "关于-bw-的思考": {
+      "slug": "关于-bw-的思考",
+      "title": "关于 BW 的思考",
+      "sourceKey": "50-其他/杂谈/关于 BW 的思考.md",
+      "outgoing": [],
+      "backlinks": [],
+      "external": [],
+      "unpublished": []
+    },
+    "快与慢": {
+      "slug": "快与慢",
+      "title": "快与慢",
+      "sourceKey": "50-其他/杂谈/快与慢.md",
+      "outgoing": [],
+      "backlinks": [],
+      "external": [],
+      "unpublished": []
+    },
+    "赛博乡愁": {
+      "slug": "赛博乡愁",
+      "title": "赛博乡愁",
+      "sourceKey": "50-其他/杂谈/赛博乡愁.md",
+      "outgoing": [],
+      "backlinks": [],
+      "external": [],
+      "unpublished": []
+    }
+  }
 }

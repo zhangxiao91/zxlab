@@ -1,4 +1,38 @@
 {
   "version": 1,
-  "notes": {}
+  "notes": {
+    "关于-bw-的思考": {
+      "source": "50-其他/杂谈/关于 BW 的思考.md",
+      "category": "journal",
+      "slug": "关于-bw-的思考",
+      "title": "关于 BW 的思考",
+      "aliases": [],
+      "publishedAt": "2026-07-15",
+      "output": "src/content/notes/关于-bw-的思考.md",
+      "assets": [],
+      "digest": "da4ffcb84dbb6a2002c9b6818bcca8b4a66e1dfc2785149e4f90a9a5637f805a"
+    },
+    "快与慢": {
+      "source": "50-其他/杂谈/快与慢.md",
+      "category": "journal",
+      "slug": "快与慢",
+      "title": "快与慢",
+      "aliases": [],
+      "publishedAt": "2026-07-15",
+      "output": "src/content/notes/快与慢.md",
+      "assets": [],
+      "digest": "efb98ed53063b461d46e382567fdd172a74d14215217e2674a4b012c5c641182"
+    },
+    "赛博乡愁": {
+      "source": "50-其他/杂谈/赛博乡愁.md",
+      "category": "journal",
+      "slug": "赛博乡愁",
+      "title": "赛博乡愁",
+      "aliases": [],
+      "publishedAt": "2026-07-15",
+      "output": "src/content/notes/赛博乡愁.md",
+      "assets": [],
+      "digest": "d6a716633da415ade34d54633c0162dfefcc3be0f871033d1ee2d2476caae365"
+    }
+  }
 }
