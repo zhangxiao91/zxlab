@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [
+    ".astro/types.d.ts",
+    "src/content.config.ts",
+    "src/data/digitalStarter.ts",
+    "src/components/digital-starter/**/*.astro",
+    "src/pages/lab/digital-starter.astro",
+    "src/pages/lab/digital-starter/**/*.astro"
+  ],
+  "exclude": ["dist", "public", "apps", "services", "node_modules"]
+}

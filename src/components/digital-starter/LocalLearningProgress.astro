@@ -1,0 +1,123 @@
+---
+interface Props {
+  storageKey: string;
+  itemIds: string[];
+  label?: string;
+}
+
+const { storageKey, itemIds, label = "你的进度" } = Astro.props;
+---
+
+<section
+  class="digital-starter-learning-progress"
+  data-learning-progress
+  data-storage-key={storageKey}
+  data-item-ids={itemIds.join(",")}
+  aria-labelledby="learning-progress-title"
+>
+  <div class="digital-starter-learning-progress__copy">
+    <p id="learning-progress-title">{label}：<strong data-progress-count>0 / {itemIds.length}</strong></p>
+    <span>进度只保存在当前浏览器，不需要登录。</span>
+  </div>
+  <div
+    class="digital-starter-learning-progress__track"
+    role="progressbar"
+    aria-label={label}
+    aria-valuemin="0"
+    aria-valuemax={itemIds.length}
+    aria-valuenow="0"
+  >
+    <span data-progress-bar></span>
+  </div>
+  <button type="button" class="digital-starter-learning-progress__reset" data-progress-reset>
+    重置进度
+  </button>
+</section>
+
+<script>
+  const progressRoots = document.querySelectorAll<HTMLElement>("[data-learning-progress]");
+
+  progressRoots.forEach((root) => {
+    const storageKey = root.dataset.storageKey;
+    const itemIds = (root.dataset.itemIds ?? "").split(",").filter(Boolean);
+
+    if (!storageKey || itemIds.length === 0) return;
+
+    const readCompleted = () => {
+      try {
+        const saved = JSON.parse(localStorage.getItem(storageKey) ?? "[]");
+        return new Set<string>(Array.isArray(saved) ? saved.filter((id) => itemIds.includes(id)) : []);
+      } catch {
+        return new Set<string>();
+      }
+    };
+
+    let completed = readCompleted();
+
+    const save = () => {
+      try {
+        localStorage.setItem(storageKey, JSON.stringify([...completed]));
+      } catch {
+        return;
+      }
+    };
+
+    const render = () => {
+      const count = completed.size;
+      const currentId = itemIds.find((id) => !completed.has(id));
+      const countNode = root.querySelector<HTMLElement>("[data-progress-count]");
+      const bar = root.querySelector<HTMLElement>("[data-progress-bar]");
+      const track = root.querySelector<HTMLElement>("[role='progressbar']");
+
+      if (countNode) countNode.textContent = `${count} / ${itemIds.length}`;
+      if (bar) bar.style.width = `${(count / itemIds.length) * 100}%`;
+      track?.setAttribute("aria-valuenow", String(count));
+
+      itemIds.forEach((id) => {
+        const isCompleted = completed.has(id);
+        const status = isCompleted ? "已完成" : id === currentId ? "进行中" : "未开始";
+
+        document.querySelectorAll<HTMLElement>(`[data-progress-status-for="${id}"]`).forEach((node) => {
+          node.textContent = status;
+          node.dataset.progressState = isCompleted ? "completed" : id === currentId ? "active" : "idle";
+        });
+
+        document.querySelectorAll<HTMLButtonElement>(`[data-progress-complete="${id}"]`).forEach((button) => {
+          button.hidden = isCompleted;
+        });
+
+        document.querySelectorAll<HTMLButtonElement>(`[data-progress-cancel="${id}"]`).forEach((button) => {
+          button.hidden = !isCompleted;
+        });
+      });
+    };
+
+    document.querySelectorAll<HTMLButtonElement>("[data-progress-complete]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const id = button.dataset.progressComplete;
+        if (!id || !itemIds.includes(id)) return;
+        completed.add(id);
+        save();
+        render();
+      });
+    });
+
+    document.querySelectorAll<HTMLButtonElement>("[data-progress-cancel]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const id = button.dataset.progressCancel;
+        if (!id || !itemIds.includes(id)) return;
+        completed.delete(id);
+        save();
+        render();
+      });
+    });
+
+    root.querySelector<HTMLButtonElement>("[data-progress-reset]")?.addEventListener("click", () => {
+      completed.clear();
+      save();
+      render();
+    });
+
+    render();
+  });
+</script>

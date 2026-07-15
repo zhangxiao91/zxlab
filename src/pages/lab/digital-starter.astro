@@ -1,220 +1,171 @@
 ---
 import Layout from "../../layouts/Layout.astro";
 import {
-  digitalStarterConnectionNotes,
-  digitalStarterResourceTypeMarks,
-  digitalStarterResourceTypeLabels,
-  digitalStarterResources,
-  digitalStarterRoadmap,
+  digitalStarterFeaturedResources,
+  digitalStarterPublicStatusLabels,
   digitalStarterRoutes,
-  digitalStarterStatusLabels,
   digitalStarterUpdates,
-  type DigitalStarterResourceType,
 } from "../../data/digitalStarter";
 import "../../styles/lab-status-shell.css";
 import "../../styles/lab.css";
 
-const resourceTypes = Object.entries(digitalStarterResourceTypeLabels) as [
-  DigitalStarterResourceType,
-  string,
-][];
-
-const routeIndex = new Map(digitalStarterRoutes.map((route, index) => [route.id, index + 1]));
-const routeResources = new Map(
-  digitalStarterRoutes.map((route) => [
-    route.id,
-    route.resourceIds
-      .map((resourceId) => digitalStarterResources.find((resource) => resource.id === resourceId))
-      .filter((resource) => resource !== undefined),
-  ]),
-);
+const starterTaskHref = "/lab/digital-starter/docs/tasks";
+const starterTaskSteps = ["截取一张图片", "按规则重命名", "压缩为 ZIP 文件", "解压并确认内容"];
+const taskRevealCopy = "先完成一次从截图到解压的完整操作，你就已经真正开始使用电脑了。";
 ---
 
 <Layout
-  title="准大学生数字技能启动包 | Lab | zxlab"
-  description="电脑、AI 和一点点编程的暑假数字技能资料入口。"
+  title="准大学生数字技能启动包 | zxlab"
+  description="进入大学前，用电脑、AI 和一点点编程完成几项真正有用的数字技能任务。"
   lang="zh-CN"
 >
-  <main class="digital-starter-page">
-    <section class="digital-starter-hero" aria-labelledby="digital-starter-title">
+  <main class="digital-starter-page digital-starter-home-v2">
+    <section class="digital-starter-hero digital-starter-home-hero" aria-labelledby="digital-starter-title">
       <div class="digital-starter-hero__copy">
-        <a class="digital-starter-back" href="/lab">← 返回 Lab</a>
-        <p class="digital-starter-kicker">ZXLab Lab 小项目</p>
+        <a class="digital-starter-back" href="/lab">← 返回实验室</a>
+        <p class="digital-starter-kicker">进入大学前，从这里开始</p>
         <h1 id="digital-starter-title">
-          准大学生
-          <span class="digital-starter-title-image" role="img" aria-label="一段抽象的数字工具界面"></span>
-          数字技能启动包
+          准大学生数字技能<span class="digital-starter-home-title-image" aria-hidden="true"></span>启动包
         </h1>
-        <p class="digital-starter-subtitle">电脑、AI 和一点点编程的暑假数字技能资料入口。</p>
-        <p class="digital-starter-intro">
-          高考结束后，你可能第一次真正开始管理自己的电脑、账号、文件、软件、AI 工具和学习资料。
-          这个小项目会整理一套轻量的数字技能路线，帮助你先把常用工具跑通。
-        </p>
-        <div class="digital-starter-actions" aria-label="页面入口">
-          <a class="digital-starter-button" href="#routes">
-            <span>查看三条路线</span><span aria-hidden="true">↓</span>
+        <p class="digital-starter-subtitle">在进入大学前，把电脑、AI 和一点点编程真正用起来。</p>
+        <p class="digital-starter-intro">无需注册，可以随时开始，主要面向 Windows 用户。</p>
+        <div class="digital-starter-actions" aria-label="开始学习">
+          <a class="digital-starter-button" href={starterTaskHref}>
+            <span>开始第一项任务</span><span aria-hidden="true">↗</span>
           </a>
-          <a class="digital-starter-button digital-starter-button--ghost" href="#resources">
-            <span>查看资料入口</span><span aria-hidden="true">↓</span>
-          </a>
-          <a class="digital-starter-button digital-starter-button--ghost" href="#roadmap">
-            <span>查看后续计划</span><span aria-hidden="true">↓</span>
+          <a class="digital-starter-button digital-starter-button--ghost" href="#learning-routes">
+            <span>浏览学习路线</span><span aria-hidden="true">↓</span>
           </a>
         </div>
       </div>
 
-      <div class="digital-starter-hero__panel" data-starter-image>
-        <div class="digital-starter-hero__screen">
-          <p>starter routes</p>
+      <aside class="digital-starter-home-hero__task" aria-label="第一项任务预览" data-starter-image>
+        <div>
+          <span>10 分钟</span>
+          <strong>第一项任务</strong>
+        </div>
+        <h2>完成一次截图、命名、压缩与解压</h2>
+        <ol>
+          {starterTaskSteps.map((step, index) => <li><span>{index + 1}</span>{step}</li>)}
+        </ol>
+      </aside>
+    </section>
+
+    <section class="digital-starter-routes digital-starter-home-routes" id="learning-routes" aria-labelledby="routes-title">
+      <div class="digital-starter-section-heading">
+        <p>三条学习路线</p>
+        <h2 id="routes-title">先选一个眼下最想解决的问题。</h2>
+      </div>
+
+      <div class="digital-starter-home-route-grid">
+        {
+          digitalStarterRoutes.map((route, index) => (
+            <article class="digital-starter-home-route-card" data-starter-reveal>
+              <div class="digital-starter-home-route-card__top">
+                <span>{String(index + 1).padStart(2, "0")}</span>
+                <span data-public-status={route.publicStatus}>
+                  状态：{digitalStarterPublicStatusLabels[route.publicStatus]}
+                </span>
+              </div>
+              <h3>{route.title}</h3>
+              <p>{route.learningOutcome}</p>
+              <strong>{route.durationLabel}</strong>
+              {route.detailHref ? (
+                <a href={route.detailHref}>{route.actionLabel}<span aria-hidden="true">↗</span></a>
+              ) : (
+                <button type="button" disabled aria-describedby={`route-unavailable-${route.id}`}>
+                  {route.actionLabel}
+                </button>
+              )}
+              {!route.detailHref && (
+                <small id={`route-unavailable-${route.id}`}>内容准备好后会在这里开放，不会跳转到空页面。</small>
+              )}
+            </article>
+          ))
+        }
+      </div>
+    </section>
+
+    <section class="digital-starter-first-task" aria-labelledby="first-task-title">
+      <div class="digital-starter-first-task__copy">
+        <p>从一个小任务开始</p>
+        <h2 id="first-task-title">不知道从哪条路线开始？</h2>
+        <p
+          class="digital-starter-first-task__reveal"
+          aria-label={taskRevealCopy}
+          data-scrub-copy
+        >
+          {taskRevealCopy.split("").map((char) => <span aria-hidden="true">{char}</span>)}
+        </p>
+        <a class="digital-starter-button" href={starterTaskHref}>
+          <span>开始 10 分钟任务</span><span aria-hidden="true">↗</span>
+        </a>
+      </div>
+      <ol class="digital-starter-first-task__steps" aria-label="任务步骤摘要">
+        {starterTaskSteps.map((step, index) => (
+          <li data-task-stack>
+            <span>{String(index + 1).padStart(2, "0")}</span>
+            <strong>{step}</strong>
+          </li>
+        ))}
+      </ol>
+    </section>
+
+    <section class="digital-starter-featured" id="featured-resources" aria-labelledby="featured-title">
+      <div class="digital-starter-section-heading digital-starter-section-heading--light">
+        <p>精选资源</p>
+        <h2 id="featured-title">只放现在值得打开的内容。</h2>
+      </div>
+      <div class="digital-starter-featured-grid">
+        {
+          digitalStarterFeaturedResources.map((resource) => (
+            <article class="digital-starter-featured-card" data-starter-reveal>
+              <div>
+                <span>{resource.typeLabel}</span>
+                <span data-public-status={resource.publicStatus}>
+                  {digitalStarterPublicStatusLabels[resource.publicStatus]}
+                </span>
+              </div>
+              <h3>{resource.title}</h3>
+              <p>{resource.description}</p>
+              <small>{resource.duration}</small>
+              {resource.href ? (
+                <a href={resource.href}>{resource.actionLabel}<span aria-hidden="true">↗</span></a>
+              ) : (
+                <button type="button" disabled>{resource.actionLabel}</button>
+              )}
+            </article>
+          ))
+        }
+      </div>
+    </section>
+
+    <section class="digital-starter-training" aria-labelledby="training-title">
+      <div>
+        <p>用于课堂或分享会</p>
+        <h2 id="training-title">digital-starter 也可以作为数字技能培训的配套内容使用。</h2>
+      </div>
+      <div class="digital-starter-training__actions" aria-label="培训功能">
+        <button type="button" disabled>查看课程安排<span>即将开放</span></button>
+        <button type="button" disabled>打开授课模式<span>即将开放</span></button>
+      </div>
+    </section>
+
+    <section class="digital-starter-about">
+      <details>
+        <summary>关于本项目</summary>
+        <div>
+          <p>
+            这是 zxlab 为准大学生整理的轻量数字技能学习项目。内容会优先补齐真实任务与可直接使用的文档，再逐步扩展 AI 和编程路线。
+          </p>
+          <p>
+            页面内容由统一的数据结构维护，后续可以继续接入课程安排、授课模式、示例文件和培训资料。当前更新记录仅供了解项目进度。
+          </p>
           <ol>
-            {digitalStarterRoutes.map((route) => <li>{route.title}</li>)}
+            {digitalStarterUpdates.map((update) => <li><time>{update.date}</time><span>{update.title}</span></li>)}
           </ol>
         </div>
-        <div class="digital-starter-hero__caption">
-          <span>MVP skeleton</span>
-          <span>resource-ready</span>
-        </div>
-      </div>
-    </section>
-
-    <section class="digital-starter-routes" id="routes" aria-labelledby="routes-title">
-      <div class="digital-starter-section-heading">
-        <p>三条路线</p>
-        <h2 id="routes-title">先把方向搭起来，不急着塞满教程。</h2>
-      </div>
-
-      <div class="digital-starter-route-grid">
-        {
-          digitalStarterRoutes.map((route) => (
-            <article class="digital-starter-route-card" data-starter-reveal>
-              <div class="digital-starter-route-card__shell">
-                <div class="digital-starter-route-card__top">
-                  <span>{String(routeIndex.get(route.id)).padStart(2, "0")}</span>
-                  <span>{digitalStarterStatusLabels[route.status]}</span>
-                </div>
-                <h3>{route.title}</h3>
-                <p>{route.description}</p>
-                <ul class="digital-starter-module-list" aria-label={`${route.title}模块`}>
-                  {route.modules.map((module) => <li>{module}</li>)}
-                </ul>
-                <div class="digital-starter-route-card__entrances">
-                  <p>预留入口</p>
-                  <ul>
-                    {(routeResources.get(route.id) ?? []).map((resource) => (
-                      <li>
-                        <span>{digitalStarterResourceTypeLabels[resource.type]}</span>
-                        {resource.title}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-                {
-                  route.detailHref && (
-                    <a class="digital-starter-route-card__link" href={route.detailHref}>
-                      <span>打开路线详情</span><span aria-hidden="true">↗</span>
-                    </a>
-                  )
-                }
-              </div>
-            </article>
-          ))
-        }
-      </div>
-    </section>
-
-    <section class="digital-starter-gateway" id="resources" aria-labelledby="resources-title">
-      <div class="digital-starter-section-heading digital-starter-section-heading--light">
-        <p>资料入口</p>
-        <h2 id="resources-title">资源先统一登记，内容以后逐步接入。</h2>
-      </div>
-
-      <div class="digital-starter-resource-filters" aria-label="筛选资源类型">
-        <button type="button" data-resource-filter="all" aria-pressed="true">全部</button>
-        {resourceTypes.map(([type, label]) => <button type="button" data-resource-filter={type}>{label}</button>)}
-      </div>
-
-      <div class="digital-starter-resource-grid">
-        {
-          digitalStarterResources.map((resource) => {
-            const route = digitalStarterRoutes.find((item) => item.id === resource.routeId);
-            return (
-              <a
-                class="digital-starter-resource-card"
-                href={resource.url}
-                data-resource-type={resource.type}
-                data-starter-reveal
-              >
-                <div class="digital-starter-resource-card__type">
-                  <span>{digitalStarterResourceTypeMarks[resource.type]}</span>
-                  <span>{digitalStarterResourceTypeLabels[resource.type]}</span>
-                </div>
-                <h3>{resource.title}</h3>
-                <p>{resource.description}</p>
-                <div class="digital-starter-resource-card__meta">
-                  <small>{route?.title}</small>
-                  <small>{digitalStarterStatusLabels[resource.status]}</small>
-                </div>
-                <span class="digital-starter-resource-card__action">
-                  {resource.actionLabel}<span aria-hidden="true">↗</span>
-                </span>
-              </a>
-            );
-          })
-        }
-      </div>
-    </section>
-
-    <section class="digital-starter-connection" aria-labelledby="connection-title">
-      <div class="digital-starter-connection__copy">
-        <p>接入方式</p>
-        <h2 id="connection-title" aria-label="页面只负责入口，资源由数据结构统一维护。">
-          {
-            "页面只负责入口，资源由数据结构统一维护。"
-              .split("")
-              .map((char) => <span class="digital-starter-word" aria-hidden="true">{char}</span>)
-          }
-        </h2>
-      </div>
-      <div class="digital-starter-connection__notes">
-        {digitalStarterConnectionNotes.map((note) => <p data-starter-reveal>{note}</p>)}
-      </div>
-    </section>
-
-    <section class="digital-starter-roadmap" id="roadmap" aria-labelledby="roadmap-title">
-      <div class="digital-starter-section-heading">
-        <p>后续计划</p>
-        <h2 id="roadmap-title">第一版保持轻，后面再接真实材料。</h2>
-      </div>
-      <div class="digital-starter-roadmap-grid">
-        {
-          digitalStarterRoadmap.map((item, index) => (
-            <article class="digital-starter-roadmap-card" data-starter-reveal>
-              <span>{String(index + 1).padStart(2, "0")}</span>
-              <h3>{item}</h3>
-            </article>
-          ))
-        }
-      </div>
-    </section>
-
-    <section class="digital-starter-updates" aria-labelledby="updates-title">
-      <div>
-        <p>更新记录</p>
-        <h2 id="updates-title">这个 Lab 项目会随着培训材料逐步长出来。</h2>
-      </div>
-      <ol>
-        {
-          digitalStarterUpdates.map((update) => (
-            <li data-starter-reveal>
-              <time>{update.date}</time>
-              <div>
-                <h3>{update.title}</h3>
-                <p>{update.description}</p>
-              </div>
-            </li>
-          ))
-        }
-      </ol>
+      </details>
     </section>
   </main>
 
@@ -224,65 +175,57 @@ const routeResources = new Map(
 
     gsap.registerPlugin(ScrollTrigger);
 
-    const filters = document.querySelectorAll<HTMLButtonElement>("[data-resource-filter]");
-    const resourceCards = document.querySelectorAll<HTMLElement>("[data-resource-type]");
-
-    filters.forEach((filter) => {
-      filter.addEventListener("click", () => {
-        const activeType = filter.dataset.resourceFilter;
-        filters.forEach((item) => item.setAttribute("aria-pressed", String(item === filter)));
-        resourceCards.forEach((card) => {
-          const visible = activeType === "all" || card.dataset.resourceType === activeType;
-          card.toggleAttribute("hidden", !visible);
-        });
-      });
-    });
-
     const starterMotion = gsap.matchMedia();
 
     starterMotion.add("(prefers-reduced-motion: no-preference)", () => {
       gsap.from(".digital-starter-hero__copy > *", {
-        y: 44,
+        y: 36,
         opacity: 0,
-        duration: 1,
-        stagger: 0.08,
+        duration: 0.82,
+        stagger: 0.07,
         ease: "power3.out",
       });
 
-      gsap.timeline({
-        scrollTrigger: {
-          trigger: ".digital-starter-hero__panel",
-          start: "top 92%",
-          end: "bottom 8%",
-          scrub: 0.8,
-        },
-      })
-        .fromTo(".digital-starter-hero__panel", { scale: 0.84, opacity: 0.5 }, { scale: 1, opacity: 1, ease: "none" })
-        .to(".digital-starter-hero__panel", { scale: 1.025, opacity: 0.28, ease: "none" });
+      gsap.from(".digital-starter-home-hero__task", {
+        scale: 0.86,
+        opacity: 0,
+        duration: 1.1,
+        ease: "power3.out",
+      });
 
       gsap.utils.toArray<HTMLElement>("[data-starter-reveal]").forEach((item) => {
         gsap.from(item, {
-          y: 36,
+          y: 28,
           opacity: 0,
-          duration: 0.82,
+          duration: 0.72,
           ease: "power3.out",
-          scrollTrigger: {
-            trigger: item,
-            start: "top 88%",
-          },
+          scrollTrigger: { trigger: item, start: "top 88%" },
         });
       });
 
-      gsap.to(".digital-starter-word", {
+      gsap.to("[data-scrub-copy] span", {
         opacity: 1,
         stagger: 0.025,
         ease: "none",
         scrollTrigger: {
-          trigger: ".digital-starter-connection",
-          start: "top 72%",
-          end: "bottom 58%",
+          trigger: ".digital-starter-first-task",
+          start: "top 76%",
+          end: "center 56%",
           scrub: 0.8,
         },
+      });
+
+      gsap.utils.toArray<HTMLElement>("[data-task-stack]").forEach((card, index) => {
+        gsap.from(card, {
+          y: 72 + index * 18,
+          rotate: index % 2 === 0 ? -1.5 : 1.5,
+          scrollTrigger: {
+            trigger: ".digital-starter-first-task__steps",
+            start: "top 82%",
+            end: "bottom 62%",
+            scrub: 0.7,
+          },
+        });
       });
     });
   </script>

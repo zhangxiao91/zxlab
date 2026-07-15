@@ -1,16 +1,11 @@
 ---
 import Layout from "../../../layouts/Layout.astro";
+import LocalLearningProgress from "../../../components/digital-starter/LocalLearningProgress.astro";
 import {
-  digitalStarterAssets,
-  digitalStarterDocs,
-  digitalStarterResourceTypeLabels,
-  digitalStarterResourceTypeMarks,
-  digitalStarterResources,
+  digitalStarterPublicStatusLabels,
   digitalStarterRouteModules,
   digitalStarterRoutes,
   digitalStarterSafetyNotes,
-  digitalStarterStatusLabels,
-  digitalStarterTasks,
 } from "../../../data/digitalStarter";
 import "../../../styles/lab-status-shell.css";
 import "../../../styles/lab.css";
@@ -22,91 +17,99 @@ if (!route) {
 }
 
 const modules = digitalStarterRouteModules.filter((module) => module.routeId === route.id);
-const routeResources = digitalStarterResources.filter((resource) => resource.routeId === route.id);
-const routeDocs = digitalStarterDocs.filter((doc) => doc.routeId === route.id);
-const routeAssets = digitalStarterAssets.filter((asset) => asset.routeId === route.id);
-const routeTasks = digitalStarterTasks.filter((task) => task.routeId === route.id);
 ---
 
 <Layout
-  title="只想会用电脑 | 准大学生数字技能启动包 | zxlab"
-  description="从文件、快捷键、软件安装到跨设备同步，先把电脑用顺手。"
+  title="电脑基础学习路线 | 准大学生数字技能启动包 | zxlab"
+  description="用四个模块掌握文件管理、快捷键、软件工具和跨设备同步。"
   lang="zh-CN"
 >
-  <main class="digital-starter-detail-page">
-    <section class="digital-starter-detail-hero" aria-labelledby="computer-route-title">
+  <main class="digital-starter-detail-page digital-starter-computer-v2">
+    <section class="digital-starter-detail-hero digital-starter-computer-hero" aria-labelledby="computer-route-title">
       <div class="digital-starter-detail-hero__copy">
         <a class="digital-starter-back" href="/lab/digital-starter">← 返回数字技能启动包</a>
-        <p class="digital-starter-kicker">电脑基础路线</p>
-        <h1 id="computer-route-title">{route.title}</h1>
-        <p class="digital-starter-subtitle">{route.subtitle}</p>
-        <p class="digital-starter-intro">{route.description}</p>
-        <div class="digital-starter-route-meta" aria-label="路线状态与适合人群">
-          <span>优先路线</span>
-          <span>{digitalStarterStatusLabels[route.status]}</span>
-          {route.audience?.map((item) => <span>{item}</span>)}
+        <p class="digital-starter-kicker">已开放的学习路线</p>
+        <h1 id="computer-route-title">把电脑真正用顺手</h1>
+        <p class="digital-starter-subtitle">{route.learningOutcome}</p>
+        <p class="digital-starter-intro">按顺序完成四个短模块，大约一小时。你也可以只打开眼下最需要的一项。</p>
+        <div class="digital-starter-computer-hero__meta">
+          <span>{route.durationLabel}</span>
+          <span>{digitalStarterPublicStatusLabels[route.publicStatus]}</span>
+          <span>主要面向 Windows</span>
         </div>
-        <div class="digital-starter-actions" aria-label="路线页面入口">
-          <a class="digital-starter-button" href="#modules">
-            <span>查看四个模块</span><span aria-hidden="true">↓</span>
+        <div class="digital-starter-actions">
+          <a class="digital-starter-button" href="#computer-modules">
+            <span>开始第一个模块</span><span aria-hidden="true">↓</span>
           </a>
-          <a class="digital-starter-button digital-starter-button--ghost" href="#computer-resources">
-            <span>查看资源入口</span><span aria-hidden="true">↓</span>
-          </a>
-          <a class="digital-starter-button digital-starter-button--ghost" href="#mini-tasks">
-            <span>先做三个任务</span><span aria-hidden="true">↓</span>
+          <a class="digital-starter-button digital-starter-button--ghost" href="/lab/digital-starter/docs/tasks">
+            <span>先做 10 分钟任务</span><span aria-hidden="true">↗</span>
           </a>
         </div>
       </div>
-
-      <div class="digital-starter-detail-hero__panel" data-starter-image>
-        <div class="digital-starter-detail-hero__screen">
-          <p>路线模块</p>
-          <ol>
-            {modules.map((module) => <li>{module.title}</li>)}
-          </ol>
-        </div>
-      </div>
+      <aside class="digital-starter-computer-hero__map" aria-label="路线概览" data-starter-image>
+        <p>一小时学习路线</p>
+        <ol>
+          {modules.map((module, index) => (
+            <li><span>{String(index + 1).padStart(2, "0")}</span><strong>{module.title}</strong><small>{module.duration}</small></li>
+          ))}
+        </ol>
+      </aside>
     </section>
 
-    <section class="digital-starter-module-section" id="modules" aria-labelledby="computer-modules-title">
+    <section class="digital-starter-computer-learning" id="computer-modules" aria-labelledby="computer-modules-title">
       <div class="digital-starter-section-heading">
-        <p>路线模块</p>
-        <h2 id="computer-modules-title">先掌握高频操作，再慢慢补工具细节。</h2>
+        <p>四个模块</p>
+        <h2 id="computer-modules-title">跟着顺序走，每一步都有明确结果。</h2>
       </div>
 
-      <div class="digital-starter-module-grid">
+      <LocalLearningProgress
+        storageKey="zxlab:digital-starter:computer:v1"
+        itemIds={modules.map((module) => module.id)}
+      />
+
+      <div class="digital-starter-computer-timeline">
         {
           modules.map((module, index) => (
-            <article class="digital-starter-module-card" data-starter-reveal>
-              <div class="digital-starter-module-card__top">
+            <article class="digital-starter-computer-module" data-starter-reveal>
+              <div class="digital-starter-computer-module__rail" aria-hidden="true">
                 <span>{String(index + 1).padStart(2, "0")}</span>
-                <span>{module.title}</span>
               </div>
-              <h3>{module.title}</h3>
-              <p>{module.description}</p>
-
-              <div class="digital-starter-module-card__block">
-                <h4>关键能力</h4>
-                <ul aria-label={module.title + "关键能力"}>
-                  {module.capabilities.map((capability) => <li>{capability}</li>)}
-                </ul>
-              </div>
-
-              {
-                module.toolCategories && (
-                  <div class="digital-starter-module-card__block">
-                    <h4>推荐工具类别</h4>
-                    <ul class="digital-starter-module-card__tags" aria-label="推荐工具类别">
-                      {module.toolCategories.map((category) => <li>{category}</li>)}
-                    </ul>
+              <div class="digital-starter-computer-module__content">
+                <div class="digital-starter-computer-module__heading">
+                  <div>
+                    <p>模块 {String(index + 1).padStart(2, "0")}</p>
+                    <h3>{module.title}</h3>
                   </div>
-                )
-              }
-
-              <div class="digital-starter-module-card__task">
-                <span>建议任务</span>
-                <p>{module.task}</p>
+                  <span data-progress-status-for={module.id} data-progress-state="idle">未开始</span>
+                </div>
+                <p class="digital-starter-computer-module__outcome">{module.outcome}</p>
+                <dl>
+                  <div>
+                    <dt>核心文档</dt>
+                    <dd><a href={module.coreDocument.href}>{module.coreDocument.title}</a></dd>
+                  </div>
+                  <div>
+                    <dt>实战任务</dt>
+                    <dd>
+                      {module.practice.href ? <a href={module.practice.href}>{module.practice.title}</a> : module.practice.title}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>可选扩展</dt>
+                    <dd>
+                      {module.extension ? <a href={module.extension.href}>{module.extension.title}</a> : "完成核心文档后再继续"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>预计用时</dt>
+                    <dd>{module.duration}</dd>
+                  </div>
+                </dl>
+                <div class="digital-starter-computer-module__actions">
+                  <a href={module.coreDocument.href}>开始模块<span aria-hidden="true">↗</span></a>
+                  <button type="button" data-progress-complete={module.id}>标记完成</button>
+                  <button type="button" data-progress-cancel={module.id} hidden>取消完成</button>
+                </div>
               </div>
             </article>
           ))
@@ -114,110 +117,14 @@ const routeTasks = digitalStarterTasks.filter((task) => task.routeId === route.i
       </div>
     </section>
 
-    <section class="digital-starter-route-resources" id="computer-resources" aria-labelledby="computer-resources-title">
-      <div class="digital-starter-section-heading digital-starter-section-heading--light">
-        <p>资源入口</p>
-        <h2 id="computer-resources-title">文档和任务已经能用，文件会继续接入。</h2>
-      </div>
-
-      <div class="digital-starter-resource-grid digital-starter-resource-grid--route">
-        {
-          routeResources.map((resource) => (
-            <a class="digital-starter-resource-card" href={resource.url} data-resource-type={resource.type} data-starter-reveal>
-              <div class="digital-starter-resource-card__type">
-                <span>{digitalStarterResourceTypeMarks[resource.type]}</span>
-                <span>{digitalStarterResourceTypeLabels[resource.type]}</span>
-              </div>
-              <h3>{resource.title}</h3>
-              <p>{resource.description}</p>
-              <div class="digital-starter-resource-card__meta">
-                <small>{route.title}</small>
-                <small>{digitalStarterStatusLabels[resource.status]}</small>
-              </div>
-              <span class="digital-starter-resource-card__action">
-                {resource.actionLabel}<span aria-hidden="true">↗</span>
-              </span>
-            </a>
-          ))
-        }
-      </div>
-    </section>
-
-    <section class="digital-starter-docs-preview" aria-labelledby="computer-docs-title">
+    <section class="digital-starter-safety-note" aria-labelledby="computer-safety-title">
       <div>
-        <p>文档索引</p>
-        <h2 id="computer-docs-title">先用 v0.1 解决眼前的问题，再慢慢补细节。</h2>
-      </div>
-
-      <div class="digital-starter-docs-preview__grid">
-        {
-          routeDocs.map((doc) => (
-            <article data-starter-reveal>
-              <div>
-                <span>{digitalStarterStatusLabels[doc.status]}</span>
-                <time>{doc.updatedAt}</time>
-              </div>
-              <h3>{doc.title}</h3>
-              <p>{doc.description}</p>
-              <a href={doc.path}>进入文档<span aria-hidden="true">↗</span></a>
-            </article>
-          ))
-        }
-      </div>
-    </section>
-
-    <section class="digital-starter-mini-tasks" id="mini-tasks" aria-labelledby="mini-tasks-title">
-      <div class="digital-starter-section-heading">
-        <p>先做这三个小任务</p>
-        <h2 id="mini-tasks-title">不用等课程完整，先把电脑用起来。</h2>
-      </div>
-
-      <div class="digital-starter-mini-task-grid">
-        {
-          routeTasks.map((task, index) => (
-            <article data-starter-reveal>
-              <span>{String(index + 1).padStart(2, "0")}</span>
-              <h3>{task.title}</h3>
-              <p>{task.description}</p>
-              <ul aria-label={task.title + "步骤"}>
-                {task.steps.map((step) => <li>{step}</li>)}
-              </ul>
-            </article>
-          ))
-        }
-      </div>
-    </section>
-
-    <section class="digital-starter-safety-note" aria-labelledby="safety-title">
-      <div>
-        <p>安全提醒</p>
-        <h2 id="safety-title">先把几个底线习惯固定下来。</h2>
+        <p>先养成安全习惯</p>
+        <h2 id="computer-safety-title">遇到不确定的操作，先停一下再确认。</h2>
       </div>
       <ul>
         {digitalStarterSafetyNotes.map((note) => <li>{note}</li>)}
       </ul>
-    </section>
-
-    <section class="digital-starter-entry-index" aria-labelledby="computer-entry-title">
-      <div>
-        <p>资产入口</p>
-        <h2 id="computer-entry-title">文件和课件会继续接到这里。</h2>
-      </div>
-      <div class="digital-starter-entry-index__grid">
-        <article>
-          <h3>当前资产</h3>
-          <ul>
-            {
-              routeAssets.map((asset) => (
-                <li>
-                  <a href={asset.url}>{asset.title}</a>
-                  <span>{asset.fileType} · {digitalStarterStatusLabels[asset.status]}</span>
-                </li>
-              ))
-            }
-          </ul>
-        </article>
-      </div>
     </section>
   </main>
 
@@ -226,39 +133,31 @@ const routeTasks = digitalStarterTasks.filter((task) => task.routeId === route.i
     import { ScrollTrigger } from "gsap/ScrollTrigger";
 
     gsap.registerPlugin(ScrollTrigger);
-
     const detailMotion = gsap.matchMedia();
 
     detailMotion.add("(prefers-reduced-motion: no-preference)", () => {
       gsap.from(".digital-starter-detail-hero__copy > *", {
-        y: 42,
+        y: 34,
         opacity: 0,
-        duration: 0.95,
-        stagger: 0.08,
+        duration: 0.8,
+        stagger: 0.07,
         ease: "power3.out",
       });
 
-      gsap.timeline({
-        scrollTrigger: {
-          trigger: ".digital-starter-detail-hero__panel",
-          start: "top 92%",
-          end: "bottom 8%",
-          scrub: 0.8,
-        },
-      })
-        .fromTo(".digital-starter-detail-hero__panel", { scale: 0.86, opacity: 0.5 }, { scale: 1, opacity: 1, ease: "none" })
-        .to(".digital-starter-detail-hero__panel", { scale: 1.02, opacity: 0.3, ease: "none" });
+      gsap.from(".digital-starter-computer-hero__map", {
+        scale: 0.86,
+        opacity: 0,
+        duration: 1,
+        ease: "power3.out",
+      });
 
       gsap.utils.toArray<HTMLElement>("[data-starter-reveal]").forEach((item) => {
         gsap.from(item, {
-          y: 34,
+          y: 30,
           opacity: 0,
-          duration: 0.78,
+          duration: 0.72,
           ease: "power3.out",
-          scrollTrigger: {
-            trigger: item,
-            start: "top 88%",
-          },
+          scrollTrigger: { trigger: item, start: "top 88%" },
         });
       });
     });

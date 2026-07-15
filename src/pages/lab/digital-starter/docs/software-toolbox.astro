@@ -3,8 +3,8 @@ import Layout from "../../../../layouts/Layout.astro";
 import {
   digitalStarterRoutes,
   digitalStarterSoftwareCategories,
+  digitalStarterSoftwareScenarios,
   digitalStarterSoftwareTools,
-  digitalStarterStatusLabels,
   type DigitalStarterSoftwareToolType,
 } from "../../../../data/digitalStarter";
 import "../../../../styles/lab-status-shell.css";
@@ -14,87 +14,76 @@ const route = digitalStarterRoutes.find((item) => item.id === "computer");
 
 const typeLabels: Record<DigitalStarterSoftwareToolType, string> = {
   software: "软件",
-  plugin: "插件",
-  web: "Web",
+  plugin: "浏览器插件",
+  web: "网页工具",
   system: "系统工具",
 };
 
+const scenarioTargetByCategory = new Map(
+  digitalStarterSoftwareScenarios.map((scenario) => [scenario.category, scenario.targetId]),
+);
+const categoryIds = new Map(
+  digitalStarterSoftwareCategories.map((category, index) => [
+    category,
+    scenarioTargetByCategory.get(category) ?? `software-category-${index + 1}`,
+  ]),
+);
+
 const principles = [
-  "不要为了“必装”而装很多软件。",
-  "每一类工具先选 1 个主力，用熟之后再扩展。",
-  "优先从官网、应用商店或可信来源下载。",
-  "安装时注意捆绑软件、开机自启动和默认打开方式。",
-  "插件越多，浏览器越容易变慢，也会增加权限风险。",
-  "先解决真实需求，再考虑高级工具。",
-];
-
-const starterPriorities = [
-  "浏览器",
-  "压缩解压",
-  "截图",
-  "文档与 PDF",
-  "同步备份",
-  "密码管理",
-  "编程入门工具，按兴趣选择",
-];
-
-const downloadSafety = [
-  "优先从官网或应用商店下载。",
-  "不要点击页面上不明的“高速下载”。",
-  "安装时看清附加选项。",
-  "不要运行来路不明的 exe 文件。",
-  "浏览器插件要看权限。",
-  "不常用的软件可以卸载。",
-];
-
-const trustedSourceLabels = [
-  "产品官网",
-  "Microsoft Store",
-  "浏览器扩展商店",
-  "官方支持页面",
+  "每一类先选一个主力工具，用熟之后再考虑替代品。",
+  "能用 Windows 自带功能解决时，不必为了“必装”而安装。",
+  "只从官网、应用商店或浏览器官方扩展商店获取软件。",
 ];
 ---
 
 <Layout
-  title="推荐插件与软件列表 | Digital Starter | zxlab"
-  description="给准大学生的 Windows 基础工具箱：先装真正用得上的，再慢慢扩展。"
+  title="推荐软件与插件 | 数字技能启动包 | zxlab"
+  description="按真实使用场景选择 Windows 软件，了解默认推荐、可选替代和官方获取入口。"
   lang="zh-CN"
-  current="lab"
 >
-  <main class="digital-starter-toolbox-page">
+  <main class="digital-starter-toolbox-page digital-starter-toolbox-v2">
     <section class="digital-starter-toolbox-hero" aria-labelledby="software-toolbox-title">
       <div>
-        <a class="digital-starter-back" href="/lab/digital-starter/computer">← 返回 {route?.title ?? "只想会用电脑"}</a>
-        <p class="digital-starter-kicker">软件工具箱</p>
+        <a class="digital-starter-back" href="/lab/digital-starter/computer">← 返回 {route?.title ?? "电脑基础"}</a>
+        <p class="digital-starter-kicker">按问题找工具</p>
         <h1 id="software-toolbox-title">
-          推荐插件与
+          推荐软件与
           <span class="digital-starter-toolbox-title-image" aria-hidden="true"></span>
-          软件列表
+          插件
         </h1>
-        <p>给准大学生的 Windows 基础工具箱：先装真正用得上的，再慢慢扩展。</p>
+        <p>不做“装机大全”。先说清楚默认选什么、什么时候需要替代品，以及什么时候根本不用安装。</p>
       </div>
-      <aside aria-label="文档定位">
-        <p>
-          这不是“装机必备大全”，而是一份适合新手的轻量工具箱。每类工具只推荐少量代表，重点说明它解决什么问题、适合谁、下载时注意什么。
-        </p>
+      <aside aria-label="选择原则">
+        <p>刚拿到电脑时，先使用系统自带功能。遇到明确问题，再从下面的官方入口补一个工具。</p>
       </aside>
     </section>
 
-    <div
-      class="digital-starter-toolbox-source-marquee"
-      aria-label="可信获取来源：产品官网、Microsoft Store、浏览器扩展商店、官方支持页面"
-    >
-      <div class="digital-starter-toolbox-source-track" aria-hidden="true">
-        {[...trustedSourceLabels, ...trustedSourceLabels].map((label) => (
-          <span>{label}<i></i></span>
+    <nav class="digital-starter-toolbox-scenarios" aria-labelledby="toolbox-scenarios-title">
+      <div class="digital-starter-toolbox-scenarios__heading">
+        <div>
+          <p>快速定位</p>
+          <h2 id="toolbox-scenarios-title">你现在想解决什么问题？</h2>
+        </div>
+        <div aria-label="滚动场景导航">
+          <button type="button" data-scenario-scroll="previous" aria-label="向前查看更多问题">←</button>
+          <button type="button" data-scenario-scroll="next" aria-label="向后查看更多问题">→</button>
+        </div>
+      </div>
+      <div class="digital-starter-toolbox-scenarios__track" data-scenario-track>
+        {digitalStarterSoftwareScenarios.map((scenario, index) => (
+          <a href={`#${scenario.targetId}`}>
+            <span>{String(index + 1).padStart(2, "0")}</span>
+            <strong>{scenario.label}</strong>
+            <small>查看建议 ↓</small>
+          </a>
         ))}
       </div>
-    </div>
+    </nav>
 
     <section class="digital-starter-toolbox-principles" aria-labelledby="toolbox-principles-title">
       <div>
-        <p>使用原则</p>
-        <h2 id="toolbox-principles-title">先让工具服务需求，而不是让电脑变成软件仓库。</h2>
+        <p>先做选择</p>
+        <h2 id="toolbox-principles-title">工具越少，越容易真正用熟。</h2>
       </div>
       <ul>
         {principles.map((principle) => <li>{principle}</li>)}
@@ -103,24 +92,21 @@ const trustedSourceLabels = [
 
     <section class="digital-starter-toolbox-catalog" aria-labelledby="toolbox-catalog-title">
       <div class="digital-starter-section-heading digital-starter-section-heading--light">
-        <p>分类列表</p>
-        <h2 id="toolbox-catalog-title">按使用场景找到工具，再从官方入口获取。</h2>
-      </div>
-
-      <div class="digital-starter-toolbox-category-list" aria-label="软件分类">
-        {digitalStarterSoftwareCategories.map((category) => <span>{category}</span>)}
+        <p>软件选择清单</p>
+        <h2 id="toolbox-catalog-title">每类工具先给你一个明确答案。</h2>
       </div>
 
       <div class="digital-starter-toolbox-sections">
         {
           digitalStarterSoftwareCategories.map((category) => {
             const tools = digitalStarterSoftwareTools.filter((tool) => tool.category === category);
+            const categoryId = categoryIds.get(category);
 
             return (
-              <section class="digital-starter-toolbox-category" aria-labelledby={`tool-category-${category}`}>
+              <section class="digital-starter-toolbox-category" id={categoryId} aria-labelledby={`${categoryId}-title`}>
                 <div class="digital-starter-toolbox-category__heading">
-                  <h3 id={`tool-category-${category}`}>{category}</h3>
-                  <span>{tools.length > 0 ? `${tools.length} 个示例` : "待补充"}</span>
+                  <h3 id={`${categoryId}-title`}>{category}</h3>
+                  <span>{tools.length > 0 ? "选择建议" : "即将开放"}</span>
                 </div>
                 {tools.length > 0 ? (
                   <div class="digital-starter-tool-grid">
@@ -128,38 +114,44 @@ const trustedSourceLabels = [
                       <article class="digital-starter-tool-card" data-starter-reveal>
                         <div class="digital-starter-tool-card__top">
                           <span>{typeLabels[tool.type]}</span>
-                          <span>{digitalStarterStatusLabels[tool.status]}</span>
+                          <span>{tool.freeLabel}</span>
                         </div>
-                        <h4>{tool.name}</h4>
+                        <h4>{tool.defaultChoice}</h4>
                         <p>{tool.description}</p>
-                        <dl>
-                          <div>
-                            <dt>适合场景</dt>
-                            <dd>{tool.useCase}</dd>
+                        <dl class="digital-starter-tool-card__decision">
+                          <div data-choice-level="default">
+                            <dt>默认推荐</dt>
+                            <dd>{tool.defaultChoice}</dd>
                           </div>
+                          <div data-choice-level="optional">
+                            <dt>可选替代</dt>
+                            <dd>{tool.optionalChoice}</dd>
+                          </div>
+                          <div data-choice-level="skip">
+                            <dt>暂时无需安装</dt>
+                            <dd>{tool.noInstallChoice}</dd>
+                          </div>
+                        </dl>
+                        <dl class="digital-starter-tool-card__facts">
                           <div>
-                            <dt>适合谁</dt>
+                            <dt>适合什么人</dt>
                             <dd>{tool.recommendedFor}</dd>
                           </div>
                           <div>
-                            <dt>平台</dt>
-                            <dd>{tool.platform.join(" / ")}</dd>
+                            <dt>主要用途</dt>
+                            <dd>{tool.useCase}</dd>
                           </div>
-                          {tool.alternatives && (
-                            <div>
-                              <dt>替代品</dt>
-                              <dd>{tool.alternatives.join(" / ")}</dd>
-                            </div>
-                          )}
-                          {tool.caution && (
-                            <div>
-                              <dt>注意</dt>
-                              <dd>{tool.caution}</dd>
-                            </div>
-                          )}
+                          <div>
+                            <dt>是否免费</dt>
+                            <dd>{tool.freeLabel}</dd>
+                          </div>
+                          <div>
+                            <dt>安装注意事项</dt>
+                            <dd>{tool.caution ?? "安装前确认来源，安装后检查默认打开方式和开机启动项。"}</dd>
+                          </div>
                         </dl>
                         <div class="digital-starter-tool-card__sources">
-                          <p>官方获取方式</p>
+                          <p>官方下载入口</p>
                           <div class="digital-starter-tool-card__source-links">
                             {tool.officialLinks.map((link) => (
                               <a
@@ -183,7 +175,7 @@ const trustedSourceLabels = [
                     ))}
                   </div>
                 ) : (
-                  <p class="digital-starter-toolbox-empty">这个分类先留出位置，后续按课程需要补充。</p>
+                  <p class="digital-starter-toolbox-empty">这类工具尚未整理完成，当前不提供跳转入口。</p>
                 )}
               </section>
             );
@@ -192,83 +184,82 @@ const trustedSourceLabels = [
       </div>
     </section>
 
-    <section class="digital-starter-toolbox-priority" aria-labelledby="toolbox-priority-title">
-      <div>
-        <p>新手优先级</p>
-        <h2 id="toolbox-priority-title">刚拿到 Windows 电脑时，不需要一次性全部安装。</h2>
-      </div>
-      <ul>
-        {starterPriorities.map((item) => <li>{item}</li>)}
-      </ul>
-      <p>先用到什么，再补什么。能用系统自带功能解决的，就先别急着装第三方工具。</p>
-    </section>
-
     <section class="digital-starter-safety-note" aria-labelledby="toolbox-safety-title">
       <div>
-        <p>下载安全提醒</p>
-        <h2 id="toolbox-safety-title">安装软件之前，先多看两眼来源和权限。</h2>
+        <p>下载前最后检查</p>
+        <h2 id="toolbox-safety-title">官网、版本、附加选项，安装前都看一眼。</h2>
       </div>
       <ul>
-        {downloadSafety.map((item) => <li>{item}</li>)}
+        <li>确认地址栏域名属于产品官网或可信应用商店。</li>
+        <li>避开“高速下载”“安全下载器”和页面里的广告按钮。</li>
+        <li>安装时取消不需要的附加软件、主页修改和开机自启动。</li>
+        <li><a href="/lab/digital-starter/docs/safe-download">打开完整的安全下载软件指南</a></li>
       </ul>
     </section>
   </main>
+
+  <script>
+    import gsap from "gsap";
+    import { ScrollTrigger } from "gsap/ScrollTrigger";
+
+    gsap.registerPlugin(ScrollTrigger);
+
+    const track = document.querySelector<HTMLElement>("[data-scenario-track]");
+    document.querySelectorAll<HTMLButtonElement>("[data-scenario-scroll]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const direction = button.dataset.scenarioScroll === "next" ? 1 : -1;
+        track?.scrollBy({ left: direction * Math.min(track.clientWidth * 0.8, 620), behavior: "smooth" });
+      });
+    });
+
+    const toolboxMotion = gsap.matchMedia();
+
+    toolboxMotion.add("(prefers-reduced-motion: no-preference)", () => {
+      gsap.from("[data-starter-reveal]", {
+        y: 30,
+        opacity: 0,
+        duration: 0.7,
+        ease: "power3.out",
+        stagger: 0.04,
+        scrollTrigger: {
+          trigger: ".digital-starter-toolbox-catalog",
+          start: "top 74%",
+        },
+      });
+
+      gsap.timeline({
+        scrollTrigger: {
+          trigger: ".digital-starter-toolbox-hero",
+          start: "top top",
+          end: "bottom top",
+          scrub: 0.8,
+        },
+      })
+        .fromTo(
+          ".digital-starter-toolbox-title-image",
+          { scale: 0.8, opacity: 0.45 },
+          { scale: 1, opacity: 1, ease: "none" },
+        )
+        .to(".digital-starter-toolbox-title-image", {
+          opacity: 0.2,
+          filter: "grayscale(1) brightness(0.45)",
+          ease: "none",
+        });
+    });
+
+    toolboxMotion.add("(min-width: 65rem) and (prefers-reduced-motion: no-preference)", () => {
+      gsap.utils.toArray<HTMLElement>(".digital-starter-toolbox-category__heading").forEach((heading) => {
+        const category = heading.parentElement;
+        if (!category) return;
+
+        ScrollTrigger.create({
+          trigger: category,
+          start: "top 7rem",
+          end: "bottom 12rem",
+          pin: heading,
+          pinSpacing: false,
+        });
+      });
+    });
+  </script>
 </Layout>
-
-<script>
-  import gsap from "gsap";
-  import { ScrollTrigger } from "gsap/ScrollTrigger";
-
-  gsap.registerPlugin(ScrollTrigger);
-
-  const toolboxMotion = gsap.matchMedia();
-
-  toolboxMotion.add("(prefers-reduced-motion: no-preference)", () => {
-    gsap.from("[data-starter-reveal]", {
-      y: 36,
-      opacity: 0,
-      duration: 0.75,
-      ease: "power3.out",
-      stagger: 0.05,
-      scrollTrigger: {
-        trigger: ".digital-starter-toolbox-catalog",
-        start: "top 72%",
-      },
-    });
-
-    gsap.timeline({
-      scrollTrigger: {
-        trigger: ".digital-starter-toolbox-hero",
-        start: "top top",
-        end: "bottom top",
-        scrub: 0.8,
-      },
-    })
-      .fromTo(
-        ".digital-starter-toolbox-title-image",
-        { scale: 0.8, opacity: 0.45 },
-        { scale: 1, opacity: 1, ease: "none" },
-      )
-      .to(".digital-starter-toolbox-title-image", {
-        opacity: 0.2,
-        filter: "grayscale(1) brightness(0.45)",
-        ease: "none",
-      });
-  });
-
-  toolboxMotion.add("(min-width: 65rem) and (prefers-reduced-motion: no-preference)", () => {
-    gsap.utils.toArray<HTMLElement>(".digital-starter-toolbox-category__heading").forEach((heading) => {
-      const category = heading.parentElement;
-
-      if (!category) return;
-
-      ScrollTrigger.create({
-        trigger: category,
-        start: "top 7rem",
-        end: "bottom 12rem",
-        pin: heading,
-        pinSpacing: false,
-      });
-    });
-  });
-</script>
