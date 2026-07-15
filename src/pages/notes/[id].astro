@@ -37,10 +37,11 @@ interface Props {
 
 const { note, notes } = Astro.props;
 const { Content, headings } = await render(note);
+const noteDate = note.data.updatedAt ?? note.data.publishedAt;
 const sortedNotes = notes.filter(
   (item) => item.data.category === note.data.category,
 ).sort(
-  (a, b) => b.data.publishedAt.valueOf() - a.data.publishedAt.valueOf(),
+  (a, b) => (b.data.updatedAt ?? b.data.publishedAt).valueOf() - (a.data.updatedAt ?? a.data.publishedAt).valueOf(),
 );
 const noteIndex = sortedNotes.findIndex((item) => item.id === note.id);
 const previousNote = sortedNotes[noteIndex + 1];
@@ -64,6 +65,7 @@ const articleJsonLd = {
   headline: note.data.title,
   description: note.data.description,
   datePublished: note.data.publishedAt.toISOString(),
+  dateModified: noteDate.toISOString(),
   mainEntityOfPage: canonicalNoteUrl,
   url: canonicalNoteUrl,
   keywords: note.data.tags,
@@ -94,8 +96,8 @@ const dateFormatter = new Intl.DateTimeFormat("en-US", {
 
         <div class="longform-hero__content">
           <a href="/notes">← Back to notes</a>
-          <time datetime={note.data.publishedAt.toISOString()}>
-            {dateFormatter.format(note.data.publishedAt)}
+          <time datetime={noteDate.toISOString()}>
+            Updated {dateFormatter.format(noteDate)}
           </time>
           <h1>{note.data.title}</h1>
           <p>{note.data.description}</p>

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -55,6 +55,7 @@ test("category sync preserves references, sources, assets, and stable dates", as
       "可定位内容。 ^anchor",
     ].join("\n"),
   );
+  await utimes(path.join(vault, "技术记录.md"), new Date("2025-12-31T12:00:00Z"), new Date("2025-12-31T12:00:00Z"));
 
   await syncObsidianNotes({ category: "journal", repoRoot: repo, vaultRoot: vault, today: "2026-01-01" });
   const technical = await syncObsidianNotes({ category: "technical", repoRoot: repo, vaultRoot: vault, today: "2026-01-02" });
@@ -66,6 +67,7 @@ test("category sync preserves references, sources, assets, and stable dates", as
 
   const output = await readFile(path.join(repo, "src", "content", "notes", "技术记录.md"), "utf8");
   assert.match(output, /publishedAt: 2026-01-02/);
+  assert.match(output, /updatedAt: 2025-12-31/);
   assert.match(output, /\/notes\/%E6%85%A2%E4%B8%8B%E6%9D%A5/);
   assert.match(output, /\/assets\/notes\/技术记录\/01-diagram.png/);
   assert.match(output, /\/assets\/notes\/技术记录\/02-embedded-image.png/);

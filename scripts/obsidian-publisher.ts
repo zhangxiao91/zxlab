@@ -23,6 +23,7 @@ export interface ManifestEntry {
   title: string;
   aliases: string[];
   publishedAt: string;
+  updatedAt: string;
   output: string;
   assets: string[];
   digest: string;
@@ -91,6 +92,7 @@ interface SourceNote {
   title: string;
   aliases: string[];
   publish: boolean;
+  modifiedAt: string;
 }
 
 interface PlannedAsset {
@@ -221,6 +223,7 @@ async function scanVault(vaultRoot: string): Promise<Map<string, SourceNote>> {
     const key = normalizeRelative(path.relative(vaultRoot, absolutePath));
     const raw = await readFile(absolutePath, "utf8");
     const { data, body } = parseFrontmatter(raw);
+    const fileStat = await stat(absolutePath);
     const title = String(data.title || firstHeading(body) || path.basename(key, path.extname(key))).trim();
     notes.set(key, {
       key,
@@ -231,6 +234,7 @@ async function scanVault(vaultRoot: string): Promise<Map<string, SourceNote>> {
       title,
       aliases: stringArray(data.aliases),
       publish: data.publish === true && body.trim().length > 0,
+      modifiedAt: fileStat.mtime.toISOString().slice(0, 10),
     });
   }
 
@@ -524,6 +528,7 @@ function outputFrontmatter(source: SourceNote, entry: ManifestEntry, description
     title: entry.title,
     description,
     publishedAt: entry.publishedAt,
+    updatedAt: entry.updatedAt,
     category: entry.category,
     tags: stringArray(source.data.tags),
     draft: false,
@@ -614,6 +619,7 @@ export async function syncObsidianNotes(options: SyncOptions): Promise<SyncResul
       title: note.title,
       aliases: note.aliases,
       publishedAt: String(note.data.publishedAt || previous?.publishedAt || today),
+      updatedAt: String(note.data.updatedAt || note.modifiedAt),
       output,
       assets: previous?.assets ?? [],
       digest: previous?.digest ?? "",

@@ -2,6 +2,7 @@
 title: 关于 BW 的思考
 description: 就在这写一些我关于 BW 的思考吧。 \逛展感受
 publishedAt: 2026-07-15
+updatedAt: 2026-07-15
 category: journal
 tags: []
 draft: false

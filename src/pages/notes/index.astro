@@ -3,7 +3,7 @@ import { getCollection } from "astro:content";
 import Layout from "../../layouts/Layout.astro";
 
 const notes = (await getCollection("notes", ({ data }) => !data.draft)).sort(
-  (a, b) => b.data.publishedAt.valueOf() - a.data.publishedAt.valueOf(),
+  (a, b) => (b.data.updatedAt ?? b.data.publishedAt).valueOf() - (a.data.updatedAt ?? a.data.publishedAt).valueOf(),
 );
 
 const latestNote = notes[0];
@@ -107,8 +107,8 @@ const dateFormatter = new Intl.DateTimeFormat("en-US", {
               <div class="notes-feature-card__content">
                 <div class="notes-feature-card__meta">
                   <span>{categoryLabels[latestNote.data.category]}</span>
-                  <time datetime={latestNote.data.publishedAt.toISOString()}>
-                    {dateFormatter.format(latestNote.data.publishedAt)}
+                  <time datetime={(latestNote.data.updatedAt ?? latestNote.data.publishedAt).toISOString()}>
+                    Updated {dateFormatter.format(latestNote.data.updatedAt ?? latestNote.data.publishedAt)}
                   </time>
                 </div>
                 <h3>{latestNote.data.title}</h3>
@@ -151,8 +151,8 @@ const dateFormatter = new Intl.DateTimeFormat("en-US", {
                 <div class="notes-list" aria-label={chapter.title}>
                   {chapter.notes.map((note) => (
                     <a href={`/notes/${note.id}`}>
-                      <time datetime={note.data.publishedAt.toISOString()}>
-                        {dateFormatter.format(note.data.publishedAt)}
+                      <time datetime={(note.data.updatedAt ?? note.data.publishedAt).toISOString()}>
+                        Updated {dateFormatter.format(note.data.updatedAt ?? note.data.publishedAt)}
                       </time>
                       <div>
                         <h4>{note.data.title}</h4>
