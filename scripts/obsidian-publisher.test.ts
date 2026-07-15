@@ -94,6 +94,25 @@ test("dry runs report changes without writing generated files", async () => {
   assert.equal(existsSync(path.join(repo, "src", "content", "notes", "预览.md")), false);
 });
 
+test("new notes without an explicit publish flag are reported as skipped", async () => {
+  const { repo, vault } = await fixture();
+  await writeFile(path.join(vault, "50-其他", "杂谈", "私密草稿.md"), "# 私密草稿\n\n尚未公开。\n");
+  await writeFile(path.join(vault, "50-其他", "杂谈", "空白.md"), "");
+
+  const result = await syncObsidianNotes({
+    category: "journal",
+    repoRoot: repo,
+    vaultRoot: vault,
+    dryRun: true,
+  });
+
+  assert.deepEqual(result.added, []);
+  assert.deepEqual(result.skipped, [
+    { source: "50-其他/杂谈/私密草稿.md", reason: "missing publish: true" },
+    { source: "50-其他/杂谈/空白.md", reason: "empty note" },
+  ]);
+});
+
 test("unpublished links remain text and are retained as relationship metadata", async () => {
   const { repo, vault } = await fixture();
   const draftPath = path.join(vault, "50-其他", "杂谈", "草稿.md");

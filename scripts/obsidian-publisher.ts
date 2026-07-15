@@ -75,6 +75,7 @@ export interface SyncResult {
   added: string[];
   updated: string[];
   removed: string[];
+  skipped: Array<{ source: string; reason: "missing publish: true" | "empty note" }>;
   warnings: string[];
   changedPaths: string[];
   manifest: SyncManifest;
@@ -568,6 +569,19 @@ export async function syncObsidianNotes(options: SyncOptions): Promise<SyncResul
   const resolver = buildSourceResolver(sourceNotes);
   const selected = [...sourceNotes.values()].filter((note) => note.category === options.category && note.publish);
   const selectedSources = new Set(selected.map((note) => note.key));
+  const previouslyManagedSources = new Set(
+    Object.values(previousManifest.notes)
+      .filter((entry) => entry.category === options.category)
+      .map((entry) => entry.source),
+  );
+  const skipped = [...sourceNotes.values()]
+    .filter((note) => note.category === options.category && !note.publish && !previouslyManagedSources.has(note.key))
+    .map((note) => ({
+      source: note.key,
+      reason: (note.body.trim().length === 0 ? "empty note" : "missing publish: true") as
+        | "missing publish: true"
+        | "empty note",
+    }));
   const removedEntries = Object.values(manifest.notes).filter(
     (entry) => entry.category === options.category && !selectedSources.has(entry.source),
   );
@@ -708,6 +722,7 @@ export async function syncObsidianNotes(options: SyncOptions): Promise<SyncResul
     added,
     updated,
     removed,
+    skipped,
     warnings: uniqueBy(warnings, (item) => item),
     changedPaths: [...changedPaths].sort(),
     manifest,

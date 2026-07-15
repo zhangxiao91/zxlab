@@ -64,6 +64,11 @@ function printResult(result: SyncResult, dryRun: boolean): void {
   console.log(`Added: ${result.added.length ? result.added.join(", ") : "none"}`);
   console.log(`Updated: ${result.updated.length ? result.updated.join(", ") : "none"}`);
   console.log(`Removed: ${result.removed.length ? result.removed.join(", ") : "none"}`);
+  if (result.skipped.length) {
+    console.log("Detected but not published:");
+    for (const item of result.skipped) console.log(`- ${item.source} (${item.reason})`);
+    console.log("Add YAML frontmatter with `publish: true` to publish a non-empty note.");
+  }
   if (result.warnings.length) {
     console.log("Warnings:");
     for (const warning of result.warnings) console.log(`- ${warning}`);
