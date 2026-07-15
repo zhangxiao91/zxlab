@@ -1,0 +1,38 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  // Compatibility name preserves existing Durable Object namespaces and device tokens.
+  "name": "zxdrop-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-15",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "APP_ORIGIN": "https://zxtoolkit.pages.dev",
+    "ZXLAB_ORIGIN": "https://zxlab.pages.dev",
+    "SESSION_TTL_SECONDS": "600",
+    "MAX_FILE_BYTES": "20971520"
+  },
+  "r2_buckets": [
+    {
+      "binding": "FILES",
+      "bucket_name": "zxdrop-files",
+      "preview_bucket_name": "zxdrop-files-preview"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "SESSIONS", "class_name": "TransferSession" },
+      { "name": "PAIRINGS", "class_name": "PairingSession" },
+      { "name": "DEVICES", "class_name": "DeviceMailbox" },
+      { "name": "PULSE", "class_name": "PulseHub" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["TransferSession"] },
+    { "tag": "v2", "new_sqlite_classes": ["PairingSession", "DeviceMailbox"] },
+    { "tag": "v3", "new_sqlite_classes": ["PulseHub"] }
+  ],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  }
+}

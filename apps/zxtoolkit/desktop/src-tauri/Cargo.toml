@@ -1,0 +1,22 @@
+[package]
+name = "zxtoolkit-desktop"
+version = "0.1.0"
+description = "zxtoolkit macOS menu bar delivery app"
+authors = ["zxlab"]
+edition = "2021"
+
+[lib]
+name = "zxtoolkit_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-autostart = "2"
+tauri-plugin-clipboard-manager = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-store = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

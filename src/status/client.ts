@@ -2,6 +2,7 @@ import { statusConfig } from "./config";
 import { mockStatusProvider, createMockStatusSnapshot } from "./providers/mock";
 import { remoteStatusProvider } from "./providers/remote";
 import { tailscaleStatusProvider } from "./providers/tailscale";
+import { zxtoolkitStatusProvider } from "./providers/zxtoolkit";
 import type { ActivityItem, DeviceStatus, StatusScenario, StatusSnapshot } from "./types";
 
 const scenarios: StatusScenario[] = ["normal", "loading", "empty", "error", "unavailable", "stale", "partial"];
@@ -21,6 +22,7 @@ export async function getStatusSnapshot(
     mock: mockStatusProvider,
     tailscale: tailscaleStatusProvider,
     remote: remoteStatusProvider,
+    zxtoolkit: zxtoolkitStatusProvider,
   }[statusConfig.providerMode];
   return provider.getSnapshot({ scenario, signal: options.signal, delayMs: options.delayMs });
 }

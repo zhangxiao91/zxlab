@@ -1,8 +1,8 @@
-export type StatusProviderMode = "mock" | "tailscale" | "remote";
+export type StatusProviderMode = "mock" | "tailscale" | "remote" | "zxtoolkit";
 
 const requestedMode = import.meta.env.PUBLIC_STATUS_PROVIDER;
 const apiBaseUrl = import.meta.env.PUBLIC_STATUS_API_BASE_URL?.replace(/\/$/, "") ?? "";
-const providerMode: StatusProviderMode = requestedMode === "tailscale"
+const providerMode: StatusProviderMode = requestedMode === "zxtoolkit" ? "zxtoolkit" : requestedMode === "tailscale"
   ? "tailscale"
   : requestedMode === "remote"
     ? "remote"
