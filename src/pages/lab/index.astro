@@ -1,6 +1,7 @@
 ---
 import Layout from "../../layouts/Layout.astro";
 import LabProjectCard from "../../components/lab/LabProjectCard.astro";
+import BoopiPet from "../../components/lab/BoopiPet.astro";
 import { labProjects } from "../../lab/projects";
 import "../../styles/lab-status-shell.css";
 import "../../styles/lab.css";
@@ -14,6 +15,7 @@ const statement =
   description="Interactive demos, visual studies, AI experiments, and developer tools in progress at ZXLab."
 >
   <main class="lab-page">
+    <BoopiPet />
     <section class="lab-hero" aria-labelledby="lab-title">
       <div class="lab-hero__copy">
         <p class="lab-kicker">A place for unfinished interaction</p>

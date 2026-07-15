@@ -1,0 +1,238 @@
+---
+---
+
+<aside class="boopi" data-boopi aria-label="Boopi desktop pet">
+  <div class="boopi__bubble" data-boopi-bubble role="status" aria-live="polite">Boopi is watching the lab.</div>
+  <div class="boopi__stage" data-boopi-drag-handle title="Drag Boopi around the lab">
+    <div class="boopi__sprite" data-boopi-sprite aria-hidden="true"></div>
+    <button class="boopi__button" type="button" data-boopi-toggle aria-label="Minimize Boopi">×</button>
+  </div>
+  <button class="boopi__restore" type="button" data-boopi-restore aria-label="Bring Boopi back">Boopi</button>
+</aside>
+
+<style>
+  .boopi {
+    --boopi-scale: 0.72;
+    position: fixed;
+    right: clamp(1rem, 3vw, 2.5rem);
+    bottom: clamp(1rem, 3vw, 2rem);
+    z-index: 20;
+    display: grid;
+    justify-items: end;
+    pointer-events: none;
+    user-select: none;
+  }
+
+  .boopi__bubble {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 0.3rem);
+    max-width: 13rem;
+    padding: 0.55rem 0.75rem;
+    border: 1px solid rgba(24, 25, 20, 0.12);
+    border-radius: 0.9rem 0.9rem 0.2rem 0.9rem;
+    background: rgba(247, 246, 239, 0.9);
+    color: #3e4037;
+    box-shadow: 0 0.7rem 2rem rgba(24, 25, 20, 0.1);
+    font-size: 0.68rem;
+    line-height: 1.35;
+    opacity: 0;
+    transform: translateY(0.4rem);
+    transition: opacity 250ms ease, transform 250ms ease;
+  }
+
+  .boopi:hover .boopi__bubble,
+  .boopi:focus-within .boopi__bubble { opacity: 1; transform: translateY(0); }
+
+  .boopi__stage {
+    position: relative;
+    width: calc(192px * var(--boopi-scale));
+    height: calc(208px * var(--boopi-scale));
+    pointer-events: auto;
+    cursor: grab;
+    touch-action: none;
+    filter: drop-shadow(0 0.8rem 0.8rem rgba(24, 25, 20, 0.14));
+  }
+
+  .boopi.is-dragging .boopi__stage { cursor: grabbing; }
+  .boopi.is-dragging .boopi__bubble { opacity: 0; }
+
+  .boopi__sprite {
+    width: 100%;
+    height: 100%;
+    background-image: url('/assets/lab/boopi/spritesheet.webp');
+    background-repeat: no-repeat;
+    background-size: calc(1536px * var(--boopi-scale)) calc(2288px * var(--boopi-scale));
+    background-position: 0 0;
+    image-rendering: auto;
+  }
+
+  .boopi__button {
+    position: absolute;
+    top: -0.25rem;
+    right: -0.25rem;
+    width: 1.35rem;
+    height: 1.35rem;
+    border: 1px solid rgba(24, 25, 20, 0.15);
+    border-radius: 50%;
+    background: #f7f6ef;
+    color: #181914;
+    cursor: pointer;
+    font: inherit;
+    line-height: 1;
+    opacity: 0;
+    transition: opacity 180ms ease, transform 180ms ease;
+  }
+
+  .boopi:hover .boopi__button,
+  .boopi:focus-within .boopi__button { opacity: 1; }
+  .boopi__button:hover { transform: scale(1.08); }
+
+  .boopi__restore {
+    display: none;
+    padding: 0.55rem 0.8rem;
+    border: 1px solid rgba(24, 25, 20, 0.14);
+    border-radius: 999px;
+    background: rgba(247, 246, 239, 0.94);
+    color: #181914;
+    box-shadow: 0 0.7rem 2rem rgba(24, 25, 20, 0.12);
+    cursor: pointer;
+    font: 600 0.68rem/1 system-ui, sans-serif;
+    pointer-events: auto;
+  }
+
+  .boopi.is-minimized .boopi__stage,
+  .boopi.is-minimized .boopi__bubble { display: none; }
+  .boopi.is-minimized .boopi__restore { display: block; }
+
+  @media (max-width: 680px) {
+    .boopi { --boopi-scale: 0.56; }
+    .boopi__bubble { display: none; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .boopi__bubble { transition: none; }
+  }
+</style>
+
+<script>
+  const root = document.querySelector<HTMLElement>('[data-boopi]');
+  const sprite = root?.querySelector<HTMLElement>('[data-boopi-sprite]');
+  const bubble = root?.querySelector<HTMLElement>('[data-boopi-bubble]');
+  const toggle = root?.querySelector<HTMLButtonElement>('[data-boopi-toggle]');
+  const restore = root?.querySelector<HTMLButtonElement>('[data-boopi-restore]');
+  const dragHandle = root?.querySelector<HTMLElement>('[data-boopi-drag-handle]');
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const positionKey = 'zxlab-boopi-position';
+  const minimizedKey = 'zxlab-boopi-minimized';
+  const cellWidth = 192;
+  const cellHeight = 208;
+  const states = { idle: { row: 0, frames: 6 }, happy: { row: 3, frames: 4 }, working: { row: 7, frames: 6 } };
+  let state: keyof typeof states = 'idle';
+  let frame = 0;
+  let timer: number | undefined;
+  let dragged = false;
+
+  const getScale = () =>
+    Number.parseFloat(getComputedStyle(root as HTMLElement).getPropertyValue('--boopi-scale')) || 0.72;
+
+  const paint = () => {
+    if (!sprite) return;
+    const current = states[state];
+    const scale = getScale();
+    sprite.style.backgroundPosition = `${-frame * cellWidth * scale}px ${-current.row * cellHeight * scale}px`;
+  };
+
+  const place = (left: number, top: number, save = false) => {
+    if (!root) return;
+    const rect = root.getBoundingClientRect();
+    const margin = 8;
+    const x = Math.min(Math.max(margin, left), Math.max(margin, window.innerWidth - rect.width - margin));
+    const y = Math.min(Math.max(margin, top), Math.max(margin, window.innerHeight - rect.height - margin));
+    root.style.left = `${x}px`;
+    root.style.top = `${y}px`;
+    root.style.right = 'auto';
+    root.style.bottom = 'auto';
+    if (save) localStorage.setItem(positionKey, JSON.stringify({ x, y }));
+  };
+
+  const restoreSavedPosition = () => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(positionKey) || 'null');
+      if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) place(saved.x, saved.y);
+    } catch {}
+  };
+
+  const setState = (next: keyof typeof states, message: string) => {
+    state = next;
+    frame = 0;
+    if (bubble) bubble.textContent = message;
+    paint();
+  };
+
+  if (root && sprite && !reduced) {
+    timer = window.setInterval(() => {
+      frame = (frame + 1) % states[state].frames;
+      paint();
+    }, 180);
+  }
+  paint();
+  root?.addEventListener('mouseenter', () => setState('happy', 'A small hello from Boopi.'));
+  root?.addEventListener('mouseleave', () => setState('idle', 'Boopi is watching the lab.'));
+  root?.addEventListener('click', (event) => {
+    if ((event.target as HTMLElement).closest('[data-boopi-toggle]')) return;
+    if (dragged) {
+      dragged = false;
+      return;
+    }
+    setState('working', 'Boopi is thinking through the experiment.');
+  });
+  toggle?.addEventListener('click', () => {
+    root?.classList.add('is-minimized');
+    localStorage.setItem(minimizedKey, '1');
+  });
+  restore?.addEventListener('click', () => {
+    root?.classList.remove('is-minimized');
+    localStorage.removeItem(minimizedKey);
+    restoreSavedPosition();
+  });
+
+  dragHandle?.addEventListener('pointerdown', (event) => {
+    if (!root || (event.target as HTMLElement).closest('button')) return;
+    const startRect = root.getBoundingClientRect();
+    const offsetX = event.clientX - startRect.left;
+    const offsetY = event.clientY - startRect.top;
+    const startX = event.clientX;
+    const startY = event.clientY;
+    dragged = false;
+    root.classList.add('is-dragging');
+    dragHandle.setPointerCapture(event.pointerId);
+
+    const move = (moveEvent: PointerEvent) => {
+      if (Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY) > 4) dragged = true;
+      place(moveEvent.clientX - offsetX, moveEvent.clientY - offsetY);
+    };
+    const end = (endEvent: PointerEvent) => {
+      root.classList.remove('is-dragging');
+      dragHandle.releasePointerCapture(endEvent.pointerId);
+      dragHandle.removeEventListener('pointermove', move);
+      dragHandle.removeEventListener('pointerup', end);
+      dragHandle.removeEventListener('pointercancel', end);
+      const rect = root.getBoundingClientRect();
+      place(rect.left, rect.top, true);
+    };
+    dragHandle.addEventListener('pointermove', move);
+    dragHandle.addEventListener('pointerup', end);
+    dragHandle.addEventListener('pointercancel', end);
+  });
+
+  window.addEventListener('resize', () => {
+    paint();
+    if (!root || !root.style.left) return;
+    const rect = root.getBoundingClientRect();
+    place(rect.left, rect.top, true);
+  });
+
+  restoreSavedPosition();
+  if (localStorage.getItem(minimizedKey) === '1') root?.classList.add('is-minimized');
+</script>

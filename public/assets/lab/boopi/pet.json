@@ -1,0 +1,11 @@
+{
+  "id": "boopi",
+  "name": "Boopi",
+  "description": "A round, nose-first desktop companion with quiet charm and curious energy.",
+  "spriteVersionNumber": 2,
+  "spritesheetPath": "spritesheet.webp",
+  "columns": 8,
+  "rows": 11,
+  "cellWidth": 192,
+  "cellHeight": 208
+}
