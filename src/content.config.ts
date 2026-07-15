@@ -16,7 +16,7 @@ const notes = defineCollection({
 		category: z.enum(["technical", "journal"]),
 		tags: z.array(z.string()),
 		draft: z.boolean().default(false),
-		cover: z.string().url().optional(),
+		cover: z.union([z.string().url(), z.string().regex(/^\/[\p{Letter}\p{Number}%_./-]+$/u)]).optional(),
 		coverAlt: z.string().optional(),
 		accent: z.string().optional(),
 	}),

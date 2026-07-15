@@ -102,8 +102,13 @@ Technical notes and journal entries use separate commands:
 npm run notes:publish:technical -- --dry-run
 npm run notes:publish:journal -- --dry-run
 
+npm run notes:covers:technical -- --dry-run
+npm run notes:covers:journal -- --dry-run
+npm run notes:covers:journal
+
 npm run notes:publish:technical
 npm run notes:publish:journal
+npm run notes:publish:journal -- --accept-covers
 ```
 
 Remove `--dry-run` only from a clean `beta` worktree. A real publish pulls
@@ -124,6 +129,13 @@ Optional fields include `title`, `description`, `slug`, `publishedAt`, `tags`,
 `aliases`, `cover`, `coverAlt`, and `accent`. Wiki Links become blog URLs when
 their target is published; unresolved targets remain visible text and are kept
 in the generated relationship graph.
+
+Notes without an explicit `cover` can use the local two-model cover workflow.
+The cover commands use `OPENAI_TEXT_*` for the structured visual brief and
+`OPENAI_*` for image generation, loading `../.env` only during a real cover
+generation run. Generated previews stay in the ignored `.note-cover-cache/`
+directory for review. The matching publish command accepts reviewed previews
+only when passed `--accept-covers`; the Obsidian vault remains read-only.
 
 ## Design
 

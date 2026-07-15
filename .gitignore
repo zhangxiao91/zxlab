@@ -19,6 +19,7 @@ pnpm-debug.log*
 .env.production
 .dev.vars
 .dev.vars.*
+.note-cover-cache/
 
 # macOS-specific files
 .DS_Store

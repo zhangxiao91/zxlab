@@ -19,6 +19,8 @@
     "typecheck": "astro check --tsconfig tsconfig.digital-starter.json --minimumSeverity error",
     "notes:publish:technical": "node --experimental-strip-types scripts/publish-obsidian-notes.ts technical",
     "notes:publish:journal": "node --experimental-strip-types scripts/publish-obsidian-notes.ts journal",
+    "notes:covers:technical": "node --experimental-strip-types scripts/generate-note-covers.ts technical",
+    "notes:covers:journal": "node --experimental-strip-types scripts/generate-note-covers.ts journal",
     "test:notes-publisher": "node --test --experimental-strip-types scripts/obsidian-publisher.test.ts",
     "verify:status": "node --experimental-strip-types scripts/verify-status-usage.ts",
     "verify:strudel": "node --experimental-strip-types scripts/verify-strudel.ts",

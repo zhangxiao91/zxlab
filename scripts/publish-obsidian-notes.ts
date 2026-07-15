@@ -9,12 +9,16 @@ const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDirectory, "..");
 const defaultVault = "/Users/zhangyang/Library/Mobile Documents/iCloud~md~obsidian/Documents/my repo";
 
-function parseArguments(): { category: NoteCategory; dryRun: boolean } {
+function parseArguments(): { category: NoteCategory; dryRun: boolean; acceptCovers: boolean } {
   const category = process.argv[2];
   if (category !== "technical" && category !== "journal") {
     throw new Error("Expected a category: technical or journal.");
   }
-  return { category, dryRun: process.argv.includes("--dry-run") };
+  return {
+    category,
+    dryRun: process.argv.includes("--dry-run"),
+    acceptCovers: process.argv.includes("--accept-covers"),
+  };
 }
 
 async function git(args: string[]): Promise<string> {
@@ -64,6 +68,14 @@ function printResult(result: SyncResult, dryRun: boolean): void {
   console.log(`Added: ${result.added.length ? result.added.join(", ") : "none"}`);
   console.log(`Updated: ${result.updated.length ? result.updated.join(", ") : "none"}`);
   console.log(`Removed: ${result.removed.length ? result.removed.join(", ") : "none"}`);
+  console.log(`Covers accepted: ${result.covers.accepted.length ? result.covers.accepted.join(", ") : "none"}`);
+  if (result.covers.pending.length) {
+    console.log(`Cover previews awaiting review: ${result.covers.pending.join(", ")}`);
+    console.log("Rerun this publish command with --accept-covers after reviewing them.");
+  }
+  if (result.covers.missing.length) {
+    console.log(`Notes without a cover preview: ${result.covers.missing.join(", ")}`);
+  }
   if (result.skipped.length) {
     console.log("Detected but not published:");
     for (const item of result.skipped) console.log(`- ${item.source} (${item.reason})`);
@@ -76,7 +88,7 @@ function printResult(result: SyncResult, dryRun: boolean): void {
 }
 
 async function main(): Promise<void> {
-  const { category, dryRun } = parseArguments();
+  const { category, dryRun, acceptCovers } = parseArguments();
   if (!dryRun) await assertPublishingPreconditions();
 
   const result = await syncObsidianNotes({
@@ -84,6 +96,8 @@ async function main(): Promise<void> {
     dryRun,
     repoRoot,
     vaultRoot: process.env.OBSIDIAN_VAULT_PATH || defaultVault,
+    acceptCovers,
+    requireCovers: !dryRun,
   });
   printResult(result, dryRun);
 

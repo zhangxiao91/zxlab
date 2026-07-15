@@ -13,6 +13,12 @@ import { unified } from "unified";
 import remarkParse from "remark-parse";
 import remarkStringify from "remark-stringify";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import {
+  coverCachePaths,
+  coverSourceHash,
+  readCoverPreview,
+  type CoverInput,
+} from "./note-cover-pipeline.ts";
 
 export type NoteCategory = "technical" | "journal";
 
@@ -27,6 +33,19 @@ export interface ManifestEntry {
   output: string;
   assets: string[];
   digest: string;
+  cover?: GeneratedCover;
+}
+
+export interface GeneratedCover {
+  repoPath: string;
+  publicPath: string;
+  alt: string;
+  model: string;
+  textModel: string;
+  promptVersion: string;
+  promptDigest: string;
+  sourceHash: string;
+  generatedAt: string;
 }
 
 export interface SyncManifest {
@@ -69,6 +88,8 @@ export interface SyncOptions {
   repoRoot: string;
   dryRun?: boolean;
   today?: string;
+  acceptCovers?: boolean;
+  requireCovers?: boolean;
 }
 
 export interface SyncResult {
@@ -76,6 +97,7 @@ export interface SyncResult {
   added: string[];
   updated: string[];
   removed: string[];
+  covers: { accepted: string[]; pending: string[]; missing: string[] };
   skipped: Array<{ source: string; reason: "missing publish: true" | "empty note" }>;
   warnings: string[];
   changedPaths: string[];
@@ -93,6 +115,12 @@ interface SourceNote {
   aliases: string[];
   publish: boolean;
   modifiedAt: string;
+}
+
+export interface CoverCandidate {
+  input: CoverInput;
+  explicitCover: boolean;
+  generatedCover: boolean;
 }
 
 interface PlannedAsset {
@@ -239,6 +267,18 @@ async function scanVault(vaultRoot: string): Promise<Map<string, SourceNote>> {
   }
 
   return notes;
+}
+
+function coverInputForNote(note: SourceNote, slug: string, description?: string): CoverInput {
+  return {
+    source: note.key,
+    slug,
+    title: note.title,
+    description: description ?? String(note.data.description || descriptionFromBody(note.body)),
+    category: note.category,
+    tags: stringArray(note.data.tags),
+    body: note.body,
+  };
 }
 
 async function readJson<T>(file: string, fallback: T): Promise<T> {
@@ -536,6 +576,10 @@ function outputFrontmatter(source: SourceNote, entry: ManifestEntry, description
   for (const key of ["cover", "coverAlt", "accent"] as const) {
     if (typeof source.data[key] === "string" && source.data[key]) data[key] = source.data[key];
   }
+  if (entry.cover && !(typeof source.data.cover === "string" && source.data.cover)) {
+    data.cover = entry.cover.publicPath;
+    data.coverAlt = entry.cover.alt;
+  }
   return `---\n${stringifyYaml(data).trim()}\n---\n\n`;
 }
 
@@ -560,6 +604,93 @@ function emptyManifest(): SyncManifest {
 
 function emptyGraph(): ReferenceGraph {
   return { version: 1, nodes: {} };
+}
+
+export async function listCoverCandidates(options: {
+  category: NoteCategory;
+  vaultRoot: string;
+  repoRoot: string;
+}): Promise<CoverCandidate[]> {
+  const manifestPath = path.join(options.repoRoot, "scripts", "obsidian-notes-manifest.json");
+  const manifest = await readJson<SyncManifest>(manifestPath, emptyManifest());
+  const sourceNotes = await scanVault(options.vaultRoot);
+  const candidates: CoverCandidate[] = [];
+  for (const note of sourceNotes.values()) {
+    if (note.category !== options.category || !note.publish) continue;
+    const previous = Object.values(manifest.notes).find((entry) => entry.source === note.key);
+    const slug = slugifyNote(String(note.data.slug || previous?.slug || path.basename(note.key, ".md")));
+    candidates.push({
+      input: coverInputForNote(note, slug),
+      explicitCover: typeof note.data.cover === "string" && Boolean(note.data.cover),
+      generatedCover: Boolean(previous?.cover),
+    });
+  }
+  return candidates.sort((a, b) => a.input.slug.localeCompare(b.input.slug));
+}
+
+async function resolveGeneratedCover(args: {
+  note: SourceNote;
+  entry: ManifestEntry;
+  previous?: ManifestEntry;
+  description: string;
+  repoRoot: string;
+  acceptCovers: boolean;
+}): Promise<{ asset?: PlannedAsset; accepted: boolean; pending: boolean; missing: boolean }> {
+  const { note, entry, previous, description, repoRoot, acceptCovers } = args;
+  if (typeof note.data.cover === "string" && note.data.cover) {
+    delete entry.cover;
+    return { accepted: false, pending: false, missing: false };
+  }
+
+  const input = coverInputForNote(note, entry.slug, description);
+  const preview = await readCoverPreview(repoRoot, entry.slug);
+  const previewIsNew = Boolean(
+    preview && (!previous?.cover || previous.cover.promptDigest !== preview.promptDigest),
+  );
+  let cover = previous?.cover;
+  let bytes: Uint8Array | undefined;
+  let accepted = false;
+
+  if (preview && acceptCovers) {
+    if (preview.source !== note.key) throw new Error(`Cover preview source does not match ${note.key}.`);
+    if (preview.sourceHash !== coverSourceHash(input)) {
+      throw new Error(`Cover preview for ${entry.slug} is stale; regenerate it before publishing.`);
+    }
+    bytes = await readFile(coverCachePaths(repoRoot, entry.slug).image);
+    cover = {
+      repoPath: normalizeRelative(path.join("public", "assets", "notes", entry.slug, "cover.webp")),
+      publicPath: `/${normalizeRelative(path.join("assets", "notes", entry.slug, "cover.webp"))}`,
+      alt: preview.visualBrief.alt,
+      model: preview.model,
+      textModel: preview.textModel,
+      promptVersion: preview.promptVersion,
+      promptDigest: preview.promptDigest,
+      sourceHash: preview.sourceHash,
+      generatedAt: preview.generatedAt,
+    };
+    accepted = !previous?.cover || previous.cover.promptDigest !== cover.promptDigest;
+  } else if (cover) {
+    if (!existsSync(path.join(repoRoot, cover.repoPath))) {
+      throw new Error(`Generated cover is missing for ${entry.slug}: ${cover.repoPath}`);
+    }
+    bytes = await readFile(path.join(repoRoot, cover.repoPath));
+  }
+
+  entry.cover = cover;
+  if (!cover || !bytes) {
+    return { accepted: false, pending: previewIsNew, missing: !preview };
+  }
+  return {
+    asset: {
+      repoPath: cover.repoPath,
+      publicPath: cover.publicPath,
+      bytes,
+      digest: digest(bytes),
+    },
+    accepted,
+    pending: previewIsNew && !acceptCovers,
+    missing: false,
+  };
 }
 
 export async function syncObsidianNotes(options: SyncOptions): Promise<SyncResult> {
@@ -630,6 +761,7 @@ export async function syncObsidianNotes(options: SyncOptions): Promise<SyncResul
   const transformedBySlug = new Map<string, TransformResult>();
   const renderedBySlug = new Map<string, string>();
   const warnings: string[] = [];
+  const covers = { accepted: [] as string[], pending: [] as string[], missing: [] as string[] };
 
   for (const entry of Object.values(manifest.notes)) {
     const note = sourceNotes.get(entry.source);
@@ -646,11 +778,34 @@ export async function syncObsidianNotes(options: SyncOptions): Promise<SyncResul
     warnings.push(...transformed.warnings);
     if (note.category === options.category && selectedSources.has(note.key)) {
       const description = String(note.data.description || descriptionFromBody(transformed.markdown));
+      const coverResult = await resolveGeneratedCover({
+        note,
+        entry,
+        previous: previousManifest.notes[entry.slug],
+        description,
+        repoRoot: options.repoRoot,
+        acceptCovers: options.acceptCovers ?? false,
+      });
+      if (coverResult.asset) transformed.assets.unshift(coverResult.asset);
+      if (coverResult.accepted) covers.accepted.push(entry.slug);
+      if (coverResult.pending) covers.pending.push(entry.slug);
+      if (coverResult.missing) covers.missing.push(entry.slug);
       const rendered = `${outputFrontmatter(note, entry, description)}<!-- Generated from Obsidian. Edit the source note, not this file. -->\n\n${transformed.markdown}`;
       renderedBySlug.set(entry.slug, rendered);
       entry.assets = transformed.assets.map((asset) => asset.repoPath);
       entry.digest = digest(rendered + JSON.stringify(transformed.assets.map((asset) => [asset.repoPath, asset.digest])));
     }
+  }
+
+  if (options.requireCovers && covers.pending.length && !options.acceptCovers) {
+    throw new Error(
+      `Cover previews await review for: ${covers.pending.join(", ")}. Rerun with --accept-covers after reviewing them.`,
+    );
+  }
+  if (options.requireCovers && covers.missing.length) {
+    throw new Error(
+      `Cover previews are missing for: ${covers.missing.join(", ")}. Run the matching notes:covers command first.`,
+    );
   }
 
   const graph: ReferenceGraph = { version: 1, nodes: {} };
@@ -728,6 +883,7 @@ export async function syncObsidianNotes(options: SyncOptions): Promise<SyncResul
     added,
     updated,
     removed,
+    covers,
     skipped,
     warnings: uniqueBy(warnings, (item) => item),
     changedPaths: [...changedPaths].sort(),
