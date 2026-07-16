@@ -4,7 +4,9 @@
 <aside class="boopi" data-boopi aria-label="Boopi desktop pet">
   <div class="boopi__bubble" data-boopi-bubble role="status" aria-live="polite">Boopi is watching the lab.</div>
   <div class="boopi__stage" data-boopi-drag-handle title="Drag Boopi around the lab">
-    <div class="boopi__sprite" data-boopi-sprite aria-hidden="true"></div>
+    <div class="boopi__viewport">
+      <div class="boopi__sprite" data-boopi-sprite aria-hidden="true"></div>
+    </div>
     <button class="boopi__button" type="button" data-boopi-toggle aria-label="Minimize Boopi">×</button>
   </div>
   <button class="boopi__restore" type="button" data-boopi-restore aria-label="Bring Boopi back">Boopi</button>
@@ -57,14 +59,23 @@
   .boopi.is-dragging .boopi__stage { cursor: grabbing; }
   .boopi.is-dragging .boopi__bubble { opacity: 0; }
 
+  .boopi__viewport {
+    width: 192px;
+    height: 208px;
+    overflow: hidden;
+    transform: scale(var(--boopi-scale));
+    transform-origin: top left;
+  }
+
   .boopi__sprite {
-    width: 100%;
-    height: 100%;
+    width: 192px;
+    height: 208px;
     background-image: url('/assets/lab/boopi/spritesheet.webp');
     background-repeat: no-repeat;
-    background-size: calc(1536px * var(--boopi-scale)) calc(2288px * var(--boopi-scale));
+    background-size: 1536px 2288px;
     background-position: 0 0;
     image-rendering: auto;
+    will-change: background-position;
   }
 
   .boopi__button {
@@ -193,17 +204,13 @@
   let manualActionIndex = Math.floor(Math.random() * manualActions.length);
   let dragDirection: 'left' | 'right' | undefined;
 
-  const getScale = () =>
-    Number.parseFloat(getComputedStyle(root as HTMLElement).getPropertyValue('--boopi-scale')) || 0.72;
-
   const paint = () => {
     if (!sprite) return;
     const current = states[state];
-    const scale = getScale();
     const cell = 'cells' in current
       ? current.cells[frame]
       : { row: current.row, column: frame };
-    sprite.style.backgroundPosition = `${-cell.column * cellWidth * scale}px ${-cell.row * cellHeight * scale}px`;
+    sprite.style.backgroundPosition = `${-cell.column * cellWidth}px ${-cell.row * cellHeight}px`;
   };
 
   const place = (left: number, top: number, save = false) => {
