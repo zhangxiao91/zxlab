@@ -16,7 +16,7 @@ const { storageKey, itemIds, label = "你的进度" } = Astro.props;
   aria-labelledby="learning-progress-title"
 >
   <div class="digital-starter-learning-progress__copy">
-    <p id="learning-progress-title">{label}：<strong data-progress-count>0 / {itemIds.length}</strong></p>
+    <p id="learning-progress-title">{label}：<strong data-progress-count aria-live="polite">0 / {itemIds.length}</strong></p>
     <span>进度只保存在当前浏览器，不需要登录。</span>
   </div>
   <div
