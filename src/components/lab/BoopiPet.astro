@@ -127,11 +127,71 @@
   const minimizedKey = 'zxlab-boopi-minimized';
   const cellWidth = 192;
   const cellHeight = 208;
-  const states = { idle: { row: 0, frames: 6 }, happy: { row: 3, frames: 4 }, working: { row: 7, frames: 6 } };
-  let state: keyof typeof states = 'idle';
+  const states = {
+    idle: { row: 0, frames: 6, frameMs: 360 },
+    runningRight: { row: 1, frames: 8, frameMs: 145 },
+    runningLeft: { row: 2, frames: 8, frameMs: 145 },
+    waving: { row: 3, frames: 4, frameMs: 320 },
+    jumping: { row: 4, frames: 5, frameMs: 240 },
+    failed: { row: 5, frames: 8, frameMs: 320 },
+    waiting: { row: 6, frames: 6, frameMs: 460 },
+    working: { row: 7, frames: 6, frameMs: 460 },
+    review: { row: 8, frames: 6, frameMs: 420 },
+    looking: {
+      cells: [
+        ...Array.from({ length: 8 }, (_, column) => ({ row: 9, column })),
+        ...Array.from({ length: 8 }, (_, column) => ({ row: 10, column })),
+      ],
+      frames: 16,
+      frameMs: 320,
+    },
+  } as const;
+  type State = keyof typeof states;
+  const ambientActions: Array<{ state: State; message: string; weight: number }> = [
+    { state: 'waving', message: 'Boopi noticed you.', weight: 3 },
+    { state: 'waiting', message: 'Boopi is waiting for the next idea.', weight: 3 },
+    { state: 'review', message: 'Boopi is checking the bench.', weight: 2 },
+    { state: 'looking', message: 'Boopi is looking around the lab.', weight: 2 },
+    { state: 'jumping', message: 'A small burst of lab energy.', weight: 1 },
+  ];
+  const manualActions: Array<{
+    state: State;
+    message: string;
+    followUp?: { state: State; message: string };
+  }> = [
+    {
+      state: 'working',
+      message: 'Boopi is taking a careful look.',
+      followUp: { state: 'review', message: 'Boopi has finished the thought.' },
+    },
+    {
+      state: 'jumping',
+      message: 'Boopi found something interesting.',
+      followUp: { state: 'waving', message: 'Boopi wants to show you.' },
+    },
+    {
+      state: 'looking',
+      message: 'Boopi is scanning the whole lab.',
+      followUp: { state: 'waiting', message: 'Boopi is ready for the next idea.' },
+    },
+    {
+      state: 'failed',
+      message: 'Boopi lost the thread for a moment.',
+      followUp: { state: 'waving', message: 'Boopi is back.' },
+    },
+  ];
+  let state: State = 'idle';
   let frame = 0;
-  let timer: number | undefined;
+  let completedLoops = 0;
+  let frameTimer: number | undefined;
+  let ambientTimer: number | undefined;
+  let animationToken = 0;
   let dragged = false;
+  let hovered = false;
+  let manualSequence = false;
+  let lastAmbientState: State | undefined;
+  let manualActionIndex = Math.floor(Math.random() * manualActions.length);
+  let dragDirection: 'left' | 'right' | undefined;
 
   const getScale = () =>
     Number.parseFloat(getComputedStyle(root as HTMLElement).getPropertyValue('--boopi-scale')) || 0.72;
@@ -140,7 +200,10 @@
     if (!sprite) return;
     const current = states[state];
     const scale = getScale();
-    sprite.style.backgroundPosition = `${-frame * cellWidth * scale}px ${-current.row * cellHeight * scale}px`;
+    const cell = 'cells' in current
+      ? current.cells[frame]
+      : { row: current.row, column: frame };
+    sprite.style.backgroundPosition = `${-cell.column * cellWidth * scale}px ${-cell.row * cellHeight * scale}px`;
   };
 
   const place = (left: number, top: number, save = false) => {
@@ -163,31 +226,104 @@
     } catch {}
   };
 
-  const setState = (next: keyof typeof states, message: string) => {
+  const animate = (next: State, message: string, loops = Number.POSITIVE_INFINITY, done?: () => void) => {
+    window.clearTimeout(frameTimer);
+    const token = ++animationToken;
     state = next;
+    if (root) root.dataset.state = next;
     frame = 0;
+    completedLoops = 0;
     if (bubble) bubble.textContent = message;
     paint();
+
+    if (reduced) {
+      if (done) frameTimer = window.setTimeout(done, 900);
+      return;
+    }
+    const tick = () => {
+      if (token !== animationToken) return;
+      const current = states[state];
+      frame += 1;
+      if (frame >= current.frames) {
+        frame = 0;
+        completedLoops += 1;
+        if (completedLoops >= loops) {
+          done?.();
+          return;
+        }
+      }
+      paint();
+      frameTimer = window.setTimeout(tick, current.frameMs);
+    };
+    frameTimer = window.setTimeout(tick, states[next].frameMs);
   };
 
-  if (root && sprite && !reduced) {
-    timer = window.setInterval(() => {
-      frame = (frame + 1) % states[state].frames;
-      paint();
-    }, 180);
+  const chooseAmbientAction = () => {
+    const candidates = ambientActions.filter((action) => action.state !== lastAmbientState);
+    const totalWeight = candidates.reduce((sum, action) => sum + action.weight, 0);
+    let cursor = Math.random() * totalWeight;
+    for (const action of candidates) {
+      cursor -= action.weight;
+      if (cursor <= 0) {
+        lastAmbientState = action.state;
+        return action;
+      }
+    }
+    lastAmbientState = candidates[0].state;
+    return candidates[0];
+  };
+
+  const scheduleAmbient = () => {
+    window.clearTimeout(ambientTimer);
+    if (reduced || hovered || manualSequence) return;
+    ambientTimer = window.setTimeout(() => {
+      const action = chooseAmbientAction();
+      animate(action.state, action.message, 1, startIdle);
+    }, 7200 + Math.random() * 6000);
+  };
+
+  function startIdle() {
+    manualSequence = false;
+    animate('idle', 'Boopi is watching the lab.');
+    scheduleAmbient();
   }
-  paint();
-  root?.addEventListener('mouseenter', () => setState('happy', 'A small hello from Boopi.'));
-  root?.addEventListener('mouseleave', () => setState('idle', 'Boopi is watching the lab.'));
+
+  startIdle();
+  root?.addEventListener('mouseenter', () => {
+    hovered = true;
+    window.clearTimeout(ambientTimer);
+    if (!manualSequence) {
+      animate('waving', 'A small hello from Boopi.', 1, () => {
+        animate('idle', 'Boopi is watching the lab.');
+      });
+    }
+  });
+  root?.addEventListener('mouseleave', () => {
+    hovered = false;
+    if (!manualSequence) startIdle();
+  });
   root?.addEventListener('click', (event) => {
-    if ((event.target as HTMLElement).closest('[data-boopi-toggle]')) return;
+    if ((event.target as HTMLElement).closest('button')) return;
     if (dragged) {
       dragged = false;
       return;
     }
-    setState('working', 'Boopi is thinking through the experiment.');
+    manualSequence = true;
+    window.clearTimeout(ambientTimer);
+    const action = manualActions[manualActionIndex];
+    manualActionIndex = (manualActionIndex + 1) % manualActions.length;
+    animate(action.state, action.message, 1, () => {
+      if (!action.followUp) {
+        startIdle();
+        return;
+      }
+      animate(action.followUp.state, action.followUp.message, 1, startIdle);
+    });
   });
   toggle?.addEventListener('click', () => {
+    window.clearTimeout(frameTimer);
+    window.clearTimeout(ambientTimer);
+    animationToken += 1;
     root?.classList.add('is-minimized');
     localStorage.setItem(minimizedKey, '1');
   });
@@ -195,6 +331,7 @@
     root?.classList.remove('is-minimized');
     localStorage.removeItem(minimizedKey);
     restoreSavedPosition();
+    startIdle();
   });
 
   dragHandle?.addEventListener('pointerdown', (event) => {
@@ -204,12 +341,28 @@
     const offsetY = event.clientY - startRect.top;
     const startX = event.clientX;
     const startY = event.clientY;
+    let previousX = event.clientX;
     dragged = false;
+    dragDirection = undefined;
     root.classList.add('is-dragging');
     dragHandle.setPointerCapture(event.pointerId);
 
     const move = (moveEvent: PointerEvent) => {
-      if (Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY) > 4) dragged = true;
+      if (Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY) > 4) {
+        dragged = true;
+        manualSequence = true;
+        window.clearTimeout(ambientTimer);
+        const deltaX = moveEvent.clientX - previousX;
+        const nextDirection = deltaX < -1 ? 'left' : deltaX > 1 ? 'right' : dragDirection;
+        if (nextDirection && nextDirection !== dragDirection) {
+          dragDirection = nextDirection;
+          animate(
+            nextDirection === 'left' ? 'runningLeft' : 'runningRight',
+            nextDirection === 'left' ? 'Boopi is moving left.' : 'Boopi is moving right.',
+          );
+        }
+      }
+      previousX = moveEvent.clientX;
       place(moveEvent.clientX - offsetX, moveEvent.clientY - offsetY);
     };
     const end = (endEvent: PointerEvent) => {
@@ -220,6 +373,7 @@
       dragHandle.removeEventListener('pointercancel', end);
       const rect = root.getBoundingClientRect();
       place(rect.left, rect.top, true);
+      if (dragged) startIdle();
     };
     dragHandle.addEventListener('pointermove', move);
     dragHandle.addEventListener('pointerup', end);
