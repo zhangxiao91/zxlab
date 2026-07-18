@@ -42,6 +42,8 @@ export interface Quote {
   quality: Quality;
   stale: boolean;
   warnings: string[];
+  fallbackUsed?: boolean;
+  providerAttempts?: Array<{ provider: string; ok: boolean; latencyMs: number; errorCode: string | null; message: string | null }>;
 }
 
 export interface MarketBar {

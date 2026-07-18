@@ -22,6 +22,9 @@ export class RiskWorkspaceService {
     if (marketError) { calculated.warnings.unshift(`ApiMarketDataProvider: ${marketError}`); calculated.evidencePack.warnings.unshift(`ApiMarketDataProvider: ${marketError}`); }
     const review = await this.reviewService.review(calculated.evidencePack);
     const now = calculated.evidencePack.generatedAt;
+    const marketSources = [...new Set(quotes.map((item) => item.source))];
+    const fallbackCount = quotes.filter((item) => item.fallbackUsed).length;
+    const unavailableCount = quotes.filter((item) => item.quality === "unavailable").length;
     const history = [...mockPortfolioHistory.slice(0, -1), { date: new Date(now).toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" }).replace("/", "-"), value: calculated.portfolio.netValue, drawdown: mockPortfolioHistory.at(-1)?.drawdown ?? 0 }];
     const activity: ActivityItem[] = [
       ...calculated.events.map((item) => ({ id: `activity:${item.id}`, time: item.triggeredAt.slice(11, 16), type: "rule" as const, title: item.title, detail: item.message, evidenceId: item.id, tone: item.severity === "critical" || item.severity === "high" ? "danger" as const : "warning" as const })),
@@ -31,7 +34,7 @@ export class RiskWorkspaceService {
       asOf: now, receivedAt: now, accountName: "个人交易账户", currency: "CNY", dataMode: mode,
       portfolio: { ...calculated.portfolio, dayReturn: calculated.portfolio.netValue ? calculated.portfolio.dayPnl / calculated.portfolio.netValue : 0, currentDrawdown: history.at(-1)?.drawdown ?? 0, maxDrawdown: Math.min(...history.map((item) => item.drawdown)), riskBudgetUsed: calculated.portfolio.netValue ? Math.abs(Math.min(0, calculated.portfolio.dayPnl)) / (calculated.portfolio.netValue * 0.025) : 0 },
       sourceHealth: [
-        { name: provider.name, status: marketError ? "offline" : mode === "mock" ? "healthy" : "healthy", latency: mode === "mock" ? "本地" : "网关", freshness: marketError ?? (quotes.some((item) => item.stale) ? "含过期报价" : "已更新") },
+        { name: provider.name, status: marketError || unavailableCount ? "offline" : fallbackCount || quotes.some((item) => item.stale) ? "degraded" : "healthy", latency: mode === "mock" ? "本地" : "三源网关", freshness: marketError ?? `${marketSources.join(" / ") || "无可用源"}${fallbackCount ? ` · ${fallbackCount} 项降级` : ""}` },
         { name: "本地交易账本", status: built.anomalies.length ? "degraded" : "healthy", latency: "浏览器", freshness: `${transactions.length} 条事件` },
         { name: "持仓对账", status: reconciliation.unresolved ? "degraded" : "healthy", latency: "本地", freshness: reconciliation.unresolved ? "待处理" : "一致" },
         { name: "Mock Review", status: "healthy", latency: "本地", freshness: "Evidence Pack 驱动" },

@@ -25,7 +25,7 @@ export class ApiMarketDataProvider implements MarketDataProvider {
   async getStatus(exchange: "SSE" | "SZSE") { return this.request<{ exchange: string; open: boolean; marketTimestamp: string | null; source: string }>(`/api/market/status?exchange=${exchange}`); }
   private async request<T>(path: string): Promise<T> {
     let response: Response;
-    try { response = await fetch(`${this.baseUrl.replace(/\/$/, "")}${path}`, { signal: AbortSignal.timeout(6000) }); }
+    try { response = await fetch(`${this.baseUrl.replace(/\/$/, "")}${path}`, { signal: AbortSignal.timeout(8500) }); }
     catch (error) { throw new MarketDataError(error instanceof Error ? error.message : "行情网关不可达", "GATEWAY_UNREACHABLE"); }
     const body = await response.json().catch(() => null) as { data?: T; error?: { code?: string; message?: string } } | null;
     if (!response.ok || !body?.data) throw new MarketDataError(body?.error?.message || `行情网关返回 ${response.status}`, body?.error?.code || "UPSTREAM_ERROR");
