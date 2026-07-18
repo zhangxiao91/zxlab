@@ -61,7 +61,7 @@ npm run preview
 ## Project structure
 
 ```text
-functions/          Cloudflare Pages Functions for filtered live status data
+functions/          Cloudflare Pages Functions for server-side APIs and live status data
 services/           Private, separately deployed status collectors
 src/
 ├── components/     Reusable interface components
@@ -75,8 +75,26 @@ src/
 ```
 
 Static files that should be copied directly are stored in `public/`. Astro still
-builds as a static site; the optional Function boundary only serves sanitized
-status JSON.
+builds as a static site; the Function boundary serves sanitized status JSON and
+the server-only AI Gateway.
+
+## AI Gateway
+
+Reusable AI features call `generateAI()` from `src/lib/ai/client.ts`, which sends
+a validated request to `POST /api/ai/generate`. Provider URLs, keys, model IDs,
+timeouts, retries, fallback routing, and structured-output parsing remain inside
+Cloudflare Pages Functions. The fixed model order is Provider 1 GPT-5.6,
+Provider 1 GPT-5.5, Provider 2 GPT-5.5, then DeepSeek V4 Pro.
+
+Copy `.dev.vars.example` to the ignored `.dev.vars` file for Pages-local
+development. In Cloudflare Pages, add base URLs and model IDs as runtime
+variables and add all API keys plus `AI_GATEWAY_ACCESS_TOKEN` as encrypted
+secrets. Production fails closed when neither an access token nor a supported
+`AI_RATE_LIMITER` binding is present. Do not expose the access token in browser
+code; browser-facing features must use the site's authenticated server boundary.
+
+Implementation details, response examples, fallback rules, and local testing are
+documented in [`docs/ai-gateway.md`](docs/ai-gateway.md).
 
 ## Main routes
 

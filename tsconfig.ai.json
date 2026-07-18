@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "types": ["node"]
+  },
+  "include": [
+    "src/lib/ai/**/*.ts",
+    "functions/_lib/ai/**/*.ts",
+    "functions/api/ai/**/*.ts",
+    "tests/ai-gateway.test.ts"
+  ],
+  "exclude": ["dist", "apps", "services", "node_modules"]
+}

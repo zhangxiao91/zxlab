@@ -24,6 +24,7 @@ pnpm-debug.log*
 .env.production
 .dev.vars
 .dev.vars.*
+!.dev.vars.example
 .note-cover-cache/
 
 # macOS-specific files
