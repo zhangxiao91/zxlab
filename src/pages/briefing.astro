@@ -153,6 +153,7 @@ const longTermThreads = [
     const closeButton = document.querySelector<HTMLButtonElement>("[data-panel-close]");
     const submitLabel = document.querySelector<HTMLElement>("[data-submit-label]");
     const submitError = document.querySelector<HTMLElement>("[data-annotation-error]");
+    const commentLabel = document.querySelector<HTMLElement>("[data-comment-label]");
     const briefingId = document.querySelector<HTMLElement>("[data-briefing-id]")?.dataset.briefingId ?? "";
     const session = briefingSessionStore.load();
     getMemories().then(({ candidates }) => {
@@ -216,6 +217,13 @@ const longTermThreads = [
       if (menu) menu.hidden = true;
     };
 
+    const semanticComments: Partial<Record<AnnotationAction, string>> = {
+      explain: "请深入解释这段内容，补充它成立的条件、技术机制，以及对 zxlab 的具体影响。",
+      challenge: "请质疑这段判断，指出证据缺口、可能的反例、替代解释，以及仍需验证的假设。",
+      remember: "我认同并希望记住这段判断。请把它整理成范围明确、可审计的当前看法候选。",
+      track: "请把这段内容转成持续追踪条件，说明未来哪些新证据会强化、削弱或改变这个判断。",
+    };
+
     const openPanel = (action: AnnotationAction) => {
       if (!form || !selectedItem || !selectedText) return;
 			panelTrigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -228,10 +236,16 @@ const longTermThreads = [
       (form.elements.namedItem("itemId") as HTMLInputElement).value = itemId;
       (form.elements.namedItem("action") as HTMLInputElement).value = action;
       (form.elements.namedItem("selectedText") as HTMLInputElement).value = selectedText;
+      const comment = form.elements.namedItem("comment") as HTMLTextAreaElement;
+      const semanticComment = semanticComments[action];
+      comment.value = semanticComment ?? "";
+      comment.readOnly = Boolean(semanticComment);
+      if (commentLabel) commentLabel.textContent = semanticComment ? "Signal 将按此意图处理" : "你的判断";
       if (selectionOutput) selectionOutput.textContent = `“${selectedText}”`;
       if (itemOutput) itemOutput.textContent = itemTitle;
       hideMenu();
       setPanel(true);
+      if (semanticComment) window.setTimeout(() => form.requestSubmit(), 80);
     };
 
     const captureSelection = () => {
