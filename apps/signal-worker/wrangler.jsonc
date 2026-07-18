@@ -15,6 +15,9 @@
   "triggers": {
     "crons": ["30 23 * * *"]
   },
+  "routes": [
+    { "pattern": "signal-api.zx-dx.xyz", "custom_domain": true }
+  ],
   "vars": {
     "ENVIRONMENT": "production",
     "ZX_SIGNAL_LLM_API_URL": "https://beta.zxlab.pages.dev/api/ai/generate",
@@ -24,7 +27,7 @@
     "ZX_SIGNAL_ACCESS_ENABLED": "true",
     "ZX_SIGNAL_SCHEDULE_ENABLED": "true",
     "CF_ACCESS_TEAM_DOMAIN": "https://zxdx1.cloudflareaccess.com",
-    "CF_ACCESS_AUD": "its_my_first_tag_www"
+    "CF_ACCESS_AUD": "7559429b1da91fe218c27db2cdee8c70cec97195d9b86a0effea1b1916f84e64"
   },
   "secrets": {
     "required": ["ZX_SIGNAL_LLM_API_TOKEN", "ZX_SIGNAL_WRITE_TOKEN"]

@@ -5,6 +5,6 @@ ZX_SIGNAL_LLM_API_TOKEN=use-the-same-internal-token-configured-on-the-pages-proj
 ZX_SIGNAL_ACCESS_ENABLED=false
 ZX_SIGNAL_SCHEDULE_ENABLED=false
 CF_ACCESS_TEAM_DOMAIN=https://zxdx1.cloudflareaccess.com
-CF_ACCESS_AUD=its_my_first_tag_www
+CF_ACCESS_AUD=7559429b1da91fe218c27db2cdee8c70cec97195d9b86a0effea1b1916f84e64
 # Optional while GitHub release sources remain disabled.
 GITHUB_TOKEN=

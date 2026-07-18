@@ -14,7 +14,7 @@ const configuredMode = import.meta.env.PUBLIC_SIGNAL_DATA_MODE;
 const dataMode: "api" | "mock" = configuredMode === "api" || configuredMode === "mock"
   ? configuredMode
   : import.meta.env.DEV ? "mock" : "api";
-const defaultApiBase = import.meta.env.DEV ? "" : "https://zx-signal.zhangxiao9118.workers.dev";
+const defaultApiBase = import.meta.env.DEV ? "" : "https://signal-api.zx-dx.xyz";
 const apiBase = String(import.meta.env.PUBLIC_SIGNAL_API_BASE ?? defaultApiBase).replace(/\/$/, "");
 
 export class SignalApiError extends Error {
