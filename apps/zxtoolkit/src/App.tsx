@@ -12,7 +12,7 @@ import { clearSession, loadSession, parseReceiverSession, receiverUrl, saveSessi
 import type { LocalTransfer, RemoteTransfer, StoredFile, TransferSession } from "./types";
 import { TurnstileWidget } from "./TurnstileWidget";
 
-type ConnectionState = "connecting" | "connected" | "disconnected" | "expired";
+type ConnectionState = "idle" | "connecting" | "connected" | "disconnected" | "expired";
 type SendStatus = "ready" | "uploading" | "sent" | "failed";
 
 const deviceName = /Mac|iPhone|iPad/.test(navigator.userAgent) ? "ZX 的 Mac" : "这台设备";
@@ -22,7 +22,7 @@ export default function App() {
   const receiverSession = useMemo(() => parseReceiverSession(window.location), []);
   const [mode] = useState<"sender" | "receiver">(receiverSession ? "receiver" : "sender");
   const [session, setSession] = useState<TransferSession | null>(receiverSession);
-  const [connection, setConnection] = useState<ConnectionState>("connecting");
+  const [connection, setConnection] = useState<ConnectionState>(receiverSession ? "connecting" : "idle");
   const [peerOnline, setPeerOnline] = useState(false);
   const [selected, setSelected] = useState<StoredFile | null>(null);
   const [remote, setRemote] = useState<RemoteTransfer | null>(null);
@@ -60,11 +60,11 @@ export default function App() {
           setSession(restored);
           return;
         }
-        setConnection("disconnected");
+        setConnection("idle");
       } catch (cause) {
         clearSession();
-        setConnection("disconnected");
-        setError(messageFor(cause, "无法创建传输会话，请确认本地 Worker 已启动"));
+        setConnection("idle");
+        setError(messageFor(cause, "保存的会话已失效，请重新完成安全验证"));
       }
     };
     void establish();
@@ -189,7 +189,7 @@ export default function App() {
 
   async function replaceSession() {
     clearSession(); setSession(null); setQrCode(null); setPeerOnline(false); setError(null);
-    setConnection("disconnected");
+    setConnection("idle");
     setTurnstileKey((value) => value + 1);
   }
 
@@ -253,10 +253,10 @@ function Sender(props: SenderProps) {
   return <>
     <section className="hero session-hero" data-enter>
       <div className="hero-copy">
-        <p className="eyebrow"><span className={`status-dot ${props.peerOnline ? "" : "is-idle"}`} /> {props.peerOnline ? "手机已连接" : connectionCopy(props.connection)}</p>
+        <p className="eyebrow"><span className={`status-dot ${props.peerOnline ? "" : "is-idle"}`} /> {props.session ? props.peerOnline ? "手机已连接" : connectionCopy(props.connection) : "等待安全验证"}</p>
         <h1>把刚截的图，<br />送到另一台设备。</h1>
         <p className="lede">手机扫描右侧二维码，连接后粘贴截图。会话结束或图片领取后，临时文件自动删除。</p>
-        <div className="session-inline"><span>{formatCountdown(props.remaining)}</span><button onClick={props.onNewSession}><RefreshCw size={14} /> 新会话</button></div>
+        <div className="session-inline"><span>{props.session ? formatCountdown(props.remaining) : "会话创建后 10 分钟有效"}</span><button onClick={props.onNewSession}><RefreshCw size={14} /> {props.session ? "新会话" : "刷新验证"}</button></div>
       </div>
       <div className="send-panel">
         <aside className="qr-card">
@@ -283,7 +283,7 @@ function Sender(props: SenderProps) {
       {props.error && <p className="page-error">{props.error}</p>}
     </section>
     <section className="transfer-grid grid-flow-dense" data-enter>
-      <article className="device-card primary-card"><div className="card-top"><span>当前临时会话</span><button aria-label="创建新会话" onClick={props.onNewSession}><Plus size={18} /></button></div><div className="device-visual"><Smartphone size={42} strokeWidth={1.3} /></div><div><h2>{props.peerOnline ? "手机已连接" : "等待扫码"}</h2><p><span className={`status-dot ${props.peerOnline ? "" : "is-idle"}`} /> {connectionCopy(props.connection)}</p></div></article>
+      <article className="device-card primary-card"><div className="card-top"><span>当前临时会话</span><button aria-label="创建新会话" onClick={props.onNewSession}><Plus size={18} /></button></div><div className="device-visual"><Smartphone size={42} strokeWidth={1.3} /></div><div><h2>{props.peerOnline ? "手机已连接" : props.session ? "等待扫码" : "等待验证"}</h2><p><span className={`status-dot ${props.peerOnline ? "" : "is-idle"}`} /> {props.session ? connectionCopy(props.connection) : "验证后生成二维码"}</p></div></article>
       <article className="info-card"><ShieldCheck size={25} /><h2>短期访问控制</h2><p>高强度随机 token，仅在本次 10 分钟会话有效。</p></article>
       <article className="info-card"><Wifi size={25} /><h2>领取即删除</h2><p>手机收到图片后，R2 临时对象立即删除。</p></article>
     </section>
@@ -310,5 +310,5 @@ function useObjectUrl(blob: Blob | null): string | null {
 }
 
 function formatCountdown(seconds: number): string { return `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`; }
-function connectionCopy(state: ConnectionState): string { return state === "connected" ? "会话已连接" : state === "connecting" ? "正在连接" : state === "expired" ? "会话已过期" : "连接已断开，正在重试"; }
+function connectionCopy(state: ConnectionState): string { return state === "connected" ? "会话已连接" : state === "connecting" ? "正在连接" : state === "expired" ? "会话已过期" : state === "idle" ? "等待创建会话" : "连接已断开，正在重试"; }
 function messageFor(cause: unknown, fallback: string): string { return cause instanceof ApiError || cause instanceof Error ? cause.message : fallback; }
