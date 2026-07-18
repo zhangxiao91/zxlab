@@ -25,6 +25,7 @@ export type GenerateAIResult = {
   provider: string;
   model: string;
   fallbackIndex: number;
+  attempts?: number;
   latencyMs: number;
   usage?: AIUsage;
 };

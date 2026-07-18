@@ -96,6 +96,7 @@ export async function generateAI(input: GenerateAIInput, options: AIGatewayOptio
             provider: candidate.provider,
             model: candidate.model,
             fallbackIndex,
+            attempts,
             latencyMs: Math.max(0, now() - startedAt),
             usage: providerResult.usage,
           };

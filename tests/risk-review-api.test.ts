@@ -6,7 +6,9 @@ import { calculateRisk } from "../src/features/risk/engine.ts";
 import { buildPositionsDetailed, reconcilePositions } from "../src/features/risk/ledger.ts";
 import { instruments, mockPortfolioHistory, mockQuotes, mockRiskRules, mockTradePlans, mockTransactions } from "../src/features/risk/mock.ts";
 import { ApiReviewError, ApiReviewService, fingerprintEvidencePack, LocalReviewRepository } from "../src/features/risk/review.ts";
-import type { EvidencePack, ReviewResult } from "../src/features/risk/types.ts";
+import type { EvidencePack, ReviewExecution } from "../src/features/risk/types.ts";
+
+const reviewMetadata = { provider: "provider1", model: "gpt", fallbackIndex: 0, requestId: "gateway-1", latencyMs: 20, inputTokens: 100, outputTokens: 50, retryCount: 1 };
 
 function evidencePack(): EvidencePack {
   const built = buildPositionsDetailed(mockTransactions, instruments);
@@ -54,18 +56,18 @@ test("Evidence Pack fingerprint ignores runtime timestamps but changes with quot
 test("LocalReviewRepository saves only successful LLM reviews and reuses the fingerprint", async () => {
   const pack = evidencePack(); const fingerprint = await fingerprintEvidencePack(pack);
   const repository = new LocalReviewRepository(new MemoryStorage());
-  const review = await validateLLMReview(llmOutput(pack), pack, { provider: "provider1", model: "gpt", fallbackIndex: 0, requestId: "gateway-1" });
-  repository.save(review);
+  const execution = await validateLLMReview(llmOutput(pack), pack, reviewMetadata);
+  repository.save(execution.result);
   assert.equal(repository.find(fingerprint)?.requestId, "gateway-1");
-  repository.save({ ...review, mode: "mock" });
+  repository.save({ ...execution.result, mode: "mock" });
   assert.equal(repository.find(fingerprint)?.mode, "llm");
 });
 
 test("ApiReviewService parses success and preserves structured errors", async () => {
   const pack = evidencePack();
-  const review = await validateLLMReview(llmOutput(pack), pack, { provider: "provider1", model: "gpt", fallbackIndex: 0, requestId: "gateway-1" });
-  const service = new ApiReviewService("/api/risk/review", async () => Response.json({ ok: true, data: review, requestId: "risk-1" }));
-  assert.equal((await service.review(pack)).mode, "llm");
+  const execution = await validateLLMReview(llmOutput(pack), pack, reviewMetadata);
+  const service = new ApiReviewService("/api/risk/review", async () => Response.json({ ok: true, data: execution, requestId: "risk-1" }));
+  assert.equal((await service.review(pack)).result.mode, "llm");
   const failing = new ApiReviewService("/api/risk/review", async () => Response.json({ ok: false, error: { code: "ACCESS_REQUIRED", message: "login" }, requestId: "risk-2" }, { status: 401 }));
   await assert.rejects(failing.review(pack), (error: unknown) => error instanceof ApiReviewError && error.code === "ACCESS_REQUIRED" && error.requestId === "risk-2");
   const controller = new AbortController(); controller.abort();
@@ -79,12 +81,14 @@ test("Cloudflare Access verifier fails closed for missing and malformed assertio
   await assert.rejects(verifyCloudflareAccess(new Request("https://beta.zxlab.pages.dev/api/risk/review", { headers: { "Cf-Access-Jwt-Assertion": "forged-token" } }), env), (error: unknown) => error instanceof RiskReviewError && error.code === "INVALID_ACCESS_TOKEN");
 });
 
-test("LLM review rejects fabricated evidence, invalid severity and trading instructions", async () => {
-  const pack = evidencePack(); const metadata = { provider: "provider1", model: "gpt", fallbackIndex: 0, requestId: "gateway-1" };
+test("LLM review excludes unsupported facts, tolerates unknown fields, and rejects trading instructions", async () => {
+  const pack = evidencePack(); const metadata = reviewMetadata;
   const fabricated = llmOutput(pack); fabricated.mainRisks[0].evidenceIds = ["invented:evidence"];
-  await assert.rejects(validateLLMReview(fabricated, pack, metadata), (error: unknown) => error instanceof RiskReviewError && error.code === "INVALID_REVIEW_OUTPUT");
+  const fabricatedResult = await validateLLMReview({ ...fabricated, futureField: "compatible" }, pack, metadata);
+  assert.equal(fabricatedResult.status, "partial"); assert.equal(fabricatedResult.result.mainRisks.length, 0); assert.ok(fabricatedResult.warnings.some((item) => item.includes("evidenceIds")));
   const invalidSeverity = llmOutput(pack); invalidSeverity.mainRisks[0].severity = "urgent";
-  await assert.rejects(validateLLMReview(invalidSeverity, pack, metadata), (error: unknown) => error instanceof RiskReviewError && error.code === "INVALID_REVIEW_OUTPUT");
+  const invalidSeverityResult = await validateLLMReview(invalidSeverity, pack, metadata);
+  assert.equal(invalidSeverityResult.status, "partial"); assert.equal(invalidSeverityResult.result.mainRisks.length, 0);
   const command = llmOutput(pack); command.summary = "立即卖出该持仓";
   await assert.rejects(validateLLMReview(command, pack, metadata), (error: unknown) => error instanceof RiskReviewError && error.code === "FORBIDDEN_TRADING_INSTRUCTION");
 });
@@ -96,12 +100,12 @@ test("Risk Review Function requires Access, calls the gateway, and degrades inva
   assert.equal(missing.status, 503);
   const gateway = async () => Response.json({ ok: true, data: { json: llmOutput(pack), text: "{}", provider: "provider1", model: "gpt", fallbackIndex: 0, latencyMs: 20 }, requestId: "gateway-1" });
   const success = await handleRiskReview({ request: request.clone(), env: { AI_GATEWAY_ACCESS_TOKEN: "server-secret" } }, { verifyAccess: async () => ({}), fetcher: gateway });
-  const successPayload = await success.json() as { data: ReviewResult };
-  assert.equal(successPayload.data.mode, "llm"); assert.equal(successPayload.data.requestId, "gateway-1");
+  const successPayload = await success.json() as { data: ReviewExecution };
+  assert.equal(successPayload.data.result.mode, "llm"); assert.equal(successPayload.data.result.requestId, "gateway-1"); assert.equal(successPayload.data.inputTokens, null);
   const invalidGateway = async () => Response.json({ ok: true, data: { json: { ...llmOutput(pack), summary: "立即买入" }, text: "{}", provider: "provider1", model: "gpt", fallbackIndex: 0, latencyMs: 20 }, requestId: "gateway-2" });
   const degraded = await handleRiskReview({ request: request.clone(), env: { AI_GATEWAY_ACCESS_TOKEN: "server-secret" } }, { verifyAccess: async () => ({}), fetcher: invalidGateway });
-  const degradedPayload = await degraded.json() as { data: ReviewResult };
-  assert.equal(degradedPayload.data.mode, "mock"); assert.equal(degradedPayload.data.fallbackReason, "FORBIDDEN_TRADING_INSTRUCTION");
+  const degradedPayload = await degraded.json() as { data: ReviewExecution };
+  assert.equal(degradedPayload.data.result.mode, "mock"); assert.equal(degradedPayload.data.result.fallbackReason, "FORBIDDEN_TRADING_INSTRUCTION");
 });
 
 test("Risk Review Function rejects oversized requests before parsing", async () => {

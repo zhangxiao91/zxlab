@@ -22,9 +22,9 @@ export async function handleRiskReview(context: FunctionContext, dependencies: R
     catch (cause) { throw new RiskReviewError("INVALID_INPUT", "复盘请求不是有效 JSON。", 400, { cause }); }
     const pack = parseEvidencePackRequest(body);
     try {
-      const review = await generateGatewayReview(context.request, context.env, pack, dependencies.fetcher);
-      console.log(JSON.stringify({ event: "risk.review.completed", requestId, mode: review.mode, provider: review.provider, model: review.model, fallbackIndex: review.fallbackIndex, evidenceCount: pack.evidence.length }));
-      return json({ ok: true, data: review, requestId });
+      const execution = await generateGatewayReview(context.request, context.env, pack, dependencies.fetcher);
+      console.log(JSON.stringify({ event: "risk.review.completed", requestId, mode: execution.result.mode, status: execution.status, provider: execution.provider, model: execution.model, fallbackPath: execution.fallbackPath, schemaValidation: execution.schemaValidation, evidenceCount: pack.evidence.length }));
+      return json({ ok: true, data: execution, requestId });
     } catch (cause) {
       const failure = cause instanceof RiskReviewError ? cause : new RiskReviewError("REVIEW_FAILED", "真实复盘暂不可用。", 502, { cause });
       console.error(JSON.stringify({ event: "risk.review.fallback", requestId, code: failure.code, evidenceCount: pack.evidence.length }));

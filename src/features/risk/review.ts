@@ -1,6 +1,6 @@
-import type { EvidencePack, ReviewResult } from "./types";
+import type { EvidencePack, ReviewExecution, ReviewResult } from "./types";
 
-export interface ReviewService { review(pack: EvidencePack, options?: { signal?: AbortSignal }): Promise<ReviewResult> }
+export interface ReviewService { review(pack: EvidencePack, options?: { signal?: AbortSignal }): Promise<ReviewExecution> }
 
 export interface ReviewRepository {
   find(fingerprint: string): ReviewResult | null;
@@ -30,20 +30,34 @@ export async function fingerprintEvidencePack(pack: EvidencePack): Promise<strin
   return `sha256:${Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 }
 
-function isReviewResult(value: unknown): value is ReviewResult {
+export function isReviewResult(value: unknown): value is ReviewResult {
   if (!value || typeof value !== "object") return false;
   const item = value as Partial<ReviewResult>;
   return (item.mode === "mock" || item.mode === "llm")
     && typeof item.generatedAt === "string"
     && typeof item.evidencePackFingerprint === "string"
     && typeof item.summary === "string"
-    && Array.isArray(item.mainRisks)
-    && Array.isArray(item.planViolations)
-    && Array.isArray(item.operationReview)
+    && Array.isArray(item.mainRisks) && item.mainRisks.every((entry) => entry && typeof entry.id === "string")
+    && Array.isArray(item.planViolations) && item.planViolations.every((entry) => entry && typeof entry.id === "string")
+    && Array.isArray(item.operationReview) && item.operationReview.every((entry) => entry && typeof entry.id === "string")
     && Array.isArray(item.counterfactuals)
     && Array.isArray(item.unknowns)
     && Array.isArray(item.questionsForUser)
     && Array.isArray(item.limitations);
+}
+
+function isReviewExecution(value: unknown): value is ReviewExecution {
+  if (!value || typeof value !== "object") return false;
+  const item = value as Partial<ReviewExecution>;
+  return ["pending", "success", "partial", "failed"].includes(String(item.status))
+    && isReviewResult(item.result)
+    && typeof item.provider === "string"
+    && typeof item.model === "string"
+    && Array.isArray(item.fallbackPath)
+    && typeof item.promptVersion === "string"
+    && ["valid", "partial", "failed"].includes(String(item.schemaValidation))
+    && Array.isArray(item.warnings)
+    && Array.isArray(item.errors);
 }
 
 export class LocalReviewRepository implements ReviewRepository {
@@ -69,7 +83,7 @@ export class ApiReviewError extends Error {
 
 export class ApiReviewService implements ReviewService {
   constructor(private readonly endpoint = "/api/risk/review", private readonly fetcher: typeof fetch = fetch) {}
-  async review(pack: EvidencePack, options: { signal?: AbortSignal } = {}): Promise<ReviewResult> {
+  async review(pack: EvidencePack, options: { signal?: AbortSignal } = {}): Promise<ReviewExecution> {
     const response = await this.fetcher.call(globalThis, this.endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
@@ -83,7 +97,7 @@ export class ApiReviewService implements ReviewService {
     catch { throw new ApiReviewError("INVALID_RESPONSE", "复盘服务返回了无法解析的响应。"); }
     const root = payload && typeof payload === "object" ? payload as Record<string, unknown> : null;
     const requestId = typeof root?.requestId === "string" ? root.requestId : undefined;
-    if (!response.ok || root?.ok !== true || !isReviewResult(root.data)) {
+    if (!response.ok || root?.ok !== true || !isReviewExecution(root.data)) {
       const error = root?.error && typeof root.error === "object" ? root.error as Record<string, unknown> : null;
       throw new ApiReviewError(typeof error?.code === "string" ? error.code : `HTTP_${response.status}`, typeof error?.message === "string" ? error.message : "真实复盘暂不可用。", requestId);
     }
@@ -93,11 +107,11 @@ export class ApiReviewService implements ReviewService {
 
 export class MockReviewService implements ReviewService {
   constructor(private readonly fallbackReason?: string) {}
-  async review(pack: EvidencePack): Promise<ReviewResult> {
+  async review(pack: EvidencePack): Promise<ReviewExecution> {
     const has = (rule: string) => pack.events.some((item) => item.ruleId === rule);
     const matching = (rule: string) => pack.events.filter((item) => item.ruleId === rule);
-    const mainRisks = pack.events.filter((item) => ["portfolio.max_effective_exposure", "portfolio.max_theme_concentration", "position.max_weight", "data_quality.quote_stale", "data_quality.position_unreconciled"].includes(item.ruleId)).map((item) => ({ title: item.title, explanation: item.message, severity: item.severity, evidenceIds: item.evidenceIds }));
-    const planViolations = matching("plan.max_position").map((item) => ({ title: item.title, detail: item.message, evidenceIds: item.evidenceIds }));
+    const mainRisks = pack.events.filter((item) => ["portfolio.max_effective_exposure", "portfolio.max_theme_concentration", "position.max_weight", "data_quality.quote_stale", "data_quality.position_unreconciled"].includes(item.ruleId)).map((item) => ({ id: `review:risk:${item.id}`, title: item.title, explanation: item.message, severity: item.severity, evidenceIds: item.evidenceIds }));
+    const planViolations = matching("plan.max_position").map((item) => ({ id: `review:plan:${item.id}`, title: item.title, detail: item.message, evidenceIds: item.evidenceIds }));
     const facts = [
       has("portfolio.max_effective_exposure") ? "有效敞口超过规则上限" : null,
       has("portfolio.max_theme_concentration") ? "主题风险出现集中" : null,
@@ -105,7 +119,7 @@ export class MockReviewService implements ReviewService {
       has("data_quality.quote_stale") ? "行情过期使估值只能作为警示" : null,
       has("data_quality.position_unreconciled") ? "持仓尚未完成券商对账" : null,
     ].filter(Boolean);
-    return {
+    const result: ReviewResult = {
       mode: "mock",
       generatedAt: new Date().toISOString(),
       evidencePackFingerprint: await fingerprintEvidencePack(pack),
@@ -113,11 +127,27 @@ export class MockReviewService implements ReviewService {
       summary: facts.length ? `本轮 Evidence Pack 显示：${facts.join("；")}。复盘只引用本轮账本、报价、规则与对账证据。` : "本轮 Evidence Pack 未触发重点风险规则，但仍应核对交易与行情完整性。",
       mainRisks,
       planViolations,
-      operationReview: pack.events.filter((item) => item.ruleId === "position.max_weight").map((item) => ({ category: "仓位纪律", observation: item.message, evidenceIds: item.evidenceIds })),
+      operationReview: pack.events.filter((item) => item.ruleId === "position.max_weight").map((item) => ({ id: `review:operation:${item.id}`, category: "仓位纪律", observation: item.message, evidenceIds: item.evidenceIds })),
       counterfactuals: ["如果不持有超出计划的仓位，有效敞口会下降多少？", "如果只使用新鲜且已对账的数据，当前结论是否仍然成立？"],
       unknowns: pack.warnings,
       questionsForUser: ["券商当前数量是否已与交易账本逐项核对？"],
       limitations: [this.fallbackReason ? `真实 LLM 不可用，已降级：${this.fallbackReason}` : "当前为 Mock Review；文本由 Evidence Pack 中的事件组合生成，不调用真实 LLM。", ...(!pack.reliable ? ["数据质量警告存在，复盘不得视为完全可靠。"] : [])],
+    };
+    return {
+      status: this.fallbackReason ? "partial" : "success",
+      result,
+      provider: "mock",
+      model: "evidence-template-v1",
+      fallbackPath: this.fallbackReason ? [this.fallbackReason, "mock/evidence-template-v1"] : ["mock/evidence-template-v1"],
+      requestDurationMs: 0,
+      inputTokens: null,
+      outputTokens: null,
+      estimatedCost: 0,
+      promptVersion: "portfolio-review.mock.v1",
+      schemaValidation: this.fallbackReason ? "failed" : "valid",
+      retryCount: 0,
+      warnings: this.fallbackReason ? [`真实 LLM 已降级：${this.fallbackReason}`] : [],
+      errors: this.fallbackReason ? [this.fallbackReason] : [],
     };
   }
 }

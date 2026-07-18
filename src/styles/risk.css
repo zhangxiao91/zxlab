@@ -264,6 +264,71 @@
 .import-preview table { width: 100%; border-collapse: collapse; font-size: .63rem; }
 .import-preview th, .import-preview td { padding: .7rem; border-bottom: 1px solid rgba(24,25,21,.12); text-align: left; }
 .duplicate-note { margin-top: .5rem; color: rgba(24,25,21,.55); font-size: .63rem; }
+.daily-workflow, .feedback-panel, .review-history, .memory-panel, .diagnostics-panel, .backup-panel { border: 1px solid var(--risk-line); border-radius: .8rem; background: rgba(255,255,255,.025); }
+.daily-workflow { margin-bottom: 1rem; padding: 1.1rem; }
+.daily-workflow > header, .feedback-panel > header, .review-history > header, .memory-panel > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.daily-workflow header span, .feedback-panel header span, .review-history header span, .memory-panel header span, .diagnostics-panel header span { color: var(--risk-muted); font-size: .6rem; letter-spacing: .08em; text-transform: uppercase; }
+.daily-workflow h2, .feedback-panel h3, .review-history h3, .memory-panel h3, .diagnostics-panel h3 { margin-top: .3rem; font-size: 1rem; font-weight: 500; }
+.daily-workflow header dl { display: flex; margin: 0; gap: 1.2rem; }
+.daily-workflow header dl div { display: flex; flex-direction: column; gap: .2rem; }
+.daily-workflow dt { color: var(--risk-muted); font-size: .55rem; }
+.daily-workflow dd { margin: 0; font-size: .62rem; }
+.workflow-rail { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); grid-auto-flow: dense; margin-top: 1rem; gap: .45rem; }
+.workflow-step { min-height: 7.5rem; padding: .75rem; overflow: hidden; border: 1px solid var(--risk-line); border-radius: .6rem; background: rgba(255,255,255,.025); color: inherit; text-align: left; cursor: pointer; transition: transform 180ms ease, border-color 180ms ease; }
+.workflow-step:hover { transform: translateY(-2px); border-color: rgba(216,255,74,.45); }
+.workflow-step > span { display: grid; width: 1.3rem; height: 1.3rem; place-items: center; border-radius: 50%; background: rgba(255,255,255,.08); font-size: .55rem; }
+.workflow-step strong { display: block; margin-top: .6rem; font-size: .67rem; }
+.workflow-step small { color: var(--risk-muted); font-size: .52rem; }
+.workflow-step p { margin-top: .45rem; color: var(--risk-muted); font-size: .58rem; line-height: 1.45; }
+.workflow-step--success { border-color: rgba(216,255,74,.22); }
+.workflow-step--warning, .workflow-step--needs-confirmation { border-color: rgba(255,183,77,.35); }
+.workflow-step--error { border-color: rgba(255,93,93,.4); }
+.workflow-step--running { border-color: var(--risk-lime); }
+.feedback-panel, .review-history, .memory-panel { margin-top: 1rem; padding: 1.2rem; }
+.feedback-panel header > strong, .review-history header > strong, .memory-panel header > strong { color: var(--risk-lime); font-size: .65rem; }
+.overall-feedback { display: flex; margin-top: 1rem; align-items: center; gap: 1rem; flex-wrap: wrap; }
+.overall-feedback label, .feedback-note { display: flex; gap: .45rem; color: var(--risk-muted); font-size: .62rem; }
+.overall-feedback label:not(.check-line), .feedback-note { flex-direction: column; }
+.overall-feedback select, .item-feedback-list select, .item-feedback-list textarea, .feedback-note textarea { padding: .55rem; border: 1px solid var(--risk-line); border-radius: .4rem; background: #151612; color: var(--risk-paper); font: inherit; }
+.item-feedback-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 1rem; gap: .6rem; }
+.item-feedback-list article { display: grid; grid-template-columns: 1fr auto; gap: .55rem; padding: .75rem; border: 1px solid var(--risk-line); border-radius: .55rem; }
+.item-feedback-list strong { font-size: .66rem; }
+.item-feedback-list textarea { grid-column: 1 / -1; min-height: 4rem; resize: vertical; }
+.feedback-note { margin-top: .8rem; }
+.feedback-note textarea { min-height: 5rem; resize: vertical; }
+.feedback-panel .primary-action { margin-top: .8rem; }
+.history-list { margin-top: 1rem; border-top: 1px solid var(--risk-line); }
+.history-list > button { display: grid; width: 100%; grid-template-columns: 1.2fr 1fr .8fr 1fr; padding: .8rem 0; gap: .7rem; border: 0; border-bottom: 1px solid var(--risk-line); background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.history-list span { display: flex; flex-direction: column; font-size: .65rem; }
+.history-list small { margin-top: .2rem; color: var(--risk-muted); font-size: .55rem; }
+.frozen-review { margin-top: 1rem; padding: 1rem; border-radius: .6rem; background: rgba(0,0,0,.14); }
+.frozen-review > button { margin-bottom: .8rem; }
+.frozen-review > p { margin-top: .7rem; color: var(--risk-muted); font-size: .67rem; line-height: 1.6; }
+.frozen-review dl { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 1rem; gap: .6rem; }
+.frozen-review dl div { padding: .6rem; border: 1px solid var(--risk-line); border-radius: .4rem; }
+.frozen-review dt { color: var(--risk-muted); font-size: .55rem; }
+.frozen-review dd { margin: .25rem 0 0; overflow-wrap: anywhere; font-size: .62rem; }
+.frozen-review details { margin-top: .7rem; padding: .7rem; border: 1px solid var(--risk-line); border-radius: .45rem; }
+.frozen-review summary { cursor: pointer; font-size: .64rem; }
+.frozen-review details p { margin-top: .45rem; color: var(--risk-muted); font-size: .58rem; overflow-wrap: anywhere; }
+.memory-panel article { margin-top: .7rem; padding: .8rem; border: 1px solid var(--risk-line); border-radius: .55rem; }
+.memory-panel article > div, .memory-panel article footer { display: flex; justify-content: space-between; gap: .5rem; }
+.memory-panel article span, .memory-panel article small { color: var(--risk-muted); font-size: .55rem; }
+.memory-panel article p { margin: .55rem 0; font-size: .66rem; line-height: 1.55; }
+.memory-panel article footer { justify-content: flex-end; }
+.empty-note { margin-top: .8rem; color: var(--risk-muted); font-size: .65rem; }
+.diagnostics-panel { margin-top: 1rem; padding: 1.2rem; }
+.diagnostics-panel > div { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-auto-flow: dense; margin-top: 1rem; gap: .6rem; }
+.diagnostics-panel details { padding: .8rem; border: 1px solid var(--risk-line); border-radius: .55rem; }
+.diagnostics-panel summary { cursor: pointer; font-size: .68rem; font-weight: 600; }
+.diagnostics-panel dl div { display: flex; margin-top: .55rem; justify-content: space-between; gap: .7rem; font-size: .56rem; }
+.diagnostics-panel dt { color: var(--risk-muted); }
+.diagnostics-panel dd { margin: 0; overflow-wrap: anywhere; text-align: right; }
+.backup-panel { padding: 1.2rem; }
+.backup-panel > p, .backup-preview p { margin-top: .6rem; color: var(--risk-muted); font-size: .62rem; line-height: 1.5; }
+.backup-panel .file-picker { margin-top: .8rem; }
+.backup-preview { margin-top: .8rem; padding: .8rem; border-radius: .5rem; background: rgba(0,0,0,.15); }
+.backup-preview > div { display: flex; margin-top: .7rem; gap: .5rem; }
 .risk-loading { display: grid; min-height: 100vh; place-items: center; background: #11120f; color: rgba(239,237,228,.7); font: .8rem "Geist", sans-serif; }
 
 @media (max-width: 62rem) {
@@ -279,6 +344,8 @@
   .exposure-chart { height: 8rem; }
   .review-callout { grid-template-columns: 1fr; }
   .position-detail-grid { grid-template-columns: 1fr; }
+  .workflow-rail { grid-template-columns: repeat(3, 1fr); }
+  .diagnostics-panel > div { grid-template-columns: repeat(2, 1fr); }
 }
 
 @media (max-width: 42rem) {
@@ -296,6 +363,9 @@
   .risk-section { padding-top: 7rem; }
   .risk-section__header, .view-intro { align-items: flex-start; flex-direction: column; }
   .alert-grid, .review-columns, .review-footer-grid, .settings-grid { grid-template-columns: 1fr; }
+  .workflow-rail, .item-feedback-list, .diagnostics-panel > div, .frozen-review dl { grid-template-columns: 1fr; }
+  .daily-workflow header, .history-list > button { display: flex; flex-direction: column; }
+  .daily-workflow header dl { flex-wrap: wrap; }
   .mapping-grid { grid-template-columns: repeat(2, 1fr); }
   .alert-card { min-height: 18rem; }
   .review-callout { padding: 2rem; }

@@ -53,6 +53,6 @@ test("risk engine lowers reliability and emits stable evidence ids", async () =>
   const ids = new Set(result.evidencePack.evidence.map((item) => item.id));
   assert.ok(result.events.flatMap((item) => item.evidenceIds).some((id) => ids.has(id)));
   const review = await new MockReviewService().review(result.evidencePack);
-  assert.match(review.summary, /行情过期/);
-  assert.ok(review.mainRisks.some((item) => item.evidenceIds.length > 0));
+  assert.match(review.result.summary, /行情过期/);
+  assert.ok(review.result.mainRisks.some((item) => item.evidenceIds.length > 0));
 });
