@@ -88,7 +88,7 @@ PUBLIC_SIGNAL_API_BASE=https://<signal-worker-domain>
 PUBLIC_SIGNAL_DATA_MODE=api
 ```
 
-开发环境未显式配置时使用 mock；生产构建未显式配置时使用 API。API 不可用会显示失败态，不会静默退回 mock。页面元数据会显示 `Mock 预览`、`Fixture 生成` 或 `真实候选生成`。
+开发环境未显式配置时使用 mock；生产构建未显式配置时使用已部署的 `zx-signal.zhangxiao9118.workers.dev`，也可用 `PUBLIC_SIGNAL_API_BASE` 覆盖。API 不可用会显示失败态，不会静默退回 mock。页面元数据会显示 `Mock 预览`、`Fixture 生成` 或 `真实候选生成`。
 
 zxlab 当前仍是 Astro static output，因此日报 API 读取发生在 Pages build 阶段。生成新日报后需要触发一次 Pages 构建才能把新版本写入静态 `/briefing` HTML；批注和 Memory POST 则直接从浏览器请求 Worker。若以后需要“生成完成立即刷新日报”而不重新构建，应把该路由迁移为按需 SSR 或增加客户端渲染层，这不在本阶段的 UI 改动范围内。
 

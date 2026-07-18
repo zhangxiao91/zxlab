@@ -14,7 +14,8 @@ const configuredMode = import.meta.env.PUBLIC_SIGNAL_DATA_MODE;
 const dataMode: "api" | "mock" = configuredMode === "api" || configuredMode === "mock"
   ? configuredMode
   : import.meta.env.DEV ? "mock" : "api";
-const apiBase = String(import.meta.env.PUBLIC_SIGNAL_API_BASE ?? "").replace(/\/$/, "");
+const defaultApiBase = import.meta.env.DEV ? "" : "https://zx-signal.zhangxiao9118.workers.dev";
+const apiBase = String(import.meta.env.PUBLIC_SIGNAL_API_BASE ?? defaultApiBase).replace(/\/$/, "");
 
 export class SignalApiError extends Error {
   constructor(readonly code: string, message: string, readonly status: number) {
@@ -34,6 +35,7 @@ async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
     response = await fetch(endpoint(path), {
       ...init,
       credentials: "include",
+      signal: init?.signal ?? AbortSignal.timeout(8_000),
       headers: { "content-type": "application/json", ...init?.headers },
     });
   } catch (cause) {
