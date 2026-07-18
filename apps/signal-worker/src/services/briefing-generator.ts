@@ -26,13 +26,13 @@ export class BriefingGenerator {
     const briefingId = crypto.randomUUID();
     const startedAt = new Date().toISOString();
     await this.briefings.startRun({ id: runId, date: input.date, triggerType: "manual", promptVersion: BRIEFING_PROMPT_VERSION,
-      model: this.env.ZX_SIGNAL_EDITOR_MODEL, candidateCount: input.candidates.length, startedAt });
+      model: this.env.ZX_SIGNAL_LLM_LABEL, candidateCount: input.candidates.length, startedAt });
     try {
       const memories = await this.memories.active();
       const draft = await this.llm.generateBriefing({ date: input.date, candidates: input.candidates, memories, runId });
       const generatedAt = new Date().toISOString();
       await this.briefings.saveGenerated({ runId, briefingId, date: input.date, draft, candidates: input.candidates,
-        promptVersion: BRIEFING_PROMPT_VERSION, model: this.env.ZX_SIGNAL_EDITOR_MODEL, dataOrigin: input.dataOrigin, generatedAt });
+        promptVersion: BRIEFING_PROMPT_VERSION, model: this.env.ZX_SIGNAL_LLM_LABEL, dataOrigin: input.dataOrigin, generatedAt });
       return { runId, briefing: await this.briefings.getById(briefingId) };
     } catch (cause) {
       const code = cause instanceof SignalError ? cause.code : "MODEL_REQUEST_FAILED";

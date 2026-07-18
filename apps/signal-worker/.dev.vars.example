@@ -1,4 +1,5 @@
 # Copy to .dev.vars. Never commit the real value.
 ENVIRONMENT=development
 ZX_SIGNAL_WRITE_TOKEN=generate-a-local-only-token
+ZX_SIGNAL_LLM_API_TOKEN=use-the-same-internal-token-configured-on-the-pages-project
 ZX_SIGNAL_ACCESS_ENABLED=false

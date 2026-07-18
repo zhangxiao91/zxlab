@@ -37,7 +37,7 @@ export interface SignalLLM {
 
 interface JsonRunOptions<T> {
   task: InvocationTask;
-  model: string;
+  gatewayTask: "signal-briefing" | "signal-annotation-reply" | "signal-memory-extraction";
   promptVersion: string;
   prompt: { system: string; user: string };
   schema: object;
@@ -50,37 +50,48 @@ function object(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
 }
 
-function responseValue(result: unknown): unknown {
-  const root = object(result);
-  if (!root || !("response" in root)) throw new SignalValidationError("Model response did not contain response");
-  const response = root.response;
-  if (typeof response === "string") {
-    const cleaned = response.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
-    return JSON.parse(cleaned) as unknown;
-  }
-  return response;
-}
-
-function usageValue(result: unknown): { inputTokens?: number; outputTokens?: number } | undefined {
-  const usage = object(object(result)?.usage);
-  if (!usage) return undefined;
-  return {
-    inputTokens: typeof usage.prompt_tokens === "number" ? usage.prompt_tokens : undefined,
-    outputTokens: typeof usage.completion_tokens === "number" ? usage.completion_tokens : undefined,
+interface GatewaySuccess {
+  ok: true;
+  data: {
+    text: string;
+    json?: unknown;
+    provider: string;
+    model: string;
+    fallbackIndex: number;
+    latencyMs: number;
+    usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
   };
+  requestId: string;
 }
 
-export class WorkersSignalLLM implements SignalLLM {
+function gatewaySuccess(value: unknown): GatewaySuccess {
+  const root = object(value);
+  const data = object(root?.data);
+  if (root?.ok !== true || !data || typeof root.requestId !== "string"
+    || typeof data.text !== "string" || typeof data.provider !== "string" || typeof data.model !== "string"
+    || typeof data.fallbackIndex !== "number" || typeof data.latencyMs !== "number") {
+    throw new SignalValidationError("Gateway response did not match the success contract");
+  }
+  return value as GatewaySuccess;
+}
+
+function responseValue(result: GatewaySuccess): unknown {
+  if (result.data.json !== undefined) return result.data.json;
+  const cleaned = result.data.text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  return JSON.parse(cleaned) as unknown;
+}
+
+export class ProjectApiSignalLLM implements SignalLLM {
   private readonly invocations: ModelInvocationRepository;
 
-  constructor(private readonly env: Env) {
+  constructor(private readonly env: Env, private readonly fetcher: typeof fetch = fetch) {
     this.invocations = new ModelInvocationRepository(env.DB);
   }
 
   async generateBriefing(input: GenerateBriefingInput): Promise<GeneratedBriefingDraft> {
     const allowedSources = new Set(input.candidates.map((candidate) => candidate.id));
     const options = {
-      task: "briefing" as const, model: this.env.ZX_SIGNAL_EDITOR_MODEL, promptVersion: BRIEFING_PROMPT_VERSION,
+      task: "briefing" as const, gatewayTask: "signal-briefing" as const, promptVersion: BRIEFING_PROMPT_VERSION,
       prompt: buildBriefingPrompt(input), schema: briefingDraftJsonSchema,
       validate: (value: unknown) => parseGeneratedBriefingDraft(value, allowedSources), runId: input.runId, repair: true,
     };
@@ -88,12 +99,12 @@ export class WorkersSignalLLM implements SignalLLM {
   }
 
   async replyToAnnotation(input: AnnotationReplyInput): Promise<AnnotationReplyDraft> {
-    return this.runJson({ task: "annotation-reply", model: this.env.ZX_SIGNAL_REPLY_MODEL, promptVersion: REPLY_PROMPT_VERSION,
+    return this.runJson({ task: "annotation-reply", gatewayTask: "signal-annotation-reply", promptVersion: REPLY_PROMPT_VERSION,
       prompt: buildAnnotationReplyPrompt(input), schema: annotationReplyJsonSchema, validate: parseAnnotationReplyDraft });
   }
 
   async extractMemory(input: MemoryExtractionInput): Promise<MemoryCandidateDraft | null> {
-    const result = await this.runJson({ task: "memory-extraction", model: this.env.ZX_SIGNAL_MEMORY_MODEL, promptVersion: MEMORY_PROMPT_VERSION,
+    const result = await this.runJson({ task: "memory-extraction", gatewayTask: "signal-memory-extraction", promptVersion: MEMORY_PROMPT_VERSION,
       prompt: buildMemoryPrompt(input), schema: memoryCandidateJsonSchema, validate: parseMemoryCandidateDraft });
     if (!result.shouldRemember) return null;
     if (result.scope === "belief" && result.content && !/^用户当前(的)?判断/.test(result.content)) {
@@ -105,21 +116,49 @@ export class WorkersSignalLLM implements SignalLLM {
   private async runJson<T>(options: JsonRunOptions<T>): Promise<T> {
     const invocationId = crypto.randomUUID();
     const startedAt = new Date().toISOString();
-    await this.invocations.start({ id: invocationId, task: options.task, runId: options.runId, model: options.model, promptVersion: options.promptVersion, startedAt });
+    await this.invocations.start({ id: invocationId, task: options.task, runId: options.runId,
+      model: this.env.ZX_SIGNAL_LLM_LABEL, promptVersion: options.promptVersion, startedAt });
     try {
-      const result = await this.env.AI.run(options.model, {
-        messages: [
-          { role: "system", content: options.prompt.system },
-          { role: "user", content: options.prompt.user },
-        ],
-        temperature: 0,
-        max_tokens: options.task === "briefing" ? 4_000 : 1_200,
-        response_format: { type: "json_schema", json_schema: options.schema },
-      }, {
-        gateway: { id: this.env.ZX_SIGNAL_GATEWAY_ID, metadata: { task: options.task, promptVersion: options.promptVersion, runId: options.runId ?? "none" } },
+      const response = await this.fetcher(this.env.ZX_SIGNAL_LLM_API_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.env.ZX_SIGNAL_LLM_API_TOKEN}`,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          "X-Request-Id": invocationId,
+        },
+        body: JSON.stringify({
+          task: options.gatewayTask,
+          messages: [
+            { role: "system", content: `${options.prompt.system}\nThe output JSON must match this schema exactly: ${JSON.stringify(options.schema)}` },
+            { role: "user", content: options.prompt.user },
+          ],
+          temperature: 0,
+          maxOutputTokens: options.gatewayTask === "signal-briefing" ? 4_000
+            : options.gatewayTask === "signal-memory-extraction" ? 800 : 1_200,
+          responseFormat: { type: "json" },
+        }),
       });
+      const contentLength = Number(response.headers.get("content-length") ?? "0");
+      if (contentLength > 512 * 1024) throw new SignalValidationError("Gateway response was too large");
+      const raw = await response.text();
+      if (new TextEncoder().encode(raw).byteLength > 512 * 1024) throw new SignalValidationError("Gateway response was too large");
+      let payload: unknown;
+      try { payload = JSON.parse(raw) as unknown; }
+      catch (cause) { throw new SignalValidationError(`Gateway returned invalid JSON: ${cause instanceof Error ? cause.message : "parse failure"}`); }
+      if (!response.ok) {
+        const root = object(payload);
+        const error = object(root?.error);
+        const code = typeof error?.code === "string" ? error.code : `HTTP_${response.status}`;
+        throw new SignalError("MODEL_REQUEST_FAILED", `Project AI gateway failed with ${code}`, 502);
+      }
+      const result = gatewaySuccess(payload);
       const value = options.validate(responseValue(result));
-      await this.invocations.complete(invocationId, usageValue(result));
+      await this.invocations.complete(invocationId, {
+        model: `${result.data.provider}/${result.data.model}`,
+        inputTokens: result.data.usage?.inputTokens,
+        outputTokens: result.data.usage?.outputTokens,
+      });
       return value;
     } catch (cause) {
       const invalid = cause instanceof SignalValidationError || cause instanceof SyntaxError;
@@ -127,7 +166,7 @@ export class WorkersSignalLLM implements SignalLLM {
       console.error(JSON.stringify({
         event: "signal.model.failed",
         task: options.task,
-        model: options.model,
+        model: this.env.ZX_SIGNAL_LLM_LABEL,
         promptVersion: options.promptVersion,
         errorType: cause instanceof Error ? cause.name : "Unknown",
         errorMessage: cause instanceof Error ? cause.message.slice(0, 240) : "Unknown model failure",

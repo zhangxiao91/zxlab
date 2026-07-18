@@ -21,7 +21,7 @@ export class AnnotationResponder {
     const memoryDraft = await this.llm.extractMemory({ item, selectedText: input.selectedText, comment: input.comment, action: input.action, reply: replyDraft.reply });
     const annotation = { id: annotationId, briefingId: input.briefingId, briefingItemId: input.briefingItemId,
       selectedText: input.selectedText, comment: input.comment, action: input.action, createdAt };
-    const reply = { id: crypto.randomUUID(), annotationId, content: replyDraft.reply, createdAt: new Date().toISOString(), model: this.env.ZX_SIGNAL_REPLY_MODEL };
+    const reply = { id: crypto.randomUUID(), annotationId, content: replyDraft.reply, createdAt: new Date().toISOString(), model: this.env.ZX_SIGNAL_LLM_LABEL };
     let memoryCandidate: MemoryCandidate | undefined;
     if (memoryDraft?.shouldRemember && memoryDraft.scope && memoryDraft.content && memoryDraft.confidence !== undefined && memoryDraft.reason) {
       memoryCandidate = { id: crypto.randomUUID(), annotationId, scope: memoryDraft.scope,

@@ -4,7 +4,6 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-07-18",
   "compatibility_flags": ["nodejs_compat"],
-  "ai": { "binding": "AI" },
   "d1_databases": [
     {
       "binding": "DB",
@@ -15,15 +14,13 @@
   ],
   "vars": {
     "ENVIRONMENT": "production",
-    "ZX_SIGNAL_EDITOR_MODEL": "@cf/openai/gpt-oss-20b",
-    "ZX_SIGNAL_REPLY_MODEL": "@cf/openai/gpt-oss-20b",
-    "ZX_SIGNAL_MEMORY_MODEL": "@cf/openai/gpt-oss-20b",
-    "ZX_SIGNAL_GATEWAY_ID": "zx-signal",
+    "ZX_SIGNAL_LLM_API_URL": "https://beta.zxlab.pages.dev/api/ai/generate",
+    "ZX_SIGNAL_LLM_LABEL": "zxlab-project-gateway",
     "ZX_SIGNAL_ALLOWED_ORIGINS": "https://zx-dx.xyz,http://localhost:4321",
     "ZX_SIGNAL_ACCESS_ENABLED": "false"
   },
   "secrets": {
-    "required": ["ZX_SIGNAL_WRITE_TOKEN"]
+    "required": ["ZX_SIGNAL_LLM_API_TOKEN", "ZX_SIGNAL_WRITE_TOKEN"]
   },
   "observability": {
     "enabled": true,

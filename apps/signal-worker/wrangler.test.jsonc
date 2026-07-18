@@ -14,10 +14,9 @@
   ],
   "vars": {
     "ENVIRONMENT": "production",
-    "ZX_SIGNAL_EDITOR_MODEL": "test-model",
-    "ZX_SIGNAL_REPLY_MODEL": "test-model",
-    "ZX_SIGNAL_MEMORY_MODEL": "test-model",
-    "ZX_SIGNAL_GATEWAY_ID": "test-gateway",
+    "ZX_SIGNAL_LLM_API_URL": "https://gateway.test/api/ai/generate",
+    "ZX_SIGNAL_LLM_API_TOKEN": "test-gateway-token",
+    "ZX_SIGNAL_LLM_LABEL": "test-project-gateway",
     "ZX_SIGNAL_ALLOWED_ORIGINS": "http://localhost:4321",
     "ZX_SIGNAL_ACCESS_ENABLED": "false",
     "ZX_SIGNAL_WRITE_TOKEN": "test-only-not-a-secret"

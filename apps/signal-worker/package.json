@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev --port 8788",
-    "dev:remote-ai": "wrangler dev --config wrangler.remote.jsonc --port 8788",
+    "dev:gateway": "wrangler dev --port 8788",
     "types": "wrangler types worker-configuration.d.ts",
     "typecheck": "npm run types && tsc --noEmit --pretty false",
     "test": "vitest run",

@@ -29,13 +29,13 @@ function endpoint(path: string): string {
   return `${apiBase}${path}`;
 }
 
-async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
+async function apiRequest<T>(path: string, init?: RequestInit, timeoutMs = 8_000): Promise<T> {
   let response: Response;
   try {
     response = await fetch(endpoint(path), {
       ...init,
       credentials: "include",
-      signal: init?.signal ?? AbortSignal.timeout(8_000),
+      signal: init?.signal ?? AbortSignal.timeout(timeoutMs),
       headers: { "content-type": "application/json", ...init?.headers },
     });
   } catch (cause) {
@@ -62,7 +62,7 @@ export async function submitAnnotation(input: AnnotationInput): Promise<Annotati
   return apiRequest<AnnotationResponse>("/api/annotations", {
     method: "POST",
     body: JSON.stringify({ ...input, actionType: input.action }),
-  });
+  }, 45_000);
 }
 
 export async function updateMemoryCandidate(
@@ -75,7 +75,7 @@ export async function updateMemoryCandidate(
   const response = await apiRequest<{ candidate: MemoryCandidate }>(`/api/memory-candidates/${encodeURIComponent(candidate.id)}/${action}`, {
     method: "POST",
     body: JSON.stringify(action === "accept" ? { scope, scopeKey } : {}),
-  });
+  }, 15_000);
   return response.candidate;
 }
 

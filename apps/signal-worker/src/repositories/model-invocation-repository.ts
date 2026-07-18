@@ -21,9 +21,14 @@ export class ModelInvocationRepository {
       .run();
   }
 
-  async complete(id: string, usage?: { inputTokens?: number; outputTokens?: number }): Promise<void> {
-    await this.db.prepare(`UPDATE model_invocations SET status = 'succeeded', completed_at = ?, input_tokens = ?, output_tokens = ? WHERE id = ?`)
-      .bind(new Date().toISOString(), usage?.inputTokens ?? null, usage?.outputTokens ?? null, id).run();
+  async complete(id: string, input: {
+    model: string;
+    inputTokens?: number;
+    outputTokens?: number;
+  }): Promise<void> {
+    await this.db.prepare(`UPDATE model_invocations
+      SET status = 'succeeded', completed_at = ?, model = ?, input_tokens = ?, output_tokens = ? WHERE id = ?`)
+      .bind(new Date().toISOString(), input.model, input.inputTokens ?? null, input.outputTokens ?? null, id).run();
   }
 
   async fail(id: string, errorCode: string): Promise<void> {

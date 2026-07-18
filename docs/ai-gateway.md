@@ -22,6 +22,11 @@ credential, model selection, or fallback decision is shipped to the browser.
    is accepted; damaged JSON is never heuristically repaired.
 8. The logger emits one sanitized record per attempt and one request summary.
 
+ZX Signal calls this endpoint server-to-server with its own encrypted copy of
+`AI_GATEWAY_ACCESS_TOKEN`. Its browser UI never receives that token. Signal
+keeps ownership of prompt construction, domain schema validation, the single
+briefing repair attempt, Memory semantics, and D1 persistence.
+
 ## Business-side example
 
 ```ts
@@ -103,6 +108,18 @@ JavaScript. A future authenticated browser feature can supply an identity-backed
 limiter through the optional `AI_RATE_LIMITER` interface or place Cloudflare WAF
 rate limiting in front of the route; until then, production fails closed if both
 controls are absent.
+
+ZX Signal task policies are intentionally separate from generic callers:
+
+| Task | Output cap | Candidate timeout | Total budget |
+| --- | ---: | ---: | ---: |
+| `signal-briefing` | 4,000 | 30 s | 75 s |
+| `signal-annotation-reply` | 1,200 | 20 s | 40 s |
+| `signal-memory-extraction` | 800 | 20 s | 40 s |
+
+The gateway guarantees valid JSON for `responseFormat.type=json`; it does not
+accept a caller-supplied JSON Schema. Signal therefore validates `data.json`
+again with `@zxlab/signal-schema` before any D1 write.
 
 ## Responses
 
