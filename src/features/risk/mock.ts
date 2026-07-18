@@ -1,117 +1,34 @@
-import type { RiskDashboardData } from "./types";
+import { stableFingerprint } from "./ledger";
+import type { Instrument, PortfolioHistoryPoint, Quote, RiskRules, TradePlan, Transaction } from "./types";
 
-export const riskMockData: RiskDashboardData = {
-  asOf: "2026-07-18T14:32:10+08:00",
-  receivedAt: "2026-07-18T14:32:11+08:00",
-  accountName: "个人交易账户",
-  currency: "CNY",
-  portfolio: {
-    netValue: 1_286_420,
-    marketValue: 1_097_860,
-    cash: 188_560,
-    nominalExposure: 0.853,
-    effectiveExposure: 1.421,
-    dayPnl: -31_842,
-    dayReturn: -0.0242,
-    currentDrawdown: -0.071,
-    maxDrawdown: -0.126,
-    riskBudgetUsed: 0.99,
-    reliable: false,
-  },
-  sourceHealth: [
-    { name: "mootdx", status: "healthy", latency: "680 ms", freshness: "6 秒" },
-    { name: "腾讯财经", status: "degraded", latency: "1.8 s", freshness: "3 分钟" },
-    { name: "交易账本", status: "healthy", latency: "本地", freshness: "已对账" },
-    { name: "Review Agent", status: "healthy", latency: "按需", freshness: "只读" },
-  ],
-  positions: [
-    {
-      instrumentId: "SSE:510300", symbol: "510300", name: "沪深300ETF", assetType: "etf",
-      quantity: 120000, averageCost: 3.82, price: 3.916, marketValue: 469920,
-      unrealizedPnl: 11520, dayPnl: -6840, nominalWeight: 0.365, leverageMultiplier: 1,
-      effectiveExposure: 0.365, industry: "宽基", themes: ["大盘", "核心资产"], planStatus: "aligned",
-      quoteQuality: "live", quoteTime: "14:32:05", riskEventIds: [],
-    },
-    {
-      instrumentId: "SSE:588000", symbol: "588000", name: "科创50ETF", assetType: "etf",
-      quantity: 310000, averageCost: 0.912, price: 0.847, marketValue: 262570,
-      unrealizedPnl: -20150, dayPnl: -13210, nominalWeight: 0.204, leverageMultiplier: 1,
-      effectiveExposure: 0.204, industry: "科技", themes: ["半导体", "硬科技"], planStatus: "overweight",
-      quoteQuality: "live", quoteTime: "14:32:04", riskEventIds: ["risk:position-overweight"],
-    },
-    {
-      instrumentId: "SSE:513100", symbol: "513100", name: "纳指ETF（三倍敞口）", assetType: "etf",
-      quantity: 240000, averageCost: 1.49, price: 1.522, marketValue: 365280,
-      unrealizedPnl: 7680, dayPnl: -11792, nominalWeight: 0.284, leverageMultiplier: 3,
-      effectiveExposure: 0.852, industry: "海外科技", themes: ["AI", "纳斯达克"], planStatus: "missing",
-      quoteQuality: "stale", quoteTime: "14:27:41", riskEventIds: ["risk:effective-exposure", "risk:unplanned", "risk:stale"],
-    },
-  ],
-  riskEvents: [
-    {
-      id: "risk:effective-exposure", ruleId: "portfolio.max_effective_exposure", severity: "high", status: "active",
-      title: "有效总敞口超过限制", message: "按最新可用报价估算为 142.1%，规则上限为 120%；因一项报价过期，该值不可视为可靠快照。",
-      actualValue: 1.421, threshold: 1.2, triggeredAt: "2026-07-18T14:32:10+08:00",
-      evidenceIds: ["position_snapshot:ps-0718", "risk_rule:max-exposure"], dataWarnings: ["513100 行情已过期，风险值标记为不可可靠计算"],
-    },
-    {
-      id: "risk:loss-add", ruleId: "behavior.add_after_loss_budget", severity: "critical", status: "active",
-      title: "触及日亏损预算后继续加仓", message: "13:46 日亏损预算使用率达到 94%，14:02 仍新增科创50ETF 50,000 份。",
-      actualValue: 0.94, threshold: 0.9, triggeredAt: "2026-07-18T14:02:18+08:00",
-      evidenceIds: ["transaction:tx-005", "portfolio_snapshot:ps-1346"], dataWarnings: [],
-    },
-    {
-      id: "risk:stop-relaxed", ruleId: "behavior.stop_relaxation", severity: "high", status: "active",
-      title: "止损条件被放宽", message: "科创50ETF 失效线由 0.86 下调至 0.81，风险容忍扩大 5.8%。",
-      actualValue: 0.81, threshold: 0.86, triggeredAt: "2026-07-18T11:08:00+08:00",
-      evidenceIds: ["trade_plan_version:tp-588000-v3", "trade_plan_version:tp-588000-v2"], dataWarnings: [],
-    },
-    {
-      id: "risk:stale", ruleId: "data_quality.quote_stale", severity: "medium", status: "active",
-      title: "一项行情超过新鲜度阈值", message: "513100 报价已超过 120 秒，相关市值与敞口不可视为可靠值。",
-      actualValue: 269, threshold: 120, triggeredAt: "2026-07-18T14:32:10+08:00",
-      evidenceIds: ["quote_snapshot:q-513100"], dataWarnings: ["不得将空数据或旧数据替换为零"],
-    },
-  ],
-  activity: [
-    { id: "a1", time: "14:32", type: "rule", title: "有效敞口超限", detail: "估算 142.1% / 120%，包含三倍杠杆折算；当前报价质量不足。", evidenceId: "risk:effective-exposure", tone: "danger" },
-    { id: "a2", time: "14:27", type: "data", title: "513100 行情转为 stale", detail: "最后市场时间 14:27:41，超过 120 秒阈值。", evidenceId: "quote_snapshot:q-513100", tone: "warning" },
-    { id: "a3", time: "14:02", type: "trade", title: "买入 科创50ETF", detail: "50,000 份，成交价 0.849；发生在亏损预算使用率 94% 之后。", evidenceId: "transaction:tx-005", tone: "danger" },
-    { id: "a4", time: "13:46", type: "rule", title: "日亏损预算接近耗尽", detail: "风险预算使用率达到 94%。", evidenceId: "portfolio_snapshot:ps-1346", tone: "warning" },
-    { id: "a5", time: "11:08", type: "plan", title: "修改科创50ETF止损条件", detail: "失效线从 0.86 放宽至 0.81，保留版本历史。", evidenceId: "trade_plan_version:tp-588000-v3", tone: "warning" },
-    { id: "a6", time: "09:36", type: "trade", title: "买入 纳指ETF", detail: "计划外新增 40,000 份；该标的配置为三倍有效敞口。", evidenceId: "transaction:tx-004", tone: "warning" },
-    { id: "a7", time: "09:31", type: "data", title: "行情源完成首轮同步", detail: "mootdx 主源健康，腾讯财经进入备用。", evidenceId: "ingestion_run:run-0718-open", tone: "positive" },
-  ],
-  equityCurve: [
-    { date: "07-01", value: 1328000, drawdown: -0.011 }, { date: "07-03", value: 1342000, drawdown: 0 },
-    { date: "07-05", value: 1331000, drawdown: -0.008 }, { date: "07-08", value: 1364000, drawdown: 0 },
-    { date: "07-10", value: 1349000, drawdown: -0.011 }, { date: "07-12", value: 1322000, drawdown: -0.031 },
-    { date: "07-15", value: 1311000, drawdown: -0.039 }, { date: "07-16", value: 1306000, drawdown: -0.043 },
-    { date: "07-17", value: 1318262, drawdown: -0.034 }, { date: "07-18", value: 1286420, drawdown: -0.057 },
-  ],
-  evidence: [
-    { id: "transaction:tx-005", type: "成交", title: "科创50ETF 买入 50,000 份", timestamp: "2026-07-18 14:02:18", source: "portfolio_ledger", payload: { side: "BUY", quantity: 50000, price: 0.849, fee: 8.2, immutable: true } },
-    { id: "portfolio_snapshot:ps-1346", type: "组合快照", title: "13:46 风险预算快照", timestamp: "2026-07-18 13:46:00", source: "risk_engine", payload: { net_value: 1290040, day_pnl: -30320, risk_budget_used: 0.94, reliable: true } },
-    { id: "quote_snapshot:q-513100", type: "行情快照", title: "513100 过期报价", timestamp: "2026-07-18 14:27:41", source: "tencent", payload: { price: 1.522, received_at: "14:27:43", stale_seconds: 269, quality: "stale" } },
-    { id: "trade_plan_version:tp-588000-v3", type: "计划版本", title: "科创50ETF 计划 v3", timestamp: "2026-07-18 11:08:00", source: "portfolio_ledger", payload: { prior_stop: 0.86, new_stop: 0.81, version: 3, reason: "等待午后修复" } },
-    { id: "position_snapshot:ps-0718", type: "持仓快照", title: "14:32 有效敞口构成", timestamp: "2026-07-18 14:32:10", source: "risk_engine", payload: { nominal_exposure: 0.853, indicative_effective_exposure: 1.421, leveraged_component: 0.852, reliable: false } },
-    { id: "risk_rule:max-exposure", type: "风险规则", title: "最大有效敞口", timestamp: "2026-07-18 00:00:00", source: "risk_rules.yaml", payload: { threshold: 1.2, enabled: true, version: 1 } },
-  ],
-  review: {
-    mode: "mock",
-    summary: "今天的主要问题不是单一方向判断，而是亏损扩大后继续增加风险，并通过放宽止损延后了原计划的失效确认。当前有效敞口已超过规则上限，但一项行情过期，因此所有依赖该报价的组合数值必须视为暂不可可靠。",
-    mainRisks: [
-      { title: "有效敞口超限且数据不完整", explanation: "按最后可用报价估算，三倍杠杆折算后有效敞口为 142.1%，高于 120% 上限；513100 报价过期使该数字只能作为警示，不能作为可靠风险值。", severity: "high", evidenceIds: ["position_snapshot:ps-0718", "quote_snapshot:q-513100", "risk_rule:max-exposure"] },
-      { title: "亏损状态下风险继续增加", explanation: "风险预算使用率达到 94% 后，仍新增科创50ETF 50,000 份，属于已定义的纪律事件。", severity: "critical", evidenceIds: ["portfolio_snapshot:ps-1346", "transaction:tx-005"] },
-    ],
-    planViolations: [{ title: "止损条件放宽", detail: "原失效线 0.86 被下调至 0.81，增加了计划外的潜在损失空间。", evidenceIds: ["trade_plan_version:tp-588000-v3"] }],
-    operationReview: [
-      { category: "仓位错误", observation: "新增仓位发生在风险预算接近耗尽之后，放大了组合日内波动。", evidenceIds: ["transaction:tx-005", "portfolio_snapshot:ps-1346"] },
-      { category: "纪律错误", observation: "止损变化方向是扩大容忍区间，而非基于新证据缩小不确定性。", evidenceIds: ["trade_plan_version:tp-588000-v3"] },
-    ],
-    counterfactuals: ["如果 13:46 后不再新增仓位，组合有效敞口与日内潜在损失会下降多少？", "如果保持 v2 止损条件，今天是否已经触发原计划的退出复核？"],
-    unknowns: ["513100 在 14:27:41 之后的可靠成交价未知。", "纳指ETF 的书面交易计划缺失。"],
-    questionsForUser: ["本次加仓依据的是原交易计划，还是盘中出现了新的可验证事实？"],
-    limitations: ["当前为 Mock Review；自然语言解释不构成买卖指令。", "外部资讯尚未调用，且任何外部文本均按不可信输入处理。"],
-  },
-};
+export const instruments: Instrument[] = [
+  { id: "SSE:512480", symbol: "512480", name: "半导体ETF", assetType: "etf", industry: "科技", themes: ["半导体", "硬科技"], leverageMultiplier: 1 },
+  { id: "SZSE:159995", symbol: "159995", name: "芯片ETF", assetType: "etf", industry: "科技", themes: ["半导体", "硬科技"], leverageMultiplier: 1 },
+  { id: "SSE:513100", symbol: "513100", name: "纳指ETF（三倍风险口径）", assetType: "etf", industry: "海外科技", themes: ["AI", "纳斯达克"], leverageMultiplier: 3 },
+];
+
+function transaction(input: Omit<Transaction, "fingerprint" | "importedAt">): Transaction { return { ...input, fingerprint: stableFingerprint(input), importedAt: "2026-07-18T14:32:11+08:00" }; }
+export const mockTransactions: Transaction[] = [
+  transaction({ id: "mock-deposit", account: "main", instrumentId: null, type: "DEPOSIT", side: null, quantity: 0, price: 1_200_000, fee: 0, executedAt: "2026-07-01T09:00:00+08:00" }),
+  transaction({ id: "mock-001", account: "main", instrumentId: "SSE:512480", type: "BUY", side: "BUY", quantity: 300000, price: 0.862, fee: 5, executedAt: "2026-07-15T10:32:00+08:00" }),
+  transaction({ id: "mock-002", account: "main", instrumentId: "SSE:512480", type: "BUY", side: "BUY", quantity: 100000, price: 0.878, fee: 5, executedAt: "2026-07-16T10:02:00+08:00" }),
+  transaction({ id: "mock-003", account: "main", instrumentId: "SSE:512480", type: "SELL", side: "SELL", quantity: 50000, price: 0.891, fee: 5, executedAt: "2026-07-17T13:46:00+08:00" }),
+  transaction({ id: "mock-004", account: "main", instrumentId: "SZSE:159995", type: "BUY", side: "BUY", quantity: 280000, price: 1.102, fee: 8, executedAt: "2026-07-16T14:02:18+08:00" }),
+  transaction({ id: "mock-005", account: "main", instrumentId: "SSE:513100", type: "BUY", side: "BUY", quantity: 160000, price: 1.49, fee: 8, executedAt: "2026-07-18T09:36:00+08:00" }),
+];
+
+export const mockQuotes: Quote[] = [
+  { instrumentId: "SSE:512480", price: 0.899, previousClose: 0.906, open: 0.904, high: 0.91, low: 0.892, volume: 812000000, turnover: 730000000, marketTimestamp: "2026-07-18T14:32:05+08:00", receivedAt: "2026-07-18T14:32:11+08:00", source: "mock-market", quality: "live", stale: false, warnings: [] },
+  { instrumentId: "SZSE:159995", price: 1.054, previousClose: 1.071, open: 1.068, high: 1.076, low: 1.048, volume: 440000000, turnover: 466000000, marketTimestamp: "2026-07-18T14:32:04+08:00", receivedAt: "2026-07-18T14:32:11+08:00", source: "mock-market", quality: "live", stale: false, warnings: [] },
+  { instrumentId: "SSE:513100", price: 1.522, previousClose: 1.571, open: 1.56, high: 1.566, low: 1.516, volume: 226000000, turnover: 347000000, marketTimestamp: "2026-07-18T14:27:41+08:00", receivedAt: "2026-07-18T14:32:11+08:00", source: "mock-market", quality: "stale", stale: true, warnings: ["报价超过 120 秒"] },
+];
+
+export const mockRiskRules: RiskRules = { maxSinglePosition: 0.35, maxThemeConcentration: 0.45, maxEffectiveExposure: 1.2, quoteStaleSeconds: 120 };
+export const mockTradePlans: TradePlan[] = [
+  { instrumentId: "SSE:512480", maxWeight: 0.32, evidenceId: "trade-plan:SSE:512480:v1" },
+  { instrumentId: "SZSE:159995", maxWeight: 0.24, evidenceId: "trade-plan:SZSE:159995:v1" },
+];
+export const mockPortfolioHistory: PortfolioHistoryPoint[] = [
+  { date: "07-01", value: 1200000, drawdown: 0 }, { date: "07-05", value: 1218000, drawdown: 0 }, { date: "07-10", value: 1196000, drawdown: -0.018 },
+  { date: "07-15", value: 1229000, drawdown: 0 }, { date: "07-17", value: 1214000, drawdown: -0.012 }, { date: "07-18", value: 1186000, drawdown: -0.035 },
+];

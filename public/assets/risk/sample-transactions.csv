@@ -1,0 +1,9 @@
+id,account,instrument_id,side,quantity,price,fee,executed_at
+trade-deposit,main,,DEPOSIT,0,1200000,0,2026-07-01T09:00:00+08:00
+trade-001,main,SSE:512480,BUY,300000,0.862,5.00,2026-07-15T10:32:00+08:00
+trade-002,main,SSE:512480,BUY,100000,0.878,5.00,2026-07-16T10:02:00+08:00
+trade-003,main,SSE:512480,SELL,50000,0.891,5.00,2026-07-17T13:46:00+08:00
+trade-004,main,SZSE:159995,BUY,280000,1.102,8.00,2026-07-16T14:02:18+08:00
+trade-005,main,SSE:513100,BUY,160000,1.490,8.00,2026-07-18T09:36:00+08:00
+trade-fee,main,SSE:513100,FEE,0,0,3.00,2026-07-18T09:36:01+08:00
+trade-invalid,main,INVALID,BUY,not-a-number,1.00,0,not-a-time

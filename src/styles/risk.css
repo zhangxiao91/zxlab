@@ -66,6 +66,8 @@
 .risk-appbar__status div { display: flex; align-items: flex-end; flex-direction: column; line-height: 1.1; }
 .risk-appbar__status strong { font-size: .72rem; font-weight: 540; }
 .risk-appbar__status small { margin-top: .28rem; color: var(--risk-muted); font-size: .61rem; }
+.risk-appbar__actions { display: flex; justify-self: end; align-items: center; gap: 1rem; }
+.risk-appbar__actions > button { padding: .58rem .8rem; border: 1px solid var(--risk-line); border-radius: 999px; background: transparent; color: #efede4; cursor: pointer; font-size: .67rem; }
 
 .risk-main { width: min(calc(100% - 3rem), 86rem); margin: 0 auto; padding-bottom: clamp(8rem, 15vw, 14rem); }
 .risk-hero { display: grid; grid-template-columns: minmax(0, 1fr) 13rem; min-height: 33rem; padding: clamp(7rem, 12vw, 10rem) 0 clamp(6rem, 9vw, 8rem); align-items: end; gap: 4rem; }
@@ -86,6 +88,8 @@
 .reliability-band strong { font-size: .81rem; font-weight: 570; }
 .reliability-band p { margin-top: .25rem; color: rgba(239,237,228,.53); font-size: .7rem; }
 .reliability-band__time { color: rgba(239,237,228,.42); font-size: .66rem; }
+.data-mode-strip { display: flex; margin-top: .7rem; gap: 1.5rem; color: var(--risk-muted); font-size: .64rem; }
+.data-mode-strip strong { color: #efede4; font-weight: 520; }
 
 .risk-metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-template-rows: repeat(2, 12.5rem); grid-auto-flow: dense; gap: 1px; margin-top: 1rem; overflow: hidden; border: 1px solid var(--risk-line); border-radius: 1.15rem; background: var(--risk-line); }
 .risk-overview-card { grid-column: span 2; grid-row: span 2; padding: 1.6rem 1.75rem .7rem; overflow: hidden; background: var(--risk-panel); }
@@ -137,6 +141,17 @@
 .plan-state { padding: .3rem .45rem; border-radius: 999px; font-size: .58rem; }
 .plan-state--aligned { background: rgba(217,255,116,.1); color: var(--risk-lime); }
 .plan-state--overweight, .plan-state--missing { background: rgba(255,112,92,.1); color: var(--risk-red); }
+.empty-cell { padding: 3rem !important; text-align: center; color: var(--risk-muted) !important; }
+
+.reconciliation-card { margin-top: 1rem; padding: 1.5rem; border: 1px solid var(--risk-line); border-radius: 1rem; background: rgba(255,255,255,.02); }
+.reconciliation-card > header { display: flex; margin-bottom: 1.25rem; justify-content: space-between; align-items: end; }
+.reconciliation-card > header span { color: var(--risk-muted); font-size: .62rem; }
+.reconciliation-card > header h3 { margin-top: .35rem; font-size: 1.25rem; font-weight: 520; }
+.reconciliation-card > header > strong { color: var(--risk-amber); font-size: .7rem; }
+.reconcile-input { display: flex; gap: .35rem; }
+.reconcile-input input { width: 7rem; padding: .5rem; border: 1px solid var(--risk-line); border-radius: .4rem; background: rgba(0,0,0,.2); color: #fff; }
+.reconcile-input button { padding: .5rem .65rem; border: 0; border-radius: .4rem; background: var(--risk-lime); color: var(--risk-ink); cursor: pointer; font-size: .62rem; }
+.data-warning { margin: .75rem 0 0; padding: .65rem .75rem; border-radius: .45rem; background: rgba(255,112,92,.1); color: #8f2e22; font-size: .65rem; }
 
 .review-callout { display: grid; grid-template-columns: 1fr auto; margin-top: clamp(8rem, 13vw, 13rem); padding: clamp(3rem, 7vw, 7rem); align-items: end; gap: 3rem; border-radius: 1.2rem; background: var(--risk-lime); color: var(--risk-ink); }
 .review-callout span { font-size: .68rem; letter-spacing: .12em; text-transform: uppercase; }
@@ -205,6 +220,11 @@
 .mode-toggle[aria-pressed="false"] > i { background: rgba(255,255,255,.14); }
 .mode-toggle[aria-pressed="false"] > i::after { left: .2rem; background: #fff; }
 .settings-grid > .readonly-card { background: var(--risk-lime); color: var(--risk-ink); }
+.data-actions { display: flex; flex-direction: column; align-items: flex-start; gap: .7rem; }
+.data-actions h3 { width: 100%; }
+.data-actions button, .data-actions a, .primary-action { padding: .75rem 1rem; border: 1px solid var(--risk-line); border-radius: .55rem; background: transparent; color: inherit; cursor: pointer; text-decoration: none; font-size: .7rem; }
+.data-actions .primary-action, .primary-action { border-color: var(--risk-lime); background: var(--risk-lime); color: var(--risk-ink); }
+.data-actions .danger-action { border-color: rgba(255,112,92,.4); color: var(--risk-red); }
 .readonly-card > span { font-size: .6rem; letter-spacing: .1em; text-transform: uppercase; }
 .readonly-card h3 { max-width: 26rem; margin-top: 4rem; font-size: clamp(2.3rem, 4vw, 4.5rem); line-height: .94; letter-spacing: -.055em; }
 .readonly-card p { max-width: 32rem; color: rgba(24,25,21,.65); font-size: .75rem; line-height: 1.65; }
@@ -226,11 +246,28 @@
 .evidence-drawer dt { color: rgba(24,25,21,.45); }
 .evidence-drawer dd { margin: 0; overflow-wrap: anywhere; }
 .evidence-drawer footer { margin-top: 3rem; padding: 1.2rem; border-radius: .7rem; background: rgba(24,25,21,.06); color: rgba(24,25,21,.6); font-size: .68rem; line-height: 1.55; }
+.import-drawer { width: min(100%, 52rem); height: 100%; padding: 2rem; overflow-y: auto; background: var(--risk-paper); color: var(--risk-ink); animation: evidence-slide 450ms cubic-bezier(.16,1,.3,1) both; }
+.import-drawer > span { display: block; margin-top: 5rem; color: rgba(24,25,21,.5); font-size: .62rem; letter-spacing: .1em; text-transform: uppercase; }
+.import-drawer h2 { margin-top: .7rem; font-size: clamp(2.2rem, 4vw, 4rem); font-weight: 500; letter-spacing: -.05em; }
+.import-drawer > p { margin-top: .7rem; color: rgba(24,25,21,.55); font-size: .72rem; }
+.file-picker { display: flex; margin-top: 2rem; padding: 1rem; justify-content: space-between; border: 1px dashed rgba(24,25,21,.25); border-radius: .7rem; cursor: pointer; }
+.file-picker input { max-width: 14rem; }
+.mapping-grid { display: grid; grid-template-columns: repeat(4, 1fr); margin-top: 1rem; gap: .6rem; }
+.mapping-grid label { display: flex; flex-direction: column; gap: .35rem; font-size: .6rem; }
+.mapping-grid select { min-width: 0; padding: .55rem; border: 1px solid rgba(24,25,21,.18); border-radius: .4rem; background: transparent; }
+.import-stats { display: flex; margin-top: 1.5rem; gap: .7rem; }
+.import-stats span { padding: .6rem .8rem; border-radius: .5rem; background: rgba(24,25,21,.06); font-size: .66rem; }
+.import-preview { margin: 1rem 0; overflow-x: auto; }
+.import-preview table { width: 100%; border-collapse: collapse; font-size: .63rem; }
+.import-preview th, .import-preview td { padding: .7rem; border-bottom: 1px solid rgba(24,25,21,.12); text-align: left; }
+.duplicate-note { margin-top: .5rem; color: rgba(24,25,21,.55); font-size: .63rem; }
+.risk-loading { display: grid; min-height: 100vh; place-items: center; background: #11120f; color: rgba(239,237,228,.7); font: .8rem "Geist", sans-serif; }
 
 @media (max-width: 62rem) {
   .risk-appbar { grid-template-columns: 1fr auto; padding: 0 1rem; }
   .risk-appbar nav { position: fixed; right: 1rem; bottom: 1rem; left: 1rem; z-index: 30; justify-content: center; background: rgba(17,18,15,.92); box-shadow: 0 12px 40px rgba(0,0,0,.4); backdrop-filter: blur(20px); }
   .risk-appbar__status { display: none; }
+  .risk-appbar__actions > button { display: none; }
   .risk-main { width: min(calc(100% - 2rem), 86rem); }
   .risk-hero { grid-template-columns: 1fr; gap: 3rem; }
   .risk-hero__aside { display: none; }
@@ -256,6 +293,7 @@
   .risk-section { padding-top: 7rem; }
   .risk-section__header, .view-intro { align-items: flex-start; flex-direction: column; }
   .alert-grid, .review-columns, .review-footer-grid, .settings-grid { grid-template-columns: 1fr; }
+  .mapping-grid { grid-template-columns: repeat(2, 1fr); }
   .alert-card { min-height: 18rem; }
   .review-callout { padding: 2rem; }
   .review-callout h2 { font-size: 3rem; }

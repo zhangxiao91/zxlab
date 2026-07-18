@@ -1,222 +1,63 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { loadRiskDashboard } from "./api";
-import { riskMockData } from "./mock";
-import type { EvidenceItem, Position, RiskDashboardData, RiskEvent } from "./types";
+import { DEFAULT_CSV_MAPPING } from "./csv";
+import { useRiskWorkspace } from "./useRiskWorkspace";
+import type { CsvFieldMapping, CsvPreview, EvidenceItem, Position, RiskDashboardData, RiskEvent } from "./types";
 
 type View = "dashboard" | "positions" | "activity" | "review" | "settings";
-
-const navItems: Array<{ id: View; label: string }> = [
-  { id: "dashboard", label: "总览" },
-  { id: "positions", label: "持仓" },
-  { id: "activity", label: "记录" },
-  { id: "review", label: "复盘" },
-  { id: "settings", label: "设置" },
-];
-
+const navItems: Array<{ id: View; label: string }> = [{ id: "dashboard", label: "总览" }, { id: "positions", label: "持仓" }, { id: "activity", label: "记录" }, { id: "review", label: "复盘" }, { id: "settings", label: "设置" }];
 const money = new Intl.NumberFormat("zh-CN", { style: "currency", currency: "CNY", maximumFractionDigits: 0 });
-const number = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 2 });
-const pct = (value: number) => `${(value * 100).toFixed(1)}%`;
+const number = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 3 });
+const pct = (value: number | null) => value == null ? "—" : `${(value * 100).toFixed(1)}%`;
+const value = (input: number | null, digits = 3) => input == null ? "—" : input.toFixed(digits);
 
-function Metric({ label, value, note, tone = "neutral" }: { label: string; value: string; note: string; tone?: "neutral" | "danger" | "warning" }) {
-  return (
-    <article className={`risk-metric risk-metric--${tone}`}>
-      <span>{label}</span>
-      <strong>{value}</strong>
-      <small>{note}</small>
-    </article>
-  );
-}
+function Metric({ label, value, note, tone = "neutral" }: { label: string; value: string; note: string; tone?: "neutral" | "danger" | "warning" }) { return <article className={`risk-metric risk-metric--${tone}`}><span>{label}</span><strong>{value}</strong><small>{note}</small></article>; }
 
 function ReliabilityBand({ data }: { data: RiskDashboardData }) {
-  return (
-    <div className={`reliability-band ${data.portfolio.reliable ? "is-reliable" : "is-blocked"}`}>
-      <span className="reliability-band__signal" aria-hidden="true" />
-      <div>
-        <strong>{data.portfolio.reliable ? "风险快照可可靠计算" : "精确风险值已暂停"}</strong>
-        <p>{data.portfolio.reliable ? "全部报价通过新鲜度与价格质量检查。" : "513100 行情超过 120 秒。旧值保留用于追溯，但不作为可靠风险结论。"}</p>
-      </div>
-      <span className="reliability-band__time">市场时间 14:32:10</span>
-    </div>
-  );
+  return <div className={`reliability-band ${data.portfolio.reliable ? "is-reliable" : "is-blocked"}`}><span className="reliability-band__signal" aria-hidden="true"/><div><strong>{data.portfolio.reliable ? "风险快照可可靠计算" : "风险结果已降低可信度"}</strong><p>{data.portfolio.reliable ? "交易、对账与报价通过质量检查。" : data.dataWarnings.slice(0, 3).join("；") || "存在未解决的数据质量问题。"}</p></div><span className="reliability-band__time">更新 {new Date(data.receivedAt).toLocaleTimeString("zh-CN")}</span></div>;
 }
 
 function ExposureChart({ data }: { data: RiskDashboardData }) {
   const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!ref.current) return;
-    let chart: import("echarts/core").EChartsType | undefined;
-    let disposed = false;
-    void import("./chart").then(({ createEquityChart }) => {
-      if (!ref.current || disposed) return;
-      chart = createEquityChart(ref.current, data.equityCurve);
-      const resize = () => chart?.resize();
-      window.addEventListener("resize", resize);
-      (chart as import("echarts/core").EChartsType & { __resize?: () => void }).__resize = resize;
-    });
-    return () => {
-      disposed = true;
-      const resize = (chart as (import("echarts/core").EChartsType & { __resize?: () => void }) | undefined)?.__resize;
-      if (resize) window.removeEventListener("resize", resize);
-      chart?.dispose();
-    };
-  }, [data]);
-  return <div ref={ref} className="exposure-chart" role="img" aria-label="七月账户净值曲线" />;
+  useEffect(() => { if (!ref.current) return; let chart: import("echarts/core").EChartsType | undefined; let disposed = false; const resize = () => chart?.resize(); void import("./chart").then(({ createEquityChart }) => { if (!ref.current || disposed) return; chart = createEquityChart(ref.current, data.equityCurve); window.addEventListener("resize", resize); }); return () => { disposed = true; window.removeEventListener("resize", resize); chart?.dispose(); }; }, [data]);
+  return <div ref={ref} className="exposure-chart" role="img" aria-label="账户净值曲线"/>;
 }
 
-function AlertCard({ event, onEvidence }: { event: RiskEvent; onEvidence: (id: string) => void }) {
-  return (
-    <article className={`alert-card alert-card--${event.severity}`}>
-      <div className="alert-card__top">
-        <span className="alert-card__severity">{event.severity}</span>
-        <span>{event.triggeredAt.slice(11, 16)}</span>
-      </div>
-      <h3>{event.title}</h3>
-      <p>{event.message}</p>
-      <div className="alert-card__evidence">
-        {event.evidenceIds.slice(0, 2).map((id) => <button key={id} onClick={() => onEvidence(id)}>{id}</button>)}
-      </div>
-    </article>
-  );
-}
+function AlertCard({ event, onEvidence }: { event: RiskEvent; onEvidence: (id: string) => void }) { return <article className={`alert-card alert-card--${event.severity}`}><div className="alert-card__top"><span className="alert-card__severity">{event.severity}</span><span>{event.triggeredAt.slice(11, 16)}</span></div><h3>{event.title}</h3><p>{event.message}</p><div className="alert-card__evidence">{event.evidenceIds.slice(0, 2).map((id) => <button key={id} onClick={() => onEvidence(id)}>{id}</button>)}</div></article>; }
 
 function PositionTable({ positions }: { positions: Position[] }) {
-  return (
-    <div className="position-table-wrap">
-      <table className="position-table">
-        <thead><tr><th>标的</th><th>现价 / 质量</th><th>数量</th><th>市值</th><th>浮动盈亏</th><th>名义仓位</th><th>有效敞口</th><th>交易计划</th></tr></thead>
-        <tbody>
-          {positions.map((position) => (
-            <tr key={position.instrumentId}>
-              <td><div className="instrument-cell"><strong>{position.name}</strong><span>{position.instrumentId} · {position.industry}</span></div></td>
-              <td><strong>{position.price.toFixed(3)}</strong><span className={`quality-tag quality-tag--${position.quoteQuality}`}>{position.quoteQuality} · {position.quoteTime}</span></td>
-              <td>{number.format(position.quantity)}</td>
-              <td>{money.format(position.marketValue)}</td>
-              <td className={position.unrealizedPnl >= 0 ? "is-positive" : "is-negative"}>{money.format(position.unrealizedPnl)}</td>
-              <td>{pct(position.nominalWeight)}</td>
-              <td><strong>{pct(position.effectiveExposure)}</strong>{position.leverageMultiplier > 1 && <span className="leverage-mark">×{position.leverageMultiplier}</span>}</td>
-              <td><span className={`plan-state plan-state--${position.planStatus}`}>{position.planStatus === "aligned" ? "符合" : position.planStatus === "overweight" ? "超计划" : "缺失"}</span></td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
+  return <div className="position-table-wrap"><table className="position-table"><thead><tr><th>标的</th><th>现价 / 质量</th><th>数量</th><th>市值</th><th>浮动盈亏</th><th>名义仓位</th><th>有效敞口</th><th>交易计划</th></tr></thead><tbody>{positions.length ? positions.map((position) => <tr key={position.instrumentId}><td><div className="instrument-cell"><strong>{position.name}</strong><span>{position.instrumentId} · {position.industry}</span></div></td><td><strong>{value(position.price)}</strong><span className={`quality-tag quality-tag--${position.quoteQuality}`}>{position.quoteQuality} · {position.quoteTime}</span></td><td>{number.format(position.quantity)}</td><td>{position.marketValue == null ? "—" : money.format(position.marketValue)}</td><td className={(position.unrealizedPnl ?? 0) >= 0 ? "is-positive" : "is-negative"}>{position.unrealizedPnl == null ? "—" : money.format(position.unrealizedPnl)}</td><td>{pct(position.nominalWeight)}</td><td><strong>{pct(position.effectiveExposure)}</strong>{position.leverageMultiplier > 1 && <span className="leverage-mark">×{position.leverageMultiplier}</span>}</td><td><span className={`plan-state plan-state--${position.planStatus}`}>{position.planStatus === "aligned" ? "符合" : position.planStatus === "overweight" ? "超计划" : "缺失"}</span></td></tr>) : <tr><td colSpan={8} className="empty-cell">尚无交易推导出的持仓</td></tr>}</tbody></table></div>;
 }
 
 function Dashboard({ data, onEvidence, onNavigate }: { data: RiskDashboardData; onEvidence: (id: string) => void; onNavigate: (view: View) => void }) {
   const highEvents = data.riskEvents.filter((event) => event.severity === "high" || event.severity === "critical");
-  return (
-    <div className="risk-view risk-dashboard">
-      <ReliabilityBand data={data} />
-      <section className="risk-metric-grid" aria-label="账户风险指标">
-        <article className="risk-overview-card">
-          <div className="risk-overview-card__head"><span>账户净值</span><span>近 18 日</span></div>
-          <strong>{money.format(data.portfolio.netValue)}</strong>
-          <p className="is-negative">今日 {money.format(data.portfolio.dayPnl)} · {pct(data.portfolio.dayReturn)}</p>
-          <ExposureChart data={data} />
-        </article>
-        <Metric label="有效总敞口" value={pct(data.portfolio.effectiveExposure)} note="规则上限 120%" tone="danger" />
-        <Metric label="风险预算使用" value={pct(data.portfolio.riskBudgetUsed)} note="日亏损预算 2.5%" tone="warning" />
-        <Metric label="当前回撤" value={pct(data.portfolio.currentDrawdown)} note={`历史最大 ${pct(data.portfolio.maxDrawdown)}`} tone="warning" />
-        <Metric label="可用现金" value={money.format(data.portfolio.cash)} note={`持仓市值 ${money.format(data.portfolio.marketValue)}`} />
-      </section>
-
-      <section className="risk-section">
-        <header className="risk-section__header"><div><p>需要先处理的事实</p><h2>{highEvents.length} 个高优先级事件正在生效。</h2></div><button onClick={() => onNavigate("activity")}>查看完整时间线</button></header>
-        <div className="alert-grid">{highEvents.map((event) => <AlertCard key={event.id} event={event} onEvidence={onEvidence} />)}</div>
-      </section>
-
-      <section className="risk-section">
-        <header className="risk-section__header"><div><p>仓位与计划</p><h2>杠杆折算后，名义仓位不再代表真实风险。</h2></div><button onClick={() => onNavigate("positions")}>展开持仓</button></header>
-        <PositionTable positions={data.positions} />
-      </section>
-
-      <section className="review-callout">
-        <div><span>收盘复盘</span><h2>让每个结论回到成交、计划、行情和规则。</h2><p>Review Agent 只能阅读 Evidence Pack。它不会计算盈亏，也不能修改任何账本或计划。</p></div>
-        <button onClick={() => onNavigate("review")}>打开今日复盘</button>
-      </section>
-    </div>
-  );
+  return <div className="risk-view risk-dashboard"><ReliabilityBand data={data}/><div className="data-mode-strip"><span>数据模式 <strong>{data.dataMode === "mock" ? "Mock 行情" : "API 行情"}</strong></span><span>账本 {data.transactions.length} 条</span><span>对账 <strong>{data.reconciliation.unresolved ? "待处理" : "一致"}</strong></span></div><section className="risk-metric-grid" aria-label="账户风险指标"><article className="risk-overview-card"><div className="risk-overview-card__head"><span>账户净值</span><span>本地账本</span></div><strong>{money.format(data.portfolio.netValue)}</strong><p className={data.portfolio.dayPnl >= 0 ? "is-positive" : "is-negative"}>今日 {money.format(data.portfolio.dayPnl)} · {pct(data.portfolio.dayReturn)}</p><ExposureChart data={data}/></article><Metric label="有效总敞口" value={pct(data.portfolio.effectiveExposure)} note="规则上限 120%" tone="danger"/><Metric label="持仓市值" value={money.format(data.portfolio.marketValue)} note={`${data.positions.length} 个交易推导持仓`}/><Metric label="当前回撤" value={pct(data.portfolio.currentDrawdown)} note={`历史最大 ${pct(data.portfolio.maxDrawdown)}`} tone="warning"/><Metric label="可用现金" value={money.format(data.portfolio.cash)} note="由现金与交易事件推导"/></section><section className="risk-section"><header className="risk-section__header"><div><p>需要先处理的事实</p><h2>{highEvents.length} 个高优先级事件正在生效。</h2></div><button onClick={() => onNavigate("activity")}>查看完整时间线</button></header><div className="alert-grid">{highEvents.map((event) => <AlertCard key={event.id} event={event} onEvidence={onEvidence}/>)}</div></section><section className="risk-section"><header className="risk-section__header"><div><p>仓位与计划</p><h2>所有仓位都由追加式交易账本重建。</h2></div><button onClick={() => onNavigate("positions")}>展开持仓与对账</button></header><PositionTable positions={data.positions}/></section></div>;
 }
 
-function Positions({ data }: { data: RiskDashboardData }) {
-  return <div className="risk-view"><header className="view-intro"><p>真实持仓快照</p><h2>同时看名义权重与杠杆后的有效敞口。</h2><span>行情过期时，行级数值保留但标记为不可可靠。</span></header><PositionTable positions={data.positions} /><div className="position-detail-grid">{data.positions.map((position) => <article key={position.instrumentId}><div><span>{position.symbol}</span><span>{position.industry}</span></div><h3>{position.name}</h3><p>{position.themes.join(" / ")}</p><dl><div><dt>平均成本</dt><dd>{position.averageCost.toFixed(3)}</dd></div><div><dt>当日盈亏</dt><dd className="is-negative">{money.format(position.dayPnl)}</dd></div><div><dt>杠杆倍数</dt><dd>{position.leverageMultiplier.toFixed(1)}×</dd></div><div><dt>风险事件</dt><dd>{position.riskEventIds.length}</dd></div></dl></article>)}</div></div>;
+function Reconciliation({ data, onSave }: { data: RiskDashboardData; onSave: (id: string, quantity: number, cost: number | null) => Promise<void> }) {
+    const [drafts, setDrafts] = useState<Record<string, { quantity: string; cost: string }>>({});
+    return <section className="reconciliation-card"><header><div><span>券商对账</span><h3>{data.reconciliation.unresolved ? "存在未确认差异" : "交易账本与券商数量一致"}</h3></div><strong>{data.reconciliation.items.filter((item) => item.status !== "matched").length} 项待处理</strong></header><div className="position-table-wrap"><table className="position-table"><thead><tr><th>标的</th><th>交易推导数量</th><th>券商数量 / 成本</th><th>数量差异</th><th>成本差异</th><th>状态</th></tr></thead><tbody>{data.reconciliation.items.map((item) => { const draft = drafts[item.instrumentId] ?? { quantity: item.brokerQuantity?.toString() ?? "", cost: item.brokerAverageCost?.toString() ?? "" }; return <tr key={item.instrumentId}><td>{item.name}</td><td>{number.format(item.derivedQuantity)}</td><td><div className="reconcile-input"><input aria-label={`${item.name} 券商数量`} inputMode="decimal" value={draft.quantity} placeholder="当前数量" onChange={(event) => setDrafts({ ...drafts, [item.instrumentId]: { ...draft, quantity: event.target.value } })}/><input aria-label={`${item.name} 券商成本`} inputMode="decimal" value={draft.cost} placeholder="平均成本（可选）" onChange={(event) => setDrafts({ ...drafts, [item.instrumentId]: { ...draft, cost: event.target.value } })}/><button disabled={!draft.quantity || !Number.isFinite(Number(draft.quantity)) || Boolean(draft.cost && !Number.isFinite(Number(draft.cost)))} onClick={() => void onSave(item.instrumentId, Number(draft.quantity), draft.cost ? Number(draft.cost) : null)}>保存</button></div></td><td>{item.quantityDifference == null ? "未核对" : number.format(item.quantityDifference)}</td><td>{item.costDifference == null ? "—" : value(item.costDifference)}</td><td><span className={`quality-tag quality-tag--${item.status === "matched" ? "live" : "stale"}`}>{item.status === "matched" ? "一致" : item.status === "mismatch" ? "差异" : "未验证"}</span></td></tr>; })}</tbody></table></div>{data.reconciliation.anomalies.map((item) => <p className="data-warning" key={item.id}>{item.message}</p>)}</section>;
 }
 
-function Activity({ data, onEvidence }: { data: RiskDashboardData; onEvidence: (id: string) => void }) {
-  return <div className="risk-view"><header className="view-intro"><p>不可变操作记录</p><h2>把行为放回它发生时的风险状态。</h2><span>更正通过新事件完成，历史成交和计划版本不会被覆盖。</span></header><div className="activity-list">{data.activity.map((item) => <button key={item.id} className={`activity-row activity-row--${item.tone}`} onClick={() => onEvidence(item.evidenceId)}><time>{item.time}</time><span className="activity-row__marker"/><div><span>{item.type}</span><h3>{item.title}</h3><p>{item.detail}</p></div><code>{item.evidenceId}</code></button>)}</div></div>;
+function Positions({ data, onSaveBroker }: { data: RiskDashboardData; onSaveBroker: (id: string, quantity: number, cost: number | null) => Promise<void> }) { return <div className="risk-view"><header className="view-intro"><p>交易重建持仓</p><h2>账本是事实，当前持仓是可重复计算的结果。</h2><span>买入、卖出、费用、税费与 adjustment 均按时间顺序处理。</span></header><PositionTable positions={data.positions}/><Reconciliation data={data} onSave={onSaveBroker}/><div className="position-detail-grid">{data.positions.map((position) => <article key={position.instrumentId}><div><span>{position.symbol}</span><span>{position.industry}</span></div><h3>{position.name}</h3><p>{position.themes.join(" / ")}</p><dl><div><dt>平均成本</dt><dd>{value(position.averageCost)}</dd></div><div><dt>已实现盈亏</dt><dd>{money.format(position.realizedPnl)}</dd></div><div><dt>费用 / 税费</dt><dd>{money.format(position.fees + position.taxes)}</dd></div><div><dt>账本证据</dt><dd>{position.transactionEvidenceIds.length}</dd></div></dl></article>)}</div></div>; }
+
+function Activity({ data, onEvidence }: { data: RiskDashboardData; onEvidence: (id: string) => void }) { return <div className="risk-view"><header className="view-intro"><p>追加式交易账本</p><h2>{data.transactions.length} 条真实或 Mock 交易事件。</h2><span>更正通过新的 POSITION_ADJUSTMENT 事件完成，历史不会被覆盖。</span></header><div className="activity-list">{data.activity.map((item) => <button key={item.id} className={`activity-row activity-row--${item.tone}`} onClick={() => onEvidence(item.evidenceId)}><time>{item.time}</time><span className="activity-row__marker"/><div><span>{item.type}</span><h3>{item.title}</h3><p>{item.detail}</p></div><code>{item.evidenceId}</code></button>)}</div></div>; }
+
+function Review({ data, onEvidence }: { data: RiskDashboardData; onEvidence: (id: string) => void }) { const review = data.review; return <div className="risk-view"><header className="view-intro review-intro"><div><p>Evidence Pack 驱动复盘</p><h2>Mock Review 只解释本轮结构化证据。</h2><span>{data.evidencePack.id} · {data.evidencePack.reliable ? "可靠" : "可信度降低"}</span></div></header><section className="review-summary"><span>今日摘要</span><p>{review.summary}</p></section><div className="review-columns"><section><header><span>主要风险</span><strong>{review.mainRisks.length}</strong></header>{review.mainRisks.map((risk) => <article key={`${risk.title}-${risk.evidenceIds[0]}`} className={`review-risk review-risk--${risk.severity}`}><h3>{risk.title}</h3><p>{risk.explanation}</p><div>{risk.evidenceIds.map((id) => <button key={id} onClick={() => onEvidence(id)}>{id}</button>)}</div></article>)}</section><section><header><span>计划与操作偏离</span><strong>{review.planViolations.length + review.operationReview.length}</strong></header>{[...review.planViolations.map((item) => ({ title: item.title, detail: item.detail, evidenceIds: item.evidenceIds })), ...review.operationReview.map((item) => ({ title: item.category, detail: item.observation, evidenceIds: item.evidenceIds }))].map((item) => <article key={`${item.title}-${item.evidenceIds[0]}`}><h3>{item.title}</h3><p>{item.detail}</p><div>{item.evidenceIds.map((id) => <button key={id} onClick={() => onEvidence(id)}>{id}</button>)}</div></article>)}</section></div><div className="review-footer-grid"><section><span>反事实问题</span>{review.counterfactuals.map((item) => <p key={item}>{item}</p>)}</section><section><span>未知与限制</span>{[...review.unknowns, ...review.limitations].map((item) => <p key={item}>{item}</p>)}</section></div></div>; }
+
+function Settings({ data, onMode, onImport, onClear, onRestore }: { data: RiskDashboardData; onMode: (mode: "mock" | "api") => Promise<void>; onImport: () => void; onClear: () => Promise<void>; onRestore: () => Promise<void> }) { return <div className="risk-view"><header className="view-intro"><p>数据与运行边界</p><h2>Provider 可替换，账本始终留在浏览器本地。</h2><span>不会调用真实 LLM、数据库或交易接口。</span></header><div className="settings-grid"><section><h3>风险规则</h3>{[["最大有效敞口", "120%"], ["单标的上限", "35%"], ["主题集中度", "45%"], ["行情新鲜度", "120 秒"]].map(([label, setting]) => <div className="setting-row" key={label}><span>{label}</span><strong>{setting}</strong></div>)}</section><section><h3>数据源</h3>{data.sourceHealth.map((source) => <div className="setting-row" key={source.name}><span><i className={`source-dot source-dot--${source.status}`}/>{source.name}</span><strong>{source.freshness}</strong></div>)}</section><section><h3>行情 Provider</h3><button className="mode-toggle" aria-pressed={data.dataMode === "api"} onClick={() => void onMode(data.dataMode === "mock" ? "api" : "mock")}><span><strong>{data.dataMode === "mock" ? "MockMarketDataProvider" : "ApiMarketDataProvider"}</strong><small>{data.dataMode === "mock" ? "本地可重复场景" : "Cloudflare 行情网关"}</small></span><i/></button><div className="setting-row"><span>Review Service</span><strong>Mock / Evidence Pack</strong></div></section><section className="data-actions"><h3>CSV 数据管理</h3><button className="primary-action" onClick={onImport}>导入交易 CSV</button><a href="/assets/risk/sample-transactions.csv" download>下载测试 CSV</a><button onClick={() => void onRestore()}>恢复 Mock 数据</button><button className="danger-action" onClick={() => window.confirm("确认清空浏览器本地交易与对账数据？") && void onClear()}>清空本地交易</button></section></div></div>; }
+
+function CsvImportDialog({ existingCount, preview, mapping, onMapping, onPreview, onImport, onClose }: { existingCount: number; preview: CsvPreview | null; mapping: CsvFieldMapping; onMapping: (mapping: CsvFieldMapping) => void; onPreview: (text: string) => void; onImport: () => Promise<void>; onClose: () => void }) {
+  const [fileName, setFileName] = useState(""); const fields = Object.keys(mapping) as Array<keyof CsvFieldMapping>;
+  return <div className="evidence-layer" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><aside className="import-drawer" role="dialog" aria-modal="true" aria-labelledby="import-title"><button className="evidence-close" onClick={onClose}>关闭</button><span>浏览器本地解析</span><h2 id="import-title">导入交易 CSV</h2><p>当前账本 {existingCount} 条。合法行追加保存，错误行不会阻止导入。</p><label className="file-picker"><strong>{fileName || "选择 CSV 文件"}</strong><input type="file" accept=".csv,text/csv" onChange={(event) => { const file = event.target.files?.[0]; if (!file) return; setFileName(file.name); void file.text().then(onPreview); }}/></label>{preview && <><div className="mapping-grid">{fields.map((field) => <label key={field}><span>{field}</span><select value={mapping[field]} onChange={(event) => onMapping({ ...mapping, [field]: event.target.value })}>{preview.headers.map((header) => <option key={header}>{header}</option>)}</select></label>)}</div><div className="import-stats"><span>可导入 <strong>{preview.valid.length}</strong></span><span>错误 <strong>{preview.invalid.length}</strong></span><span>重复 <strong>{preview.duplicates.length}</strong></span></div><div className="import-preview"><table><thead><tr><th>ID</th><th>事件</th><th>标的</th><th>数量</th><th>时间</th></tr></thead><tbody>{preview.valid.slice(0, 8).map((item) => <tr key={item.id}><td>{item.id}</td><td>{item.type}</td><td>{item.instrumentId ?? "—"}</td><td>{item.quantity}</td><td>{item.executedAt}</td></tr>)}</tbody></table>{preview.invalid.map((item) => <p className="data-warning" key={item.rowNumber}>第 {item.rowNumber} 行：{item.errors.join("；")}</p>)}{preview.duplicates.map((item) => <p className="duplicate-note" key={`${item.rowNumber}-${item.id}`}>第 {item.rowNumber} 行 {item.id}：{item.reason}</p>)}</div><button className="primary-action" disabled={!preview.valid.length} onClick={() => void onImport()}>追加导入 {preview.valid.length} 条</button></>}</aside></div>;
 }
 
-function Review({ data, onEvidence }: { data: RiskDashboardData; onEvidence: (id: string) => void }) {
-  const review = data.review;
-  return <div className="risk-view"><header className="view-intro review-intro"><div><p>结构化收盘复盘</p><h2>解释风险，不替你下结论。</h2><span>2026 年 7 月 18 日 · {review.mode === "mock" ? "Mock Agent" : "OpenAI Agent"}</span></div><button>重新生成 Evidence Pack</button></header><section className="review-summary"><span>今日摘要</span><p>{review.summary}</p></section><div className="review-columns"><section><header><span>主要风险</span><strong>{review.mainRisks.length}</strong></header>{review.mainRisks.map((risk) => <article key={risk.title} className={`review-risk review-risk--${risk.severity}`}><h3>{risk.title}</h3><p>{risk.explanation}</p><div>{risk.evidenceIds.map((id) => <button key={id} onClick={() => onEvidence(id)}>{id}</button>)}</div></article>)}</section><section><header><span>计划与操作偏离</span><strong>{review.planViolations.length + review.operationReview.length}</strong></header>{review.planViolations.map((item) => <article key={item.title}><span>计划偏离</span><h3>{item.title}</h3><p>{item.detail}</p><div>{item.evidenceIds.map((id) => <button key={id} onClick={() => onEvidence(id)}>{id}</button>)}</div></article>)}{review.operationReview.map((item) => <article key={item.observation}><span>{item.category}</span><p>{item.observation}</p><div>{item.evidenceIds.map((id) => <button key={id} onClick={() => onEvidence(id)}>{id}</button>)}</div></article>)}</section></div><div className="review-footer-grid"><section><span>反事实问题</span>{review.counterfactuals.map((item) => <p key={item}>{item}</p>)}</section><section><span>未知与限制</span>{[...review.unknowns, ...review.limitations].map((item) => <p key={item}>{item}</p>)}</section></div></div>;
-}
-
-function Settings({ data }: { data: RiskDashboardData }) {
-  const [mockMode, setMockMode] = useState(true);
-  return <div className="risk-view"><header className="view-intro"><p>只读系统边界</p><h2>规则、来源与标的口径都应显式可见。</h2><span>MVP 不持有下单、撤单或资金操作权限。</span></header><div className="settings-grid"><section><h3>风险规则</h3>{[["最大有效敞口", "120%"], ["单标的上限", "35%"], ["主题集中度", "45%"], ["日亏损预算", "2.5%"]].map(([label, value]) => <div className="setting-row" key={label}><span>{label}</span><strong>{value}</strong></div>)}</section><section><h3>数据源</h3>{data.sourceHealth.map((source) => <div className="setting-row" key={source.name}><span><i className={`source-dot source-dot--${source.status}`}/>{source.name}</span><strong>{source.freshness}</strong></div>)}</section><section><h3>运行模式</h3><button className="mode-toggle" aria-pressed={mockMode} onClick={() => setMockMode(!mockMode)}><span><strong>{mockMode ? "Mock Provider" : "真实 Provider"}</strong><small>{mockMode ? "本地可重复场景" : "需要私有后端配置"}</small></span><i/></button><div className="setting-row"><span>LLM 模式</span><strong>失败时自动降级</strong></div></section><section className="readonly-card"><span>权限声明</span><h3>Read only, by construction.</h3><p>Agent 工具与账户 API 均不包含写入订单的能力。外部新闻、公告和研报作为不可信文本处理。</p></section></div></div>;
-}
-
-function EvidenceDrawer({ evidence, onClose }: { evidence: EvidenceItem | undefined; onClose: () => void }) {
-  if (!evidence) return null;
-  return <div className="evidence-layer" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><aside className="evidence-drawer" role="dialog" aria-modal="true" aria-labelledby="evidence-title"><button className="evidence-close" onClick={onClose} aria-label="关闭证据详情">关闭</button><span>{evidence.type}</span><h2 id="evidence-title">{evidence.title}</h2><p>{evidence.id}</p><dl><div><dt>时间</dt><dd>{evidence.timestamp}</dd></div><div><dt>来源</dt><dd>{evidence.source}</dd></div>{Object.entries(evidence.payload).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{String(value)}</dd></div>)}</dl><footer>此记录只读。风险结论引用该 ID，而不是复制后失去来源的自然语言。</footer></aside></div>;
-}
+function EvidenceDrawer({ evidence, onClose }: { evidence: EvidenceItem | undefined; onClose: () => void }) { if (!evidence) return null; return <div className="evidence-layer" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><aside className="evidence-drawer" role="dialog" aria-modal="true" aria-labelledby="evidence-title"><button className="evidence-close" onClick={onClose}>关闭</button><span>{evidence.type}</span><h2 id="evidence-title">{evidence.title}</h2><p>{evidence.id}</p><dl><div><dt>时间</dt><dd>{evidence.timestamp}</dd></div><div><dt>来源</dt><dd>{evidence.source}</dd></div>{Object.entries(evidence.payload).map(([key, item]) => <div key={key}><dt>{key}</dt><dd>{String(item)}</dd></div>)}</dl></aside></div>; }
 
 export default function RiskWorkbench() {
-  const [view, setView] = useState<View>("dashboard");
-  const [data, setData] = useState(riskMockData);
-  const [mode, setMode] = useState<"api" | "mock">("mock");
-  const [selectedEvidence, setSelectedEvidence] = useState<string>();
-  useEffect(() => { void loadRiskDashboard().then((result) => { setData(result.data); setMode(result.mode); }); }, []);
-  useEffect(() => {
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    let cleanup = () => {};
-    void Promise.all([import("gsap"), import("gsap/ScrollTrigger")]).then(([gsapModule, triggerModule]) => {
-      const gsap = gsapModule.default;
-      const ScrollTrigger = triggerModule.ScrollTrigger;
-      gsap.registerPlugin(ScrollTrigger);
-      const context = gsap.context(() => {
-        gsap.from(".risk-hero > div:first-child > *", { y: 42, opacity: 0, duration: 1, stagger: 0.1, ease: "power3.out" });
-        gsap.utils.toArray<HTMLElement>(".alert-card").forEach((card, index) => {
-          gsap.fromTo(card, { y: 70 + index * 16, scale: 0.94, opacity: 0.25 }, { y: 0, scale: 1, opacity: 1, ease: "none", scrollTrigger: { trigger: card, start: "top 92%", end: "top 58%", scrub: 0.7 } });
-        });
-        if (window.matchMedia("(min-width: 64rem)").matches) {
-          gsap.utils.toArray<HTMLElement>(".risk-section__header").forEach((heading) => {
-            ScrollTrigger.create({ trigger: heading.parentElement, start: "top 18%", end: "bottom 45%", pin: heading, pinSpacing: false });
-          });
-        }
-      });
-      cleanup = () => context.revert();
-      ScrollTrigger.refresh();
-    });
-    return () => cleanup();
-  }, [view]);
-  const evidence = useMemo(() => data.evidence.find((item) => item.id === selectedEvidence), [data, selectedEvidence]);
-  const openEvidence = (id: string) => { const exact = data.evidence.find((item) => item.id === id); if (exact) setSelectedEvidence(id); else setSelectedEvidence(data.evidence.find((item) => id.includes(item.id.split(":")[0]))?.id); };
-
-  return (
-    <div className="risk-app">
-      <header className="risk-appbar">
-        <a href="/lab" className="risk-brand" aria-label="返回实验室"><span className="risk-brand__mark">Z</span><span><strong>持仓风险台</strong><small>Evidence before narrative</small></span></a>
-        <nav aria-label="风险工作台导航">{navItems.map((item) => <button key={item.id} className={view === item.id ? "is-active" : ""} onClick={() => setView(item.id)}>{item.label}</button>)}</nav>
-        <div className="risk-appbar__status"><span className={mode === "api" ? "is-live" : "is-mock"}/><div><strong>{mode === "api" ? "私有 API" : "Mock 演示"}</strong><small>收到于 14:32:11</small></div></div>
-      </header>
-
-      <main className="risk-main">
-        <header className="risk-hero">
-          <div><p>个人持仓风险监控与操作复盘</p><h1>先把风险算清楚，<br/><span>再解释今天发生了什么。</span></h1></div>
-          <div className="risk-hero__aside"><p>只读系统</p><strong>{data.riskEvents.filter((event) => event.status === "active").length}</strong><span>个活跃风险事件</span><small>数据、规则与解释保持分层</small></div>
-        </header>
-
-        {view === "dashboard" && <Dashboard data={data} onEvidence={openEvidence} onNavigate={setView} />}
-        {view === "positions" && <Positions data={data} />}
-        {view === "activity" && <Activity data={data} onEvidence={openEvidence} />}
-        {view === "review" && <Review data={data} onEvidence={openEvidence} />}
-        {view === "settings" && <Settings data={data} />}
-      </main>
-
-      <footer className="risk-footer"><span>zxlab / risk</span><p>确定性计算来自 Risk Engine。自然语言仅用于解释，不构成投资建议。</p><a href="/lab">返回 Lab</a></footer>
-      <EvidenceDrawer evidence={evidence} onClose={() => setSelectedEvidence(undefined)} />
-    </div>
-  );
+  const workspace = useRiskWorkspace(); const [view, setView] = useState<View>("dashboard"); const [selectedEvidence, setSelectedEvidence] = useState<string>(); const [importOpen, setImportOpen] = useState(false); const [csvText, setCsvText] = useState(""); const [mapping, setMapping] = useState(DEFAULT_CSV_MAPPING); const preview = useMemo(() => csvText ? workspace.previewCsv(csvText, mapping) : null, [csvText, mapping, workspace.data]);
+  useEffect(() => { if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return; let cleanup = () => {}; void Promise.all([import("gsap"), import("gsap/ScrollTrigger")]).then(([module, trigger]) => { const gsap = module.default; gsap.registerPlugin(trigger.ScrollTrigger); const context = gsap.context(() => gsap.from(".risk-hero > div:first-child > *", { y: 32, opacity: 0, duration: 0.8, stagger: 0.08, ease: "power3.out" })); cleanup = () => context.revert(); }); return () => cleanup(); }, [view]);
+  if (workspace.loading && !workspace.data) return <div className="risk-loading">正在从本地账本重建风险工作区…</div>;
+  if (!workspace.data) return <div className="risk-loading">{workspace.error ?? "工作区暂不可用"}</div>;
+  const data = workspace.data; const evidence = data.evidence.find((item) => item.id === selectedEvidence); const openEvidence = (id: string) => { if (data.evidence.some((item) => item.id === id)) setSelectedEvidence(id); };
+  return <div className="risk-app"><header className="risk-appbar"><a href="/lab" className="risk-brand"><span className="risk-brand__mark">Z</span><span><strong>持仓风险台</strong><small>Evidence before narrative</small></span></a><nav aria-label="风险工作台导航">{navItems.map((item) => <button key={item.id} className={view === item.id ? "is-active" : ""} onClick={() => setView(item.id)}>{item.label}</button>)}</nav><div className="risk-appbar__actions"><button onClick={() => setImportOpen(true)}>导入 CSV</button><div className="risk-appbar__status"><span className={data.dataMode === "api" ? "is-live" : "is-mock"}/><div><strong>{data.dataMode === "api" ? "API 行情" : "Mock 行情"}</strong><small>{data.reconciliation.unresolved ? "对账待处理" : "已对账"}</small></div></div></div></header><main className="risk-main"><header className="risk-hero"><div><p>个人持仓风险监控与操作复盘</p><h1>先把风险算清楚，<br/><span>再解释今天发生了什么。</span></h1></div><div className="risk-hero__aside"><p>只读系统</p><strong>{data.riskEvents.length}</strong><span>个活跃风险事件</span><small>{data.portfolio.reliable ? "数据质量通过" : "可信度已降低"}</small></div></header>{view === "dashboard" && <Dashboard data={data} onEvidence={openEvidence} onNavigate={setView}/>} {view === "positions" && <Positions data={data} onSaveBroker={workspace.saveBrokerQuantity}/>} {view === "activity" && <Activity data={data} onEvidence={openEvidence}/>} {view === "review" && <Review data={data} onEvidence={openEvidence}/>} {view === "settings" && <Settings data={data} onMode={workspace.setMode} onImport={() => setImportOpen(true)} onClear={workspace.clear} onRestore={workspace.restoreMock}/>}</main><footer className="risk-footer"><span>zxlab / risk</span><p>确定性计算来自纯函数 Risk Engine；自然语言仅用于解释。</p><a href="/lab">返回 Lab</a></footer><EvidenceDrawer evidence={evidence} onClose={() => setSelectedEvidence(undefined)}/>{importOpen && <CsvImportDialog existingCount={data.transactions.length} preview={preview} mapping={mapping} onMapping={setMapping} onPreview={(text) => setCsvText(text)} onImport={async () => { if (!preview) return; await workspace.importTransactions(preview); setImportOpen(false); setCsvText(""); }} onClose={() => setImportOpen(false)}/>}</div>;
 }
