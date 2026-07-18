@@ -73,6 +73,14 @@ npx wrangler types worker-configuration.d.ts
 
 AI Gateway 在 Cloudflare Dashboard 的 AI > AI Gateway 中创建，ID 与 `ZX_SIGNAL_GATEWAY_ID` 一致。Worker 使用 `env.AI.run(model, input, { gateway: { id, metadata } })`；metadata 只记录 task、prompt version 和 run id，不包含评论、Memory 或模型正文。
 
+当前 Cloudflare 资源：
+
+```text
+D1:     zx-signal / 2968cf60-f38f-4488-8a83-2479d4ba3ee2 (APAC)
+Worker: https://zx-signal.zhangxiao9118.workers.dev
+Model:  @cf/openai/gpt-oss-20b
+```
+
 Astro 构建环境：
 
 ```text
@@ -81,6 +89,8 @@ PUBLIC_SIGNAL_DATA_MODE=api
 ```
 
 开发环境未显式配置时使用 mock；生产构建未显式配置时使用 API。API 不可用会显示失败态，不会静默退回 mock。页面元数据会显示 `Mock 预览`、`Fixture 生成` 或 `真实候选生成`。
+
+zxlab 当前仍是 Astro static output，因此日报 API 读取发生在 Pages build 阶段。生成新日报后需要触发一次 Pages 构建才能把新版本写入静态 `/briefing` HTML；批注和 Memory POST 则直接从浏览器请求 Worker。若以后需要“生成完成立即刷新日报”而不重新构建，应把该路由迁移为按需 SSR 或增加客户端渲染层，这不在本阶段的 UI 改动范围内。
 
 ## Access control
 
@@ -112,6 +122,8 @@ curl -X POST http://localhost:8788/api/admin/briefings/generate \
 5. 新日报的相关条目应主动覆盖 Worker runtime、Node.js API、常驻进程、本地文件系统和迁移边界。
 
 `test/intelligence-loop.test.ts` 使用真实 D1 runtime 和一个确定性测试 LLM 重放同一流程：先生成基线，写入已确认 project memory，再生成同日新版本；测试同时断言旧版本 superseded 以及上述五类运行约束进入新日报输出。真实模型仍需用上面的 fixture 流程验证，因为模型推理不会在离线测试里伪装成线上调用。
+
+2026-07-18 的实现验证中，真实 Workers AI 请求已经通过 remote AI binding 发起，模型与失败 invocation 也写入本地 D1；当前执行网络返回 `InferenceUpstreamError: Network connection lost`，因此没有把这次尝试写成成功日报。恢复网络后需重新执行本节流程。部署前还必须在 Dashboard 确认 `zx-signal` AI Gateway 已创建；CLI 当前不提供 Gateway 创建命令。
 
 ## API
 
