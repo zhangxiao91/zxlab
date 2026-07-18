@@ -139,6 +139,7 @@ export class ProjectApiSignalLLM implements SignalLLM {
   private async runJson<T>(options: JsonRunOptions<T>): Promise<T> {
     const invocationId = crypto.randomUUID();
     const startedAt = new Date().toISOString();
+    let failureCode = "MODEL_REQUEST_FAILED";
     await this.invocations.start({ id: invocationId, task: options.task, runId: options.runId,
       model: this.env.ZX_SIGNAL_LLM_LABEL, promptVersion: options.promptVersion, startedAt });
     try {
@@ -173,6 +174,7 @@ export class ProjectApiSignalLLM implements SignalLLM {
         const root = object(payload);
         const error = object(root?.error);
         const code = typeof error?.code === "string" ? error.code : `HTTP_${response.status}`;
+        failureCode = `GATEWAY_${response.status}_${code}`.slice(0, 120);
         throw new SignalError("MODEL_REQUEST_FAILED", `Project AI gateway failed with ${code}`, 502);
       }
       const result = gatewaySuccess(payload);
@@ -185,7 +187,7 @@ export class ProjectApiSignalLLM implements SignalLLM {
       return value;
     } catch (cause) {
       const invalid = cause instanceof SignalValidationError || cause instanceof SyntaxError;
-      await this.invocations.fail(invocationId, invalid ? "INVALID_MODEL_OUTPUT" : "MODEL_REQUEST_FAILED");
+      await this.invocations.fail(invocationId, invalid ? "INVALID_MODEL_OUTPUT" : failureCode);
       console.error(JSON.stringify({
         event: "signal.model.failed",
         task: options.task,
