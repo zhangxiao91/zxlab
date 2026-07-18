@@ -6,6 +6,14 @@ import { handleAnnotations } from "./routes/annotations";
 import { handleBriefingRead } from "./routes/briefings";
 import { handleCollection } from "./routes/collection";
 import { handleMemories } from "./routes/memories";
+import { DailySignalPipeline } from "./services/daily-signal-pipeline";
+
+async function refreshStaticBriefing(env: Env): Promise<"triggered" | "not-configured"> {
+  if (!env.PAGES_DEPLOY_HOOK_URL) return "not-configured";
+  const response = await fetch(env.PAGES_DEPLOY_HOOK_URL, { method: "POST" });
+  if (!response.ok) throw new Error(`Pages deploy hook returned ${response.status}`);
+  return "triggered";
+}
 
 function withCors(response: Response, request: Request, env: Env): Response {
   const headers = new Headers(response.headers);
@@ -36,5 +44,27 @@ export default {
     } catch (error) {
       return withCors(errorResponse(error, url.pathname), request, env);
     }
+  },
+  async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    if (String(env.ZX_SIGNAL_SCHEDULE_ENABLED) !== "true") {
+      console.log(JSON.stringify({ event: "signal.schedule.skipped", reason: "disabled", cron: controller.cron }));
+      return;
+    }
+    ctx.waitUntil((async () => {
+      const startedAt = Date.now();
+      try {
+        const result = await new DailySignalPipeline(env).run(controller.scheduledTime);
+        const pagesRefresh = await refreshStaticBriefing(env);
+        console.log(JSON.stringify({ event: "signal.schedule.succeeded", cron: controller.cron, durationMs: Date.now() - startedAt, pagesRefresh, ...result }));
+      } catch (error) {
+        console.error(JSON.stringify({
+          event: "signal.schedule.failed",
+          cron: controller.cron,
+          durationMs: Date.now() - startedAt,
+          message: error instanceof Error ? error.message : "Unknown scheduled pipeline error",
+        }));
+        throw error;
+      }
+    })());
   },
 } satisfies ExportedHandler<Env>;

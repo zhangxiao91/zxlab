@@ -2,6 +2,8 @@
 
 ZX Signal 现在由两个独立部分组成：Astro `/briefing` 保持现有阅读与批注界面，`apps/signal-worker` 负责模型调用、D1 持久化、批注回复与确认式 Memory。前后端核心契约统一来自 `packages/signal-schema`。
 
+生产 Worker 在 UTC 23:30（北京时间 07:30）运行 Cron Trigger。scheduled handler 在 Worker 内部直接执行采集、编辑筛选和日报生成，不通过公开管理 API，也不依赖浏览器 Access cookie 或 Service Token。生成成功后，如果配置了 Worker secret `PAGES_DEPLOY_HOOK_URL`，会触发 Pages Preview 重新构建，使静态 `/briefing` 获取最新日报。`ZX_SIGNAL_SCHEDULE_ENABLED=false` 可在不删除 Trigger 的情况下暂停流水线。
+
 当前闭环：
 
 ```text

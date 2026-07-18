@@ -12,6 +12,9 @@
       "migrations_dir": "migrations"
     }
   ],
+  "triggers": {
+    "crons": ["30 23 * * *"]
+  },
   "vars": {
     "ENVIRONMENT": "production",
     "ZX_SIGNAL_LLM_API_URL": "https://beta.zxlab.pages.dev/api/ai/generate",
@@ -19,6 +22,7 @@
     "ZX_SIGNAL_USER_AGENT": "zxlab-signal/0.2 (+https://zx-dx.xyz)",
     "ZX_SIGNAL_ALLOWED_ORIGINS": "https://zx-dx.xyz,http://localhost:4321",
     "ZX_SIGNAL_ACCESS_ENABLED": "true",
+    "ZX_SIGNAL_SCHEDULE_ENABLED": "true",
     "CF_ACCESS_TEAM_DOMAIN": "https://zxdx1.cloudflareaccess.com",
     "CF_ACCESS_AUD": "its_my_first_tag_www"
   },

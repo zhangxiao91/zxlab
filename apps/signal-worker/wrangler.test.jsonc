@@ -20,6 +20,7 @@
     "ZX_SIGNAL_USER_AGENT": "zxlab-signal-test/0.2",
     "ZX_SIGNAL_ALLOWED_ORIGINS": "http://localhost:4321",
     "ZX_SIGNAL_ACCESS_ENABLED": "false",
+    "ZX_SIGNAL_SCHEDULE_ENABLED": "false",
     "CF_ACCESS_TEAM_DOMAIN": "https://zxdx1.cloudflareaccess.com",
     "CF_ACCESS_AUD": "its_my_first_tag_www",
     "ZX_SIGNAL_WRITE_TOKEN": "test-only-not-a-secret"

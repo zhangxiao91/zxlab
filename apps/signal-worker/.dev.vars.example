@@ -3,6 +3,7 @@ ENVIRONMENT=development
 ZX_SIGNAL_WRITE_TOKEN=generate-a-local-only-token
 ZX_SIGNAL_LLM_API_TOKEN=use-the-same-internal-token-configured-on-the-pages-project
 ZX_SIGNAL_ACCESS_ENABLED=false
+ZX_SIGNAL_SCHEDULE_ENABLED=false
 CF_ACCESS_TEAM_DOMAIN=https://zxdx1.cloudflareaccess.com
 CF_ACCESS_AUD=its_my_first_tag_www
 # Optional while GitHub release sources remain disabled.
