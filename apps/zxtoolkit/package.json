@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite --port 4173",
     "dev:worker": "wrangler dev --config worker/wrangler.jsonc --port 8787",
+    "r2:lifecycle:add": "wrangler r2 bucket lifecycle add zxdrop-files zxtoolkit-temp-expiry --expire-days 1",
+    "r2:lifecycle:list": "wrangler r2 bucket lifecycle list zxdrop-files",
     "dev:all": "concurrently -k -n web,worker -c blue,green \"npm:dev\" \"npm:dev:worker\"",
     "dev:desktop:web": "vite --config desktop/vite.config.ts",
     "dev:desktop": "tauri dev --config desktop/src-tauri/tauri.conf.json",

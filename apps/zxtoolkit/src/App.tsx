@@ -10,6 +10,7 @@ import { getStoredFile, listTransfers, putTransfer } from "./lib/db";
 import { downloadFile, formatBytes, shareFile, validateFiles } from "./lib/files";
 import { clearSession, loadSession, parseReceiverSession, receiverUrl, saveSession } from "./lib/session";
 import type { LocalTransfer, RemoteTransfer, StoredFile, TransferSession } from "./types";
+import { TurnstileWidget } from "./TurnstileWidget";
 
 type ConnectionState = "connecting" | "connected" | "disconnected" | "expired";
 type SendStatus = "ready" | "uploading" | "sent" | "failed";
@@ -33,6 +34,8 @@ export default function App() {
   const [notice, setNotice] = useState<string | null>(null);
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [creatingSession, setCreatingSession] = useState(false);
+  const [turnstileKey, setTurnstileKey] = useState(0);
   const [now, setNow] = useState(Date.now());
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -57,9 +60,7 @@ export default function App() {
           setSession(restored);
           return;
         }
-        const created = await createSession();
-        saveSession(created);
-        setSession(created);
+        setConnection("disconnected");
       } catch (cause) {
         clearSession();
         setConnection("disconnected");
@@ -68,6 +69,23 @@ export default function App() {
     };
     void establish();
   }, [mode]);
+
+  async function createVerifiedSession(turnstileToken: string) {
+    if (creatingSession) return;
+    setCreatingSession(true);
+    setError(null);
+    try {
+      const created = await createSession(turnstileToken);
+      saveSession(created);
+      setSession(created);
+      setConnection("connecting");
+    } catch (cause) {
+      setError(messageFor(cause, "无法创建传输会话"));
+      setTurnstileKey((value) => value + 1);
+    } finally {
+      setCreatingSession(false);
+    }
+  }
 
   useEffect(() => {
     if (!session) return;
@@ -171,7 +189,8 @@ export default function App() {
 
   async function replaceSession() {
     clearSession(); setSession(null); setQrCode(null); setPeerOnline(false); setError(null);
-    try { const created = await createSession(); saveSession(created); setSession(created); } catch (cause) { setError(messageFor(cause, "无法创建新会话")); }
+    setConnection("disconnected");
+    setTurnstileKey((value) => value + 1);
   }
 
   async function handleShare() {
@@ -207,6 +226,8 @@ export default function App() {
           session={session} qrCode={qrCode} remaining={remaining} connection={connection} peerOnline={peerOnline}
           selected={selected} previewUrl={previewUrl} dragging={dragging} progress={progress} status={sendStatus}
           error={error} history={history} inputRef={inputRef} onDrag={setDragging} onFiles={(files) => void acceptFiles(files)}
+          creatingSession={creatingSession} turnstileKey={turnstileKey}
+          onVerify={(token) => void createVerifiedSession(token)} onVerificationError={setError}
           onSend={() => void send()} onNewSession={() => void replaceSession()} onOpenHistory={(item) => void getStoredFile(item.id).then((file) => file && setSelected(file))}
         />
       ) : (
@@ -224,6 +245,7 @@ interface SenderProps {
   session: TransferSession | null; qrCode: string | null; remaining: number; connection: ConnectionState; peerOnline: boolean;
   selected: StoredFile | null; previewUrl: string | null; dragging: boolean; progress: number; status: SendStatus; error: string | null;
   history: LocalTransfer[]; inputRef: React.RefObject<HTMLInputElement | null>; onDrag: (value: boolean) => void; onFiles: (files: File[]) => void;
+  creatingSession: boolean; turnstileKey: number; onVerify: (token: string) => void; onVerificationError: (message: string) => void;
   onSend: () => void; onNewSession: () => void; onOpenHistory: (item: LocalTransfer) => void;
 }
 
@@ -238,9 +260,11 @@ function Sender(props: SenderProps) {
       </div>
       <div className="send-panel">
         <aside className="qr-card">
-          <div className="qr-frame">{props.qrCode ? <img src={props.qrCode} alt="手机接收会话二维码" /> : <LoaderCircle className="spin" size={28} />}</div>
-          <strong>{props.peerOnline ? "接收端已就绪" : "用手机扫码接收"}</strong>
-          <span>二维码 {formatCountdown(props.remaining)} 后失效</span>
+          <div className={`qr-frame ${!props.session ? "verification-frame" : ""}`}>
+            {props.qrCode ? <img src={props.qrCode} alt="手机接收会话二维码" /> : props.creatingSession ? <LoaderCircle className="spin" size={28} /> : <TurnstileWidget key={props.turnstileKey} onVerify={props.onVerify} onError={props.onVerificationError} />}
+          </div>
+          <strong>{props.session ? props.peerOnline ? "接收端已就绪" : "用手机扫码接收" : "先完成安全验证"}</strong>
+          <span>{props.session ? `二维码 ${formatCountdown(props.remaining)} 后失效` : "验证通过后创建 10 分钟会话"}</span>
         </aside>
         <div className={`drop-zone compact ${props.dragging ? "is-dragging" : ""} ${props.selected ? "has-file" : ""}`}
           onDragEnter={(event) => { event.preventDefault(); props.onDrag(true); }} onDragOver={(event) => event.preventDefault()}

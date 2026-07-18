@@ -1,5 +1,5 @@
 import { TransferSession } from "./session";
-import { MAX_FILE_BYTES, SESSION_TTL_MS, validateUpload, type TransferRecord } from "./protocol";
+import { MAX_FILE_BYTES, SESSION_TTL_MS, validateUploadMetadata, type TransferRecord } from "./protocol";
 import { hashToken, randomToken } from "./security";
 import { PairingSession } from "./pairing";
 import { DeviceMailbox } from "./device-mailbox";
@@ -7,8 +7,11 @@ import type { DevicePlatform } from "../../shared/types";
 import { validateDropPayload } from "../../shared/payload";
 import { validatePulseSnapshot } from "../../shared/pulse";
 import { PulseHub } from "./pulse-hub";
+import { UploadQuota } from "./upload-quota";
+import { BodyTooLargeError, declaredBodySize, hasImageSignature, readBodyWithLimit, readJsonWithLimit } from "./request-body";
+import { verifyTurnstile } from "./turnstile";
 
-export { TransferSession, PairingSession, DeviceMailbox, PulseHub };
+export { TransferSession, PairingSession, DeviceMailbox, PulseHub, UploadQuota };
 
 const SESSION_PATH = /^\/api\/sessions\/([a-f0-9-]+)$/;
 const UPLOAD_PATH = /^\/api\/sessions\/([a-f0-9-]+)\/upload$/;
@@ -28,7 +31,7 @@ export default {
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
     try {
       if (request.method === "GET" && url.pathname === "/api/health") return json({ ok: true }, 200, cors);
-      if (request.method === "POST" && url.pathname === "/api/sessions") return createSession(env, cors);
+      if (request.method === "POST" && url.pathname === "/api/sessions") return createSession(request, env, cors);
       if (request.method === "POST" && url.pathname === "/api/pairing/sessions") return createPairing(request, env, cors);
       if (request.method === "GET" && url.pathname === "/api/devices") return listDevices(request, env, cors);
       if (request.method === "POST" && url.pathname === "/api/drops") return createDrop(request, env, cors);
@@ -84,7 +87,22 @@ export default {
   }
 } satisfies ExportedHandler<Env>;
 
-async function createSession(env: Env, cors: Headers): Promise<Response> {
+async function createSession(request: Request, env: Env, cors: Headers): Promise<Response> {
+  const source = request.headers.get("cf-connecting-ip") || request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
+  if (!(await env.SESSION_RATE_LIMITER.limit({ key: `session:${source}` })).success) {
+    return problem("RATE_LIMITED", "创建会话过于频繁，请一分钟后再试", 429, cors);
+  }
+  const body = await safeJson(request);
+  const verification = await verifyTurnstile(request, env, body?.turnstileToken);
+  if (!verification.success) {
+    const unavailable = verification.code === "unconfigured" || verification.code === "unavailable";
+    return problem(
+      unavailable ? "TURNSTILE_UNAVAILABLE" : "TURNSTILE_REQUIRED",
+      unavailable ? "安全验证暂时不可用，请稍后重试" : "请先完成人机验证",
+      unavailable ? 503 : 403,
+      cors
+    );
+  }
   const id = crypto.randomUUID();
   const token = randomToken();
   const expiresAt = Date.now() + ttlMs(env);
@@ -205,10 +223,14 @@ async function markDropOpened(request: Request, env: Env, dropId: string, cors: 
 }
 
 async function uploadFile(request: Request, env: Env, sessionId: string, cors: Headers): Promise<Response> {
+  if (!(await env.UPLOAD_RATE_LIMITER.limit({ key: `upload:${sessionId}` })).success) {
+    return problem("RATE_LIMITED", "上传过于频繁，请稍后重试", 429, cors);
+  }
   const token = requestToken(request, new URL(request.url));
-  const length = Number(request.headers.get("content-length"));
+  const declaredSize = declaredBodySize(request.headers.get("content-length"));
   const mimeType = request.headers.get("content-type")?.split(";")[0] ?? "";
-  const error = validateUpload(mimeType, length, Number(env.MAX_FILE_BYTES || MAX_FILE_BYTES));
+  const maxBytes = Math.min(MAX_FILE_BYTES, positiveInteger(env.MAX_FILE_BYTES, MAX_FILE_BYTES));
+  const error = validateUploadMetadata(mimeType, declaredSize, maxBytes);
   if (error) return problem("INVALID_FILE", error, 400, cors);
   if (!request.body) return problem("EMPTY_FILE", "没有读取到图片内容", 400, cors);
 
@@ -226,25 +248,65 @@ async function uploadFile(request: Request, env: Env, sessionId: string, cors: H
     objectKey,
     fileName,
     mimeType,
-    size: length,
-    status: "ready",
+    size: 0,
+    status: "uploading",
     createdAt: Date.now(),
     expiresAt: session.expiresAt
   };
 
-  await env.FILES.put(objectKey, request.body, {
-    httpMetadata: { contentType: mimeType },
-    customMetadata: { fileName, sessionId, transferId }
-  });
-  const registered = await stub.registerTransfer(token, transfer);
-  if (!registered) {
-    await env.FILES.delete(objectKey);
+  if (!(await stub.beginTransfer(token, transfer))) {
     return problem("TRANSFER_REJECTED", "当前会话暂时无法接收新文件", 409, cors);
   }
-  return json({ transfer }, 201, cors);
+
+  const now = new Date();
+  const quotaKey = now.toISOString().slice(0, 10);
+  const resetAt = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
+  const quota = env.UPLOAD_QUOTAS.getByName(`upload-${quotaKey}`);
+  const reservation = await quota.reserve(
+    maxBytes,
+    positiveInteger(env.DAILY_UPLOAD_LIMIT, 500),
+    positiveInteger(env.DAILY_UPLOAD_BYTES, 2 * 1024 * 1024 * 1024),
+    resetAt
+  );
+  if (!reservation.accepted) {
+    await stub.failTransfer(token, transferId);
+    return problem("DAILY_QUOTA_EXCEEDED", reservation.reason === "bytes" ? "今日传输容量已用完，请明天再试" : "今日上传次数已用完，请明天再试", 429, cors);
+  }
+
+  try {
+    const body = await readBodyWithLimit(request.body, maxBytes);
+    if (!body.byteLength) throw new Error("EMPTY_FILE");
+    if (!hasImageSignature(body, mimeType)) {
+      await quota.rollback(maxBytes);
+      await stub.failTransfer(token, transferId);
+      return problem("INVALID_FILE_SIGNATURE", "图片内容与文件类型不匹配", 400, cors);
+    }
+    await env.FILES.put(objectKey, body, {
+      httpMetadata: { contentType: mimeType },
+      customMetadata: { fileName, sessionId, transferId }
+    });
+    const completed = await stub.completeTransfer(token, transferId, body.byteLength);
+    if (!completed) {
+      await env.FILES.delete(objectKey);
+      await quota.rollback(maxBytes);
+      return problem("TRANSFER_REJECTED", "会话已失效，请创建新会话", 409, cors);
+    }
+    await quota.commit(maxBytes, body.byteLength);
+    return json({ transfer: completed }, 201, cors);
+  } catch (cause) {
+    await env.FILES.delete(objectKey);
+    await quota.rollback(maxBytes);
+    await stub.failTransfer(token, transferId);
+    if (cause instanceof BodyTooLargeError) return problem("FILE_TOO_LARGE", "单个文件不能超过 20 MB", 413, cors);
+    if (cause instanceof Error && cause.message === "EMPTY_FILE") return problem("EMPTY_FILE", "文件为空", 400, cors);
+    throw cause;
+  }
 }
 
 async function downloadFile(request: Request, env: Env, sessionId: string, transferId: string, cors: Headers): Promise<Response> {
+  if (!(await env.DOWNLOAD_RATE_LIMITER.limit({ key: `download:${sessionId}` })).success) {
+    return problem("RATE_LIMITED", "下载过于频繁，请稍后重试", 429, cors);
+  }
   const token = requestToken(request, new URL(request.url));
   const transfer = await env.SESSIONS.getByName(sessionId).getTransfer(token, transferId);
   if (!transfer) return problem("FILE_UNAVAILABLE", "文件已过期、已领取或已删除", 404, cors);
@@ -289,9 +351,7 @@ function deviceAuth(request: Request): { deviceId: string; token: string } | nul
 }
 
 async function safeJson(request: Request): Promise<Record<string, unknown> | null> {
-  const length = Number(request.headers.get("content-length") ?? 0);
-  if (length > 64 * 1024) return null;
-  try { return await request.json() as Record<string, unknown>; } catch { return null; }
+  return readJsonWithLimit(request);
 }
 
 function cleanName(value: unknown, fallback: string): string {
@@ -312,6 +372,11 @@ function safeFileName(value: string): string {
 function ttlMs(env: Env): number {
   const seconds = Number(env.SESSION_TTL_SECONDS || SESSION_TTL_MS / 1000);
   return Math.min(Math.max(seconds, 60), 600) * 1000;
+}
+
+function positiveInteger(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 function corsHeaders(request: Request, env: Env): Headers {

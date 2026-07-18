@@ -46,6 +46,14 @@ export function validateUpload(contentType: string, size: number, maxBytes = MAX
   return null;
 }
 
+export function validateUploadMetadata(contentType: string, declaredSize: number | null, maxBytes = MAX_FILE_BYTES): string | null {
+  if (!ALLOWED_IMAGE_TYPES.has(contentType.toLowerCase())) return "仅支持 PNG、JPEG、WebP 和 GIF 图片";
+  if (declaredSize === null) return null;
+  if (!Number.isSafeInteger(declaredSize) || declaredSize <= 0) return "文件为空或大小无效";
+  if (declaredSize > maxBytes) return "单个文件不能超过 20 MB";
+  return null;
+}
+
 export function canTransition(from: TransferStatus, to: TransferStatus): boolean {
   const allowed: Record<TransferStatus, TransferStatus[]> = {
     uploading: ["ready", "failed", "expired"],

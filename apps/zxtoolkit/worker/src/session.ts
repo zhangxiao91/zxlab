@@ -39,15 +39,31 @@ export class TransferSession extends DurableObject<Env> {
     };
   }
 
-  async registerTransfer(token: string, transfer: TransferRecord): Promise<boolean> {
+  async beginTransfer(token: string, transfer: TransferRecord): Promise<boolean> {
     const state = await this.authorizedState(token);
     if (!state || state.uploadCount >= 20) return false;
-    if (state.transfer?.status === "ready") return false;
+    if (state.transfer?.status === "ready" || state.transfer?.status === "uploading") return false;
     state.transfer = transfer;
     state.uploadCount += 1;
     await this.ctx.storage.put("session", state);
-    this.broadcast({ type: "transfer_ready", transfer });
     return true;
+  }
+
+  async completeTransfer(token: string, transferId: string, size: number): Promise<TransferRecord | null> {
+    const state = await this.authorizedState(token);
+    if (!state?.transfer || state.transfer.id !== transferId || state.transfer.status !== "uploading") return null;
+    state.transfer.status = "ready";
+    state.transfer.size = size;
+    await this.ctx.storage.put("session", state);
+    this.broadcast({ type: "transfer_ready", transfer: state.transfer });
+    return state.transfer;
+  }
+
+  async failTransfer(token: string, transferId: string): Promise<void> {
+    const state = await this.authorizedState(token);
+    if (!state?.transfer || state.transfer.id !== transferId || state.transfer.status !== "uploading") return;
+    state.transfer.status = "failed";
+    await this.ctx.storage.put("session", state);
   }
 
   async getTransfer(token: string, transferId: string): Promise<TransferRecord | null> {

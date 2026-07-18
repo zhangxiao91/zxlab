@@ -5,12 +5,24 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-07-15",
   "compatibility_flags": ["nodejs_compat"],
+  "routes": [
+    { "pattern": "zxtoolkit-api.zx-dx.xyz", "custom_domain": true }
+  ],
   "vars": {
     "APP_ORIGIN": "https://zxtoolkit.pages.dev",
     "ZXLAB_ORIGIN": "https://zxlab.pages.dev",
+    "ENVIRONMENT": "production",
+    "TURNSTILE_EXPECTED_HOSTNAMES": "zxtoolkit.pages.dev",
     "SESSION_TTL_SECONDS": "600",
-    "MAX_FILE_BYTES": "20971520"
+    "MAX_FILE_BYTES": "20971520",
+    "DAILY_UPLOAD_LIMIT": "500",
+    "DAILY_UPLOAD_BYTES": "2147483648"
   },
+  "ratelimits": [
+    { "name": "SESSION_RATE_LIMITER", "namespace_id": "41001", "simple": { "limit": 5, "period": 60 } },
+    { "name": "UPLOAD_RATE_LIMITER", "namespace_id": "41002", "simple": { "limit": 10, "period": 60 } },
+    { "name": "DOWNLOAD_RATE_LIMITER", "namespace_id": "41003", "simple": { "limit": 60, "period": 60 } }
+  ],
   "r2_buckets": [
     {
       "binding": "FILES",
@@ -23,13 +35,15 @@
       { "name": "SESSIONS", "class_name": "TransferSession" },
       { "name": "PAIRINGS", "class_name": "PairingSession" },
       { "name": "DEVICES", "class_name": "DeviceMailbox" },
-      { "name": "PULSE", "class_name": "PulseHub" }
+      { "name": "PULSE", "class_name": "PulseHub" },
+      { "name": "UPLOAD_QUOTAS", "class_name": "UploadQuota" }
     ]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["TransferSession"] },
     { "tag": "v2", "new_sqlite_classes": ["PairingSession", "DeviceMailbox"] },
-    { "tag": "v3", "new_sqlite_classes": ["PulseHub"] }
+    { "tag": "v3", "new_sqlite_classes": ["PulseHub"] },
+    { "tag": "v4", "new_sqlite_classes": ["UploadQuota"] }
   ],
   "observability": {
     "enabled": true,

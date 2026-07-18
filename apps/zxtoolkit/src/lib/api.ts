@@ -16,8 +16,12 @@ export function friendlyUploadError(error: unknown): string {
   return "上传失败，请检查网络后重试";
 }
 
-export async function createSession(): Promise<TransferSession> {
-  const response = await fetch(`${API_BASE_URL}/api/sessions`, { method: "POST" });
+export async function createSession(turnstileToken: string): Promise<TransferSession> {
+  const response = await fetch(`${API_BASE_URL}/api/sessions`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ turnstileToken })
+  });
   return readJson<TransferSession>(response);
 }
 
