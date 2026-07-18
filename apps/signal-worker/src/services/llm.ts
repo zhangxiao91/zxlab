@@ -187,6 +187,10 @@ export class ProjectApiSignalLLM implements SignalLLM {
       return value;
     } catch (cause) {
       const invalid = cause instanceof SignalValidationError || cause instanceof SyntaxError;
+      if (!invalid && failureCode === "MODEL_REQUEST_FAILED" && cause instanceof Error) {
+        const detail = `${cause.name}_${cause.message}`.replace(/[^a-zA-Z0-9_.-]+/g, "_");
+        failureCode = `FETCH_${detail}`.slice(0, 120);
+      }
       await this.invocations.fail(invocationId, invalid ? "INVALID_MODEL_OUTPUT" : failureCode);
       console.error(JSON.stringify({
         event: "signal.model.failed",
