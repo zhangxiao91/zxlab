@@ -7,10 +7,12 @@ const date = new Intl.DateTimeFormat("zh-CN", {
   month: "long",
   day: "numeric",
   weekday: "long",
+  timeZone: "Asia/Shanghai",
 }).format(new Date(`${briefing.date}T12:00:00+08:00`));
 const generatedAt = new Intl.DateTimeFormat("zh-CN", {
   hour: "2-digit",
   minute: "2-digit",
+  timeZone: "Asia/Shanghai",
 }).format(new Date(briefing.generatedAt));
 ---
 
