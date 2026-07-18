@@ -181,8 +181,21 @@ const snapshot = createMockStatusSnapshot("normal");
     };
     const loadLLM = async (range = "24h") => {
       const module = document.querySelector<HTMLElement>("[data-status-module='llm']"); if (!module) return;
-      try { const response = await fetch(`/api/status/llm?range=${encodeURIComponent(range)}`, { credentials: "same-origin" }); if (!response.ok) throw new Error(); renderLLM(await response.json()); }
-      catch { module.dataset.moduleState = "error"; module.querySelector<HTMLElement>("[data-llm-state-title]")!.textContent = "LLM usage data temporarily unavailable"; module.querySelector<HTMLElement>("[data-llm-state-message]")!.textContent = "Sign in through Cloudflare Access to view private telemetry."; }
+      try {
+        const response = await fetch(`/api/status/llm?range=${encodeURIComponent(range)}`, { credentials: "same-origin" });
+        if (!response.ok) {
+          const accessRequired = response.status === 401 || response.status === 403;
+          throw new Error(accessRequired ? "access-required" : "unavailable");
+        }
+        renderLLM(await response.json());
+      } catch (error) {
+        const accessRequired = error instanceof Error && error.message === "access-required";
+        module.dataset.moduleState = "error";
+        module.querySelector<HTMLElement>("[data-llm-state-title]")!.textContent = accessRequired ? "Cloudflare Access required" : "LLM usage data temporarily unavailable";
+        module.querySelector<HTMLElement>("[data-llm-state-message]")!.textContent = accessRequired
+          ? "Sign in through Cloudflare Access to view private telemetry."
+          : "The telemetry source is not configured or is temporarily unavailable.";
+      }
     };
 
     if (dashboard && scenario !== "normal") {
