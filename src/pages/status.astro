@@ -159,6 +159,32 @@ const snapshot = createMockStatusSnapshot("normal");
       }
     };
 
+    const formatTokens = (value: number | null | undefined) => value === null || value === undefined ? "N/A" : value >= 1_000_000 ? `${(value / 1_000_000).toFixed(2)}M` : value >= 1_000 ? `${(value / 1_000).toFixed(1)}K` : String(value);
+    const formatCost = (value: number | null | undefined) => value === null || value === undefined ? "N/A" : `$${value < .01 ? value.toFixed(4) : value.toFixed(2)}`;
+    const formatLatency = (value: number | null | undefined) => value === null || value === undefined ? "N/A" : value >= 1000 ? `${(value / 1000).toFixed(1)}s` : `${Math.round(value)}ms`;
+    const escapeHtml = (value: unknown) => String(value ?? "").replace(/[&<>\"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" })[character]!);
+    const setRows = (selector: string, rows: Array<string>) => { const root = document.querySelector<HTMLElement>(selector); if (root) root.innerHTML = rows.length ? rows.map((row) => `<li>${row}</li>`).join("") : "<li>No data in this range.</li>"; };
+    const setMetrics = (selector: string, rows: Array<[string, string]>) => { const root = document.querySelector<HTMLElement>(selector); if (root) root.innerHTML = rows.map(([label, value]) => `<div><dt>${label}</dt><dd>${value}</dd></div>`).join(""); };
+    const renderLLM = (data: any) => {
+      const module = document.querySelector<HTMLElement>("[data-status-module='llm']"); if (!module) return;
+      module.dataset.moduleState = "ready"; module.querySelector<HTMLElement>("[data-llm-ready]")!.hidden = false; module.querySelector<HTMLElement>("[data-llm-fallback]")!.hidden = true;
+      const s = data.summary; const rate = s.successRate === null ? "N/A" : `${(s.successRate * 100).toFixed(2)}%`;
+      const state = s.logicalRequests === 0 ? "No Data" : s.successRate >= .98 ? "Operational" : s.successRate >= .9 ? "Degraded" : s.successRate >= .5 ? "Partial Outage" : "Major Outage";
+      module.querySelector<HTMLElement>("[data-llm-state]")!.textContent = state;
+      setMetrics("[data-llm-summary]", [["Logical requests", String(s.logicalRequests)], ["Provider attempts", String(s.providerAttempts)], ["Total tokens", formatTokens(s.totalTokens)], ["Estimated cost", formatCost(s.estimatedCostUsd)], ["Success rate", rate], ["Average latency", formatLatency(s.averageLatencyMs)], ["Fallbacks", String(s.fallbackRequests)], ["Recovered", String(s.fallbackRecoveredRequests)]]);
+      setMetrics("[data-llm-tokens]", [["Input", formatTokens(s.inputTokens)], ["Output", formatTokens(s.outputTokens)], ["Cached", formatTokens(s.cachedInputTokens)], ["Reasoning", formatTokens(s.reasoningTokens)], ["Estimated cost", formatCost(s.estimatedCostUsd)]]);
+      setRows("[data-llm-trend]", data.trend.map((x: any) => `<span>${escapeHtml(new Date(x.bucket).toLocaleDateString(undefined, { month: "short", day: "numeric", hour: data.range === "24h" ? "numeric" : undefined }))}</span><strong>${escapeHtml(x.logical_requests)} / ${escapeHtml(x.attempts)}</strong>`));
+      setRows("[data-llm-models]", data.models.map((x: any) => `<strong>${escapeHtml(x.provider)} / ${escapeHtml(x.model)}</strong><span>${escapeHtml(x.attempts)} attempts · ${escapeHtml(x.successes)}/${escapeHtml(x.attempts)} success · ${formatTokens(x.total_tokens)} · ${formatLatency(x.average_latency_ms)} · ${formatCost(x.estimated_cost_usd)}</span>`));
+      setRows("[data-llm-sources]", data.sources.map((x: any) => `<strong>${escapeHtml(x.source)}</strong><span>${escapeHtml(x.attempts)} attempts · ${formatTokens(x.total_tokens)} · ${formatCost(x.estimated_cost_usd)}</span>`));
+      setRows("[data-llm-fallbacks]", data.fallbacks.map((x: any) => `<strong>${escapeHtml(x.fallback_from_provider)}/${escapeHtml(x.fallback_from_model)} → ${escapeHtml(x.provider)}/${escapeHtml(x.model)}</strong><span>${escapeHtml(x.attempts)} attempts · ${escapeHtml(x.successes)} recovered · depth ${escapeHtml(x.fallback_depth)}</span>`));
+      setRows("[data-llm-errors]", data.recentErrors.map((x: any) => `<strong>${escapeHtml(x.error_type ?? "unknown")}</strong><span>${escapeHtml(x.source)} · ${escapeHtml(x.provider)}/${escapeHtml(x.model)} · ${escapeHtml(new Date(x.created_at).toLocaleString())}</span>`));
+    };
+    const loadLLM = async (range = "24h") => {
+      const module = document.querySelector<HTMLElement>("[data-status-module='llm']"); if (!module) return;
+      try { const response = await fetch(`/api/status/llm?range=${encodeURIComponent(range)}`, { credentials: "same-origin" }); if (!response.ok) throw new Error(); renderLLM(await response.json()); }
+      catch { module.dataset.moduleState = "error"; module.querySelector<HTMLElement>("[data-llm-state-title]")!.textContent = "LLM usage data temporarily unavailable"; module.querySelector<HTMLElement>("[data-llm-state-message]")!.textContent = "Sign in through Cloudflare Access to view private telemetry."; }
+    };
+
     if (dashboard && scenario !== "normal") {
       const preview = await getStatusSnapshot(scenario);
       renderStatusSnapshot(dashboard, preview);
@@ -167,6 +193,8 @@ const snapshot = createMockStatusSnapshot("normal");
       await refreshDashboard(0);
     }
     if (dashboard) enhanceRelativeTimes(dashboard);
+    void loadLLM();
+    document.querySelectorAll<HTMLButtonElement>("[data-llm-range]").forEach((button) => button.addEventListener("click", () => { document.querySelectorAll<HTMLButtonElement>("[data-llm-range]").forEach((item) => item.setAttribute("aria-pressed", String(item === button))); void loadLLM(button.dataset.llmRange); }));
 
     refresh?.addEventListener("click", () => void refreshDashboard());
     const stopAutoRefresh = scheduleStatusRefresh(() => void refreshDashboard(0));

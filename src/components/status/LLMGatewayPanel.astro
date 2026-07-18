@@ -1,0 +1,26 @@
+---
+---
+
+<section class="status-module status-llm" data-status-module="llm" data-module-state="loading" aria-labelledby="llm-title" aria-live="polite">
+  <header>
+    <div><p>Private telemetry</p><h2 id="llm-title">LLM Gateway</h2></div>
+    <div class="llm-controls" aria-label="Usage range">
+      <button type="button" data-llm-range="24h" aria-pressed="true">24 hours</button>
+      <button type="button" data-llm-range="7d" aria-pressed="false">7 days</button>
+      <button type="button" data-llm-range="30d" aria-pressed="false">30 days</button>
+    </div>
+  </header>
+  <div class="llm-ready" data-llm-ready hidden>
+    <div class="llm-health"><span data-llm-state>Operational</span><p data-llm-caption>Logical requests and provider attempts are calculated separately.</p></div>
+    <dl class="llm-summary" data-llm-summary></dl>
+    <div class="llm-grid">
+      <section><div class="llm-subhead"><p>Request trend</p><span>Logical requests / attempts</span></div><ol class="llm-trend" data-llm-trend></ol></section>
+      <section><div class="llm-subhead"><p>Token and cost</p></div><dl class="llm-tokens" data-llm-tokens></dl></section>
+      <section><div class="llm-subhead"><p>Model distribution</p></div><ul class="llm-list" data-llm-models></ul></section>
+      <section><div class="llm-subhead"><p>Module distribution</p></div><ul class="llm-list" data-llm-sources></ul></section>
+      <section><div class="llm-subhead"><p>Fallback recovery</p></div><ul class="llm-list" data-llm-fallbacks></ul></section>
+      <section><div class="llm-subhead"><p>Recent normalized errors</p></div><ul class="llm-list" data-llm-errors></ul></section>
+    </div>
+  </div>
+  <div class="status-state" data-llm-fallback><span aria-hidden="true">×</span><h3 data-llm-state-title>Loading protected telemetry</h3><p data-llm-state-message>LLM usage data is kept behind Cloudflare Access.</p></div>
+</section>

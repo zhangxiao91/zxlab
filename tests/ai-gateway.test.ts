@@ -8,6 +8,7 @@ import { OpenAICompatibleAdapter } from "../functions/_lib/ai/providers/openai-c
 import type { AIProviderAdapter, ProviderGenerateResult } from "../functions/_lib/ai/providers/types.ts";
 import { generateAI } from "../functions/_lib/ai/router.ts";
 import { validateGenerateAIInput } from "../functions/_lib/ai/validation.ts";
+import { estimateLLMCost, normalizeUsage, type LLMUsageDatabase } from "../functions/_lib/ai/telemetry.ts";
 
 const candidates: ModelCandidate[] = [
   { id: "provider1-gpt-5.6", provider: "provider1", adapter: "openai-compatible", model: "p1-56", baseUrl: "https://p1.example/v1", apiKey: "p1-secret" },
@@ -121,6 +122,27 @@ test("structured logs contain no API keys or complete prompt", async () => {
   const serialized = JSON.stringify(entries);
   assert.doesNotMatch(serialized, /p1-secret|deep-secret|private prompt content/);
   assert.match(serialized, /"inputChars":22/);
+});
+
+test("records one sanitized event per provider attempt, including fallback", async () => {
+  const rows: unknown[][] = [];
+  const db: LLMUsageDatabase = { prepare: () => ({ bind: (...values: unknown[]) => ({ run: async () => { rows.push(values); }, all: async () => ({ results: [] }), first: async () => null }) }) };
+  const adapter = new ScriptedAdapter([fallback500(), success()]);
+  await generateAI({ ...input, context: { source: "notes", operation: "summarize", metadata: { ignored: true } } }, {
+    candidates, adapters: adapters(adapter), telemetryDb: db, scheduleTelemetry: (task) => { void task; },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0][3], "notes");
+  assert.equal(rows[0][14], "error");
+  assert.equal(rows[1][14], "success");
+  assert.equal(rows[1][17], 1);
+  assert.doesNotMatch(JSON.stringify(rows), /private prompt content/);
+});
+
+test("normalizes provider usage without guessing missing tokens or cost", () => {
+  assert.deepEqual(normalizeUsage({ inputTokens: 12, cachedInputTokens: 4 }), { inputTokens: 12, cachedInputTokens: 4, totalTokens: 12 });
+  assert.equal(estimateLLMCost({ provider: "unknown", model: "unknown" }), undefined);
 });
 
 test("client-controlled provider configuration fields are rejected", () => {

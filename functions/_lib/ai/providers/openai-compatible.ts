@@ -63,12 +63,19 @@ function endpoint(baseUrl: string): string {
 function usage(root: Record<string, unknown>): AIUsage | undefined {
   const value = record(root.usage);
   if (!value) return undefined;
-  const inputTokens = typeof value.prompt_tokens === "number" ? value.prompt_tokens : undefined;
-  const outputTokens = typeof value.completion_tokens === "number" ? value.completion_tokens : undefined;
+  const inputTokens = typeof value.prompt_tokens === "number" ? value.prompt_tokens : typeof value.input_tokens === "number" ? value.input_tokens : undefined;
+  const outputTokens = typeof value.completion_tokens === "number" ? value.completion_tokens : typeof value.output_tokens === "number" ? value.output_tokens : undefined;
+  const details = record(value.prompt_tokens_details) ?? record(value.input_tokens_details);
+  const outputDetails = record(value.completion_tokens_details) ?? record(value.output_tokens_details);
+  const cachedInputTokens = typeof value.cached_tokens === "number" ? value.cached_tokens
+    : typeof value.cache_read_input_tokens === "number" ? value.cache_read_input_tokens
+      : typeof details?.cached_tokens === "number" ? details.cached_tokens : undefined;
+  const reasoningTokens = typeof value.reasoning_tokens === "number" ? value.reasoning_tokens
+    : typeof outputDetails?.reasoning_tokens === "number" ? outputDetails.reasoning_tokens : undefined;
   const totalTokens = typeof value.total_tokens === "number" ? value.total_tokens : undefined;
-  return inputTokens === undefined && outputTokens === undefined && totalTokens === undefined
+  return inputTokens === undefined && outputTokens === undefined && cachedInputTokens === undefined && reasoningTokens === undefined && totalTokens === undefined
     ? undefined
-    : { inputTokens, outputTokens, totalTokens };
+    : { inputTokens, outputTokens, cachedInputTokens, reasoningTokens, totalTokens };
 }
 
 export class OpenAICompatibleAdapter implements AIProviderAdapter {

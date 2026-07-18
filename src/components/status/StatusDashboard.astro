@@ -3,6 +3,7 @@ import type { StatusSnapshot } from "../../status/types";
 import CodexUsagePanel from "./CodexUsagePanel.astro";
 import StatusIndicator from "./StatusIndicator.astro";
 import StatusState from "./StatusState.astro";
+import LLMGatewayPanel from "./LLMGatewayPanel.astro";
 
 interface Props { snapshot: StatusSnapshot; }
 const { snapshot } = Astro.props;
@@ -63,6 +64,8 @@ const dateFormatter = new Intl.DateTimeFormat("en", { month: "short", day: "nume
       <StatusState hidden={snapshot.devices.state === "ready"} title="Devices unavailable" message={snapshot.devices.message} />
     </section>
   </div>
+
+  <LLMGatewayPanel />
 
   <section class="status-module status-activity" data-status-module="activity" data-module-state={snapshot.activity.state} aria-labelledby="activity-title">
     <header><div><p>Public development trail</p><h2 id="activity-title">Latest activity</h2></div><span data-activity-provider>Demo feed</span></header>

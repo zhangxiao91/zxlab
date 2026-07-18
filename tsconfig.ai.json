@@ -11,6 +11,7 @@
     "functions/_lib/ai/**/*.ts",
     "functions/_lib/risk/**/*.ts",
     "functions/api/ai/**/*.ts",
+    "functions/api/status/llm.ts",
     "functions/api/risk/**/*.ts",
     "tests/ai-gateway.test.ts",
     "tests/risk-review-api.test.ts"

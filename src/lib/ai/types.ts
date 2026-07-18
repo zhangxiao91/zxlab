@@ -5,17 +5,28 @@ export type AIMessage = {
 
 export type AIResponseFormat = { type: "text" } | { type: "json" };
 
+export type LLMCallContext = {
+  /** A short, stable ZXLab module name. Never put user content in this field. */
+  source?: string;
+  operation?: string;
+  requestId?: string;
+  metadata?: Record<string, string | number | boolean>;
+};
+
 export type GenerateAIInput = {
   task: string;
   messages: AIMessage[];
   temperature?: number;
   maxOutputTokens?: number;
   responseFormat?: AIResponseFormat;
+  context?: LLMCallContext;
 };
 
 export type AIUsage = {
   inputTokens?: number;
   outputTokens?: number;
+  cachedInputTokens?: number;
+  reasoningTokens?: number;
   totalTokens?: number;
 };
 

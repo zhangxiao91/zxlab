@@ -10,11 +10,26 @@ export const AI_REQUEST_LIMITS = {
   maxOutputTokens: 4_000,
 } as const;
 
-const allowedInputKeys = new Set(["task", "messages", "temperature", "maxOutputTokens", "responseFormat"]);
+const allowedInputKeys = new Set(["task", "messages", "temperature", "maxOutputTokens", "responseFormat", "context"]);
 const roles = new Set(["system", "user", "assistant"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function callContext(value: unknown): GenerateAIInput["context"] | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value) || Object.keys(value).some((key) => !["source", "operation", "requestId", "metadata"].includes(key))) throw new AIError("INVALID_INPUT");
+  const short = (field: unknown, limit: number) => field === undefined || (typeof field === "string" && /^[a-z0-9][a-z0-9_-]*$/i.test(field) && field.length <= limit);
+  if (!short(value.source, 48) || !short(value.operation, 64) || !short(value.requestId, 128)) throw new AIError("INVALID_INPUT");
+  if (value.metadata !== undefined) {
+    if (!isRecord(value.metadata) || Object.keys(value.metadata).length > 8) throw new AIError("INVALID_INPUT");
+    for (const [key, item] of Object.entries(value.metadata)) {
+      if (!/^[a-z0-9][a-z0-9_-]*$/i.test(key) || key.length > 48 || !["string", "number", "boolean"].includes(typeof item)
+        || (typeof item === "string" && item.length > 160) || (typeof item === "number" && !Number.isFinite(item))) throw new AIError("INVALID_INPUT");
+    }
+  }
+  return value as GenerateAIInput["context"];
 }
 
 export function validateGenerateAIInput(value: unknown): GenerateAIInput {
@@ -52,6 +67,7 @@ export function validateGenerateAIInput(value: unknown): GenerateAIInput {
     ...(value.temperature === undefined ? {} : { temperature: value.temperature as number }),
     ...(value.maxOutputTokens === undefined ? {} : { maxOutputTokens: value.maxOutputTokens as number }),
     responseFormat: value.responseFormat as GenerateAIInput["responseFormat"] ?? { type: "text" },
+    ...(value.context === undefined ? {} : { context: callContext(value.context) }),
   };
 }
 

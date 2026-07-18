@@ -180,6 +180,26 @@ Production responses never contain provider error bodies, credentials, request
 messages, or environment values. Development responses add only a normalized
 error code.
 
+## Usage telemetry
+
+Each actual provider attempt is recorded in the existing `zx-signal` D1 database
+after the gateway has determined its terminal attempt outcome. Apply migration
+`0004_llm_usage_events.sql`, then bind that same database to the Pages project
+as `LLM_USAGE_DB`. Writes use `waitUntil` when available and are best effort:
+a telemetry failure never changes an AI response.
+
+`request_id` identifies a logical request; a row identifies a provider attempt.
+Retry attempts receive their own row, while `fallback_depth` tracks the selected
+candidate in the configured chain. The event table intentionally excludes
+prompts, responses, headers, credentials, and caller metadata. Token fields are
+only persisted when the provider returned them. Pricing is deliberately empty
+until provider-confirmed prices are added to `functions/_lib/ai/telemetry.ts`.
+
+`GET /api/status/llm?range=24h|7d|30d|today` returns the aggregated dashboard
+only after Cloudflare Access verifies `STATUS_LLM_ACCESS_TEAM_DOMAIN` and
+`STATUS_LLM_ACCESS_AUD`. The public Status page handles an unavailable or
+unauthorized detailed module independently of its public device and Codex cards.
+
 ## Verification
 
 The tests use injected adapters and never call a real model:
