@@ -214,7 +214,7 @@
   display: grid;
   margin: 1.6rem 0 0;
   padding-top: 1rem;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 1rem;
   box-shadow: inset 0 1px rgba(255, 255, 255, 0.12);
 }
@@ -627,6 +627,7 @@
 .annotation-panel select:focus { box-shadow: inset 0 0 0 2px #8fa92f; }
 .annotation-panel form button { margin-top: 1rem; }
 .annotation-panel form button:disabled { cursor: wait; opacity: 0.55; }
+.annotation-form__error { margin-top: 0.75rem; color: #9c3f32; font-size: 0.78rem; line-height: 1.5; }
 .annotation-result { margin-top: 3rem; padding-top: 2rem; box-shadow: inset 0 1px rgba(25, 26, 22, 0.12); }
 .annotation-reply > div { margin-top: 0.8rem; color: #4e4f48; font-size: 1.02rem; line-height: 1.75; }
 .memory-candidate { margin-top: 2.5rem; padding: 1.5rem; border-radius: 1.6rem; background: #1d1f19; color: #f3f1e8; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1); }
@@ -694,7 +695,7 @@
     text-decoration: underline;
     text-underline-offset: 0.3em;
   }
-  .signal-editorial dl { grid-template-columns: repeat(3, 1fr); }
+  .signal-editorial dl { grid-template-columns: repeat(2, 1fr); }
   .signal-partial { margin-top: 0; }
   .signal-filter { padding-block: 3.5rem; }
   .signal-filter__heading,

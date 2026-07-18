@@ -1,55 +1,83 @@
-import {
-  createMockAnnotationResponse,
-  createMockBriefing,
-  updateMockMemoryCandidate,
-} from "./mock";
+import { createMockAnnotationResponse, createMockBriefing, updateMockMemoryCandidate } from "./mock";
 import type {
-  Annotation,
   AnnotationInput,
   AnnotationResponse,
   BriefingPreviewState,
   DailyBriefing,
+  MemoriesResponse,
   MemoryCandidate,
   MemoryScope,
+  SignalErrorResponse,
 } from "./types";
 
-const wait = (milliseconds: number) =>
-  new Promise<void>((resolve) => window.setTimeout(resolve, milliseconds));
+const configuredMode = import.meta.env.PUBLIC_SIGNAL_DATA_MODE;
+const dataMode: "api" | "mock" = configuredMode === "api" || configuredMode === "mock"
+  ? configuredMode
+  : import.meta.env.DEV ? "mock" : "api";
+const apiBase = String(import.meta.env.PUBLIC_SIGNAL_API_BASE ?? "").replace(/\/$/, "");
 
-export async function getLatestBriefing(
-  state: BriefingPreviewState = "ready",
-): Promise<DailyBriefing> {
-  return createMockBriefing(state);
+export class SignalApiError extends Error {
+  constructor(readonly code: string, message: string, readonly status: number) {
+    super(message);
+    this.name = "SignalApiError";
+  }
 }
 
-export async function createAnnotation(input: AnnotationInput): Promise<Annotation> {
-  return {
-    ...input,
-    id: `annotation-${Date.now()}`,
-    createdAt: new Date().toISOString(),
-  };
+function endpoint(path: string): string {
+  if (!apiBase) throw new SignalApiError("SIGNAL_API_NOT_CONFIGURED", "PUBLIC_SIGNAL_API_BASE is not configured", 503);
+  return `${apiBase}${path}`;
 }
 
-export async function requestAnnotationReply(
-  annotation: Annotation,
-): Promise<AnnotationResponse> {
-  await wait(720);
-  return createMockAnnotationResponse(annotation);
+async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(endpoint(path), {
+      ...init,
+      credentials: "include",
+      headers: { "content-type": "application/json", ...init?.headers },
+    });
+  } catch (cause) {
+    throw new SignalApiError("SIGNAL_API_UNAVAILABLE", cause instanceof Error ? cause.message : "Signal API unavailable", 503);
+  }
+  if (!response.ok) {
+    let error: SignalErrorResponse | undefined;
+    try { error = await response.json() as SignalErrorResponse; } catch { /* Non-JSON proxy response. */ }
+    throw new SignalApiError(error?.error.code ?? "SIGNAL_API_ERROR", error?.error.message ?? `Signal API returned ${response.status}`, response.status);
+  }
+  return await response.json() as T;
+}
+
+export async function getLatestBriefing(state: BriefingPreviewState = "ready"): Promise<DailyBriefing> {
+  if (dataMode === "mock") return createMockBriefing(state);
+  return apiRequest<DailyBriefing>("/api/briefings/latest");
+}
+
+export async function submitAnnotation(input: AnnotationInput): Promise<AnnotationResponse> {
+  if (dataMode === "mock") {
+    const annotation = { ...input, id: `annotation-${Date.now()}`, createdAt: new Date().toISOString() };
+    return createMockAnnotationResponse(annotation);
+  }
+  return apiRequest<AnnotationResponse>("/api/annotations", {
+    method: "POST",
+    body: JSON.stringify({ ...input, actionType: input.action }),
+  });
 }
 
 export async function updateMemoryCandidate(
   candidate: MemoryCandidate,
   action: "accept" | "reject",
   scope?: MemoryScope,
+  scopeKey?: string,
 ): Promise<MemoryCandidate> {
-  await wait(260);
-  return updateMockMemoryCandidate(candidate, action, scope);
+  if (dataMode === "mock") return updateMockMemoryCandidate(candidate, action, scope);
+  const response = await apiRequest<{ candidate: MemoryCandidate }>(`/api/memory-candidates/${encodeURIComponent(candidate.id)}/${action}`, {
+    method: "POST",
+    body: JSON.stringify(action === "accept" ? { scope, scopeKey } : {}),
+  });
+  return response.candidate;
 }
 
-// Future adapter routes:
-// GET  /api/briefings/latest
-// GET  /api/briefings/:date
-// POST /api/annotations
-// POST /api/annotations/:id/reply
-// POST /api/memory-candidates/:id/accept
-// POST /api/memory-candidates/:id/reject
+export async function getMemories(): Promise<MemoriesResponse> {
+  if (dataMode === "mock") return { memories: [], candidates: [] };
+  return apiRequest<MemoriesResponse>("/api/memories");
+}

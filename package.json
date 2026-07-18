@@ -4,7 +4,9 @@
   "version": "0.0.1",
   "workspaces": [
     "apps/stonks",
-    "apps/zxtoolkit"
+    "apps/zxtoolkit",
+    "apps/signal-worker",
+    "packages/signal-schema"
   ],
   "engines": {
     "node": ">=22.12.0"

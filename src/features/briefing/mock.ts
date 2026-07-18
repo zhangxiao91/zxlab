@@ -16,6 +16,7 @@ const baseBriefing: DailyBriefing = {
     "今天值得保留的变化并不来自更大的模型，而来自工程边界开始变得清晰：Agent 需要可恢复的状态，评测需要贴近真实任务，个人信息系统则需要把人的反馈变成可审计的长期偏好。市场侧的线索也相似——比起追逐单日价格，更应关注供给纪律和库存结构是否真正改变。",
   generatedAt: "2026-07-18T07:42:00+08:00",
   promptVersion: "editorial-v0.3",
+  dataOrigin: "mock",
   stats: { fetched: 186, deduplicated: 72, selected: 6 },
   items: [
     {
@@ -170,6 +171,7 @@ export function createMockAnnotationResponse(annotation: Annotation): Annotation
     : `后续判断相关信号时，优先考虑：${annotation.comment.replace(/[。！？!?]+$/, "")}。`;
 
   return {
+    annotation,
     reply: {
       id: `reply-${annotation.id}`,
       annotationId: annotation.id,
@@ -183,7 +185,9 @@ export function createMockAnnotationResponse(annotation: Annotation): Annotation
       scope: memoryScopeByAction[annotation.action],
       content: memoryText,
       confidence: edgeConcern ? 0.91 : 0.78,
+      reason: edgeConcern ? "这是一条会持续影响 zxlab 技术选型的运行时约束。" : "用户明确提出了可复用的判断条件。",
       status: "proposed",
+      createdAt: new Date().toISOString(),
     },
   };
 }

@@ -6,9 +6,26 @@ import BriefingItemCard from "../features/briefing/components/BriefingItemCard.a
 import BriefingStateView from "../features/briefing/components/BriefingStateView.astro";
 import BriefingStats from "../features/briefing/components/BriefingStats.astro";
 import { getLatestBriefing } from "../features/briefing/client";
+import type { DailyBriefing } from "../features/briefing/types";
 import "../styles/briefing.css";
 
-const briefing = await getLatestBriefing("ready");
+let briefing: DailyBriefing;
+try {
+  briefing = await getLatestBriefing("ready");
+} catch {
+  briefing = {
+    id: "signal-unavailable",
+    date: new Date().toISOString().slice(0, 10),
+    status: "failed" as const,
+    title: "日报暂时不可用",
+    summary: "Signal API 当前未返回可用日报。页面不会用 mock 内容伪装成真实结果。",
+    generatedAt: new Date().toISOString(),
+    promptVersion: "unavailable",
+    dataOrigin: "real" as const,
+    stats: { fetched: 0, deduplicated: 0, selected: 0 },
+    items: [],
+  };
+}
 const longTermThreads = [
   ["Agent 工作流", "观察持久化状态、幂等重试与人工恢复边界。"],
   ["存储芯片周期", "交叉验证库存、资本开支与产能迁移。"],
@@ -22,7 +39,7 @@ const longTermThreads = [
   description="每天真正值得我关注的变化，一份可回应、可积累的个人日报。"
   lang="zh-CN"
 >
-  <main class="signal-page">
+  <main class="signal-page" data-briefing-state={briefing.status} data-briefing-id={briefing.id}>
     <BriefingHeader briefing={briefing} />
 
     <aside class="signal-partial" role="status" data-partial-preview hidden>
@@ -91,8 +108,8 @@ const longTermThreads = [
     import gsap from "gsap";
     import { ScrollTrigger } from "gsap/ScrollTrigger";
     import {
-      createAnnotation,
-      requestAnnotationReply,
+      submitAnnotation,
+      getMemories,
       updateMemoryCandidate,
     } from "../features/briefing/client";
     import { briefingSessionStore } from "../features/briefing/store";
@@ -104,7 +121,9 @@ const longTermThreads = [
 
     gsap.registerPlugin(ScrollTrigger);
 
-    const previewState = new URL(window.location.href).searchParams.get("state") ?? "ready";
+    const previewState = new URL(window.location.href).searchParams.get("state")
+      ?? document.querySelector<HTMLElement>("[data-briefing-state]")?.dataset.briefingState
+      ?? "ready";
     const supportedStates = ["ready", "generating", "partial", "failed", "empty"];
     const activeState = supportedStates.includes(previewState) ? previewState : "ready";
     const showReadyContent = activeState === "ready" || activeState === "partial";
@@ -133,7 +152,17 @@ const longTermThreads = [
     const itemOutput = document.querySelector<HTMLElement>("[data-panel-item]");
     const closeButton = document.querySelector<HTMLButtonElement>("[data-panel-close]");
     const submitLabel = document.querySelector<HTMLElement>("[data-submit-label]");
+    const submitError = document.querySelector<HTMLElement>("[data-annotation-error]");
+    const briefingId = document.querySelector<HTMLElement>("[data-briefing-id]")?.dataset.briefingId ?? "";
     const session = briefingSessionStore.load();
+    getMemories().then(({ candidates }) => {
+      if (candidates.length === 0) return;
+      const byId = new Map(candidates.map((candidate) => [candidate.id, candidate]));
+      session.memoryCandidates = session.memoryCandidates.map((candidate) => byId.get(candidate.id) ?? candidate);
+      briefingSessionStore.save(session);
+    }).catch(() => {
+      // The reading experience remains available when protected memory state cannot be refreshed.
+    });
     let selectedItem: HTMLElement | null = null;
     let selectedText = "";
     let activeCandidate: MemoryCandidate | null = null;
@@ -156,6 +185,7 @@ const longTermThreads = [
     const openPanel = (action: AnnotationAction) => {
       if (!form || !selectedItem || !selectedText) return;
       form.reset();
+      if (submitError) submitError.hidden = true;
       result?.setAttribute("hidden", "");
       activeCandidate = null;
       const itemId = selectedItem.dataset.briefingItem ?? "";
@@ -291,50 +321,75 @@ const longTermThreads = [
       if (submit) submit.disabled = true;
       if (submitLabel) submitLabel.textContent = "Signal 正在回应";
 
-      const annotation = await createAnnotation({
-        briefingItemId: String(values.get("itemId")),
-        selectedText: String(values.get("selectedText")),
-        comment,
-        action: String(values.get("action")) as AnnotationAction,
-      });
-      session.annotations.push(annotation);
-      briefingSessionStore.save(session);
+      try {
+        const response = await submitAnnotation({
+          briefingId,
+          briefingItemId: String(values.get("itemId")),
+          selectedText: String(values.get("selectedText")),
+          comment,
+          action: String(values.get("action")) as AnnotationAction,
+        });
+        session.annotations.push(response.annotation);
+        session.replies.push(response.reply);
+        if (response.memoryCandidate) session.memoryCandidates.push(response.memoryCandidate);
+        briefingSessionStore.save(session);
+        activeCandidate = response.memoryCandidate ?? null;
 
-      const response = await requestAnnotationReply(annotation);
-      session.replies.push(response.reply);
-      session.memoryCandidates.push(response.memoryCandidate);
-      briefingSessionStore.save(session);
-      activeCandidate = response.memoryCandidate;
-
-      const replyContent = document.querySelector<HTMLElement>("[data-reply-content]");
-      const memoryContent = document.querySelector<HTMLElement>("[data-memory-content]");
-      const confidence = document.querySelector<HTMLElement>("[data-memory-confidence]");
-      const scope = document.querySelector<HTMLSelectElement>("[data-memory-scope]");
-      const memoryStatus = document.querySelector<HTMLElement>("[data-memory-status]");
-      if (replyContent) replyContent.textContent = response.reply.content;
-      if (memoryContent) memoryContent.textContent = `“${response.memoryCandidate.content}”`;
-      if (confidence) confidence.textContent = `置信 ${Math.round(response.memoryCandidate.confidence * 100)}`;
-      if (scope) scope.value = response.memoryCandidate.scope;
-      if (memoryStatus) memoryStatus.hidden = true;
-      result?.removeAttribute("hidden");
-      result?.scrollIntoView({ behavior: "smooth", block: "start" });
-      if (submit) submit.disabled = false;
-      if (submitLabel) submitLabel.textContent = "再次发送";
+        const replyContent = document.querySelector<HTMLElement>("[data-reply-content]");
+        const memoryBox = document.querySelector<HTMLElement>("[data-memory-candidate]");
+        const memoryContent = document.querySelector<HTMLElement>("[data-memory-content]");
+        const confidence = document.querySelector<HTMLElement>("[data-memory-confidence]");
+        const scope = document.querySelector<HTMLSelectElement>("[data-memory-scope]");
+        const memoryStatus = document.querySelector<HTMLElement>("[data-memory-status]");
+        if (replyContent) replyContent.textContent = response.reply.content;
+        if (memoryBox) memoryBox.hidden = !response.memoryCandidate;
+        if (response.memoryCandidate) {
+          if (memoryContent) memoryContent.textContent = `“${response.memoryCandidate.content}”`;
+          if (confidence) confidence.textContent = `置信 ${Math.round(response.memoryCandidate.confidence * 100)}`;
+          if (scope) scope.value = response.memoryCandidate.scope;
+        }
+        if (memoryStatus) memoryStatus.hidden = true;
+        result?.removeAttribute("hidden");
+        result?.scrollIntoView({ behavior: "smooth", block: "start" });
+        if (submitLabel) submitLabel.textContent = "再次发送";
+      } catch (error) {
+        if (submitError) {
+          submitError.hidden = false;
+          submitError.textContent = error instanceof Error
+            ? `发送失败：${error.message}。评论内容已保留，可直接重试。`
+            : "发送失败，评论内容已保留。";
+        }
+        if (submitLabel) submitLabel.textContent = "重新发送";
+      } finally {
+        if (submit) submit.disabled = false;
+      }
     });
 
     const resolveMemory = async (action: "accept" | "reject") => {
       if (!activeCandidate) return;
       const scope = document.querySelector<HTMLSelectElement>("[data-memory-scope]");
       const status = document.querySelector<HTMLElement>("[data-memory-status]");
-      activeCandidate = await updateMemoryCandidate(activeCandidate, action, scope?.value as MemoryScope);
-      const index = session.memoryCandidates.findIndex((candidate) => candidate.id === activeCandidate?.id);
-      if (index >= 0) session.memoryCandidates[index] = activeCandidate;
-      briefingSessionStore.save(session);
-      if (status) {
-        status.hidden = false;
-        status.textContent = action === "accept"
-          ? `已保存，范围：${scope?.selectedOptions[0]?.textContent ?? "当前选择"}。`
-          : "已忽略，这条建议不会影响后续日报。";
+      try {
+        activeCandidate = await updateMemoryCandidate(
+          activeCandidate,
+          action,
+          scope?.value as MemoryScope,
+          scope?.value === "project" ? "zxlab" : undefined,
+        );
+        const index = session.memoryCandidates.findIndex((candidate) => candidate.id === activeCandidate?.id);
+        if (index >= 0) session.memoryCandidates[index] = activeCandidate;
+        briefingSessionStore.save(session);
+        if (status) {
+          status.hidden = false;
+          status.textContent = action === "accept"
+            ? `已保存，范围：${scope?.selectedOptions[0]?.textContent ?? "当前选择"}。`
+            : "已忽略，这条建议不会影响后续日报。";
+        }
+      } catch (error) {
+        if (status) {
+          status.hidden = false;
+          status.textContent = error instanceof Error ? `操作失败：${error.message}` : "操作失败，请重试。";
+        }
       }
     };
 

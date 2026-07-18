@@ -1,0 +1,4 @@
+# Copy to .dev.vars. Never commit the real value.
+ENVIRONMENT=development
+ZX_SIGNAL_WRITE_TOKEN=generate-a-local-only-token
+ZX_SIGNAL_ACCESS_ENABLED=false

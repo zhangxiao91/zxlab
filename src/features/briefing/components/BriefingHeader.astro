@@ -14,6 +14,7 @@ const generatedAt = new Intl.DateTimeFormat("zh-CN", {
   minute: "2-digit",
   timeZone: "Asia/Shanghai",
 }).format(new Date(briefing.generatedAt));
+const originLabel = { mock: "Mock 预览", fixture: "Fixture 生成", real: "真实候选生成" }[briefing.dataOrigin];
 ---
 
 <section class="signal-hero" aria-labelledby="signal-title">
@@ -36,6 +37,7 @@ const generatedAt = new Intl.DateTimeFormat("zh-CN", {
       <div><dt>生成</dt><dd>{generatedAt}</dd></div>
       <div><dt>版本</dt><dd>{briefing.promptVersion}</dd></div>
       <div><dt>状态</dt><dd data-briefing-status>{briefing.status === "partial" ? "部分完成" : "已就绪"}</dd></div>
+      <div><dt>数据</dt><dd data-briefing-origin>{originLabel}</dd></div>
     </dl>
   </div>
 </section>
