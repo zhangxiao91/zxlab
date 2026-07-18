@@ -1,5 +1,5 @@
 {
   "version": 1,
-  "include": ["/api/ai/generate", "/api/status/devices", "/api/status/usage", "/api/status/usage/health"],
+  "include": ["/api/ai/generate", "/api/risk/review", "/api/status/devices", "/api/status/usage", "/api/status/usage/health"],
   "exclude": []
 }

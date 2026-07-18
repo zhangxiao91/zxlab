@@ -138,7 +138,14 @@ export interface ActivityItem { id: string; time: string; type: "trade" | "plan"
 export interface EvidenceItem { id: string; type: string; title: string; timestamp: string; source: string; payload: Record<string, string | number | boolean | null> }
 export interface EvidencePack { id: string; generatedAt: string; reliable: boolean; evidence: EvidenceItem[]; metrics: RiskMetric[]; events: RiskEvent[]; warnings: string[] }
 export interface ReviewResult {
-  mode: "mock";
+  mode: "mock" | "llm";
+  generatedAt: string;
+  evidencePackFingerprint: string;
+  provider?: string;
+  model?: string;
+  fallbackIndex?: number;
+  requestId?: string;
+  fallbackReason?: string;
   summary: string;
   mainRisks: Array<{ title: string; explanation: string; severity: Severity; evidenceIds: string[] }>;
   planViolations: Array<{ title: string; detail: string; evidenceIds: string[] }>;

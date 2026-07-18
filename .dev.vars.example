@@ -18,3 +18,7 @@ DEEPSEEK_V4_PRO_MODEL=
 # AI_RATE_LIMITER binding and application authentication are present.
 AI_GATEWAY_ACCESS_TOKEN=
 AI_GATEWAY_ALLOWED_ORIGINS=http://localhost:4321
+
+# Cloudflare Access application protecting /lab/risk and /api/risk/review.
+RISK_ACCESS_TEAM_DOMAIN=https://your-team.cloudflareaccess.com
+RISK_ACCESS_AUD=

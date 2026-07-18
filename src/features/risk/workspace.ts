@@ -37,7 +37,7 @@ export class RiskWorkspaceService {
         { name: provider.name, status: marketError || unavailableCount ? "offline" : fallbackCount || quotes.some((item) => item.stale) ? "degraded" : "healthy", latency: mode === "mock" ? "本地" : "三源网关", freshness: marketError ?? `${marketSources.join(" / ") || "无可用源"}${fallbackCount ? ` · ${fallbackCount} 项降级` : ""}` },
         { name: "本地交易账本", status: built.anomalies.length ? "degraded" : "healthy", latency: "浏览器", freshness: `${transactions.length} 条事件` },
         { name: "持仓对账", status: reconciliation.unresolved ? "degraded" : "healthy", latency: "本地", freshness: reconciliation.unresolved ? "待处理" : "一致" },
-        { name: "Mock Review", status: "healthy", latency: "本地", freshness: "Evidence Pack 驱动" },
+        { name: "Review Service", status: "healthy", latency: "本地", freshness: "Mock / Evidence Pack" },
       ],
       transactions, positions: calculated.positions, reconciliation, riskMetrics: calculated.metrics, riskEvents: calculated.events, activity, equityCurve: history, evidence: calculated.evidencePack.evidence, evidencePack: calculated.evidencePack, review, dataWarnings: calculated.warnings,
     };

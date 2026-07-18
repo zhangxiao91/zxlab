@@ -186,6 +186,9 @@
 .activity-row code { padding-top: .2rem; color: rgba(239,237,228,.28); font-size: .57rem; }
 
 .review-intro > div { flex: 1; }
+.review-intro button:disabled { cursor: progress; opacity: .55; transform: none; }
+.review-status { margin-top: 1rem; padding: .8rem 1rem; border: 1px solid rgba(184,255,72,.25); border-radius: .65rem; background: rgba(184,255,72,.06); color: rgba(239,237,228,.72); font-size: .68rem; line-height: 1.55; }
+.review-status--warning { border-color: rgba(255,189,89,.35); background: rgba(255,189,89,.08); color: var(--risk-amber); }
 .review-summary { margin-top: 4rem; padding: clamp(2rem, 5vw, 5rem); border-radius: 1rem; background: var(--risk-paper); color: var(--risk-ink); }
 .review-summary > span, .review-footer-grid section > span { font-size: .63rem; letter-spacing: .1em; text-transform: uppercase; }
 .review-summary p { max-width: 70rem; margin-top: 2.2rem; font-size: clamp(1.45rem, 2.7vw, 2.8rem); line-height: 1.26; letter-spacing: -.035em; }

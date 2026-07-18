@@ -27,6 +27,13 @@ ZX Signal calls this endpoint server-to-server with its own encrypted copy of
 keeps ownership of prompt construction, domain schema validation, the single
 briefing repair attempt, Memory semantics, and D1 persistence.
 
+The Risk workbench uses the same boundary through `POST /api/risk/review`.
+That browser-facing endpoint validates the Cloudflare Access assertion, accepts
+only an `EvidencePack`, and calls this gateway server-to-server with the
+encrypted token. The Risk page never receives the gateway credential, provider
+configuration, or model fallback details beyond the selected provider/model
+metadata returned after a successful review.
+
 ## Business-side example
 
 ```ts
@@ -99,6 +106,9 @@ Security settings:
 ENVIRONMENT=production
 AI_GATEWAY_ACCESS_TOKEN=
 AI_GATEWAY_ALLOWED_ORIGINS=https://zx-dx.xyz
+
+RISK_ACCESS_TEAM_DOMAIN=https://your-team.cloudflareaccess.com
+RISK_ACCESS_AUD=
 ```
 
 Store API keys and the access token as Cloudflare encrypted secrets, not plain
@@ -108,6 +118,13 @@ JavaScript. A future authenticated browser feature can supply an identity-backed
 limiter through the optional `AI_RATE_LIMITER` interface or place Cloudflare WAF
 rate limiting in front of the route; until then, production fails closed if both
 controls are absent.
+
+`RISK_ACCESS_TEAM_DOMAIN` and `RISK_ACCESS_AUD` are non-secret runtime values
+from the Cloudflare Access application protecting `/lab/risk*` and
+`/api/risk/review`. The Function verifies the assertion signature against the
+team JWKS and checks both issuer and audience. The Access allow policy is
+restricted to the personal account email; browser Origin headers are not used
+as authentication.
 
 ZX Signal task policies are intentionally separate from generic callers:
 

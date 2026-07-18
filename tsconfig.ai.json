@@ -7,9 +7,13 @@
   },
   "include": [
     "src/lib/ai/**/*.ts",
+    "src/features/risk/**/*.ts",
     "functions/_lib/ai/**/*.ts",
+    "functions/_lib/risk/**/*.ts",
     "functions/api/ai/**/*.ts",
-    "tests/ai-gateway.test.ts"
+    "functions/api/risk/**/*.ts",
+    "tests/ai-gateway.test.ts",
+    "tests/risk-review-api.test.ts"
   ],
   "exclude": ["dist", "apps", "services", "node_modules"]
 }
