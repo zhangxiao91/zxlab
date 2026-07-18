@@ -16,11 +16,11 @@ interface SourceRow { id: string; item_id: string; title: string; url: string; p
 export class BriefingRepository {
   constructor(private readonly db: D1Database) {}
 
-  async startRun(input: { id: string; date: string; triggerType: string; promptVersion: string; model: string; candidateCount: number; startedAt: string }): Promise<void> {
+  async startRun(input: { id: string; date: string; triggerType: string; promptVersion: string; model: string; candidateCount: number; startedAt: string; collectionRunId?: string }): Promise<void> {
     await this.db.prepare(`INSERT INTO briefing_runs
-      (id, briefing_date, status, trigger_type, prompt_version, model, started_at, candidate_count)
-      VALUES (?, ?, 'running', ?, ?, ?, ?, ?)`)
-      .bind(input.id, input.date, input.triggerType, input.promptVersion, input.model, input.startedAt, input.candidateCount).run();
+      (id, briefing_date, status, trigger_type, prompt_version, model, started_at, candidate_count, collection_run_id)
+      VALUES (?, ?, 'running', ?, ?, ?, ?, ?, ?)`)
+      .bind(input.id, input.date, input.triggerType, input.promptVersion, input.model, input.startedAt, input.candidateCount, input.collectionRunId ?? null).run();
   }
 
   async failRun(runId: string, code: string, message: string): Promise<void> {
@@ -30,7 +30,7 @@ export class BriefingRepository {
 
   async saveGenerated(input: {
     runId: string; briefingId: string; date: string; draft: GeneratedBriefingDraft; candidates: CandidateSignal[];
-    promptVersion: string; model: string; dataOrigin: "fixture" | "real"; generatedAt: string;
+    promptVersion: string; model: string; dataOrigin: "fixture" | "real"; generatedAt: string; linkCandidates?: boolean;
   }): Promise<void> {
     const previous = await this.db.prepare("SELECT id FROM briefings WHERE briefing_date = ? AND is_active = 1 LIMIT 1")
       .bind(input.date).first<{ id: string }>();
@@ -51,9 +51,19 @@ export class BriefingRepository {
         const source = candidates.get(sourceId);
         if (!source) throw new SignalError("INVALID_MODEL_OUTPUT", "Generated briefing referenced an unknown source", 400);
         statements.push(this.db.prepare(`INSERT INTO briefing_sources (id, item_id, title, url, publisher, published_at) VALUES (?, ?, ?, ?, ?, ?)`)
-          .bind(crypto.randomUUID(), itemId, source.title, source.url, source.publisher, source.publishedAt ?? null));
+          .bind(crypto.randomUUID(), itemId, source.title, source.url, source.source.sourceName, source.publishedAt ?? null));
+        if (input.linkCandidates) statements.push(this.db.prepare(`INSERT INTO briefing_item_candidates
+          (briefing_item_id, candidate_signal_id, relation_type) VALUES (?, ?, ?)`)
+          .bind(itemId, source.id, item.sourceIds[0] === sourceId ? "primary" : "supporting"));
       });
     });
+    if (input.linkCandidates) {
+      const selectedIds = new Set(input.draft.items.flatMap((item) => item.sourceIds));
+      for (const source of input.candidates) {
+        statements.push(this.db.prepare("UPDATE candidate_signals SET status=? WHERE id=?")
+          .bind(selectedIds.has(source.id) ? "selected" : "filtered", source.id));
+      }
+    }
     statements.push(this.db.prepare(`UPDATE briefing_runs SET status = 'succeeded', completed_at = ?, selected_count = ? WHERE id = ?`)
       .bind(input.generatedAt, input.draft.items.length, input.runId));
     try { await this.db.batch(statements); }

@@ -18,3 +18,32 @@ export const memoryCandidateJsonSchema = { type: "object", additionalProperties:
   shouldRemember: { type: "boolean" }, scope: { type: "string", enum: ["discussion", "project", "preference", "belief"] },
   content: { type: "string" }, confidence: { type: "number", minimum: 0, maximum: 1 }, reason: { type: "string" },
 }, required: ["shouldRemember"] } as const;
+
+export const editorialDecisionJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    decisions: {
+      type: "array",
+      maxItems: 40,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          candidateId: { type: "string" },
+          decision: { type: "string", enum: ["keep", "drop", "merge"] },
+          category: { type: "string", enum: ["ai-engineering", "zxlab", "markets", "uncategorized"] },
+          relevance: { type: "number", minimum: 0, maximum: 100 },
+          novelty: { type: "number", minimum: 0, maximum: 100 },
+          actionability: { type: "number", minimum: 0, maximum: 100 },
+          sourceQuality: { type: "number", minimum: 0, maximum: 100 },
+          reason: { type: "string" },
+          relatedMemoryIds: { type: "array", items: { type: "string" } },
+          mergeTargetCandidateId: { type: "string" },
+        },
+        required: ["candidateId", "decision", "category", "relevance", "novelty", "actionability", "sourceQuality", "reason", "relatedMemoryIds"],
+      },
+    },
+  },
+  required: ["decisions"],
+} as const;

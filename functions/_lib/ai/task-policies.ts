@@ -11,6 +11,7 @@ export const TASK_POLICIES: Record<string, Partial<AITaskPolicy>> = {
   default: { timeoutMs: 30_000, totalBudgetMs: 75_000, maxOutputTokens: 1_500, temperature: 0.5 },
   "notes-summary": { maxOutputTokens: 1_200, temperature: 0.3 },
   "portfolio-review": { maxOutputTokens: 3_000, temperature: 0.2 },
+  "signal-editorial-filter": { timeoutMs: 30_000, totalBudgetMs: 75_000, maxOutputTokens: 4_000, temperature: 0 },
   "signal-briefing": { timeoutMs: 30_000, totalBudgetMs: 75_000, maxOutputTokens: 4_000, temperature: 0 },
   "signal-annotation-reply": { timeoutMs: 20_000, totalBudgetMs: 40_000, maxOutputTokens: 1_200, temperature: 0.1 },
   "signal-memory-extraction": { timeoutMs: 20_000, totalBudgetMs: 40_000, maxOutputTokens: 800, temperature: 0 },

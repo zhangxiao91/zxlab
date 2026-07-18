@@ -1,4 +1,4 @@
-export type InvocationTask = "briefing" | "briefing-repair" | "annotation-reply" | "memory-extraction";
+export type InvocationTask = "editorial-filter" | "briefing" | "briefing-repair" | "annotation-reply" | "memory-extraction";
 
 export interface InvocationContext {
   id: string;

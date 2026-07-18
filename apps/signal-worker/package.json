@@ -15,7 +15,8 @@
     "db:migrate:remote": "wrangler d1 migrations apply zx-signal --remote"
   },
   "dependencies": {
-    "@zxlab/signal-schema": "0.1.0"
+    "@zxlab/signal-schema": "0.1.0",
+    "jose": "^6.2.3"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.18.6",

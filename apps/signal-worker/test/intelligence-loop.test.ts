@@ -9,12 +9,17 @@ import { parseGeneratedBriefingDraft } from "@zxlab/signal-schema";
 import { BriefingGenerator } from "../src/services/briefing-generator";
 import type {
   AnnotationReplyInput,
+  EditorialFilterInput,
   GenerateBriefingInput,
   MemoryExtractionInput,
   SignalLLM,
 } from "../src/services/llm";
 
 class MemoryAwareFixtureLLM implements SignalLLM {
+  async filterCandidates(input: EditorialFilterInput): Promise<never> {
+    throw new Error(`Unexpected editorial filter for fixture run ${input.runId}`);
+  }
+
   async generateBriefing(input: GenerateBriefingInput): Promise<GeneratedBriefingDraft> {
     const hasWorkersMemory = input.memories.some((memory) => /Cloudflare Workers/i.test(memory.content));
     return {

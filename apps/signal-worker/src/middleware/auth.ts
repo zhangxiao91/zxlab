@@ -1,4 +1,36 @@
 import { SignalError } from "../lib/errors";
+import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from "jose";
+
+const remoteKeySets = new Map<string, JWTVerifyGetKey>();
+
+function accessIssuer(env: Env): string {
+  const value = String(env.CF_ACCESS_TEAM_DOMAIN).trim().replace(/\/$/, "");
+  if (!value.startsWith("https://")) throw new SignalError("UNAUTHORIZED", "Cloudflare Access issuer is invalid", 401);
+  return value;
+}
+
+function remoteKeySet(issuer: string): JWTVerifyGetKey {
+  const existing = remoteKeySets.get(issuer);
+  if (existing) return existing;
+  const created = createRemoteJWKSet(new URL(`${issuer}/cdn-cgi/access/certs`));
+  remoteKeySets.set(issuer, created);
+  return created;
+}
+
+export async function verifyAccessJwt(token: string, env: Env, key?: CryptoKey): Promise<string> {
+  const issuer = accessIssuer(env);
+  const audience = String(env.CF_ACCESS_AUD).trim();
+  if (!audience) throw new SignalError("UNAUTHORIZED", "Cloudflare Access audience is missing", 401);
+  try {
+    const { payload } = key
+      ? await jwtVerify(token, key, { issuer, audience })
+      : await jwtVerify(token, remoteKeySet(issuer), { issuer, audience });
+    if (typeof payload.email !== "string" || !payload.email.trim()) throw new Error("Access token email is missing");
+    return payload.email.trim().toLowerCase();
+  } catch (cause) {
+    throw new SignalError("UNAUTHORIZED", "Cloudflare Access token validation failed", 401, cause);
+  }
+}
 
 async function safeEqual(provided: string, expected: string): Promise<boolean> {
   const encoder = new TextEncoder();
@@ -29,7 +61,9 @@ export async function requireWriteAccess(request: Request, env: Env): Promise<vo
 
   const accessAssertion = request.headers.get("cf-access-jwt-assertion");
   const authenticatedEmail = request.headers.get("cf-access-authenticated-user-email");
-  if (!accessAssertion || !authenticatedEmail) {
-    throw new SignalError("UNAUTHORIZED", "Cloudflare Access authentication is required", 401);
+  if (!accessAssertion) throw new SignalError("UNAUTHORIZED", "Cloudflare Access authentication is required", 401);
+  const tokenEmail = await verifyAccessJwt(accessAssertion, env);
+  if (authenticatedEmail && authenticatedEmail.trim().toLowerCase() !== tokenEmail) {
+    throw new SignalError("UNAUTHORIZED", "Cloudflare Access identity headers did not match", 401);
   }
 }

@@ -4,6 +4,7 @@ import { requireWriteAccess } from "./middleware/auth";
 import { handleAdmin } from "./routes/admin";
 import { handleAnnotations } from "./routes/annotations";
 import { handleBriefingRead } from "./routes/briefings";
+import { handleCollection } from "./routes/collection";
 import { handleMemories } from "./routes/memories";
 
 function withCors(response: Response, request: Request, env: Env): Response {
@@ -13,6 +14,7 @@ function withCors(response: Response, request: Request, env: Env): Response {
 }
 
 function isProtected(request: Request, pathname: string): boolean {
+  if (pathname.startsWith("/api/admin/")) return true;
   if (request.method === "POST") return pathname.startsWith("/api/admin/") || pathname === "/api/annotations" || pathname.startsWith("/api/memory-candidates/");
   return request.method === "GET" && pathname === "/api/memories";
 }
@@ -25,6 +27,7 @@ export default {
       if (request.method === "GET" && url.pathname === "/health") return withCors(json({ ok: true, service: "zx-signal" }), request, env);
       if (isProtected(request, url.pathname)) await requireWriteAccess(request, env);
       const response = await handleBriefingRead(url.pathname, env)
+        ?? await handleCollection(request, url, env)
         ?? await handleAdmin(request, url.pathname, env)
         ?? await handleAnnotations(request, url.pathname, env)
         ?? await handleMemories(request, url.pathname, env);

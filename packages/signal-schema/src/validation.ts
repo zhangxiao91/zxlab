@@ -1,11 +1,14 @@
 import type {
   AnnotationInput,
   AnnotationReplyDraft,
+  CandidateEditorialDecision,
   CandidateSignal,
+  EditorialDecisionDraft,
   GenerateBriefingRequest,
   GeneratedBriefingDraft,
   MemoryCandidateDraft,
   ResolveMemoryCandidateRequest,
+  StartCollectionRequest,
 } from "./types";
 
 export class SignalValidationError extends Error {
@@ -17,6 +20,9 @@ export class SignalValidationError extends Error {
 
 type JsonRecord = Record<string, unknown>;
 const categories = ["ai-engineering", "markets", "zxlab"] as const;
+const signalCategories = ["ai-engineering", "markets", "zxlab", "uncategorized"] as const;
+const sourceTypes = ["rss", "github-release", "hacker-news", "arxiv", "manual"] as const;
+const candidateStatuses = ["new", "duplicate", "eligible", "filtered", "selected", "archived"] as const;
 const actions = ["comment", "explain", "challenge", "remember", "track"] as const;
 const scopes = ["discussion", "project", "preference", "belief"] as const;
 
@@ -67,15 +73,39 @@ function absoluteUrl(value: unknown, label: string): string {
 
 export function parseCandidateSignal(value: unknown): CandidateSignal {
   const input = record(value, "candidate");
+  const source = record(input.source, "candidate.source");
+  const author = input.author === undefined ? undefined : record(input.author, "candidate.author");
+  if (!Array.isArray(input.tags) || input.tags.length > 30) throw new SignalValidationError("candidate.tags must be an array");
+  const metadata = input.metadata === undefined ? {} : record(input.metadata, "candidate.metadata");
   return {
     id: string(input.id, "candidate.id", 120),
-    category: oneOf(input.category, categories, "candidate.category"),
+    source: {
+      sourceId: string(source.sourceId, "candidate.source.sourceId", 120),
+      sourceName: string(source.sourceName, "candidate.source.sourceName", 200),
+      sourceType: oneOf(source.sourceType, sourceTypes, "candidate.source.sourceType"),
+      externalId: string(source.externalId, "candidate.source.externalId", 240),
+    },
+    categoryHint: oneOf(input.categoryHint, signalCategories, "candidate.categoryHint"),
     title: string(input.title, "candidate.title", 240),
-    summary: string(input.summary, "candidate.summary", 4_000),
     url: absoluteUrl(input.url, "candidate.url"),
-    publisher: string(input.publisher, "candidate.publisher", 160),
-    publishedAt: optionalString(input.publishedAt, "candidate.publishedAt", 64),
-    testMaterial: input.testMaterial === true,
+    canonicalUrl: absoluteUrl(input.canonicalUrl, "candidate.canonicalUrl"),
+    summary: optionalString(input.summary, "candidate.summary", 4_000),
+    contentText: optionalString(input.contentText, "candidate.contentText", 12_000),
+    author: author ? {
+      name: optionalString(author.name, "candidate.author.name", 200),
+      url: author.url === undefined ? undefined : absoluteUrl(author.url, "candidate.author.url"),
+    } : undefined,
+    publishedAt: input.publishedAt === undefined ? undefined : isoTimestamp(input.publishedAt, "candidate.publishedAt"),
+    updatedAt: input.updatedAt === undefined ? undefined : isoTimestamp(input.updatedAt, "candidate.updatedAt"),
+    fetchedAt: isoTimestamp(input.fetchedAt, "candidate.fetchedAt"),
+    tags: [...new Set(input.tags.map((tag, index) => string(tag, `candidate.tags[${index}]`, 80)))],
+    language: optionalString(input.language, "candidate.language", 24),
+    contentHash: string(input.contentHash, "candidate.contentHash", 128),
+    metadata,
+    collectionRunId: string(input.collectionRunId, "candidate.collectionRunId", 120),
+    status: oneOf(input.status, candidateStatuses, "candidate.status"),
+    duplicateOf: optionalString(input.duplicateOf, "candidate.duplicateOf", 120),
+    dedupReason: input.dedupReason === undefined ? undefined : oneOf(input.dedupReason, ["canonical-url", "content-hash"] as const, "candidate.dedupReason"),
   };
 }
 
@@ -87,8 +117,34 @@ export function parseGenerateBriefingRequest(value: unknown): GenerateBriefingRe
   })();
   return {
     date: input.date === undefined ? undefined : isoDate(input.date, "date"),
+    candidateMode: input.candidateMode === undefined
+      ? input.useFixture === true ? "fixture" : undefined
+      : oneOf(input.candidateMode, ["fixture", "collection-run", "time-window"] as const, "candidateMode"),
+    collectionRunId: optionalString(input.collectionRunId, "collectionRunId", 120),
+    since: input.since === undefined ? undefined : isoTimestamp(input.since, "since"),
+    until: input.until === undefined ? undefined : isoTimestamp(input.until, "until"),
+    category: input.category === undefined ? undefined : oneOf(input.category, signalCategories, "category"),
+    maxCandidates: input.maxCandidates === undefined ? undefined : number(input.maxCandidates, "maxCandidates", 1, 40),
     candidates,
     useFixture: input.useFixture === true,
+  };
+}
+
+export function parseStartCollectionRequest(value: unknown): StartCollectionRequest {
+  const input = record(value, "request");
+  const sourceIds = input.sourceIds === undefined ? undefined : (() => {
+    if (!Array.isArray(input.sourceIds) || input.sourceIds.length > 30) throw new SignalValidationError("sourceIds must be an array");
+    return [...new Set(input.sourceIds.map((id, index) => string(id, `sourceIds[${index}]`, 120)))];
+  })();
+  const requestedTypes = input.sourceTypes === undefined ? undefined : (() => {
+    if (!Array.isArray(input.sourceTypes) || input.sourceTypes.length > sourceTypes.length) throw new SignalValidationError("sourceTypes must be an array");
+    return [...new Set(input.sourceTypes.map((type) => oneOf(type, sourceTypes, "sourceTypes")))];
+  })();
+  return {
+    sourceIds,
+    sourceTypes: requestedTypes,
+    since: input.since === undefined ? undefined : isoTimestamp(input.since, "since"),
+    dryRun: input.dryRun === true,
   };
 }
 
@@ -133,6 +189,39 @@ export function parseGeneratedBriefingDraft(value: unknown, allowedSourceIds: Re
     };
   });
   return { title: string(input.title, "briefing.title", 240), summary: string(input.summary, "briefing.summary", 4_000), items };
+}
+
+export function parseEditorialDecisionDraft(
+  value: unknown,
+  allowedCandidateIds: ReadonlySet<string>,
+  allowedMemoryIds: ReadonlySet<string>,
+): EditorialDecisionDraft {
+  const input = record(value, "editorial decisions");
+  if (!Array.isArray(input.decisions) || input.decisions.length > 40) throw new SignalValidationError("decisions must be an array");
+  const decisions: CandidateEditorialDecision[] = input.decisions.map((raw, index) => {
+    const decision = record(raw, `decisions[${index}]`);
+    const candidateId = string(decision.candidateId, `decisions[${index}].candidateId`, 120);
+    if (!allowedCandidateIds.has(candidateId)) throw new SignalValidationError(`decisions[${index}] references an unknown candidate`);
+    if (!Array.isArray(decision.relatedMemoryIds)) throw new SignalValidationError(`decisions[${index}].relatedMemoryIds must be an array`);
+    const relatedMemoryIds = decision.relatedMemoryIds.map((id, memoryIndex) => string(id, `decisions[${index}].relatedMemoryIds[${memoryIndex}]`, 120));
+    if (relatedMemoryIds.some((id) => !allowedMemoryIds.has(id))) throw new SignalValidationError(`decisions[${index}] references an unknown memory`);
+    const mergeTargetCandidateId = optionalString(decision.mergeTargetCandidateId, `decisions[${index}].mergeTargetCandidateId`, 120);
+    if (mergeTargetCandidateId && !allowedCandidateIds.has(mergeTargetCandidateId)) throw new SignalValidationError(`decisions[${index}] has an unknown merge target`);
+    return {
+      candidateId,
+      decision: oneOf(decision.decision, ["keep", "drop", "merge"] as const, `decisions[${index}].decision`),
+      category: oneOf(decision.category, signalCategories, `decisions[${index}].category`),
+      relevance: number(decision.relevance, `decisions[${index}].relevance`, 0, 100),
+      novelty: number(decision.novelty, `decisions[${index}].novelty`, 0, 100),
+      actionability: number(decision.actionability, `decisions[${index}].actionability`, 0, 100),
+      sourceQuality: number(decision.sourceQuality, `decisions[${index}].sourceQuality`, 0, 100),
+      reason: string(decision.reason, `decisions[${index}].reason`, 1_000),
+      relatedMemoryIds: [...new Set(relatedMemoryIds)],
+      mergeTargetCandidateId,
+    };
+  });
+  if (new Set(decisions.map((decision) => decision.candidateId)).size !== decisions.length) throw new SignalValidationError("candidate decisions must be unique");
+  return { decisions };
 }
 
 export function parseAnnotationReplyDraft(value: unknown): AnnotationReplyDraft {

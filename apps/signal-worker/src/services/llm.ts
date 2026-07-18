@@ -1,14 +1,17 @@
 import {
   annotationReplyJsonSchema,
   briefingDraftJsonSchema,
+  editorialDecisionJsonSchema,
   memoryCandidateJsonSchema,
   parseAnnotationReplyDraft,
   parseGeneratedBriefingDraft,
+  parseEditorialDecisionDraft,
   parseMemoryCandidateDraft,
   SignalValidationError,
   type AnnotationAction,
   type AnnotationReplyDraft,
   type BriefingItem,
+  type CandidateEditorialDecision,
   type CandidateSignal,
   type GeneratedBriefingDraft,
   type MemoryCandidateDraft,
@@ -18,18 +21,22 @@ import { SignalError } from "../lib/errors";
 import { ModelInvocationRepository, type InvocationTask } from "../repositories/model-invocation-repository";
 import {
   BRIEFING_PROMPT_VERSION,
+  EDITORIAL_PROMPT_VERSION,
   MEMORY_PROMPT_VERSION,
   REPLY_PROMPT_VERSION,
   buildAnnotationReplyPrompt,
   buildBriefingPrompt,
+  buildEditorialPrompt,
   buildMemoryPrompt,
 } from "./prompts";
 
 export interface GenerateBriefingInput { date: string; candidates: CandidateSignal[]; memories: MemoryEntry[]; runId: string; }
+export interface EditorialFilterInput { candidates: CandidateSignal[]; memories: MemoryEntry[]; runId: string; }
 export interface AnnotationReplyInput { item: BriefingItem; selectedText: string; comment: string; action: AnnotationAction; memories: MemoryEntry[]; }
 export interface MemoryExtractionInput { item: BriefingItem; selectedText: string; comment: string; action: AnnotationAction; reply: string; }
 
 export interface SignalLLM {
+  filterCandidates(input: EditorialFilterInput): Promise<CandidateEditorialDecision[]>;
   generateBriefing(input: GenerateBriefingInput): Promise<GeneratedBriefingDraft>;
   replyToAnnotation(input: AnnotationReplyInput): Promise<AnnotationReplyDraft>;
   extractMemory(input: MemoryExtractionInput): Promise<MemoryCandidateDraft | null>;
@@ -37,7 +44,7 @@ export interface SignalLLM {
 
 interface JsonRunOptions<T> {
   task: InvocationTask;
-  gatewayTask: "signal-briefing" | "signal-annotation-reply" | "signal-memory-extraction";
+  gatewayTask: "signal-editorial-filter" | "signal-briefing" | "signal-annotation-reply" | "signal-memory-extraction";
   promptVersion: string;
   prompt: { system: string; user: string };
   schema: object;
@@ -88,6 +95,22 @@ export class ProjectApiSignalLLM implements SignalLLM {
     this.invocations = new ModelInvocationRepository(env.DB);
   }
 
+  async filterCandidates(input: EditorialFilterInput): Promise<CandidateEditorialDecision[]> {
+    const candidateIds = new Set(input.candidates.map((candidate) => candidate.id));
+    const memoryIds = new Set(input.memories.map((memory) => memory.id));
+    const result = await this.runJson({
+      task: "editorial-filter",
+      gatewayTask: "signal-editorial-filter",
+      promptVersion: EDITORIAL_PROMPT_VERSION,
+      prompt: buildEditorialPrompt(input),
+      schema: editorialDecisionJsonSchema,
+      validate: (value: unknown) => parseEditorialDecisionDraft(value, candidateIds, memoryIds),
+      runId: input.runId,
+    });
+    if (result.decisions.length !== input.candidates.length) throw new SignalValidationError("Editorial filter must decide every candidate");
+    return result.decisions;
+  }
+
   async generateBriefing(input: GenerateBriefingInput): Promise<GeneratedBriefingDraft> {
     const allowedSources = new Set(input.candidates.map((candidate) => candidate.id));
     const options = {
@@ -134,7 +157,7 @@ export class ProjectApiSignalLLM implements SignalLLM {
             { role: "user", content: options.prompt.user },
           ],
           temperature: 0,
-          maxOutputTokens: options.gatewayTask === "signal-briefing" ? 4_000
+          maxOutputTokens: options.gatewayTask === "signal-briefing" || options.gatewayTask === "signal-editorial-filter" ? 4_000
             : options.gatewayTask === "signal-memory-extraction" ? 800 : 1_200,
           responseFormat: { type: "json" },
         }),

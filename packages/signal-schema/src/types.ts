@@ -1,4 +1,7 @@
 export type BriefingCategory = "ai-engineering" | "markets" | "zxlab";
+export type SignalCategory = BriefingCategory | "uncategorized";
+export type SignalSourceType = "rss" | "github-release" | "hacker-news" | "arxiv" | "manual";
+export type CandidateStatus = "new" | "duplicate" | "eligible" | "filtered" | "selected" | "archived";
 export type BriefingStatus = "generating" | "ready" | "partial" | "failed";
 export type BriefingDataOrigin = "mock" | "fixture" | "real";
 
@@ -91,15 +94,102 @@ export interface MemoryEntry {
   expiresAt?: string;
 }
 
+export interface CandidateAuthor {
+  name?: string;
+  url?: string;
+}
+
+export interface CandidateSourceRef {
+  sourceId: string;
+  sourceName: string;
+  sourceType: SignalSourceType;
+  externalId: string;
+}
+
 export interface CandidateSignal {
   id: string;
-  category: BriefingCategory;
+  source: CandidateSourceRef;
+  categoryHint: SignalCategory;
   title: string;
-  summary: string;
   url: string;
-  publisher: string;
+  canonicalUrl: string;
+  summary?: string;
+  contentText?: string;
+  author?: CandidateAuthor;
   publishedAt?: string;
-  testMaterial?: boolean;
+  updatedAt?: string;
+  fetchedAt: string;
+  tags: string[];
+  language?: string;
+  contentHash: string;
+  metadata: Record<string, unknown>;
+  collectionRunId: string;
+  status: CandidateStatus;
+  duplicateOf?: string;
+  dedupReason?: "canonical-url" | "content-hash";
+}
+
+export interface CandidateEditorialDecision {
+  candidateId: string;
+  decision: "keep" | "drop" | "merge";
+  category: SignalCategory;
+  relevance: number;
+  novelty: number;
+  actionability: number;
+  sourceQuality: number;
+  reason: string;
+  relatedMemoryIds: string[];
+  mergeTargetCandidateId?: string;
+}
+
+export interface StartCollectionRequest {
+  sourceIds?: string[];
+  sourceTypes?: SignalSourceType[];
+  since?: string;
+  dryRun?: boolean;
+}
+
+export interface CollectionRunSummary {
+  id: string;
+  status: "running" | "succeeded" | "partial" | "failed";
+  triggerType: "manual" | "workflow";
+  startedAt: string;
+  completedAt?: string;
+  sourceCount: number;
+  successSourceCount: number;
+  failedSourceCount: number;
+  fetchedCount: number;
+  insertedCount: number;
+  duplicateCount: number;
+  errorSummary?: string;
+}
+
+export interface CollectionSourceRunSummary {
+  id: string;
+  collectionRunId: string;
+  sourceId: string;
+  sourceName?: string;
+  status: "running" | "succeeded" | "failed";
+  startedAt: string;
+  completedAt?: string;
+  fetchedCount: number;
+  insertedCount: number;
+  duplicateCount: number;
+  errorCode?: string;
+  errorMessage?: string;
+}
+
+export interface CollectionRunDetail extends CollectionRunSummary {
+  sources: CollectionSourceRunSummary[];
+}
+
+export interface CandidateListItem extends Omit<CandidateSignal, "contentText"> {
+  editorialDecision?: CandidateEditorialDecision;
+}
+
+export interface CandidateListResponse {
+  candidates: CandidateListItem[];
+  nextCursor?: string;
 }
 
 export interface AnnotationInput {
@@ -118,6 +208,13 @@ export interface AnnotationResponse {
 
 export interface GenerateBriefingRequest {
   date?: string;
+  candidateMode?: "fixture" | "collection-run" | "time-window";
+  collectionRunId?: string;
+  since?: string;
+  until?: string;
+  category?: SignalCategory;
+  maxCandidates?: number;
+  // Legacy development input retained for fixture compatibility.
   candidates?: CandidateSignal[];
   useFixture?: boolean;
 }
@@ -147,7 +244,19 @@ export type SignalErrorCode =
   | "MEMORY_CANDIDATE_NOT_FOUND"
   | "MEMORY_ALREADY_RESOLVED"
   | "INVALID_REQUEST"
-  | "UNAUTHORIZED";
+  | "UNAUTHORIZED"
+  | "SOURCE_NOT_FOUND"
+  | "SOURCE_DISABLED"
+  | "SOURCE_FETCH_FAILED"
+  | "SOURCE_TIMEOUT"
+  | "INVALID_FEED"
+  | "INVALID_SOURCE_RESPONSE"
+  | "RATE_LIMITED"
+  | "NORMALIZATION_FAILED"
+  | "CANDIDATE_PERSIST_FAILED"
+  | "COLLECTION_RUN_NOT_FOUND"
+  | "NO_ELIGIBLE_CANDIDATES"
+  | "PARTIAL_COLLECTION";
 
 export interface SignalErrorResponse {
   error: { code: SignalErrorCode; message: string };
@@ -167,6 +276,10 @@ export interface GeneratedBriefingDraft {
     confidence: number;
     sourceIds: string[];
   }>;
+}
+
+export interface EditorialDecisionDraft {
+  decisions: CandidateEditorialDecision[];
 }
 
 export interface AnnotationReplyDraft {
