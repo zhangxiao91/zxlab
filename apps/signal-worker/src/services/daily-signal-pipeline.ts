@@ -4,6 +4,8 @@ import { BriefingGenerator } from "./briefing-generator";
 import { CollectionService } from "./collection-service";
 import { ProjectApiSignalLLM, type SignalLLM } from "./llm";
 
+const DAILY_MAX_CANDIDATES = 8;
+
 function shanghaiDate(timestamp: number): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Shanghai",
@@ -34,7 +36,7 @@ export class DailySignalPipeline {
 
     const candidates = await new CollectionRepository(this.env.DB).candidatesForBriefing({
       collectionRunId: collection.id,
-      maxCandidates: 40,
+      maxCandidates: DAILY_MAX_CANDIDATES,
     });
     const generated = await new BriefingGenerator(this.env, this.llm).generate({
       date: shanghaiDate(scheduledTime),
