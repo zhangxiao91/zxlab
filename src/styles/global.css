@@ -1450,6 +1450,20 @@ a {
   scroll-behavior: smooth;
   scroll-snap-type: x mandatory;
   scrollbar-width: none;
+  cursor: grab;
+  overscroll-behavior-x: contain;
+  touch-action: pan-y pinch-zoom;
+  user-select: none;
+  will-change: transform;
+}
+
+.note-carousel__track[data-dragging="true"] {
+  cursor: grabbing;
+  scroll-snap-type: none;
+}
+
+.note-carousel__track[data-dragging="true"] .note-slide {
+  pointer-events: none;
 }
 
 .note-carousel__track::-webkit-scrollbar {
@@ -5250,6 +5264,8 @@ a {
   color: inherit;
   cursor: pointer;
   place-items: center;
+  touch-action: manipulation;
+  transform-origin: center;
 }
 
 .site-menu-toggle > span {
@@ -5329,6 +5345,11 @@ a {
       opacity 300ms ease,
       visibility 300ms ease,
       transform 420ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .site-header[data-menu-ready][data-menu-motion="gsap"] .site-nav,
+  .site-header[data-menu-ready][data-menu-motion="gsap"] .site-nav a {
+    transition: none;
   }
 
   .site-header[data-menu-ready] .site-nav a {

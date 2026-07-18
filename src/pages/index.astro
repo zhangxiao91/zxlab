@@ -341,13 +341,127 @@ const dateFormatter = new Intl.DateTimeFormat("en-US", {
     });
 
     const carouselTrack = document.querySelector<HTMLElement>(".note-carousel__track");
+		const reducedCarouselMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+		let carouselFrame = 0;
+		let pointerId: number | null = null;
+		let grabX = 0;
+		let grabScroll = 0;
+		let lastX = 0;
+		let lastTime = 0;
+		let releaseVelocity = 0;
+		let didDrag = false;
+		let suppressClickUntil = 0;
+
+		const carouselStops = () => carouselTrack
+			? Array.from(carouselTrack.children, (slide) => (slide as HTMLElement).offsetLeft)
+			: [];
+
+		const nearestStop = (projected: number) => {
+			const stops = carouselStops();
+			return stops.reduce((nearest, stop) =>
+				Math.abs(stop - projected) < Math.abs(nearest - projected) ? stop : nearest,
+				stops[0] ?? 0,
+			);
+		};
+
+		const settleCarousel = (target: number, velocity = 0) => {
+			if (!carouselTrack) return;
+			cancelAnimationFrame(carouselFrame);
+			const max = Math.max(0, carouselTrack.scrollWidth - carouselTrack.clientWidth);
+			target = Math.max(0, Math.min(max, target));
+			if (reducedCarouselMotion.matches) {
+				carouselTrack.scrollLeft = target;
+				return;
+			}
+
+			let position = carouselTrack.scrollLeft;
+			let springVelocity = velocity;
+			let previous = performance.now();
+			const tick = (now: number) => {
+				const dt = Math.min((now - previous) / 1000, 0.032);
+				previous = now;
+				const displacement = target - position;
+				const acceleration = displacement * 190 - springVelocity * 28;
+				springVelocity += acceleration * dt;
+				position += springVelocity * dt;
+				carouselTrack.scrollLeft = position;
+				if (Math.abs(displacement) < 0.5 && Math.abs(springVelocity) < 5) {
+					carouselTrack.scrollLeft = target;
+					return;
+				}
+				carouselFrame = requestAnimationFrame(tick);
+			};
+			carouselFrame = requestAnimationFrame(tick);
+		};
+
+		carouselTrack?.addEventListener("pointerdown", (event) => {
+			if (event.button !== 0 || pointerId !== null) return;
+			cancelAnimationFrame(carouselFrame);
+			pointerId = event.pointerId;
+			grabX = lastX = event.clientX;
+			grabScroll = carouselTrack.scrollLeft;
+			lastTime = event.timeStamp;
+			releaseVelocity = 0;
+			didDrag = false;
+			carouselTrack.setPointerCapture(event.pointerId);
+			carouselTrack.dataset.dragging = "true";
+		});
+
+		carouselTrack?.addEventListener("pointermove", (event) => {
+			if (event.pointerId !== pointerId) return;
+			const delta = event.clientX - grabX;
+			const desired = grabScroll - delta;
+			const max = Math.max(0, carouselTrack.scrollWidth - carouselTrack.clientWidth);
+			const clamped = Math.max(0, Math.min(max, desired));
+			const overshoot = desired - clamped;
+			carouselTrack.scrollLeft = clamped;
+			carouselTrack.style.transform = `translate3d(${(-overshoot * 0.22).toFixed(2)}px, 0, 0)`;
+			const elapsed = Math.max(1, event.timeStamp - lastTime);
+			releaseVelocity = -(event.clientX - lastX) / elapsed * 1000;
+			lastX = event.clientX;
+			lastTime = event.timeStamp;
+			didDrag ||= Math.abs(delta) > 8;
+		});
+
+		const releaseCarousel = (event: PointerEvent) => {
+			if (!carouselTrack || event.pointerId !== pointerId) return;
+			pointerId = null;
+			if (didDrag) suppressClickUntil = performance.now() + 320;
+			carouselTrack.dataset.dragging = "false";
+			gsap.to(carouselTrack, {
+				x: 0,
+				duration: reducedCarouselMotion.matches ? 0 : 0.38,
+				ease: "power3.out",
+				overwrite: "auto",
+				onComplete: () => carouselTrack.style.removeProperty("transform"),
+			});
+			const projection = Math.max(
+				-carouselTrack.clientWidth * 1.35,
+				Math.min(carouselTrack.clientWidth * 1.35, releaseVelocity * 0.499),
+			);
+			settleCarousel(nearestStop(carouselTrack.scrollLeft + projection), releaseVelocity);
+		};
+		carouselTrack?.addEventListener("pointerup", releaseCarousel);
+		carouselTrack?.addEventListener("pointercancel", releaseCarousel);
+		carouselTrack?.addEventListener("click", (event) => {
+			if (performance.now() > suppressClickUntil) return;
+			event.preventDefault();
+			event.stopPropagation();
+		}, true);
+
     document.querySelectorAll<HTMLButtonElement>("[data-carousel-direction]").forEach((button) => {
       button.addEventListener("click", () => {
         const direction = Number(button.dataset.carouselDirection);
-        carouselTrack?.scrollBy({
-          left: direction * carouselTrack.clientWidth * 0.82,
-          behavior: "smooth",
-        });
+				if (!carouselTrack) return;
+				const stops = carouselStops();
+				const current = stops.reduce((nearestIndex, stop, index) =>
+					Math.abs(stop - carouselTrack.scrollLeft) < Math.abs(stops[nearestIndex] - carouselTrack.scrollLeft)
+						? index
+						: nearestIndex,
+					0,
+				);
+				const next = Math.max(0, Math.min(stops.length - 1, current + direction));
+				settleCarousel(stops[next] ?? 0);
       });
     });
   </script>

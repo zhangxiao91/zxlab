@@ -602,9 +602,10 @@
 .annotation-menu[hidden] { display: none; }
 .annotation-menu button { min-height: 2.65rem; padding: 0.65rem 0.85rem; border: 0; border-radius: 999px; background: transparent; color: inherit; cursor: pointer; font-family: "Cabinet Grotesk", sans-serif; font-size: 0.75rem; white-space: nowrap; transition: background-color 500ms cubic-bezier(0.32, 0.72, 0, 1), color 500ms cubic-bezier(0.32, 0.72, 0, 1); }
 .annotation-menu button:hover { background: #b9d657; color: #1d1f19; }
+.annotation-menu button:active { transform: scale(0.96); }
 
 .annotation-scrim { position: fixed; inset: 0; z-index: 40; background: rgba(22, 23, 19, 0.42); backdrop-filter: blur(6px); }
-.annotation-panel { position: fixed; top: 0; right: 0; z-index: 50; width: min(100%, 38rem); height: 100dvh; overflow-y: auto; background: #f4f2e9; color: #1d1f19; font-family: "Cabinet Grotesk", "Outfit", sans-serif; box-shadow: -30px 0 90px rgba(22, 23, 19, 0.2); }
+.annotation-panel { position: fixed; top: 0; right: 0; z-index: 50; width: min(100%, 38rem); height: 100dvh; overflow-y: auto; background: #f4f2e9; color: #1d1f19; font-family: "Cabinet Grotesk", "Outfit", sans-serif; box-shadow: -30px 0 90px rgba(22, 23, 19, 0.2); will-change: transform; }
 .annotation-panel[aria-hidden="true"] { visibility: hidden; }
 .annotation-panel > header { position: sticky; top: 0; z-index: 1; display: flex; padding: 1.5rem clamp(1.25rem, 5vw, 2.5rem); align-items: center; justify-content: space-between; background: rgba(244, 242, 233, 0.88); box-shadow: inset 0 -1px rgba(25, 26, 22, 0.1); backdrop-filter: blur(16px); }
 .annotation-panel > header p,
@@ -613,6 +614,7 @@
 .annotation-panel > header h2 { margin-top: 0.25rem; font-size: 1.5rem; font-weight: 500; letter-spacing: -0.03em; }
 .annotation-panel > header button { width: 2.75rem; height: 2.75rem; border: 0; border-radius: 50%; background: rgba(25, 26, 22, 0.07); color: #1d1f19; cursor: pointer; font-size: 1.45rem; transition: transform 600ms cubic-bezier(0.32, 0.72, 0, 1); }
 .annotation-panel > header button:hover { transform: rotate(90deg); }
+.annotation-panel > header button:active { background: rgba(25, 26, 22, 0.13); }
 .annotation-panel__content { padding: clamp(1.5rem, 5vw, 2.5rem); }
 .annotation-context { padding: 1.5rem; border-radius: 1.5rem; background: #e9e7de; box-shadow: inset 0 0 0 1px rgba(25, 26, 22, 0.08); }
 .annotation-context > p { overflow: hidden; color: #77766e; font-size: 0.74rem; text-overflow: ellipsis; white-space: nowrap; }

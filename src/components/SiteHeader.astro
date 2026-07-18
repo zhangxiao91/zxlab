@@ -66,21 +66,98 @@ function isCurrent(href: string) {
 </header>
 
 <script>
+	import gsap from "gsap";
+
 	const header = document.querySelector<HTMLElement>(".site-header");
 	const toggle = header?.querySelector<HTMLButtonElement>(".site-menu-toggle");
 	const navigation = header?.querySelector<HTMLElement>(".site-nav");
 
-	if (header && toggle && navigation) {
+	if (header && toggle && navigation && header.dataset.menuBound !== "true") {
+		header.dataset.menuBound = "true";
 		header.dataset.menuReady = "true";
+		const links = Array.from(navigation.querySelectorAll<HTMLElement>("a"));
+		const mobileQuery = window.matchMedia("(max-width: 40rem)");
+		const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+		let closeToken = 0;
+
+		const prepareMotion = () => {
+			const useGsap = mobileQuery.matches && !reducedMotion.matches;
+			header.dataset.menuMotion = useGsap ? "gsap" : "css";
+			gsap.killTweensOf([navigation, toggle, ...links]);
+			gsap.set([navigation, toggle, ...links], { clearProps: "all" });
+			if (useGsap && toggle.getAttribute("aria-expanded") !== "true") {
+				gsap.set(navigation, { autoAlpha: 0, y: -10, scale: 0.965 });
+				gsap.set(links, { autoAlpha: 0, y: -8 });
+			}
+		};
 
 		const setMenu = (open: boolean, restoreFocus = false) => {
+			const token = ++closeToken;
 			header.dataset.menuOpen = String(open);
 			toggle.setAttribute("aria-expanded", String(open));
 			toggle.setAttribute("aria-label", open ? "Close navigation" : "Open navigation");
-			if (!open && restoreFocus) toggle.focus();
+
+			if (header.dataset.menuMotion === "gsap") {
+				gsap.killTweensOf([navigation, ...links]);
+				if (open) {
+					gsap.set(navigation, { visibility: "visible", pointerEvents: "auto" });
+					gsap.to(navigation, {
+						autoAlpha: 1,
+						y: 0,
+						scale: 1,
+						duration: 0.46,
+						ease: "power4.out",
+						overwrite: "auto",
+					});
+					gsap.to(links, {
+						autoAlpha: 1,
+						y: 0,
+						duration: 0.38,
+						stagger: 0.035,
+						delay: 0.05,
+						ease: "power3.out",
+						overwrite: "auto",
+					});
+				} else {
+					gsap.to(links, {
+						autoAlpha: 0,
+						y: -6,
+						duration: 0.18,
+						stagger: { each: 0.018, from: "end" },
+						ease: "power2.in",
+						overwrite: "auto",
+					});
+					gsap.to(navigation, {
+						autoAlpha: 0,
+						y: -10,
+						scale: 0.965,
+						duration: 0.28,
+						ease: "power3.in",
+						overwrite: "auto",
+						onComplete: () => {
+							if (token !== closeToken || toggle.getAttribute("aria-expanded") === "true") return;
+							gsap.set(navigation, { visibility: "hidden", pointerEvents: "none" });
+						},
+					});
+				}
+			}
+
+			if (!open && restoreFocus) toggle.focus({ preventScroll: true });
 		};
 
+		toggle.addEventListener("pointerdown", () => {
+			if (reducedMotion.matches) return;
+			gsap.to(toggle, { scale: 0.92, duration: 0.1, ease: "power2.out", overwrite: true });
+		}, { passive: true });
+		const releaseToggle = () => gsap.to(toggle, { scale: 1, duration: 0.32, ease: "back.out(2)", overwrite: true });
+		toggle.addEventListener("pointerup", releaseToggle, { passive: true });
+		toggle.addEventListener("pointercancel", releaseToggle, { passive: true });
+
 		toggle.addEventListener("click", () => {
+			const now = performance.now();
+			const previousToggle = Number(header.dataset.lastMenuToggle ?? 0);
+			if (now - previousToggle < 240) return;
+			header.dataset.lastMenuToggle = String(now);
 			setMenu(toggle.getAttribute("aria-expanded") !== "true");
 		});
 
@@ -98,8 +175,11 @@ function isCurrent(href: string) {
 			}
 		});
 
-		window.matchMedia("(min-width: 40.001rem)").addEventListener("change", (event) => {
-			if (event.matches) setMenu(false);
+		mobileQuery.addEventListener("change", () => {
+			setMenu(false);
+			prepareMotion();
 		});
+		reducedMotion.addEventListener("change", prepareMotion);
+		prepareMotion();
 	}
 </script>

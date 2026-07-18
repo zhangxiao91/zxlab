@@ -166,15 +166,49 @@ const longTermThreads = [
     let selectedItem: HTMLElement | null = null;
     let selectedText = "";
     let activeCandidate: MemoryCandidate | null = null;
+		let panelTrigger: HTMLElement | null = null;
+		let panelTransition = 0;
+		const reducedPanelMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
-    const setPanel = (open: boolean) => {
+		if (panel && scrim) {
+			gsap.set(panel, { xPercent: 100 });
+			gsap.set(scrim, { opacity: 0 });
+		}
+
+		const setPanel = (open: boolean, restoreFocus = false) => {
       if (!panel || !scrim) return;
-      panel.setAttribute("aria-hidden", String(!open));
-      scrim.hidden = !open;
-      document.body.classList.toggle("annotation-open", open);
+			const transition = ++panelTransition;
+			gsap.killTweensOf([panel, scrim]);
       if (open) {
-        gsap.fromTo(panel, { xPercent: 100 }, { xPercent: 0, duration: 0.72, ease: "power4.out" });
-        window.setTimeout(() => form?.querySelector<HTMLTextAreaElement>("textarea")?.focus(), 420);
+				panel.setAttribute("aria-hidden", "false");
+				scrim.hidden = false;
+				document.body.classList.add("annotation-open");
+				gsap.to(panel, {
+					xPercent: 0,
+					duration: reducedPanelMotion.matches ? 0 : 0.58,
+					ease: "power4.out",
+					overwrite: "auto",
+					onComplete: () => {
+						if (transition !== panelTransition) return;
+						form?.querySelector<HTMLTextAreaElement>("textarea")?.focus({ preventScroll: true });
+					},
+				});
+				gsap.to(scrim, { opacity: 1, duration: reducedPanelMotion.matches ? 0 : 0.34, ease: "power2.out" });
+			} else {
+				gsap.to(panel, {
+					xPercent: 100,
+					duration: reducedPanelMotion.matches ? 0 : 0.44,
+					ease: "power3.in",
+					overwrite: "auto",
+					onComplete: () => {
+						if (transition !== panelTransition) return;
+						panel.setAttribute("aria-hidden", "true");
+						scrim.hidden = true;
+						document.body.classList.remove("annotation-open");
+						if (restoreFocus) panelTrigger?.focus({ preventScroll: true });
+					},
+				});
+				gsap.to(scrim, { opacity: 0, duration: reducedPanelMotion.matches ? 0 : 0.3, ease: "power2.in" });
       }
     };
 
@@ -184,6 +218,7 @@ const longTermThreads = [
 
     const openPanel = (action: AnnotationAction) => {
       if (!form || !selectedItem || !selectedText) return;
+			panelTrigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       form.reset();
       if (submitError) submitError.hidden = true;
       result?.setAttribute("hidden", "");
@@ -395,10 +430,16 @@ const longTermThreads = [
 
     document.querySelector("[data-memory-accept]")?.addEventListener("click", () => void resolveMemory("accept"));
     document.querySelector("[data-memory-reject]")?.addEventListener("click", () => void resolveMemory("reject"));
-    closeButton?.addEventListener("click", () => setPanel(false));
-    scrim?.addEventListener("click", () => setPanel(false));
+		closeButton?.addEventListener("pointerdown", () => {
+			if (!reducedPanelMotion.matches) gsap.to(closeButton, { scale: 0.9, duration: 0.1, ease: "power2.out" });
+		}, { passive: true });
+		closeButton?.addEventListener("pointerup", () => {
+			if (!reducedPanelMotion.matches) gsap.to(closeButton, { scale: 1, duration: 0.28, ease: "back.out(2)" });
+		}, { passive: true });
+		closeButton?.addEventListener("click", () => setPanel(false, true));
+		scrim?.addEventListener("click", () => setPanel(false, true));
     document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") setPanel(false);
+			if (event.key === "Escape" && panel?.getAttribute("aria-hidden") === "false") setPanel(false, true);
     });
 
     const motion = gsap.matchMedia();
