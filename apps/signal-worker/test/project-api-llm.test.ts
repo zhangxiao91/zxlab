@@ -15,6 +15,35 @@ const item: BriefingItem = {
 };
 
 describe("ProjectApiSignalLLM", () => {
+  it("calls the runtime fetch without rebinding its receiver", async () => {
+    const runtimeFetch = vi.fn<typeof fetch>(async () => Response.json({
+      ok: true,
+      data: {
+        text: JSON.stringify({ reply: "默认 fetch 路径可用。" }),
+        json: { reply: "默认 fetch 路径可用。" },
+        provider: "provider1",
+        model: "gpt-test",
+        fallbackIndex: 0,
+        latencyMs: 8,
+      },
+      requestId: "gateway-request-default-fetch",
+    }));
+    vi.stubGlobal("fetch", runtimeFetch);
+    try {
+      const llm = new ProjectApiSignalLLM(env);
+      await expect(llm.replyToAnnotation({
+        item,
+        selectedText: "runtime fetch",
+        comment: "验证默认调用路径",
+        action: "comment",
+        memories: [],
+      })).resolves.toEqual({ reply: "默认 fetch 路径可用。" });
+      expect(runtimeFetch).toHaveBeenCalledOnce();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("calls the project gateway and records the selected provider model", async () => {
     const fetcher = vi.fn<typeof fetch>(async (_input, init) => {
       expect(init?.headers).toMatchObject({

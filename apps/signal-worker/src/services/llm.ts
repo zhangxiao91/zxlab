@@ -91,7 +91,7 @@ function responseValue(result: GatewaySuccess): unknown {
 export class ProjectApiSignalLLM implements SignalLLM {
   private readonly invocations: ModelInvocationRepository;
 
-  constructor(private readonly env: Env, private readonly fetcher: typeof fetch = fetch) {
+  constructor(private readonly env: Env, private readonly fetcher: typeof fetch = (input, init) => fetch(input, init)) {
     this.invocations = new ModelInvocationRepository(env.DB);
   }
 
