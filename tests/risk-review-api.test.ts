@@ -79,6 +79,7 @@ test("Cloudflare Access verifier fails closed for missing and malformed assertio
   const env = { RISK_ACCESS_TEAM_DOMAIN: "https://zxlab.cloudflareaccess.com", RISK_ACCESS_AUD: "risk-audience" };
   await assert.rejects(verifyCloudflareAccess(new Request("https://beta.zxlab.pages.dev/api/risk/review"), env), (error: unknown) => error instanceof RiskReviewError && error.code === "ACCESS_REQUIRED");
   await assert.rejects(verifyCloudflareAccess(new Request("https://beta.zxlab.pages.dev/api/risk/review", { headers: { "Cf-Access-Jwt-Assertion": "forged-token" } }), env), (error: unknown) => error instanceof RiskReviewError && error.code === "INVALID_ACCESS_TOKEN");
+  await assert.rejects(verifyCloudflareAccess(new Request("https://beta.zxlab.pages.dev/api/risk/review", { headers: { Cookie: "other=value; CF_Authorization=forged-token" } }), env), (error: unknown) => error instanceof RiskReviewError && error.code === "INVALID_ACCESS_TOKEN");
 });
 
 test("LLM review excludes unsupported facts, tolerates unknown fields, and rejects trading instructions", async () => {
