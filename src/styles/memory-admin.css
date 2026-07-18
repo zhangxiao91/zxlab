@@ -1,0 +1,41 @@
+.memory-admin { width: 100%; max-width: 100%; overflow-x: hidden; color: #15211b; background: radial-gradient(circle at 82% 5%, rgba(176, 202, 188, .38), transparent 30rem), #f3f0e8; font-family: Geist, "Helvetica Neue", sans-serif; }
+.memory-admin__hero { max-width: 92rem; min-height: 74vh; margin: 0 auto; padding: 10rem 3rem 8rem; display: grid; grid-template-columns: 1.7fr .8fr; gap: 8vw; align-items: end; }
+.memory-admin__hero > div > p { margin: 0 0 2rem; letter-spacing: .13em; text-transform: uppercase; font-size: .78rem; }
+.memory-admin__hero h1 { max-width: 72rem; margin: 0; font-size: clamp(3rem, 7vw, 7rem); line-height: .9; letter-spacing: -.065em; font-weight: 550; }
+.memory-admin__hero > p { max-width: 32rem; margin: 0; font-size: 1.05rem; line-height: 1.7; }
+.memory-admin__metrics { max-width: 92rem; margin: 0 auto; padding: 0 3rem 10rem; display: grid; grid-template-columns: repeat(12, 1fr); grid-auto-flow: dense; gap: 1px; }
+.memory-admin__metrics article { grid-column: span 4; min-height: 13rem; padding: 2rem; display: flex; flex-direction: column; justify-content: space-between; background: #18241e; color: #f7f4ec; }
+.memory-admin__metrics span { color: #aab8b0; font-size: .82rem; text-transform: uppercase; letter-spacing: .09em; }
+.memory-admin__metrics strong { font-size: clamp(3rem, 6vw, 6rem); font-weight: 500; line-height: 1; }
+.memory-admin__chapter { padding: 9rem max(3rem, calc((100vw - 86rem) / 2)); background: #fffdfa; }
+.memory-admin__chapter-heading { display: flex; align-items: end; justify-content: space-between; gap: 2rem; margin-bottom: 3rem; }
+.memory-admin__chapter h2, .memory-admin__audit h2, .memory-admin__action h2 { margin: 0; font-size: clamp(2.5rem, 5vw, 5.5rem); line-height: .95; letter-spacing: -.055em; font-weight: 520; }
+.memory-admin button, .memory-admin__action a { appearance: none; border: 1px solid #18241e; background: #18241e; color: #fff; padding: .8rem 1.1rem; font: inherit; cursor: pointer; text-decoration: none; }
+.memory-admin button:hover, .memory-admin__action a:hover { background: #fff; color: #18241e; }
+.memory-admin__state { padding: 1.2rem; border: 1px solid #cbd1cb; }
+.memory-admin__table-wrap { overflow: auto; border-top: 1px solid #b8c0ba; }
+.memory-admin table { width: 100%; border-collapse: collapse; min-width: 70rem; }
+.memory-admin th { padding: 1rem .8rem; text-align: left; color: #647068; font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; }
+.memory-admin td { padding: 1.35rem .8rem; border-top: 1px solid #d8dcd8; vertical-align: top; }
+.memory-admin td:first-child { width: 36%; }
+.memory-admin td strong, .memory-admin td small { display: block; }
+.memory-admin td strong { line-height: 1.45; font-weight: 500; }
+.memory-admin td small { margin-top: .5rem; color: #778078; font-size: .75rem; }
+.memory-admin td [data-status] { padding: .28rem .55rem; border: 1px solid #9da89f; font-size: .75rem; }
+.memory-admin td [data-status="forgotten"] { opacity: .55; }
+.memory-admin td button { padding: .45rem .7rem; background: transparent; color: #7f2e24; border-color: #a74a3d; }
+.memory-admin__audit { max-width: 92rem; margin: 0 auto; padding: 12rem 3rem; display: grid; grid-template-columns: .8fr 1.2fr; gap: 10vw; }
+.memory-admin__audit-sticky { align-self: start; position: sticky; top: 8rem; }
+.memory-admin__audit-sticky p { max-width: 30rem; line-height: 1.7; }
+.memory-admin__audit-stream { display: grid; gap: 8rem; }
+.memory-admin__audit-stream h3 { margin: 0 0 2rem; font-size: 1rem; letter-spacing: .08em; text-transform: uppercase; }
+.memory-admin__audit-stream article { padding: 1.5rem 0; border-top: 1px solid #aeb7b0; }
+.memory-admin__audit-stream time, .memory-admin__audit-stream strong { display: block; }
+.memory-admin__audit-stream time { color: #67726a; font-size: .75rem; }
+.memory-admin__audit-stream strong { margin-top: .65rem; }
+.memory-admin__audit-stream p { line-height: 1.6; overflow-wrap: anywhere; }
+.memory-admin__action { padding: 11rem max(3rem, calc((100vw - 86rem) / 2)); background: #17221c; color: #fff; }
+.memory-admin__action h2 { max-width: 70rem; margin-bottom: 4rem; }
+.memory-admin__action a { display: inline-block; background: #fff; color: #17221c; border-color: #fff; }
+@media (max-width: 800px) { .memory-admin__hero, .memory-admin__audit { grid-template-columns: 1fr; } .memory-admin__hero { padding: 8rem 1.25rem 6rem; min-height: auto; } .memory-admin__metrics { padding: 0 1.25rem 7rem; } .memory-admin__metrics article { grid-column: span 12; } .memory-admin__chapter, .memory-admin__action { padding: 7rem 1.25rem; } .memory-admin__audit { padding: 8rem 1.25rem; } .memory-admin__audit-sticky { position: static; } }
+@media (prefers-reduced-motion: reduce) { .memory-admin *, .memory-admin *::before, .memory-admin *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }

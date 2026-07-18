@@ -1,0 +1,126 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import "../../styles/memory-admin.css";
+
+const defaultApiBase = import.meta.env.DEV ? "http://localhost:8788" : "https://signal-api.zx-dx.xyz";
+const apiBase = String(import.meta.env.PUBLIC_SIGNAL_API_BASE ?? defaultApiBase).replace(/\/$/, "");
+---
+
+<Layout title="Memory Console | zxlab" description="Auditable long-term memory administration for zxlab." lang="zh-CN">
+  <main class="memory-admin" data-memory-admin data-api-base={apiBase}>
+    <header class="memory-admin__hero">
+      <div>
+        <p>Memory Console</p>
+        <h1>长期上下文，<br />保持可见与可撤回。</h1>
+      </div>
+      <p>统一查看 active、superseded 与 forgotten memory，以及每次内容变更留下的 revision。所有 consolidation 结果先作为候选，不自动进入长期上下文。</p>
+    </header>
+
+    <section class="memory-admin__metrics" aria-label="Memory 概览">
+      <article><span>当前记录</span><strong data-count-all>—</strong></article>
+      <article><span>活跃记录</span><strong data-count-active>—</strong></article>
+      <article><span>待确认候选</span><strong data-count-candidates>—</strong></article>
+    </section>
+
+    <section class="memory-admin__chapter" aria-labelledby="memory-list-title">
+      <div class="memory-admin__chapter-heading">
+        <h2 id="memory-list-title">可审计的上下文</h2>
+        <button type="button" data-refresh>刷新数据</button>
+      </div>
+      <p class="memory-admin__state" data-state role="status">正在读取受保护的 Memory API…</p>
+      <div class="memory-admin__table-wrap" data-memory-table hidden>
+        <table>
+          <thead><tr><th>内容</th><th>Namespace</th><th>Kind</th><th>Importance</th><th>来源</th><th>状态</th><th>操作</th></tr></thead>
+          <tbody data-memory-rows></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="memory-admin__audit" aria-labelledby="memory-audit-title">
+      <div class="memory-admin__audit-sticky">
+        <h2 id="memory-audit-title">修改不会消失在历史里。</h2>
+        <p>更新与遗忘操作都留下 revision；候选接受或拒绝前，不会改变检索结果。</p>
+      </div>
+      <div class="memory-admin__audit-stream">
+        <div>
+          <h3>Revision history</h3>
+          <div data-revision-list><p>暂无 revision。</p></div>
+        </div>
+        <div>
+          <h3>Consolidation candidates</h3>
+          <div data-candidate-list><p>暂无候选。</p></div>
+        </div>
+      </div>
+    </section>
+
+    <footer class="memory-admin__action">
+      <h2>先收集证据，<br />再确认什么值得记住。</h2>
+      <a href="/briefing">返回 Daily Briefing</a>
+    </footer>
+  </main>
+
+  <script>
+    import gsap from "gsap";
+    import { ScrollTrigger } from "gsap/ScrollTrigger";
+    gsap.registerPlugin(ScrollTrigger);
+
+    interface MemoryItem { id: string; namespace: string; kind: string; content: string; importance: number; confidence: number; sourceType: string; sourceId?: string; status: string; updatedAt: string; }
+    interface Revision { id: string; memoryId: string; oldContent: string; newContent: string; reason: string; createdAt: string; }
+    interface Candidate { id: string; action: string; reason: string; status: string; memory?: { content?: string }; createdAt: string; }
+    interface MemoryPayload { memories: MemoryItem[]; revisions: Revision[]; candidates: Candidate[]; }
+
+    const root = document.querySelector<HTMLElement>("[data-memory-admin]");
+    const apiBase = root?.dataset.apiBase ?? "";
+    const state = document.querySelector<HTMLElement>("[data-state]");
+    const table = document.querySelector<HTMLElement>("[data-memory-table]");
+    const rows = document.querySelector<HTMLElement>("[data-memory-rows]");
+    const revisions = document.querySelector<HTMLElement>("[data-revision-list]");
+    const candidates = document.querySelector<HTMLElement>("[data-candidate-list]");
+
+    const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char] ?? char);
+    const date = (value: string) => new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+
+    async function request<T>(path: string, init?: RequestInit): Promise<T> {
+      const response = await fetch(`${apiBase}${path}`, { ...init, credentials: "include", headers: { "content-type": "application/json", ...init?.headers } });
+      if (!response.ok) throw new Error(response.status === 401 ? "需要通过 Cloudflare Access 登录后查看。" : `Memory API 返回 ${response.status}`);
+      return response.json() as Promise<T>;
+    }
+
+    function render(payload: MemoryPayload) {
+      const active = payload.memories.filter((item) => item.status === "active").length;
+      const proposed = payload.candidates.filter((item) => item.status === "proposed").length;
+      const set = (selector: string, value: number) => { const node = document.querySelector(selector); if (node) node.textContent = String(value); };
+      set("[data-count-all]", payload.memories.length); set("[data-count-active]", active); set("[data-count-candidates]", proposed);
+      if (rows) rows.innerHTML = payload.memories.map((item) => `<tr data-memory-row>
+        <td><strong>${escapeHtml(item.content)}</strong><small>${escapeHtml(date(item.updatedAt))}</small></td>
+        <td>${escapeHtml(item.namespace)}</td><td>${escapeHtml(item.kind)}</td><td>${Math.round(item.importance * 100)}%</td>
+        <td>${escapeHtml(item.sourceType)}${item.sourceId ? `<small>${escapeHtml(item.sourceId)}</small>` : ""}</td>
+        <td><span data-status="${escapeHtml(item.status)}">${escapeHtml(item.status)}</span></td>
+        <td>${item.status === "forgotten" ? "—" : `<button type="button" data-forget="${escapeHtml(item.id)}">Forget</button>`}</td></tr>`).join("");
+      if (revisions) revisions.innerHTML = payload.revisions.length ? payload.revisions.map((item) => `<article><time>${escapeHtml(date(item.createdAt))}</time><strong>${escapeHtml(item.reason)}</strong><p>${escapeHtml(item.oldContent)} → ${escapeHtml(item.newContent)}</p></article>`).join("") : "<p>暂无 revision。</p>";
+      if (candidates) candidates.innerHTML = payload.candidates.length ? payload.candidates.map((item) => `<article><time>${escapeHtml(date(item.createdAt))}</time><strong>${escapeHtml(item.action)} · ${escapeHtml(item.status)}</strong><p>${escapeHtml(item.memory?.content ?? item.reason)}</p></article>`).join("") : "<p>暂无候选。</p>";
+      table?.removeAttribute("hidden");
+      if (state) state.hidden = true;
+      gsap.from("[data-memory-row]", { opacity: 0, y: 24, stagger: 0.04, duration: 0.55, ease: "power3.out" });
+    }
+
+    async function load() {
+      if (state) { state.hidden = false; state.textContent = "正在读取受保护的 Memory API…"; }
+      try { render(await request<MemoryPayload>("/api/memory/items")); }
+      catch (error) { if (state) state.textContent = error instanceof Error ? error.message : "Memory API 暂时不可用。"; }
+    }
+
+    document.querySelector("[data-refresh]")?.addEventListener("click", () => void load());
+    rows?.addEventListener("click", async (event) => {
+      const button = (event.target as Element).closest<HTMLButtonElement>("[data-forget]");
+      if (!button?.dataset.forget || !window.confirm("将这条 memory 标记为 forgotten？历史记录仍会保留。")) return;
+      button.disabled = true;
+      try { await request(`/api/memory/items/${encodeURIComponent(button.dataset.forget)}/forget`, { method: "POST", body: JSON.stringify({ reason: "Forgotten from admin memory console" }) }); await load(); }
+      catch (error) { button.disabled = false; if (state) { state.hidden = false; state.textContent = error instanceof Error ? error.message : "操作失败。"; } }
+    });
+
+    gsap.from(".memory-admin__hero > *", { opacity: 0, y: 38, stagger: 0.12, duration: 0.9, ease: "power4.out" });
+    gsap.from(".memory-admin__audit-stream > div", { scrollTrigger: { trigger: ".memory-admin__audit", start: "top 70%", end: "bottom 80%", scrub: 0.8 }, opacity: 0.2, y: 80, stagger: 0.15 });
+    void load();
+  </script>
+</Layout>

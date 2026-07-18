@@ -15,6 +15,7 @@ export const TASK_POLICIES: Record<string, Partial<AITaskPolicy>> = {
   "signal-briefing": { timeoutMs: 30_000, totalBudgetMs: 75_000, maxOutputTokens: 4_000, temperature: 0 },
   "signal-annotation-reply": { timeoutMs: 20_000, totalBudgetMs: 40_000, maxOutputTokens: 1_200, temperature: 0.1 },
   "signal-memory-extraction": { timeoutMs: 20_000, totalBudgetMs: 40_000, maxOutputTokens: 800, temperature: 0 },
+  "signal-memory-consolidation": { timeoutMs: 30_000, totalBudgetMs: 60_000, maxOutputTokens: 1_600, temperature: 0 },
 };
 
 export function resolveTaskPolicy(input: GenerateAIInput): AITaskPolicy {

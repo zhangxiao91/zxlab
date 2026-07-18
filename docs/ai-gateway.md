@@ -134,6 +134,7 @@ ZX Signal task policies are intentionally separate from generic callers:
 | `signal-briefing` | 4,000 | 30 s | 75 s |
 | `signal-annotation-reply` | 1,200 | 20 s | 40 s |
 | `signal-memory-extraction` | 800 | 20 s | 40 s |
+| `signal-memory-consolidation` | 1,600 | 30 s | 60 s |
 
 The gateway guarantees valid JSON for `responseFormat.type=json`; it does not
 accept a caller-supplied JSON Schema. Signal therefore validates `data.json`

@@ -6,6 +6,7 @@ import { handleAnnotations } from "./routes/annotations";
 import { handleBriefingRead } from "./routes/briefings";
 import { handleCollection } from "./routes/collection";
 import { handleMemories } from "./routes/memories";
+import { handleMemoryApi } from "./memory/api/routes";
 import { DailySignalPipeline } from "./services/daily-signal-pipeline";
 
 async function refreshStaticBriefing(env: Env): Promise<"triggered" | "not-configured"> {
@@ -22,6 +23,7 @@ function withCors(response: Response, request: Request, env: Env): Response {
 }
 
 function isProtected(request: Request, pathname: string): boolean {
+  if (pathname.startsWith("/api/memory/")) return true;
   if (pathname.startsWith("/api/admin/")) return true;
   if (request.method === "POST") return pathname.startsWith("/api/admin/") || pathname === "/api/annotations" || pathname.startsWith("/api/memory-candidates/");
   return request.method === "GET" && pathname === "/api/memories";
@@ -38,6 +40,7 @@ export default {
         ?? await handleCollection(request, url, env)
         ?? await handleAdmin(request, url.pathname, env)
         ?? await handleAnnotations(request, url.pathname, env)
+        ?? await handleMemoryApi(request, url.pathname, env)
         ?? await handleMemories(request, url.pathname, env);
       if (!response) throw new SignalError("BRIEFING_NOT_FOUND", "Route not found", 404);
       return withCors(response, request, env);

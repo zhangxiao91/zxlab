@@ -5,18 +5,21 @@ import { SignalError } from "../lib/errors";
 import { BriefingRepository } from "../repositories/briefing-repository";
 import { BRIEFING_PROMPT_VERSION } from "./prompts";
 import type { SignalLLM } from "./llm";
+import { MemoryService } from "../memory/service/memory-service";
 import { MemoryRepository } from "./memory-repository";
 import { CollectionRepository } from "../repositories/collection-repository";
 import { fixtureCandidate } from "./candidate-normalizer";
 
 export class BriefingGenerator {
   private readonly briefings: BriefingRepository;
-  private readonly memories: MemoryRepository;
+  private readonly unifiedMemories: MemoryService;
+  private readonly legacyMemories: MemoryRepository;
   private readonly candidates: CollectionRepository;
 
   constructor(private readonly env: Env, private readonly llm: SignalLLM) {
     this.briefings = new BriefingRepository(env.DB);
-    this.memories = new MemoryRepository(env.DB);
+    this.unifiedMemories = new MemoryService(env.DB);
+    this.legacyMemories = new MemoryRepository(env.DB);
     this.candidates = new CollectionRepository(env.DB);
   }
 
@@ -32,7 +35,28 @@ export class BriefingGenerator {
     await this.briefings.startRun({ id: runId, date: input.date, triggerType: "manual", promptVersion: BRIEFING_PROMPT_VERSION,
       model: this.env.ZX_SIGNAL_LLM_LABEL, candidateCount: input.candidates.length, startedAt, collectionRunId: input.collectionRunId });
     try {
-      const memories = await this.memories.active();
+      const retrieved = await this.unifiedMemories.retrieve({
+        task: "signal-briefing",
+        namespaces: ["briefing", "zxlab", "global", "markets"],
+        query: input.candidates.map((candidate) => `${candidate.title} ${candidate.summary ?? ""}`).join("\n").slice(0, 8_000),
+        limit: 16,
+        tokenBudget: 2_000,
+      });
+      const canonicalMemories = retrieved.memories.map((item) => ({
+        id: item.id,
+        scope: item.kind === "preference" ? "preference" as const : "project" as const,
+        scopeKey: item.namespace,
+        content: item.content,
+        confidence: item.confidence,
+        status: "active" as const,
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt,
+        lastConfirmedAt: item.updatedAt,
+        expiresAt: item.expiresAt,
+      }));
+      const migratedIds = new Set(canonicalMemories.map((item) => item.id));
+      const legacyMemories = (await this.legacyMemories.active()).filter((item) => !migratedIds.has(item.id));
+      const memories = [...canonicalMemories, ...legacyMemories].slice(0, 20);
       let synthesisCandidates = input.candidates;
       if (input.dataOrigin === "real") {
         const decisions = await this.llm.filterCandidates({ candidates: input.candidates, memories, runId });
