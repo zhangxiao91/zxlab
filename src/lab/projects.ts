@@ -2,6 +2,22 @@ import type { LabProject } from "./types";
 
 export const labProjects: LabProject[] = [
   {
+    slug: "risk",
+    title: "持仓风险台",
+    description:
+      "只读的个人持仓风险监控与操作复盘工作台。确定性计算负责数字，Evidence Pack 负责让每条解释可追溯。",
+    status: "wip",
+    category: "Private Finance Tool",
+    cardLabels: ["Risk Monitor", "Read Only"],
+    tags: ["Portfolio", "Evidence", "Review"],
+    featured: true,
+    thumbnail: "https://picsum.photos/seed/risk-signal-ledger/1600/1200",
+    thumbnailAlt: "抽象的深色数据光轨，用于表示持仓风险与证据链",
+    href: "/lab/risk",
+    customPage: true,
+    deviceSupport: ["desktop", "touch", "keyboard", "pointer"],
+  },
+  {
     slug: "stonks",
     title: "STONKS",
     description:

@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: zxlab_risk
+      POSTGRES_USER: zxlab
+      POSTGRES_PASSWORD: local-risk-only
+    ports:
+      - "54329:5432"
+    volumes:
+      - risk-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U zxlab -d zxlab_risk"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  risk-postgres:

@@ -28,9 +28,13 @@
     "test:collector": "npm --prefix services/codex-usage-collector test"
   },
   "dependencies": {
+    "@astrojs/react": "^6.0.1",
     "@astrojs/sitemap": "^3.7.3",
     "astro": "^7.0.5",
+    "echarts": "^6.1.0",
     "gsap": "^3.15.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
     "remark-parse": "^11.0.0",
     "remark-stringify": "^11.0.0",
     "unified": "^11.0.5",
@@ -38,6 +42,8 @@
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.9",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
     "typescript": "^6.0.3"
   }
 }

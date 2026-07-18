@@ -1,0 +1,12 @@
+portfolio:
+  max_effective_exposure: 1.20
+  max_daily_loss_pct: 0.025
+  max_single_position_weight: 0.35
+  max_theme_weight: 0.45
+behavior:
+  warn_add_after_loss_budget: true
+  warn_stop_relaxation: true
+  warn_unplanned_position: true
+data_quality:
+  quote_stale_seconds: 120
+  provider_deviation_pct: 0.02

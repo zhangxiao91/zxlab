@@ -1,0 +1,11 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import RiskWorkbench from "../../features/risk/RiskWorkbench";
+import "../../styles/risk.css";
+---
+
+<Layout title="持仓风险台 | zxlab" description="个人持仓风险监控、证据追溯与操作复盘工作台。" lang="zh-CN">
+  <div class="risk-page">
+    <RiskWorkbench client:load />
+  </div>
+</Layout>
