@@ -31,6 +31,7 @@ const generatedAt = new Intl.DateTimeFormat("zh-CN", {
     </div>
     <p class="signal-editorial__label">今日总编辑摘要</p>
     <p class="signal-editorial__summary" data-scrub-summary>{briefing.summary}</p>
+    <button class="signal-summary-toggle" type="button" data-summary-toggle aria-expanded="false">展开摘要</button>
     <dl>
       <div><dt>生成</dt><dd>{generatedAt}</dd></div>
       <div><dt>版本</dt><dd>{briefing.promptVersion}</dd></div>

@@ -40,11 +40,24 @@ const longTermThreads = [
         <section class="signal-stream" aria-labelledby="stream-title">
           <div class="signal-stream__intro">
             <p>今日重点</p>
-            <h2 id="stream-title">不是更多资讯，<br />是更少的噪音。</h2>
+            <h2 id="stream-title">更少噪音，<br />更快判断。</h2>
             <p>选中正文里的任意判断，留下评论、质疑或追踪条件。你的反馈只会先成为候选，不会自动变成长期记忆。</p>
+            <div class="signal-reading-tools" aria-label="日报筛选">
+              <div class="signal-category-filter" role="group" aria-label="按分类筛选">
+                <button type="button" data-category-filter="all" aria-pressed="true">全部</button>
+                <button type="button" data-category-filter="ai-engineering" aria-pressed="false">AI</button>
+                <button type="button" data-category-filter="zxlab" aria-pressed="false">zxlab</button>
+                <button type="button" data-category-filter="markets" aria-pressed="false">Markets</button>
+              </div>
+              <button class="signal-importance-filter" type="button" data-importance-filter aria-pressed="false">
+                只看重要
+              </button>
+              <p><span data-visible-count>{briefing.items.length}</span> 条可见</p>
+            </div>
           </div>
           <div class="signal-stream__items">
             {briefing.items.map((item, index) => <BriefingItemCard item={item} index={index} />)}
+            <p class="signal-filter-empty" data-filter-empty hidden>当前筛选没有条目。关闭“只看重要”或切换分类即可继续浏览。</p>
           </div>
         </section>
 
@@ -204,6 +217,71 @@ const longTermThreads = [
       });
     });
 
+    let selectedCategory = "all";
+    let importantOnly = false;
+    const categoryFilters = document.querySelectorAll<HTMLButtonElement>("[data-category-filter]");
+    const importanceFilter = document.querySelector<HTMLButtonElement>("[data-importance-filter]");
+    const visibleCount = document.querySelector<HTMLElement>("[data-visible-count]");
+    const filterEmpty = document.querySelector<HTMLElement>("[data-filter-empty]");
+
+    const applyReadingFilters = () => {
+      let count = 0;
+      document.querySelectorAll<HTMLElement>("[data-briefing-item]").forEach((item) => {
+        const matchesCategory = selectedCategory === "all" || item.dataset.itemCategory === selectedCategory;
+        const matchesImportance = !importantOnly || Number(item.dataset.itemImportance) >= 85;
+        const visible = matchesCategory && matchesImportance;
+        item.toggleAttribute("hidden", !visible);
+        if (visible) count += 1;
+      });
+      if (visibleCount) visibleCount.textContent = String(count);
+      if (filterEmpty) filterEmpty.hidden = count !== 0;
+      ScrollTrigger.refresh();
+    };
+
+    categoryFilters.forEach((button) => {
+      button.addEventListener("click", () => {
+        selectedCategory = button.dataset.categoryFilter ?? "all";
+        categoryFilters.forEach((candidate) => {
+          candidate.setAttribute("aria-pressed", String(candidate === button));
+        });
+        applyReadingFilters();
+      });
+    });
+
+    importanceFilter?.addEventListener("click", () => {
+      importantOnly = !importantOnly;
+      importanceFilter.setAttribute("aria-pressed", String(importantOnly));
+      applyReadingFilters();
+    });
+
+    document.querySelectorAll<HTMLButtonElement>("[data-analysis-toggle]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const item = button.closest<HTMLElement>("[data-briefing-item]");
+        const analysis = item?.querySelector<HTMLElement>("[data-item-analysis]");
+        if (!analysis) return;
+        const willOpen = analysis.hidden;
+        analysis.hidden = !willOpen;
+        button.setAttribute("aria-expanded", String(willOpen));
+        const label = button.querySelector<HTMLElement>("span");
+        if (label) label.textContent = willOpen ? "收起分析" : "展开分析";
+        if (willOpen) {
+          gsap.from(analysis, { y: 12, opacity: 0, duration: 0.45, ease: "power3.out" });
+        }
+        ScrollTrigger.refresh();
+      });
+    });
+
+    const summaryToggle = document.querySelector<HTMLButtonElement>("[data-summary-toggle]");
+    summaryToggle?.addEventListener("click", () => {
+      const summary = document.querySelector<HTMLElement>("[data-scrub-summary]");
+      if (!summary) return;
+      const expanded = summary.dataset.expanded === "true";
+      summary.dataset.expanded = String(!expanded);
+      summaryToggle.setAttribute("aria-expanded", String(!expanded));
+      summaryToggle.textContent = expanded ? "展开摘要" : "收起摘要";
+      ScrollTrigger.refresh();
+    });
+
     form?.addEventListener("submit", async (event) => {
       event.preventDefault();
       const values = new FormData(form);
@@ -271,13 +349,13 @@ const longTermThreads = [
     const motion = gsap.matchMedia();
     motion.add("(prefers-reduced-motion: no-preference)", () => {
       gsap.from(".signal-hero__copy > *", {
-        y: 42,
+        y: 20,
         opacity: 0,
-        duration: 1.05,
-        stagger: 0.09,
+        duration: 0.8,
+        stagger: 0.06,
         ease: "power3.out",
       });
-      gsap.from(".signal-editorial", { y: 54, opacity: 0, duration: 1.2, delay: 0.14, ease: "power3.out" });
+      gsap.from(".signal-editorial", { y: 20, opacity: 0, duration: 0.85, delay: 0.08, ease: "power3.out" });
       gsap.fromTo(".signal-editorial__visual", { scale: 0.8, opacity: 0.45 }, {
         scale: 1,
         opacity: 1,
@@ -290,22 +368,11 @@ const longTermThreads = [
         ease: "none",
         scrollTrigger: { trigger: ".signal-filter", start: "top 90%", end: "top 40%", scrub: 0.8 },
       });
-      const summary = document.querySelector<HTMLElement>("[data-scrub-summary]");
-      if (summary) {
-        const words = summary.textContent?.split("") ?? [];
-        summary.innerHTML = words.map((word) => word === " " ? " " : `<span>${word}</span>`).join("");
-        gsap.fromTo(summary.querySelectorAll("span"), { opacity: 0.35 }, {
-          opacity: 1,
-          stagger: 0.025,
-          ease: "none",
-          scrollTrigger: { trigger: summary, start: "top 82%", end: "bottom 38%", scrub: 0.7 },
-        });
-      }
       gsap.utils.toArray<HTMLElement>(".signal-item, .signal-threads, .signal-action").forEach((element) => {
         gsap.from(element, {
-          y: 64,
+          y: 24,
           opacity: 0,
-          duration: 1.05,
+          duration: 0.8,
           ease: "power3.out",
           scrollTrigger: { trigger: element, start: "top 88%" },
         });

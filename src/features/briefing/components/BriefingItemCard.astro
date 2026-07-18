@@ -13,6 +13,8 @@ const categoryLabels = {
 <article
   class="signal-item"
   data-briefing-item={item.id}
+  data-item-category={item.category}
+  data-item-importance={item.importance}
   data-item-title={item.title}
   aria-labelledby={`item-${item.id}`}
 >
@@ -29,9 +31,11 @@ const categoryLabels = {
 
   <div class="signal-item__body" data-selectable-copy>
     <p class="signal-item__summary">{item.summary}</p>
-    {item.whatChanged && <div><h4>变化</h4><p>{item.whatChanged}</p></div>}
-    <div><h4>与你有关</h4><p>{item.whyItMatters}</p></div>
-    {item.suggestedAction && <div class="signal-item__action"><h4>可行动</h4><p>{item.suggestedAction}</p></div>}
+    <div class="signal-item__analysis" data-item-analysis hidden={index > 1}>
+      {item.whatChanged && <div><h4>变化</h4><p>{item.whatChanged}</p></div>}
+      <div><h4>与你有关</h4><p>{item.whyItMatters}</p></div>
+      {item.suggestedAction && <div class="signal-item__action"><h4>可行动</h4><p>{item.suggestedAction}</p></div>}
+    </div>
   </div>
 
   <footer class="signal-item__footer">
@@ -43,8 +47,13 @@ const categoryLabels = {
         </a>
       ))}
     </div>
-    <button class="signal-comment-trigger" type="button" data-mobile-comment>
-      <span>回应这条</span><span aria-hidden="true">＋</span>
-    </button>
+    <div class="signal-item__controls">
+      <button class="signal-analysis-toggle" type="button" data-analysis-toggle aria-expanded={index <= 1 ? "true" : "false"}>
+        <span>{index <= 1 ? "收起分析" : "展开分析"}</span><span aria-hidden="true">⌄</span>
+      </button>
+      <button class="signal-comment-trigger" type="button" data-mobile-comment>
+        <span>回应这条</span><span aria-hidden="true">＋</span>
+      </button>
+    </div>
   </footer>
 </article>
