@@ -76,7 +76,7 @@ export class OpenAICompatibleAdapter implements AIProviderAdapter {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), context.timeoutMs);
     try {
-      const response = await context.fetcher(endpoint(candidate.baseUrl), {
+      const response = await context.fetcher.call(globalThis, endpoint(candidate.baseUrl), {
         method: "POST",
         headers: {
           Authorization: `Bearer ${candidate.apiKey}`,

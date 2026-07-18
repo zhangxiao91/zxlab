@@ -4,6 +4,7 @@ import type { GenerateAIInput } from "../src/lib/ai/types.ts";
 import type { ModelCandidate } from "../functions/_lib/ai/config.ts";
 import { AIError } from "../functions/_lib/ai/errors.ts";
 import type { AILogger } from "../functions/_lib/ai/logger.ts";
+import { OpenAICompatibleAdapter } from "../functions/_lib/ai/providers/openai-compatible.ts";
 import type { AIProviderAdapter, ProviderGenerateResult } from "../functions/_lib/ai/providers/types.ts";
 import { generateAI } from "../functions/_lib/ai/router.ts";
 import { validateGenerateAIInput } from "../functions/_lib/ai/validation.ts";
@@ -135,4 +136,22 @@ test("empty messages and overlong content are rejected before routing", () => {
     () => validateGenerateAIInput({ task: "notes-summary", messages: [{ role: "user", content: "x".repeat(24_001) }] }),
     (error: unknown) => error instanceof AIError && error.code === "CONTEXT_TOO_LONG",
   );
+});
+
+test("OpenAI-compatible adapter preserves the native fetch receiver", async () => {
+  let receiver: unknown;
+  const fetcher = async function (this: unknown): Promise<Response> {
+    receiver = this;
+    return Response.json({
+      choices: [{ message: { content: "receiver-ok" } }],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+    });
+  } as typeof fetch;
+  const result = await new OpenAICompatibleAdapter().generate(candidates[0], input, {
+    requestId: "receiver-test",
+    timeoutMs: 1_000,
+    fetcher,
+  });
+  assert.equal(receiver, globalThis);
+  assert.equal(result.text, "receiver-ok");
 });
