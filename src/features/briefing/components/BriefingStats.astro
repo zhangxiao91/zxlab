@@ -1,0 +1,31 @@
+---
+import type { DailyBriefing } from "../types";
+interface Props { briefing: DailyBriefing; }
+const { briefing } = Astro.props;
+---
+
+<section class="signal-filter" aria-labelledby="filter-title">
+  <div class="signal-filter__heading">
+    <p>今日信号经过四道过滤</p>
+    <h2 id="filter-title">扫描了 {briefing.stats.fetched} 个信号，最终保留 {briefing.stats.selected} 条。</h2>
+  </div>
+  <div class="signal-filter__marquee" aria-hidden="true">
+    <div>
+      <span>扫描 {briefing.stats.fetched} 条</span><i></i>
+      <span>去重后 {briefing.stats.deduplicated} 条</span><i></i>
+      <span>LLM 初筛 18 条</span><i></i>
+      <span>最终收录 {briefing.stats.selected} 条</span><i></i>
+      <span>扫描 {briefing.stats.fetched} 条</span><i></i>
+      <span>去重后 {briefing.stats.deduplicated} 条</span><i></i>
+      <span>LLM 初筛 18 条</span><i></i>
+      <span>最终收录 {briefing.stats.selected} 条</span><i></i>
+    </div>
+  </div>
+  <div class="signal-filter__steps">
+    <div><span>01</span><strong>{briefing.stats.fetched}</strong><p>原始扫描</p></div>
+    <div><span>02</span><strong>{briefing.stats.deduplicated}</strong><p>语义去重</p></div>
+    <div><span>03</span><strong>18</strong><p>模型初筛</p></div>
+    <div><span>04</span><strong>{briefing.stats.selected}</strong><p>总编收录</p></div>
+  </div>
+  <p class="signal-filter__rejection"><span>过滤样本</span> 只有发布宣传，没有新增工程信息。</p>
+</section>

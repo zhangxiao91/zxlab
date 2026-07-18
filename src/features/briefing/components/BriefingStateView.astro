@@ -1,0 +1,28 @@
+---
+import type { BriefingPreviewState } from "../types";
+interface Props { state: BriefingPreviewState; hidden?: boolean; }
+const { state, hidden = false } = Astro.props;
+const copy = {
+  generating: {
+    title: "今日信号仍在生成",
+    message: "采集与去重已经开始。总编辑会在证据足够时交付日报，不用先占用你的注意力。",
+  },
+  failed: {
+    title: "今天的生成没有完成",
+    message: "原始来源暂时无法形成可信日报。系统保留了运行记录，可以稍后从失败步骤继续。",
+  },
+  empty: {
+    title: "今天没有值得占用你注意力的新变化",
+    message: "扫描已经完成，但候选内容没有越过收录阈值。沉默也是编辑判断的一部分。",
+  },
+};
+const content = state in copy ? copy[state as keyof typeof copy] : null;
+---
+
+{content && (
+  <section class="signal-state" data-state={state} data-preview-state={state} aria-live="polite" hidden={hidden}>
+    <div class="signal-state__pulse" aria-hidden="true"><span></span></div>
+    <div><p>ZX Signal</p><h2>{content.title}</h2><p>{content.message}</p></div>
+    {state === "failed" && <a href="/briefing">重新载入</a>}
+  </section>
+)}

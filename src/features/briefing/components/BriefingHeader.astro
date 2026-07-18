@@ -1,0 +1,38 @@
+---
+import type { DailyBriefing } from "../types";
+
+interface Props { briefing: DailyBriefing; }
+const { briefing } = Astro.props;
+const date = new Intl.DateTimeFormat("zh-CN", {
+  month: "long",
+  day: "numeric",
+  weekday: "long",
+}).format(new Date(`${briefing.date}T12:00:00+08:00`));
+const generatedAt = new Intl.DateTimeFormat("zh-CN", {
+  hour: "2-digit",
+  minute: "2-digit",
+}).format(new Date(briefing.generatedAt));
+---
+
+<section class="signal-hero" aria-labelledby="signal-title">
+  <div class="signal-hero__copy">
+    <p class="signal-kicker"><span aria-hidden="true"></span> ZX Signal · {date}</p>
+    <h1 id="signal-title">每天真正值得<br />我关注的变化</h1>
+    <p class="signal-deck">{briefing.title}</p>
+  </div>
+
+  <div class="signal-editorial" aria-label="今日总编辑摘要">
+    <div class="signal-editorial__visual" aria-hidden="true">
+      <div class="signal-orbit signal-orbit--outer"></div>
+      <div class="signal-orbit signal-orbit--inner"></div>
+      <span></span>
+    </div>
+    <p class="signal-editorial__label">今日总编辑摘要</p>
+    <p class="signal-editorial__summary" data-scrub-summary>{briefing.summary}</p>
+    <dl>
+      <div><dt>生成</dt><dd>{generatedAt}</dd></div>
+      <div><dt>版本</dt><dd>{briefing.promptVersion}</dd></div>
+      <div><dt>状态</dt><dd data-briefing-status>{briefing.status === "partial" ? "部分完成" : "已就绪"}</dd></div>
+    </dl>
+  </div>
+</section>

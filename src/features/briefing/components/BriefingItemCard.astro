@@ -1,0 +1,50 @@
+---
+import type { BriefingItem } from "../types";
+
+interface Props { item: BriefingItem; index: number; }
+const { item, index } = Astro.props;
+const categoryLabels = {
+  "ai-engineering": "AI Engineering",
+  markets: "Markets",
+  zxlab: "zxlab",
+};
+---
+
+<article
+  class="signal-item"
+  data-briefing-item={item.id}
+  data-item-title={item.title}
+  aria-labelledby={`item-${item.id}`}
+>
+  <header class="signal-item__header">
+    <div>
+      <p><span>{String(index + 1).padStart(2, "0")}</span> {categoryLabels[item.category]}</p>
+      <h3 id={`item-${item.id}`}>{item.title}</h3>
+    </div>
+    <div class="signal-item__score" aria-label={`重要性 ${item.importance}，置信度 ${item.confidence}`}>
+      <span>重要 {item.importance}</span>
+      <span>置信 {item.confidence}</span>
+    </div>
+  </header>
+
+  <div class="signal-item__body" data-selectable-copy>
+    <p class="signal-item__summary">{item.summary}</p>
+    {item.whatChanged && <div><h4>变化</h4><p>{item.whatChanged}</p></div>}
+    <div><h4>与你有关</h4><p>{item.whyItMatters}</p></div>
+    {item.suggestedAction && <div class="signal-item__action"><h4>可行动</h4><p>{item.suggestedAction}</p></div>}
+  </div>
+
+  <footer class="signal-item__footer">
+    <div class="signal-sources">
+      <span>来源</span>
+      {item.sources.map((source) => (
+        <a href={source.url} target={source.url.startsWith("http") ? "_blank" : undefined} rel={source.url.startsWith("http") ? "noreferrer" : undefined}>
+          {source.publisher ?? source.title}<span aria-hidden="true">↗</span>
+        </a>
+      ))}
+    </div>
+    <button class="signal-comment-trigger" type="button" data-mobile-comment>
+      <span>回应这条</span><span aria-hidden="true">＋</span>
+    </button>
+  </footer>
+</article>

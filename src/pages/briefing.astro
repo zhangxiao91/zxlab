@@ -1,0 +1,317 @@
+---
+import Layout from "../layouts/Layout.astro";
+import AnnotationPanel from "../features/briefing/components/AnnotationPanel.astro";
+import BriefingHeader from "../features/briefing/components/BriefingHeader.astro";
+import BriefingItemCard from "../features/briefing/components/BriefingItemCard.astro";
+import BriefingStateView from "../features/briefing/components/BriefingStateView.astro";
+import BriefingStats from "../features/briefing/components/BriefingStats.astro";
+import { getLatestBriefing } from "../features/briefing/client";
+import "../styles/briefing.css";
+
+const briefing = await getLatestBriefing("ready");
+const longTermThreads = [
+  ["Agent 工作流", "观察持久化状态、幂等重试与人工恢复边界。"],
+  ["存储芯片周期", "交叉验证库存、资本开支与产能迁移。"],
+  ["zxlab 基础设施", "追踪边缘运行适配、数据边界与成本上限。"],
+  ["低成本 Benchmark", "用真实开发轨迹检验 prompt、memory 与工具变化。"],
+];
+---
+
+<Layout
+  title="ZX Signal | zxlab"
+  description="每天真正值得我关注的变化，一份可回应、可积累的个人日报。"
+  lang="zh-CN"
+>
+  <main class="signal-page">
+    <BriefingHeader briefing={briefing} />
+
+    <aside class="signal-partial" role="status" data-partial-preview hidden>
+      <span aria-hidden="true"></span>
+      <div><strong>部分来源暂时不可用</strong><p>已交付可以确认的 6 条内容，其余候选不会在证据不足时补齐。</p></div>
+    </aside>
+
+    <BriefingStateView state="generating" hidden />
+    <BriefingStateView state="failed" hidden />
+    <BriefingStateView state="empty" hidden />
+
+    <div data-ready-content>
+        <BriefingStats briefing={briefing} />
+
+        <section class="signal-stream" aria-labelledby="stream-title">
+          <div class="signal-stream__intro">
+            <p>今日重点</p>
+            <h2 id="stream-title">不是更多资讯，<br />是更少的噪音。</h2>
+            <p>选中正文里的任意判断，留下评论、质疑或追踪条件。你的反馈只会先成为候选，不会自动变成长期记忆。</p>
+          </div>
+          <div class="signal-stream__items">
+            {briefing.items.map((item, index) => <BriefingItemCard item={item} index={index} />)}
+          </div>
+        </section>
+
+        <section class="signal-threads" aria-labelledby="threads-title">
+          <div class="signal-threads__heading">
+            <p>长期线索</p>
+            <h2 id="threads-title">今天的变化，之后会连成线。</h2>
+          </div>
+          <div class="signal-accordion">
+            {longTermThreads.map(([title, description], index) => (
+              <article tabindex="0">
+                <span>{String(index + 1).padStart(2, "0")}</span>
+                <div><h3>{title}</h3><p>{description}</p></div>
+                <i aria-hidden="true"></i>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section class="signal-action" aria-labelledby="signal-action-title">
+          <p>本阶段的闭环已经在浏览器内成立</p>
+          <h2 id="signal-action-title">阅读，回应，确认什么值得留下。</h2>
+          <a href="#stream-title"><span>回到今日重点</span><span aria-hidden="true">↑</span></a>
+        </section>
+    </div>
+  </main>
+
+  <AnnotationPanel slot="overlay" />
+
+  <script>
+    import gsap from "gsap";
+    import { ScrollTrigger } from "gsap/ScrollTrigger";
+    import {
+      createAnnotation,
+      requestAnnotationReply,
+      updateMemoryCandidate,
+    } from "../features/briefing/client";
+    import { briefingSessionStore } from "../features/briefing/store";
+    import type {
+      AnnotationAction,
+      MemoryCandidate,
+      MemoryScope,
+    } from "../features/briefing/types";
+
+    gsap.registerPlugin(ScrollTrigger);
+
+    const previewState = new URL(window.location.href).searchParams.get("state") ?? "ready";
+    const supportedStates = ["ready", "generating", "partial", "failed", "empty"];
+    const activeState = supportedStates.includes(previewState) ? previewState : "ready";
+    const showReadyContent = activeState === "ready" || activeState === "partial";
+    document.querySelector<HTMLElement>("[data-ready-content]")?.toggleAttribute("hidden", !showReadyContent);
+    document.querySelector<HTMLElement>("[data-partial-preview]")?.toggleAttribute("hidden", activeState !== "partial");
+    document.querySelectorAll<HTMLElement>("[data-preview-state]").forEach((element) => {
+      element.toggleAttribute("hidden", element.dataset.previewState !== activeState);
+    });
+    const statusLabel = document.querySelector<HTMLElement>("[data-briefing-status]");
+    if (statusLabel) {
+      statusLabel.textContent = {
+        ready: "已就绪",
+        partial: "部分完成",
+        generating: "生成中",
+        failed: "生成失败",
+        empty: "已扫描",
+      }[activeState];
+    }
+
+    const menu = document.querySelector<HTMLElement>("[data-annotation-menu]");
+    const panel = document.querySelector<HTMLElement>("[data-annotation-panel]");
+    const scrim = document.querySelector<HTMLElement>("[data-annotation-scrim]");
+    const form = document.querySelector<HTMLFormElement>("[data-annotation-form]");
+    const result = document.querySelector<HTMLElement>("[data-annotation-result]");
+    const selectionOutput = document.querySelector<HTMLElement>("[data-panel-selection]");
+    const itemOutput = document.querySelector<HTMLElement>("[data-panel-item]");
+    const closeButton = document.querySelector<HTMLButtonElement>("[data-panel-close]");
+    const submitLabel = document.querySelector<HTMLElement>("[data-submit-label]");
+    const session = briefingSessionStore.load();
+    let selectedItem: HTMLElement | null = null;
+    let selectedText = "";
+    let activeCandidate: MemoryCandidate | null = null;
+
+    const setPanel = (open: boolean) => {
+      if (!panel || !scrim) return;
+      panel.setAttribute("aria-hidden", String(!open));
+      scrim.hidden = !open;
+      document.body.classList.toggle("annotation-open", open);
+      if (open) {
+        gsap.fromTo(panel, { xPercent: 100 }, { xPercent: 0, duration: 0.72, ease: "power4.out" });
+        window.setTimeout(() => form?.querySelector<HTMLTextAreaElement>("textarea")?.focus(), 420);
+      }
+    };
+
+    const hideMenu = () => {
+      if (menu) menu.hidden = true;
+    };
+
+    const openPanel = (action: AnnotationAction) => {
+      if (!form || !selectedItem || !selectedText) return;
+      form.reset();
+      result?.setAttribute("hidden", "");
+      activeCandidate = null;
+      const itemId = selectedItem.dataset.briefingItem ?? "";
+      const itemTitle = selectedItem.dataset.itemTitle ?? "日报条目";
+      (form.elements.namedItem("itemId") as HTMLInputElement).value = itemId;
+      (form.elements.namedItem("action") as HTMLInputElement).value = action;
+      (form.elements.namedItem("selectedText") as HTMLInputElement).value = selectedText;
+      if (selectionOutput) selectionOutput.textContent = `“${selectedText}”`;
+      if (itemOutput) itemOutput.textContent = itemTitle;
+      hideMenu();
+      setPanel(true);
+    };
+
+    const captureSelection = () => {
+      const selection = window.getSelection();
+      const text = selection?.toString().trim().replace(/\s+/g, " ") ?? "";
+      if (!selection || text.length < 6 || selection.rangeCount === 0) {
+        hideMenu();
+        return;
+      }
+      const range = selection.getRangeAt(0);
+      const origin = range.commonAncestorContainer instanceof Element
+        ? range.commonAncestorContainer
+        : range.commonAncestorContainer.parentElement;
+      const body = origin?.closest<HTMLElement>("[data-selectable-copy]");
+      const item = body?.closest<HTMLElement>("[data-briefing-item]");
+      if (!body || !item || !menu) {
+        hideMenu();
+        return;
+      }
+      selectedItem = item;
+      selectedText = text.slice(0, 420);
+      const rect = range.getBoundingClientRect();
+      menu.hidden = false;
+      const left = Math.min(window.innerWidth - menu.offsetWidth - 12, Math.max(12, rect.left + rect.width / 2 - menu.offsetWidth / 2));
+      const top = Math.max(12, rect.top - menu.offsetHeight - 12);
+      menu.style.transform = `translate3d(${left}px, ${top}px, 0)`;
+    };
+
+    document.addEventListener("mouseup", () => window.setTimeout(captureSelection));
+    document.addEventListener("selectionchange", () => {
+      if (!window.getSelection()?.toString().trim()) hideMenu();
+    });
+    document.addEventListener("pointerdown", (event) => {
+      const target = event.target as Element;
+      if (!target.closest("[data-annotation-menu]") && !target.closest("[data-selectable-copy]")) hideMenu();
+    });
+
+    menu?.addEventListener("click", (event) => {
+      const button = (event.target as Element).closest<HTMLButtonElement>("[data-action]");
+      if (button) openPanel(button.dataset.action as AnnotationAction);
+    });
+
+    document.querySelectorAll<HTMLButtonElement>("[data-mobile-comment]").forEach((button) => {
+      button.addEventListener("click", () => {
+        selectedItem = button.closest<HTMLElement>("[data-briefing-item]");
+        selectedText = selectedItem?.querySelector<HTMLElement>(".signal-item__summary")?.textContent?.trim() ?? "";
+        openPanel("comment");
+      });
+    });
+
+    form?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const values = new FormData(form);
+      const comment = String(values.get("comment") ?? "").trim();
+      if (!comment) return;
+      const submit = form.querySelector<HTMLButtonElement>("button[type='submit']");
+      if (submit) submit.disabled = true;
+      if (submitLabel) submitLabel.textContent = "Signal 正在回应";
+
+      const annotation = await createAnnotation({
+        briefingItemId: String(values.get("itemId")),
+        selectedText: String(values.get("selectedText")),
+        comment,
+        action: String(values.get("action")) as AnnotationAction,
+      });
+      session.annotations.push(annotation);
+      briefingSessionStore.save(session);
+
+      const response = await requestAnnotationReply(annotation);
+      session.replies.push(response.reply);
+      session.memoryCandidates.push(response.memoryCandidate);
+      briefingSessionStore.save(session);
+      activeCandidate = response.memoryCandidate;
+
+      const replyContent = document.querySelector<HTMLElement>("[data-reply-content]");
+      const memoryContent = document.querySelector<HTMLElement>("[data-memory-content]");
+      const confidence = document.querySelector<HTMLElement>("[data-memory-confidence]");
+      const scope = document.querySelector<HTMLSelectElement>("[data-memory-scope]");
+      const memoryStatus = document.querySelector<HTMLElement>("[data-memory-status]");
+      if (replyContent) replyContent.textContent = response.reply.content;
+      if (memoryContent) memoryContent.textContent = `“${response.memoryCandidate.content}”`;
+      if (confidence) confidence.textContent = `置信 ${Math.round(response.memoryCandidate.confidence * 100)}`;
+      if (scope) scope.value = response.memoryCandidate.scope;
+      if (memoryStatus) memoryStatus.hidden = true;
+      result?.removeAttribute("hidden");
+      result?.scrollIntoView({ behavior: "smooth", block: "start" });
+      if (submit) submit.disabled = false;
+      if (submitLabel) submitLabel.textContent = "再次发送";
+    });
+
+    const resolveMemory = async (action: "accept" | "reject") => {
+      if (!activeCandidate) return;
+      const scope = document.querySelector<HTMLSelectElement>("[data-memory-scope]");
+      const status = document.querySelector<HTMLElement>("[data-memory-status]");
+      activeCandidate = await updateMemoryCandidate(activeCandidate, action, scope?.value as MemoryScope);
+      const index = session.memoryCandidates.findIndex((candidate) => candidate.id === activeCandidate?.id);
+      if (index >= 0) session.memoryCandidates[index] = activeCandidate;
+      briefingSessionStore.save(session);
+      if (status) {
+        status.hidden = false;
+        status.textContent = action === "accept"
+          ? `已保存，范围：${scope?.selectedOptions[0]?.textContent ?? "当前选择"}。`
+          : "已忽略，这条建议不会影响后续日报。";
+      }
+    };
+
+    document.querySelector("[data-memory-accept]")?.addEventListener("click", () => void resolveMemory("accept"));
+    document.querySelector("[data-memory-reject]")?.addEventListener("click", () => void resolveMemory("reject"));
+    closeButton?.addEventListener("click", () => setPanel(false));
+    scrim?.addEventListener("click", () => setPanel(false));
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") setPanel(false);
+    });
+
+    const motion = gsap.matchMedia();
+    motion.add("(prefers-reduced-motion: no-preference)", () => {
+      gsap.from(".signal-hero__copy > *", {
+        y: 42,
+        opacity: 0,
+        duration: 1.05,
+        stagger: 0.09,
+        ease: "power3.out",
+      });
+      gsap.from(".signal-editorial", { y: 54, opacity: 0, duration: 1.2, delay: 0.14, ease: "power3.out" });
+      gsap.fromTo(".signal-editorial__visual", { scale: 0.8, opacity: 0.45 }, {
+        scale: 1,
+        opacity: 1,
+        ease: "none",
+        scrollTrigger: { trigger: ".signal-hero", start: "top top", end: "bottom 30%", scrub: 0.8 },
+      });
+      gsap.to(".signal-editorial__visual", {
+        opacity: 0.2,
+        scale: 0.92,
+        ease: "none",
+        scrollTrigger: { trigger: ".signal-filter", start: "top 90%", end: "top 40%", scrub: 0.8 },
+      });
+      const summary = document.querySelector<HTMLElement>("[data-scrub-summary]");
+      if (summary) {
+        const words = summary.textContent?.split("") ?? [];
+        summary.innerHTML = words.map((word) => word === " " ? " " : `<span>${word}</span>`).join("");
+        gsap.fromTo(summary.querySelectorAll("span"), { opacity: 0.35 }, {
+          opacity: 1,
+          stagger: 0.025,
+          ease: "none",
+          scrollTrigger: { trigger: summary, start: "top 82%", end: "bottom 38%", scrub: 0.7 },
+        });
+      }
+      gsap.utils.toArray<HTMLElement>(".signal-item, .signal-threads, .signal-action").forEach((element) => {
+        gsap.from(element, {
+          y: 64,
+          opacity: 0,
+          duration: 1.05,
+          ease: "power3.out",
+          scrollTrigger: { trigger: element, start: "top 88%" },
+        });
+      });
+    });
+
+    window.addEventListener("pagehide", () => motion.revert(), { once: true });
+  </script>
+</Layout>

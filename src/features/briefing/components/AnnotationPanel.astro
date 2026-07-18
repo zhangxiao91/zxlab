@@ -1,0 +1,55 @@
+<div class="annotation-menu" data-annotation-menu hidden>
+  <button type="button" data-action="comment">评论</button>
+  <button type="button" data-action="explain">深入解释</button>
+  <button type="button" data-action="challenge">质疑判断</button>
+  <button type="button" data-action="remember">记住我的看法</button>
+  <button type="button" data-action="track">继续追踪</button>
+</div>
+
+<div class="annotation-scrim" data-annotation-scrim hidden></div>
+<aside class="annotation-panel" data-annotation-panel aria-labelledby="annotation-title" aria-hidden="true">
+  <header>
+    <div><p>把阅读变成反馈</p><h2 id="annotation-title">回应这条信号</h2></div>
+    <button type="button" data-panel-close aria-label="关闭评论面板">×</button>
+  </header>
+
+  <div class="annotation-panel__content">
+    <section class="annotation-context">
+      <p data-panel-item>日报条目</p>
+      <blockquote data-panel-selection></blockquote>
+    </section>
+
+    <form data-annotation-form>
+      <input type="hidden" name="itemId" />
+      <input type="hidden" name="action" />
+      <input type="hidden" name="selectedText" />
+      <label for="annotation-comment">你的判断</label>
+      <textarea id="annotation-comment" name="comment" rows="5" required placeholder="写下你真正关心的约束、疑问或反例…"></textarea>
+      <button type="submit"><span data-submit-label>发送给 Signal</span><span aria-hidden="true">↗</span></button>
+    </form>
+
+    <section class="annotation-result" data-annotation-result hidden aria-live="polite">
+      <div class="annotation-reply">
+        <p>Signal 回应</p>
+        <div data-reply-content></div>
+      </div>
+      <div class="memory-candidate" data-memory-candidate>
+        <header><p>Memory 建议</p><span data-memory-confidence></span></header>
+        <blockquote data-memory-content></blockquote>
+        <p class="memory-candidate__source">来源：本次评论与所选日报原文。保存前不会影响后续日报。</p>
+        <label for="memory-scope">作用范围</label>
+        <select id="memory-scope" data-memory-scope>
+          <option value="discussion">仅本次讨论</option>
+          <option value="project">记入 zxlab 项目</option>
+          <option value="preference">记为长期偏好</option>
+          <option value="belief">记录为当前判断</option>
+        </select>
+        <div class="memory-candidate__actions">
+          <button type="button" data-memory-accept>确认保存</button>
+          <button type="button" data-memory-reject>忽略</button>
+        </div>
+        <p class="memory-candidate__status" data-memory-status hidden></p>
+      </div>
+    </section>
+  </div>
+</aside>
