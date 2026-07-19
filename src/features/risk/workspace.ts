@@ -3,7 +3,8 @@ import { LocalRiskJournalRepository } from "./journal";
 import { buildPositionsDetailed, reconcilePositions, type PortfolioRepository } from "./ledger";
 import { marketFreshnessText, marketSnapshotStatus } from "./market-clock";
 import { ApiMarketDataProvider, MockMarketDataProvider, type MarketDataProvider } from "./market";
-import { instruments, mockPortfolioHistory, mockRiskRules, mockTradePlans, mockTransactions } from "./mock";
+import { instruments, mockRiskRules, mockTradePlans, mockTransactions } from "./mock";
+import { buildPortfolioHistory } from "./portfolio-history";
 import { MockReviewService, type ReviewService } from "./review";
 import type { ActivityItem, DailyWorkflowStep, MarketDiagnostics, MarketProviderMode, PortfolioDiagnostics, Quote, RiskDashboardData, Transaction } from "./types";
 
@@ -21,12 +22,16 @@ export class RiskWorkspaceService {
     const reconciliation = reconcilePositions(built, this.repository.getBrokerPositions());
     let quotes: Quote[] = [], marketError: string | null = null;
     const provider: MarketDataProvider = mode === "api" ? new ApiMarketDataProvider() : new MockMarketDataProvider();
+    const instrumentIds = [...new Set(transactions.map((item) => item.instrumentId).filter((item): item is string => Boolean(item)))];
     const marketStarted = Date.now();
+    const historyPromise = Promise.allSettled(instrumentIds.map((instrumentId) => provider.getBars(instrumentId, "1d")));
     try {
       quotes = await provider.getQuotes(built.positions.map((item) => item.instrumentId));
       if (mode === "api" && quotes.length > 0 && quotes.every((item) => item.quality === "unavailable")) marketError = "全部行情上游不可用";
     }
     catch (error) { marketError = error instanceof Error ? error.message : "行情网关失败"; }
+    const historyResults = await historyPromise;
+    const bars = historyResults.flatMap((result) => result.status === "fulfilled" ? result.value : []);
     const marketFinished = this.clock();
     const previousOperations = this.journal.getOperations();
     const quoteWarnings = quotes.flatMap((item) => item.warnings);
@@ -44,7 +49,7 @@ export class RiskWorkspaceService {
     };
     this.journal.saveMarket(marketDiagnostics);
     const riskStarted = Date.now();
-    const calculated = calculateRisk({ transactions, positions: built.positions, quotes, tradePlans: mockTradePlans, riskRules: mockRiskRules, portfolioHistory: mockPortfolioHistory, reconciliation, now: marketFinished });
+    const calculated = calculateRisk({ transactions, positions: built.positions, quotes, tradePlans: mockTradePlans, riskRules: mockRiskRules, portfolioHistory: [], reconciliation, now: marketFinished });
     const riskDurationMs = Date.now() - riskStarted;
     if (marketError) { calculated.warnings.unshift(`ApiMarketDataProvider: ${marketError}`); calculated.evidencePack.warnings.unshift(`ApiMarketDataProvider: ${marketError}`); }
     const reviewExecution = await this.reviewService.review(calculated.evidencePack);
@@ -55,7 +60,7 @@ export class RiskWorkspaceService {
     const fallbackCount = quotes.filter((item) => item.fallbackUsed).length;
     const unavailableCount = quotes.filter((item) => item.quality === "unavailable").length;
     const marketFreshness = marketError ?? marketFreshnessText(snapshotStatus, marketSources, fallbackCount);
-    const history = [...mockPortfolioHistory.slice(0, -1), { date: new Date(now).toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" }).replace("/", "-"), value: calculated.portfolio.netValue, drawdown: mockPortfolioHistory.at(-1)?.drawdown ?? 0 }];
+    const history = buildPortfolioHistory({ transactions, bars, quotes, valuationAt: now });
     const activity: ActivityItem[] = [
       ...calculated.events.map((item) => ({ id: `activity:${item.id}`, time: item.triggeredAt.slice(11, 16), type: "rule" as const, title: item.title, detail: item.message, evidenceId: item.id, tone: item.severity === "critical" || item.severity === "high" ? "danger" as const : "warning" as const })),
       ...[...transactions].reverse().map((item) => ({ id: `activity:transaction:${item.id}`, time: item.executedAt.slice(11, 16), type: "trade" as const, title: `${item.type} ${item.instrumentId ?? item.account}`, detail: `${item.quantity ? `${item.quantity} 份 · ` : ""}${item.price ? `价格/金额 ${item.price}` : "现金事件"} · 费用 ${item.fee}`, evidenceId: `transaction:${item.id}`, tone: item.type === "SELL" || item.type === "DIVIDEND" ? "positive" as const : "neutral" as const })),
@@ -72,7 +77,7 @@ export class RiskWorkspaceService {
     const workflow = workflowSteps({ transactions, reconciliationUnresolved: reconciliation.unresolved, market: marketDiagnostics, riskWarnings: calculated.warnings, currentRunStatus: currentRun?.status, complete: this.journal.isDateComplete(analysisDate) });
     return {
       asOf: now, receivedAt: now, accountName: "个人交易账户", currency: "CNY", dataMode: mode,
-      portfolio: { ...calculated.portfolio, dayReturn: calculated.portfolio.netValue ? calculated.portfolio.dayPnl / calculated.portfolio.netValue : 0, currentDrawdown: history.at(-1)?.drawdown ?? 0, maxDrawdown: Math.min(...history.map((item) => item.drawdown)), riskBudgetUsed: calculated.portfolio.netValue ? Math.abs(Math.min(0, calculated.portfolio.dayPnl)) / (calculated.portfolio.netValue * 0.025) : 0 },
+      portfolio: { ...calculated.portfolio, dayReturn: calculated.portfolio.netValue ? calculated.portfolio.dayPnl / calculated.portfolio.netValue : 0, currentDrawdown: history.at(-1)?.drawdown ?? 0, maxDrawdown: history.length ? Math.min(...history.map((item) => item.drawdown)) : 0, riskBudgetUsed: calculated.portfolio.netValue ? Math.abs(Math.min(0, calculated.portfolio.dayPnl)) / (calculated.portfolio.netValue * 0.025) : 0 },
       sourceHealth: [
         { name: provider.name, status: marketError ? "offline" : unavailableCount || fallbackCount || snapshotStatus === "stale" ? "degraded" : "healthy", latency: mode === "mock" ? "本地" : "三源网关", freshness: marketFreshness },
         { name: "本地交易账本", status: built.anomalies.length ? "degraded" : "healthy", latency: "浏览器", freshness: `${transactions.length} 条事件` },
