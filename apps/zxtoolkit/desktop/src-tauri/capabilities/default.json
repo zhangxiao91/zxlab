@@ -6,8 +6,10 @@
   "permissions": [
     "core:default",
     "clipboard-manager:allow-read-text",
+    "clipboard-manager:allow-read-image",
     "store:default",
     "opener:allow-open-url",
-    "autostart:default"
+    "autostart:default",
+    "notification:default"
   ]
 }

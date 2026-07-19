@@ -15,7 +15,46 @@ interface MailboxState {
   pulse?: PublicPulseSnapshot;
 }
 
+interface SocketTicket { hash: string; expiresAt: number; }
+
 export class DeviceMailbox extends DurableObject<Env> {
+  async issueSocketTicket(hash: string, expiresAt: number): Promise<void> {
+    await this.ctx.storage.put<SocketTicket>("inbox-socket-ticket", { hash, expiresAt });
+  }
+
+  async fetch(request: Request): Promise<Response> {
+    if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") return new Response("WebSocket upgrade required", { status: 426 });
+    const ticketValue = new URL(request.url).searchParams.get("ticket") ?? "";
+    const ticket = await this.ctx.storage.get<SocketTicket>("inbox-socket-ticket");
+    if (!ticketValue || !ticket || ticket.expiresAt <= Date.now() || !constantTimeEqual(await hashToken(ticketValue), ticket.hash)) return new Response("Socket ticket unavailable", { status: 401 });
+    await this.ctx.storage.delete("inbox-socket-ticket");
+    const pair = new WebSocketPair();
+    const [client, server] = Object.values(pair);
+    this.ctx.acceptWebSocket(server, ["inbox"]);
+    server.serializeAttachment({ connectedAt: Date.now() });
+    server.send(JSON.stringify({ type: "connected" }));
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
+  async notifyInbox(item: DropItem): Promise<void> {
+    const message = JSON.stringify({ type: "drop_ready", item });
+    for (const socket of this.ctx.getWebSockets("inbox")) {
+      try { socket.send(message); } catch { /* closed sockets are removed by the runtime */ }
+    }
+  }
+
+  async webSocketMessage(socket: WebSocket, message: string | ArrayBuffer): Promise<void> {
+    if (typeof message !== "string") return;
+    try {
+      const parsed = JSON.parse(message) as unknown;
+      if (parsed && typeof parsed === "object" && "type" in parsed && parsed.type === "ping") socket.send(JSON.stringify({ type: "pong" }));
+    } catch { /* ignore malformed client frames */ }
+  }
+
+  async webSocketClose(socket: WebSocket, code: number, reason: string): Promise<void> {
+    socket.close(code, reason);
+  }
+
   async initialize(device: Device, tokenHash: string): Promise<void> {
     const existing = await this.ctx.storage.get<MailboxState>("mailbox");
     if (existing) return;
@@ -76,6 +115,27 @@ export class DeviceMailbox extends DurableObject<Env> {
     if (!state) return false;
     if (state.pulse && Date.parse(state.pulse.expiresAt) <= Date.now()) state.pulse = undefined;
     await this.ctx.storage.put("mailbox", state);
+    return state.pulse ?? null;
+  }
+
+  async publishPulseInternal(device: Device, snapshot: PublicPulseSnapshot): Promise<{ deviceName: string; snapshot: PublicPulseSnapshot } | null> {
+    const state = await this.requiredState();
+    const normalized = normalizeDevice(device);
+    if (state.revoked || !normalized.capabilities.includes("pulse.publish")) return null;
+    state.device = normalized;
+    state.pulse = snapshot;
+    await this.ctx.storage.put("mailbox", state);
+    await this.scheduleCleanup(state);
+    return { deviceName: normalized.name, snapshot };
+  }
+
+  async getPulseInternal(): Promise<PublicPulseSnapshot | null> {
+    const state = await this.requiredState();
+    if (state.revoked) return null;
+    if (state.pulse && Date.parse(state.pulse.expiresAt) <= Date.now()) {
+      state.pulse = undefined;
+      await this.ctx.storage.put("mailbox", state);
+    }
     return state.pulse ?? null;
   }
 

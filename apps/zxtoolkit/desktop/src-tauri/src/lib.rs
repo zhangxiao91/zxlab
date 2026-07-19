@@ -4,15 +4,56 @@ use tauri::{
     Manager, PhysicalPosition, Position, WindowEvent,
 };
 
+const KEYCHAIN_SERVICE: &str = "dev.zxlab.zxtoolkit.device";
+
+#[tauri::command]
+async fn keychain_set(device_id: String, token: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let entry = keyring::Entry::new(KEYCHAIN_SERVICE, &device_id).map_err(|_| "无法连接 macOS 钥匙串".to_string())?;
+        entry.set_password(&token).map_err(|_| "无法保存设备凭证到 macOS 钥匙串".to_string())
+    })
+    .await
+    .map_err(|_| "保存设备凭证失败".to_string())?
+}
+
+#[tauri::command]
+async fn keychain_get(device_id: String) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let entry = keyring::Entry::new(KEYCHAIN_SERVICE, &device_id).map_err(|_| "无法连接 macOS 钥匙串".to_string())?;
+        match entry.get_password() {
+            Ok(token) => Ok(Some(token)),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(_) => Err("无法读取 macOS 钥匙串中的设备凭证".to_string()),
+        }
+    })
+    .await
+    .map_err(|_| "读取设备凭证失败".to_string())?
+}
+
+#[tauri::command]
+async fn keychain_delete(device_id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let entry = keyring::Entry::new(KEYCHAIN_SERVICE, &device_id).map_err(|_| "无法连接 macOS 钥匙串".to_string())?;
+        match entry.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+            Err(_) => Err("无法从 macOS 钥匙串删除设备凭证".to_string()),
+        }
+    })
+    .await
+    .map_err(|_| "删除设备凭证失败".to_string())?
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
+        .invoke_handler(tauri::generate_handler![keychain_set, keychain_get, keychain_delete])
         .setup(|app| {
             // One-time migration from the pre-zxtoolkit bundle identifier. This keeps
             // existing device tokens and default targets without exposing them to JS.

@@ -19,7 +19,8 @@
     "lint": "eslint src shared worker/src desktop/src desktop/vite.config.ts vite.config.ts",
     "build": "tsc -b && vite build",
     "preview": "vite preview --port 4173",
-    "test": "vitest run"
+    "test": "vitest run",
+    "smoke:local": "node scripts/smoke-local.mjs"
   },
   "dependencies": {
     "gsap": "^3.13.0",
@@ -29,6 +30,7 @@
     "@tauri-apps/plugin-autostart": "^2.5.1",
     "@tauri-apps/plugin-clipboard-manager": "^2.3.2",
     "@tauri-apps/plugin-opener": "^2.5.4",
+    "@tauri-apps/plugin-notification": "^2.3.2",
     "@tauri-apps/plugin-store": "^2.4.3",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

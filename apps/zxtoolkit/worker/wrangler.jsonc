@@ -14,6 +14,10 @@
     "ENVIRONMENT": "production",
     "TURNSTILE_EXPECTED_HOSTNAMES": "zxtoolkit.pages.dev",
     "SESSION_TTL_SECONDS": "600",
+    "PAIRING_TTL_SECONDS": "600",
+    "DROP_TTL_SECONDS": "86400",
+    "DROP_RECORD_RETENTION_SECONDS": "604800",
+    "DAILY_DROP_LIMIT": "200",
     "MAX_FILE_BYTES": "20971520",
     "DAILY_UPLOAD_LIMIT": "500",
     "DAILY_UPLOAD_BYTES": "2147483648"
@@ -30,6 +34,17 @@
       "preview_bucket_name": "zxdrop-files-preview"
     }
   ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "zxtoolkit",
+      "database_id": "7b27fff5-7831-444b-bab8-5e93358ab5e4",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "triggers": {
+    "crons": ["*/15 * * * *"]
+  },
   "durable_objects": {
     "bindings": [
       { "name": "SESSIONS", "class_name": "TransferSession" },

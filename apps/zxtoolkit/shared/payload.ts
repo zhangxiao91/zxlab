@@ -1,4 +1,4 @@
-import type { DropPayload } from "./types";
+import type { DropPayload, DropStatus } from "./types";
 
 export function classifyClipboard(text: string): DropPayload {
   const trimmed = text.trim();
@@ -23,5 +23,20 @@ export function validateDropPayload(value: unknown): DropPayload | null {
       return { type: "url", url: url.toString(), title };
     } catch { return null; }
   }
+  if (value.type === "image" && "fileName" in value && "mimeType" in value && "size" in value) {
+    const allowed = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+    const fileName = typeof value.fileName === "string" ? value.fileName.trim().slice(0, 180) : "";
+    const mimeType = typeof value.mimeType === "string" && allowed.has(value.mimeType) ? value.mimeType as "image/png" | "image/jpeg" | "image/webp" | "image/gif" : null;
+    const size = typeof value.size === "number" && Number.isSafeInteger(value.size) ? value.size : 0;
+    if (!fileName || !mimeType || size <= 0 || size > 20 * 1024 * 1024) return null;
+    const width = "width" in value && typeof value.width === "number" && Number.isSafeInteger(value.width) && value.width > 0 ? value.width : undefined;
+    const height = "height" in value && typeof value.height === "number" && Number.isSafeInteger(value.height) && value.height > 0 ? value.height : undefined;
+    return { type: "image", fileName, mimeType, size, width, height };
+  }
   return null;
+}
+
+export function canAdvanceDropStatus(current: DropStatus, next: "opened" | "claimed"): boolean {
+  if (next === "opened") return current === "delivered";
+  return current === "delivered" || current === "opened";
 }

@@ -16,9 +16,10 @@ export interface Device {
 
 export type DropPayload =
   | { type: "text"; text: string }
-  | { type: "url"; url: string; title?: string };
+  | { type: "url"; url: string; title?: string }
+  | { type: "image"; fileName: string; mimeType: "image/png" | "image/jpeg" | "image/webp" | "image/gif"; size: number; width?: number; height?: number };
 
-export type DropStatus = "pending" | "sent" | "delivered" | "opened" | "expired" | "failed";
+export type DropStatus = "pending" | "sent" | "delivered" | "opened" | "claimed" | "expired" | "failed";
 
 export interface DropItem {
   id: string;
@@ -29,6 +30,13 @@ export interface DropItem {
   status: DropStatus;
   createdAt: string;
   expiresAt: string;
+  statusUpdatedAt?: string;
+  failureReason?: string;
+}
+
+export interface InboxPage {
+  items: DropItem[];
+  nextCursor: string | null;
 }
 
 export type Presence = "online" | "recently_online" | "offline";
