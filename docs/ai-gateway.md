@@ -6,9 +6,10 @@ credential, model selection, or fallback decision is shipped to the browser.
 
 ## Call flow
 
-1. Business code calls `generateAI()` from `src/lib/ai/client.ts`.
+1. Business code calls `generateAI()` for a complete JSON response or
+   `streamAI()` for incremental SSE events from `src/lib/ai/client.ts`.
 2. The client posts only `task`, `messages`, and generation parameters to
-   `POST /api/ai/generate`.
+   `POST /api/ai/generate` or `POST /api/ai/stream`.
 3. The Pages Function enforces access controls and validates method, content
    type, body size, task, messages, temperature, output-token limit, and allowed
    fields.
@@ -21,6 +22,14 @@ credential, model selection, or fallback decision is shipped to the browser.
 7. Structured output is parsed on the server. A single outer JSON Markdown fence
    is accepted; damaged JSON is never heuristically repaired.
 8. The logger emits one sanitized record per attempt and one request summary.
+
+The streaming route asks the selected provider for Chat Completions SSE and
+forwards bounded text deltas without exposing provider credentials. Its event
+order is `start`, one or more `attempt` and `delta` events, optional `reset`
+events, then exactly one terminal `done` or `error` event. `reset` tells callers
+to discard partial text before a retry or model fallback, preventing output
+from two attempts from being concatenated. Client cancellation aborts the
+active provider request.
 
 ZX Signal calls this endpoint server-to-server with its own encrypted copy of
 `AI_GATEWAY_ACCESS_TOKEN`. Its browser UI never receives that token. Signal
@@ -49,6 +58,28 @@ const result = await generateAI({
 
 console.log(result.text);
 ```
+
+Streaming text example:
+
+```ts
+import { streamAI } from "../lib/ai/client";
+
+let text = "";
+for await (const event of streamAI({
+  task: "notes-summary",
+  messages: [{ role: "user", content: noteBody }],
+  responseFormat: { type: "text" },
+})) {
+  if (event.type === "delta") text += event.text;
+  if (event.type === "reset") text = "";
+  if (event.type === "done") text = event.data.text;
+  if (event.type === "error") throw new Error(event.error.message);
+}
+```
+
+For JSON mode, deltas are only a progress preview. Callers must use
+`event.data.json` from the terminal `done` event because the gateway parses and
+validates the complete structured result before committing it.
 
 Callers cannot set a provider, model, base URL, API key, or fallback chain.
 Unknown input fields are rejected rather than silently forwarded.
@@ -141,6 +172,10 @@ accept a caller-supplied JSON Schema. Signal therefore validates `data.json`
 again with `@zxlab/signal-schema` before any D1 write.
 
 ## Responses
+
+`POST /api/ai/stream` responds with `text/event-stream`. Each SSE `data` field
+contains one typed JSON event. Authentication or input failures detected before
+streaming begins retain the normal JSON error response and HTTP status.
 
 Success:
 

@@ -74,3 +74,49 @@ export type GenerateAIErrorResponse = {
 };
 
 export type GenerateAIResponse = GenerateAISuccessResponse | GenerateAIErrorResponse;
+
+export type AIStreamStartEvent = {
+  type: "start";
+  requestId: string;
+};
+
+export type AIStreamAttemptEvent = {
+  type: "attempt";
+  requestId: string;
+  provider: string;
+  model: string;
+  fallbackIndex: number;
+  attempt: number;
+};
+
+export type AIStreamDeltaEvent = {
+  type: "delta";
+  requestId: string;
+  text: string;
+};
+
+export type AIStreamResetEvent = {
+  type: "reset";
+  requestId: string;
+  reason: "retry" | "fallback";
+};
+
+export type AIStreamDoneEvent = {
+  type: "done";
+  requestId: string;
+  data: GenerateAIResult;
+};
+
+export type AIStreamErrorEvent = {
+  type: "error";
+  requestId: string;
+  error: GenerateAIErrorResponse["error"];
+};
+
+export type AIStreamEvent =
+  | AIStreamStartEvent
+  | AIStreamAttemptEvent
+  | AIStreamDeltaEvent
+  | AIStreamResetEvent
+  | AIStreamDoneEvent
+  | AIStreamErrorEvent;

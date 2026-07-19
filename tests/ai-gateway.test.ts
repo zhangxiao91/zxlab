@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { GenerateAIInput } from "../src/lib/ai/types.ts";
+import { streamAI as streamAIClient } from "../src/lib/ai/client.ts";
+import type { AIStreamEvent, GenerateAIInput } from "../src/lib/ai/types.ts";
 import type { ModelCandidate } from "../functions/_lib/ai/config.ts";
 import { AIError } from "../functions/_lib/ai/errors.ts";
 import type { AILogger } from "../functions/_lib/ai/logger.ts";
 import { OpenAICompatibleAdapter } from "../functions/_lib/ai/providers/openai-compatible.ts";
 import type { AIProviderAdapter, ProviderGenerateResult } from "../functions/_lib/ai/providers/types.ts";
-import { generateAI } from "../functions/_lib/ai/router.ts";
+import { generateAI, streamAI } from "../functions/_lib/ai/router.ts";
 import { validateGenerateAIInput } from "../functions/_lib/ai/validation.ts";
 import { estimateLLMCost, normalizeUsage, type LLMUsageDatabase } from "../functions/_lib/ai/telemetry.ts";
 
@@ -40,6 +41,11 @@ class ScriptedAdapter implements AIProviderAdapter {
     if (!action) throw new Error("Missing scripted action");
     if (action instanceof AIError) throw action;
     return action;
+  }
+  async stream(candidate: ModelCandidate, _input: GenerateAIInput, _context: unknown, onDelta: (text: string) => Promise<void>): Promise<ProviderGenerateResult> {
+    const result = await this.generate(candidate);
+    await onDelta(result.text);
+    return result;
   }
 }
 
@@ -176,4 +182,76 @@ test("OpenAI-compatible adapter preserves the native fetch receiver", async () =
   });
   assert.equal(receiver, globalThis);
   assert.equal(result.text, "receiver-ok");
+});
+
+test("OpenAI-compatible adapter parses fragmented provider SSE incrementally", async () => {
+  const encoder = new TextEncoder();
+  const chunks = [
+    "data: {\"choices\":[{\"delta\":{\"content\":\"hello \"}}]}\n\n",
+    "data: {\"choices\":[{\"delta\":{\"content\":\"stream\"}}]}",
+    "\n\ndata: {\"choices\":[],\"usage\":{\"prompt_tokens\":2,\"completion_tokens\":2,\"total_tokens\":4}}\n\ndata: [DONE]\n\n",
+  ];
+  let requestBody: Record<string, unknown> | undefined;
+  let receiver: unknown;
+  const fetcher = async function (this: unknown, _url: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+    receiver = this;
+    requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return new Response(new ReadableStream({
+      pull(controller) {
+        const chunk = chunks.shift();
+        if (chunk === undefined) controller.close();
+        else controller.enqueue(encoder.encode(chunk));
+      },
+    }), { headers: { "content-type": "text/event-stream" } });
+  } as typeof fetch;
+  const deltas: string[] = [];
+  const result = await new OpenAICompatibleAdapter().stream(candidates[0], input, {
+    requestId: "stream-receiver-test", timeoutMs: 1_000, fetcher,
+  }, async (delta) => { deltas.push(delta); });
+  assert.equal(receiver, globalThis);
+  assert.equal(requestBody?.stream, true);
+  assert.deepEqual(deltas, ["hello ", "stream"]);
+  assert.equal(result.text, "hello stream");
+  assert.deepEqual(result.usage, { inputTokens: 2, outputTokens: 2, totalTokens: 4 });
+});
+
+test("stream router resets partial output before JSON fallback", async () => {
+  const adapter = new ScriptedAdapter([success("{broken"), success("{\"answer\":42}")]);
+  const events: Array<{ type: string; value?: string }> = [];
+  const result = await streamAI({ ...input, responseFormat: { type: "json" } }, {
+    attempt: async ({ model }) => { events.push({ type: "attempt", value: model }); },
+    delta: async (text) => { events.push({ type: "delta", value: text }); },
+    reset: async (reason) => { events.push({ type: "reset", value: reason }); },
+  }, { candidates, adapters: adapters(adapter) });
+  assert.deepEqual(events, [
+    { type: "attempt", value: "p1-56" },
+    { type: "delta", value: "{broken" },
+    { type: "reset", value: "fallback" },
+    { type: "attempt", value: "p1-55" },
+    { type: "delta", value: "{\"answer\":42}" },
+  ]);
+  assert.equal(result.fallbackIndex, 1);
+  assert.deepEqual(result.json, { answer: 42 });
+});
+
+test("browser stream client parses fragmented SSE through the terminal event", async () => {
+  const encoder = new TextEncoder();
+  const result = success("client-ok");
+  const events: AIStreamEvent[] = [
+    { type: "start", requestId: "client-stream" },
+    { type: "delta", requestId: "client-stream", text: "client-ok" },
+    { type: "done", requestId: "client-stream", data: { text: result.text, provider: "provider1", model: "p1-56", fallbackIndex: 0, latencyMs: 10 } },
+  ];
+  const wire = events.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join("");
+  const split = [wire.slice(0, 17), wire.slice(17, 63), wire.slice(63)];
+  const fetcher = async (): Promise<Response> => new Response(new ReadableStream({
+    pull(controller) {
+      const chunk = split.shift();
+      if (chunk === undefined) controller.close();
+      else controller.enqueue(encoder.encode(chunk));
+    },
+  }), { headers: { "content-type": "text/event-stream; charset=utf-8" } });
+  const received: AIStreamEvent[] = [];
+  for await (const event of streamAIClient(input, { fetcher: fetcher as typeof fetch })) received.push(event);
+  assert.deepEqual(received, events);
 });

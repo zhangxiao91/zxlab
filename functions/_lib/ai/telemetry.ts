@@ -53,7 +53,7 @@ export function telemetryStatus(error?: AIErrorCode): LLMUsageStatus {
 
 export function createUsageEvent(input: {
   requestId: string; context: ReturnType<typeof resolveCallContext>; candidate: ModelCandidate; previousCandidate?: ModelCandidate;
-  fallbackDepth: number; latencyMs: number; status: LLMUsageStatus; usage?: AIUsage; errorCode?: AIErrorCode;
+  fallbackDepth: number; latencyMs: number; status: LLMUsageStatus; usage?: AIUsage; errorCode?: AIErrorCode; isStreaming?: boolean;
 }): LLMUsageEvent {
   const usage = normalizeUsage(input.usage);
   const event = {
@@ -62,7 +62,7 @@ export function createUsageEvent(input: {
     inputTokens: usage?.inputTokens, outputTokens: usage?.outputTokens, cachedInputTokens: usage?.cachedInputTokens,
     reasoningTokens: usage?.reasoningTokens, totalTokens: usage?.totalTokens, latencyMs: Math.max(0, Math.trunc(input.latencyMs)),
     status: input.status, ...(input.errorCode ? { errorType: errorType(input.errorCode), errorCode: input.errorCode } : {}),
-    fallbackDepth: input.fallbackDepth, ...(input.previousCandidate ? { fallbackFromProvider: input.previousCandidate.provider, fallbackFromModel: input.previousCandidate.model } : {}), isStreaming: false,
+    fallbackDepth: input.fallbackDepth, ...(input.previousCandidate ? { fallbackFromProvider: input.previousCandidate.provider, fallbackFromModel: input.previousCandidate.model } : {}), isStreaming: input.isStreaming ?? false,
   } satisfies Omit<LLMUsageEvent, "estimatedCostUsd">;
   return { ...event, estimatedCostUsd: estimateLLMCost(event) };
 }

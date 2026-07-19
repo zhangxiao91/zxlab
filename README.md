@@ -80,8 +80,9 @@ the server-only AI Gateway.
 
 ## AI Gateway
 
-Reusable AI features call `generateAI()` from `src/lib/ai/client.ts`, which sends
-a validated request to `POST /api/ai/generate`. Provider URLs, keys, model IDs,
+Reusable AI features call `generateAI()` or the incremental `streamAI()` from
+`src/lib/ai/client.ts`, which send validated requests to `POST /api/ai/generate`
+or `POST /api/ai/stream`. Provider URLs, keys, model IDs,
 timeouts, retries, fallback routing, and structured-output parsing remain inside
 Cloudflare Pages Functions. The fixed model order is Provider 1 GPT-5.6,
 Provider 1 GPT-5.5, Provider 2 GPT-5.5, then DeepSeek V4 Pro.

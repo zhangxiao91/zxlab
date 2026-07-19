@@ -33,7 +33,8 @@ export async function onRequest(context: FunctionContext): Promise<Response> {
     await enforceAIAccess(context.request, context.env);
     const input = await readGenerateAIRequest(context.request);
     const data = await generateAI(input, { env: context.env, requestId, telemetryDb: context.env.LLM_USAGE_DB,
-      scheduleTelemetry: context.waitUntil ? (task) => context.waitUntil!(task) : undefined });
+      scheduleTelemetry: context.waitUntil ? (task) => context.waitUntil!.call(context, task) : undefined,
+      signal: context.request.signal });
     return json({ ok: true, data, requestId }, 200);
   } catch (cause) {
     const error = cause instanceof AIError ? cause : asAIError(cause);
