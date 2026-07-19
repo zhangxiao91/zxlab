@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     review_mode: str = "mock"
     openai_model: str = "gpt-5-mini"
     quote_stale_seconds: int = 120
+    market_gateway_url: str = ""
 
 
 @lru_cache

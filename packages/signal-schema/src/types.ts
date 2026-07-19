@@ -1,6 +1,15 @@
 export type BriefingCategory = "ai-engineering" | "markets" | "zxlab";
 export type SignalCategory = BriefingCategory | "uncategorized";
-export type SignalSourceType = "rss" | "github-release" | "hacker-news" | "arxiv" | "manual";
+export type SignalSourceType =
+  | "rss"
+  | "github-release"
+  | "hacker-news"
+  | "arxiv"
+  | "producthunt"
+  | "hf-daily-papers"
+  | "web-changelog"
+  | "market-news"
+  | "manual";
 export type CandidateStatus = "new" | "duplicate" | "eligible" | "filtered" | "selected" | "archived";
 export type BriefingStatus = "generating" | "ready" | "partial" | "failed";
 export type BriefingDataOrigin = "mock" | "fixture" | "real";

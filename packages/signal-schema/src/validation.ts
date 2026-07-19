@@ -21,7 +21,7 @@ export class SignalValidationError extends Error {
 type JsonRecord = Record<string, unknown>;
 const categories = ["ai-engineering", "markets", "zxlab"] as const;
 const signalCategories = ["ai-engineering", "markets", "zxlab", "uncategorized"] as const;
-const sourceTypes = ["rss", "github-release", "hacker-news", "arxiv", "manual"] as const;
+const sourceTypes = ["rss", "github-release", "hacker-news", "arxiv", "producthunt", "hf-daily-papers", "web-changelog", "market-news", "manual"] as const;
 const candidateStatuses = ["new", "duplicate", "eligible", "filtered", "selected", "archived"] as const;
 const actions = ["comment", "explain", "challenge", "remember", "track"] as const;
 const scopes = ["discussion", "project", "preference", "belief"] as const;

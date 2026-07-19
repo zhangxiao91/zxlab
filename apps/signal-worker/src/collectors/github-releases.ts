@@ -42,15 +42,15 @@ export class GitHubReleaseCollector implements SignalCollector {
 
   async collect(source: SignalSourceConfig, _context: CollectionContext): Promise<RawCollectedItem[]> {
     if (!source.repository) throw new SignalError("INVALID_SOURCE_RESPONSE", "GitHub repository is missing", 500);
-    if (!this.token) throw new SignalError("SOURCE_DISABLED", "GitHub source requires GITHUB_TOKEN", 409);
+    const headers: Record<string, string> = {
+      Accept: "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28",
+      "User-Agent": "zxlab-signal-collector",
+    };
+    if (this.token) headers.Authorization = `Bearer ${this.token}`;
     const response = await fetchSource(this.fetcher,
       `https://api.github.com/repos/${source.repository}/releases?per_page=${Math.min(source.maxItemsPerRun, 100)}`, {
-        headers: {
-          Accept: "application/vnd.github+json",
-          Authorization: `Bearer ${this.token}`,
-          "X-GitHub-Api-Version": "2022-11-28",
-          "User-Agent": "zxlab-signal-collector",
-        },
+        headers,
         expectedTypes: ["application/json"],
       });
     return transformGitHubReleases(await response.json(), source).slice(0, source.maxItemsPerRun);

@@ -5,6 +5,9 @@ import {
   instrumentToTencent,
   parseBaiduDailyBars,
   parseEastmoneyMinuteBars,
+  parseEastmoneyFastNews,
+  parseEastmoneyStockNews,
+  parseCninfoAnnouncements,
   parseEastmoneyQuote,
   parseSinaBars,
   parseSinaQuote,
@@ -60,4 +63,23 @@ test("falls back sequentially and preserves attempt diagnostics", async () => {
   assert.equal(result.source, "backup-1");
   assert.equal(result.fallbackUsed, true);
   assert.deepEqual(result.attempts.map((item) => [item.provider, item.ok]), [["primary", false], ["backup-1", true]]);
+});
+
+test("normalizes Eastmoney stock news and 7x24 market news", () => {
+  const stock = parseEastmoneyStockNews("SSE:600000", { data: { list: [{ code: "art-1", title: "浦发银行发布业绩快报", url: "https://finance.eastmoney.com/a/1.html", digest: "<p>净利润增长</p>", showTime: "2026-07-18 14:20:00" }] } });
+  assert.equal(stock[0].id, "eastmoney-stock:art-1");
+  assert.equal(stock[0].instrumentId, "SSE:600000");
+  assert.equal(stock[0].summary, "净利润增长");
+
+  const fast = parseEastmoneyFastNews({ data: { fastNewsList: [{ code: "f1", title: "市场午后回暖", digest: "ETF 成交放大", showTime: "2026-07-18 14:21:00" }] } });
+  assert.equal(fast[0].type, "market-news");
+  assert.equal(fast[0].source, "eastmoney-724");
+});
+
+test("normalizes Cninfo announcements", () => {
+  const items = parseCninfoAnnouncements("SZSE:159995", { announcements: [{ announcementId: "120", announcementTitle: "芯片 ETF 公告", adjunctUrl: "finalpage/2026-07-18/120.PDF", announcementTime: 1784355600000 }] });
+  assert.equal(items[0].id, "cninfo:120");
+  assert.equal(items[0].type, "announcement");
+  assert.equal(items[0].url, "https://static.cninfo.com.cn/finalpage/2026-07-18/120.PDF");
+  assert.equal(items[0].symbol, "159995");
 });

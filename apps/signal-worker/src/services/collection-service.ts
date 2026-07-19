@@ -74,14 +74,30 @@ export class CollectionService {
         const source = findSource(id);
         if (!source) throw new SignalError("SOURCE_NOT_FOUND", `Unknown source: ${id}`, 404);
         if (!source.enabled) throw new SignalError("SOURCE_DISABLED", `Source is disabled: ${id}`, 409);
+        const missingSecret = this.missingSecret(source);
+        if (missingSecret) throw new SignalError("SOURCE_DISABLED", `Source ${id} requires ${missingSecret}`, 409);
         if (request.sourceTypes?.length && !request.sourceTypes.includes(source.type)) {
           throw new SignalError("INVALID_REQUEST", `Source ${id} does not match sourceTypes`, 400);
         }
         return source;
       });
     }
-    const sources = SIGNAL_SOURCES.filter((source) => source.enabled && (!request.sourceTypes?.length || request.sourceTypes.includes(source.type)));
+    const sources = SIGNAL_SOURCES.filter((source) => {
+      if (!source.enabled || (request.sourceTypes?.length && !request.sourceTypes.includes(source.type))) return false;
+      const missingSecret = this.missingSecret(source);
+      if (missingSecret) {
+        console.warn(JSON.stringify({ event: "signal_source_skipped", sourceId: source.id, reason: "missing_secret", secret: missingSecret }));
+        return false;
+      }
+      return true;
+    });
     if (!sources.length) throw new SignalError("SOURCE_NOT_FOUND", "No enabled sources matched the request", 404);
     return [...sources];
+  }
+
+  private missingSecret(source: SignalSourceConfig): string | undefined {
+    if (!source.requiresSecret) return undefined;
+    const value = (this.env as unknown as Record<string, string | undefined>)[source.requiresSecret];
+    return value ? undefined : source.requiresSecret;
   }
 }

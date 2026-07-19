@@ -19,12 +19,25 @@ export function plainText(value: string, maxLength: number): string {
 export function canonicalizeUrl(value: string): string {
   const url = new URL(value);
   if (url.protocol !== "https:" && url.protocol !== "http:") throw new SignalError("NORMALIZATION_FAILED", "Candidate URL must use HTTP or HTTPS", 400);
+  const redirectTarget = unwrapRedirectUrl(url);
+  if (redirectTarget) return canonicalizeUrl(redirectTarget);
   url.hostname = url.hostname.toLowerCase();
   url.hash = "";
   for (const key of [...url.searchParams.keys()]) if (TRACKING_PARAMETERS.has(key.toLowerCase())) url.searchParams.delete(key);
   url.searchParams.sort();
   if (url.pathname.length > 1 && url.pathname.endsWith("/")) url.pathname = url.pathname.replace(/\/+$/, "");
   return url.toString();
+}
+
+function unwrapRedirectUrl(url: URL): string | undefined {
+  const host = url.hostname.toLowerCase();
+  if (host.endsWith("google.com") || host.endsWith("producthunt.com") || host.endsWith("news.ycombinator.com")) {
+    for (const key of ["url", "u", "target", "redirect", "redirect_url"]) {
+      const value = url.searchParams.get(key);
+      if (value?.startsWith("http://") || value?.startsWith("https://")) return value;
+    }
+  }
+  return undefined;
 }
 
 function timestamp(value?: string): string | undefined {
@@ -50,7 +63,9 @@ export async function normalizeCandidate(
     if (!title || !raw.externalId.trim()) throw new Error("Missing stable ID or title");
     const canonicalUrl = canonicalizeUrl(raw.url);
     const stableHash = await sha256(`${source.id}\n${raw.externalId.trim()}`);
-    const contentHash = await sha256(`${title.toLowerCase()}\n${summary?.toLowerCase() ?? ""}\n${canonicalUrl}`);
+    const dedupGroup = typeof source.dedupGroup === "string" && source.dedupGroup.trim() ? source.dedupGroup.trim().toLowerCase() : source.categoryHint;
+    const normalizedSummary = normalizeWhitespace(summary?.toLowerCase() ?? "");
+    const contentHash = await sha256(`${dedupGroup}\n${normalizeWhitespace(title.toLowerCase())}\n${normalizedSummary}`);
     const textSample = `${title} ${summary ?? ""}`;
     return {
       id: `candidate_${stableHash.slice(0, 32)}`,
