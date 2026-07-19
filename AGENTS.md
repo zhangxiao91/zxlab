@@ -80,3 +80,5 @@ After every visual or interface change, ensure the local Astro development serve
 - Verify that the changed route responds successfully and contains the expected updated content.
 - Before committing a completed visual change, also run `npm run build`. Only commit when both the development route check and production build succeed.
 - When working on the `beta` branch, every completed implementation must be committed using the Conventional Commits specification, pushed to the remote repository, and deployed.
+
+如果在本项目里需要用到 OpenAI key，则使用 `/Users/zhangyang/Developer/.env` 里的 `baseurl` 和 `apikey`。

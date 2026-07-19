@@ -78,6 +78,9 @@ Static files that should be copied directly are stored in `public/`. Astro still
 builds as a static site; the Function boundary serves sanitized status JSON and
 the server-only AI Gateway.
 
+For the top-level system map and ownership boundaries, see
+[`ARCHITECTURE.md`](ARCHITECTURE.md).
+
 ## AI Gateway
 
 Reusable AI features call `generateAI()` or the incremental `streamAI()` from
