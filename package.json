@@ -26,7 +26,7 @@
     "notes:covers:journal": "node --experimental-strip-types scripts/generate-note-covers.ts journal",
     "test:notes-publisher": "node --test --experimental-strip-types scripts/obsidian-publisher.test.ts",
     "test:ai": "node --test --experimental-strip-types tests/ai-gateway.test.ts",
-    "test:risk": "tsx --test tests/risk-engine.test.ts tests/risk-review-api.test.ts tests/risk-dogfooding.test.ts",
+    "test:risk": "tsx --test tests/risk-engine.test.ts tests/risk-review-api.test.ts tests/risk-dogfooding.test.ts tests/risk-market.test.ts",
     "verify:status": "node --experimental-strip-types scripts/verify-status-usage.ts",
     "verify:strudel": "node --experimental-strip-types scripts/verify-strudel.ts",
     "check:links": "node scripts/check-internal-links.mjs",

@@ -6,7 +6,8 @@ import { LocalRiskJournalRepository } from "../src/features/risk/journal.ts";
 import { buildPositionsDetailed, LocalPortfolioRepository, reconcilePositions } from "../src/features/risk/ledger.ts";
 import { instruments, mockPortfolioHistory, mockQuotes, mockRiskRules, mockTradePlans, mockTransactions } from "../src/features/risk/mock.ts";
 import { MockReviewService } from "../src/features/risk/review.ts";
-import type { ReviewRun } from "../src/features/risk/types.ts";
+import type { Quote, ReviewRun } from "../src/features/risk/types.ts";
+import { RiskWorkspaceService } from "../src/features/risk/workspace.ts";
 
 class MemoryStorage implements Storage {
   private readonly values = new Map<string, string>();
@@ -68,4 +69,51 @@ test("complete backup restores ledger, runs, feedback and candidates after clear
 test("backup rejects unsupported schema versions", async () => {
   const { portfolio, journal } = await fixture();
   assert.throws(() => previewRiskBackup({ schemaVersion: "9.0.0" }, portfolio, journal), /不支持的备份版本/);
+});
+
+test("market provider defaults to API and Mock requires an explicit local choice", () => {
+  const storage = new MemoryStorage();
+  const portfolio = new LocalPortfolioRepository(storage);
+  assert.equal(portfolio.getMarketMode(), "api");
+  portfolio.setMarketMode("mock");
+  assert.equal(portfolio.getMarketMode(), "mock");
+  portfolio.setMarketMode("api");
+  assert.equal(portfolio.getMarketMode(), "api");
+});
+
+test("workspace reports API unavailable without falling back to Mock labels", async () => {
+  const storage = new MemoryStorage();
+  const portfolio = new LocalPortfolioRepository(storage);
+  portfolio.replaceTransactions(mockTransactions);
+  const journal = new LocalRiskJournalRepository(storage);
+  const built = buildPositionsDetailed(mockTransactions, instruments);
+  const unavailableQuotes: Quote[] = built.positions.map((position) => ({
+    instrumentId: position.instrumentId,
+    price: null,
+    previousClose: null,
+    open: null,
+    high: null,
+    low: null,
+    volume: null,
+    turnover: null,
+    marketTimestamp: null,
+    receivedAt: "2026-07-18T14:32:11+08:00",
+    source: "risk-market-worker",
+    quality: "unavailable",
+    stale: true,
+    warnings: ["全部行情上游不可用"],
+  }));
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = (async () => Response.json({ data: unavailableQuotes })) as typeof fetch;
+  try {
+    const data = await new RiskWorkspaceService(portfolio, journal).load();
+    const market = data.sourceHealth.find((source) => source.name === "ApiMarketDataProvider");
+    assert.equal(data.dataMode, "api");
+    assert.equal(market?.status, "offline");
+    assert.deepEqual(data.diagnostics.market.errors, ["全部行情上游不可用"]);
+    assert.ok(data.dataWarnings.some((warning) => warning.includes("ApiMarketDataProvider")));
+    assert.equal(data.sourceHealth.some((source) => source.name === "MockMarketDataProvider"), false);
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
 });

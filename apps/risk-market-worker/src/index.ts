@@ -66,7 +66,7 @@ const CORS = {
   "content-type": "application/json; charset=utf-8",
 };
 const MAX_UPSTREAM_BYTES = 2_000_000;
-const UPSTREAM_TIMEOUT_MS = 2_200;
+const UPSTREAM_TIMEOUT_MS = 4_500;
 
 export function instrumentToCode(id: string): { exchange: "SSE" | "SZSE"; symbol: string; prefixed: string; secid: string } {
   const match = /^(SSE|SZSE):(\d{6})$/.exec(id);
@@ -303,7 +303,7 @@ async function cached<T>(request: Request, seconds: number, ctx: ExecutionContex
 }
 
 async function loadQuotes(ids: string[]): Promise<LoadResult<StandardQuote[]>> {
-  const resolved = await mapWithConcurrency(ids, 6, async (id) => {
+  const resolved = await mapWithConcurrency(ids, 1, async (id) => {
     try { return withQuoteDiagnostics(await runWithFallback("quote", quoteProviders(id))); }
     catch (error) { if (error instanceof AllProvidersFailedError) return unavailableQuote(id, error); throw error; }
   });

@@ -47,7 +47,7 @@ export class LocalPortfolioRepository implements PortfolioRepository {
   replaceTransactions(items: Transaction[]) { this.storage.setItem(STORAGE_KEY, JSON.stringify(items)); }
   getBrokerPositions() { return this.read<BrokerPosition[]>(BROKER_KEY, []); }
   saveBrokerPositions(items: BrokerPosition[]) { this.storage.setItem(BROKER_KEY, JSON.stringify(items)); }
-  getMarketMode() { return this.storage.getItem(MODE_KEY) === "api" ? "api" : "mock"; }
+  getMarketMode() { return this.storage.getItem(MODE_KEY) === "mock" ? "mock" : "api"; }
   setMarketMode(mode: "mock" | "api") { this.storage.setItem(MODE_KEY, mode); }
   private read<T>(key: string, fallback: T): T { try { const value = this.storage.getItem(key); return value ? JSON.parse(value) as T : fallback; } catch { return fallback; } }
 }

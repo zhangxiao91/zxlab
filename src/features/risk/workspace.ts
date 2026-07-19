@@ -21,7 +21,10 @@ export class RiskWorkspaceService {
     let quotes: Quote[] = [], marketError: string | null = null;
     const provider: MarketDataProvider = mode === "api" ? new ApiMarketDataProvider() : new MockMarketDataProvider();
     const marketStarted = Date.now();
-    try { quotes = await provider.getQuotes(built.positions.map((item) => item.instrumentId)); }
+    try {
+      quotes = await provider.getQuotes(built.positions.map((item) => item.instrumentId));
+      if (mode === "api" && quotes.length > 0 && quotes.every((item) => item.quality === "unavailable")) marketError = "全部行情上游不可用";
+    }
     catch (error) { marketError = error instanceof Error ? error.message : "行情网关失败"; }
     const marketFinished = new Date().toISOString();
     const previousOperations = this.journal.getOperations();
@@ -67,7 +70,7 @@ export class RiskWorkspaceService {
       asOf: now, receivedAt: now, accountName: "个人交易账户", currency: "CNY", dataMode: mode,
       portfolio: { ...calculated.portfolio, dayReturn: calculated.portfolio.netValue ? calculated.portfolio.dayPnl / calculated.portfolio.netValue : 0, currentDrawdown: history.at(-1)?.drawdown ?? 0, maxDrawdown: Math.min(...history.map((item) => item.drawdown)), riskBudgetUsed: calculated.portfolio.netValue ? Math.abs(Math.min(0, calculated.portfolio.dayPnl)) / (calculated.portfolio.netValue * 0.025) : 0 },
       sourceHealth: [
-        { name: provider.name, status: marketError || unavailableCount ? "offline" : fallbackCount || quotes.some((item) => item.stale) ? "degraded" : "healthy", latency: mode === "mock" ? "本地" : "三源网关", freshness: marketError ?? `${marketSources.join(" / ") || "无可用源"}${fallbackCount ? ` · ${fallbackCount} 项降级` : ""}` },
+        { name: provider.name, status: marketError ? "offline" : unavailableCount || fallbackCount || quotes.some((item) => item.stale) ? "degraded" : "healthy", latency: mode === "mock" ? "本地" : "三源网关", freshness: marketError ?? `${marketSources.join(" / ") || "无可用源"}${fallbackCount ? ` · ${fallbackCount} 项降级` : ""}` },
         { name: "本地交易账本", status: built.anomalies.length ? "degraded" : "healthy", latency: "浏览器", freshness: `${transactions.length} 条事件` },
         { name: "持仓对账", status: reconciliation.unresolved ? "degraded" : "healthy", latency: "本地", freshness: reconciliation.unresolved ? "待处理" : "一致" },
         { name: "Review Service", status: "healthy", latency: "本地", freshness: "Mock / Evidence Pack" },
