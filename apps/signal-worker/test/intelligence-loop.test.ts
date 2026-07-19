@@ -6,6 +6,7 @@ import type {
   MemoryCandidateDraft,
 } from "@zxlab/signal-schema";
 import { parseGeneratedBriefingDraft } from "@zxlab/signal-schema";
+import { handleAnnotations } from "../src/routes/annotations";
 import { BriefingGenerator } from "../src/services/briefing-generator";
 import type {
   AnnotationReplyInput,
@@ -46,6 +47,27 @@ class MemoryAwareFixtureLLM implements SignalLLM {
   async extractMemory(_input: MemoryExtractionInput): Promise<MemoryCandidateDraft | null> {
     return null;
   }
+}
+
+class StreamingAnnotationFixtureLLM extends MemoryAwareFixtureLLM {
+  override async replyToAnnotation(_input: AnnotationReplyInput, options: { onDelta?: (text: string) => void } = {}): Promise<AnnotationReplyDraft> {
+    options.onDelta?.("先看到");
+    options.onDelta?.("流式回复。");
+    return { reply: "先看到流式回复。" };
+  }
+
+  override async extractMemory(_input: MemoryExtractionInput): Promise<MemoryCandidateDraft | null> {
+    return { shouldRemember: true, scope: "project", content: "用户在验证 Signal 前端流式体验。", confidence: 0.81, reason: "用户明确指出前端仍是一次性出现" };
+  }
+}
+
+async function streamEvents(response: Response): Promise<Array<Record<string, unknown>>> {
+  const raw = await response.text();
+  return raw.trim().split(/\n\n+/).map((chunk) => {
+    const data = chunk.split("\n").find((line) => line.startsWith("data:"))?.slice("data:".length).trim();
+    if (!data) throw new Error("Missing SSE data line");
+    return JSON.parse(data) as Record<string, unknown>;
+  });
 }
 
 describe("ZX Signal intelligence loop", () => {
@@ -92,5 +114,32 @@ describe("ZX Signal intelligence loop", () => {
       title: "Invalid", summary: "Invalid source", items: [{ category: "zxlab", title: "Bad", summary: "Bad",
         whyItMatters: "Bad", importance: 50, confidence: 50, sourceIds: ["invented-source"] }],
     }, new Set(["fixture-node-framework"]))).toThrow(/unknown source/);
+  });
+
+  it("streams annotation replies before the final memory candidate", async () => {
+    const llm = new StreamingAnnotationFixtureLLM();
+    const generated = await new BriefingGenerator(env, llm).generate({ date: "2026-07-18", candidates: new BriefingGenerator(env, llm).fixture(), dataOrigin: "fixture" });
+    const item = generated.briefing.items[0]!;
+    const request = new Request("https://signal.example/api/annotations", {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "text/event-stream" },
+      body: JSON.stringify({
+        briefingId: generated.briefing.id,
+        briefingItemId: item.id,
+        selectedText: "runtime fit",
+        comment: "请验证这条回复是否能逐段出现",
+        action: "comment",
+      }),
+    });
+
+    const response = await handleAnnotations(request, "/api/annotations", env, { llm });
+    expect(response?.headers.get("content-type")).toContain("text/event-stream");
+    const events = await streamEvents(response!);
+
+    expect(events.map((event) => event.type)).toEqual(["start", "reply_delta", "reply_delta", "reply", "memory", "done"]);
+    expect(events.filter((event) => event.type === "reply_delta").map((event) => event.text).join("")).toBe("先看到流式回复。");
+    const done = events.at(-1)?.response as { reply?: { content?: string }; memoryCandidate?: { content?: string } };
+    expect(done.reply?.content).toBe("先看到流式回复。");
+    expect(done.memoryCandidate?.content).toContain("前端流式体验");
   });
 });

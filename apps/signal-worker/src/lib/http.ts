@@ -35,7 +35,7 @@ export function errorResponse(error: unknown, path: string): Response {
 }
 
 export function corsHeaders(request: Request, env: Env): Headers {
-  const headers = new Headers({ "content-type": "application/json; charset=utf-8", "vary": "Origin" });
+  const headers = new Headers({ "vary": "Origin" });
   const origin = request.headers.get("origin");
   const allowed = env.ZX_SIGNAL_ALLOWED_ORIGINS.split(",").map((value) => value.trim());
   if (origin && allowed.includes(origin)) {

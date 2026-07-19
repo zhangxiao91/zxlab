@@ -125,6 +125,7 @@ async function requestStream(params: {
   token: string;
   invocationId: string;
   body: unknown;
+  onDelta?: (text: string) => void;
 }): Promise<GatewaySuccess> {
   const response = await params.fetcher(streamEndpoint(params.apiUrl), {
     method: "POST",
@@ -159,6 +160,11 @@ async function requestStream(params: {
     sawEvent = true;
     const event = streamEvent(JSON.parse(data) as unknown);
     if (event.type === "done") return gatewaySuccess({ ok: true, data: event.data, requestId: event.requestId });
+    if (event.type === "delta") {
+      const text = object(event)?.text;
+      if (typeof text === "string") params.onDelta?.(text);
+      return undefined;
+    }
     if (event.type === "error") {
       const error = object(event.error);
       const code = typeof error?.code === "string" ? error.code : "UNKNOWN";
@@ -206,6 +212,7 @@ export async function requestGatewayJson(params: {
   token: string;
   invocationId: string;
   body: unknown;
+  onDelta?: (text: string) => void;
 }): Promise<GatewaySuccess> {
   try {
     return await requestStream(params);

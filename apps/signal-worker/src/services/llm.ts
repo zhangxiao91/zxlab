@@ -39,7 +39,7 @@ export interface MemoryExtractionInput { item: BriefingItem; selectedText: strin
 export interface SignalLLM {
   filterCandidates(input: EditorialFilterInput): Promise<CandidateEditorialDecision[]>;
   generateBriefing(input: GenerateBriefingInput): Promise<GeneratedBriefingDraft>;
-  replyToAnnotation(input: AnnotationReplyInput): Promise<AnnotationReplyDraft>;
+  replyToAnnotation(input: AnnotationReplyInput, options?: { onDelta?: (text: string) => void }): Promise<AnnotationReplyDraft>;
   extractMemory(input: MemoryExtractionInput): Promise<MemoryCandidateDraft | null>;
 }
 
@@ -52,6 +52,58 @@ interface JsonRunOptions<T> {
   validate: (value: unknown) => T;
   runId?: string;
   repair?: boolean;
+  onGatewayDelta?: (text: string) => void;
+}
+
+function partialJsonStringField(source: string, field: string): string | undefined {
+  const key = `"${field}"`;
+  const keyIndex = source.indexOf(key);
+  if (keyIndex < 0) return undefined;
+  const colon = source.indexOf(":", keyIndex + key.length);
+  if (colon < 0) return undefined;
+  let cursor = colon + 1;
+  while (cursor < source.length && /\s/.test(source[cursor]!)) cursor += 1;
+  if (source[cursor] !== "\"") return undefined;
+  cursor += 1;
+  let value = "";
+  for (; cursor < source.length; cursor += 1) {
+    const char = source[cursor]!;
+    if (char === "\"") return value;
+    if (char !== "\\") {
+      value += char;
+      continue;
+    }
+    cursor += 1;
+    if (cursor >= source.length) return value;
+    const escaped = source[cursor]!;
+    if (escaped === "n") value += "\n";
+    else if (escaped === "r") value += "\r";
+    else if (escaped === "t") value += "\t";
+    else if (escaped === "b") value += "\b";
+    else if (escaped === "f") value += "\f";
+    else if (escaped === "u") {
+      const hex = source.slice(cursor + 1, cursor + 5);
+      if (!/^[0-9a-fA-F]{4}$/.test(hex)) return value;
+      value += String.fromCharCode(Number.parseInt(hex, 16));
+      cursor += 4;
+    } else {
+      value += escaped;
+    }
+  }
+  return value;
+}
+
+function jsonStringFieldDelta(field: string, onDelta?: (text: string) => void): ((chunk: string) => void) | undefined {
+  if (!onDelta) return undefined;
+  let buffer = "";
+  let emitted = "";
+  return (chunk: string) => {
+    buffer += chunk;
+    const current = partialJsonStringField(buffer, field);
+    if (current === undefined || current.length <= emitted.length) return;
+    onDelta(current.slice(emitted.length));
+    emitted = current;
+  };
 }
 
 export class ProjectApiSignalLLM implements SignalLLM {
@@ -87,9 +139,10 @@ export class ProjectApiSignalLLM implements SignalLLM {
     return this.runJson(options);
   }
 
-  async replyToAnnotation(input: AnnotationReplyInput): Promise<AnnotationReplyDraft> {
+  async replyToAnnotation(input: AnnotationReplyInput, options: { onDelta?: (text: string) => void } = {}): Promise<AnnotationReplyDraft> {
     return this.runJson({ task: "annotation-reply", gatewayTask: "signal-annotation-reply", promptVersion: REPLY_PROMPT_VERSION,
-      prompt: buildAnnotationReplyPrompt(input), schema: annotationReplyJsonSchema, validate: parseAnnotationReplyDraft });
+      prompt: buildAnnotationReplyPrompt(input), schema: annotationReplyJsonSchema, validate: parseAnnotationReplyDraft,
+      onGatewayDelta: jsonStringFieldDelta("reply", options.onDelta) });
   }
 
   async extractMemory(input: MemoryExtractionInput): Promise<MemoryCandidateDraft | null> {
@@ -125,6 +178,7 @@ export class ProjectApiSignalLLM implements SignalLLM {
             : options.gatewayTask === "signal-memory-extraction" ? 800 : 1_200,
           responseFormat: { type: "json" },
         },
+        onDelta: options.onGatewayDelta,
       });
       const value = options.validate(responseValue(result));
       await this.invocations.complete(invocationId, {

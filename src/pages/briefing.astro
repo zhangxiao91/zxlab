@@ -108,13 +108,14 @@ const longTermThreads = [
     import gsap from "gsap";
     import { ScrollTrigger } from "gsap/ScrollTrigger";
     import {
-      submitAnnotation,
+      submitAnnotationStream,
       getMemories,
       updateMemoryCandidate,
     } from "../features/briefing/client";
     import { briefingSessionStore } from "../features/briefing/store";
     import type {
       AnnotationAction,
+      AnnotationResponse,
       MemoryCandidate,
       MemoryScope,
     } from "../features/briefing/types";
@@ -370,26 +371,59 @@ const longTermThreads = [
       if (submit) submit.disabled = true;
       if (submitLabel) submitLabel.textContent = "Signal 正在回应";
 
+      const replyContent = document.querySelector<HTMLElement>("[data-reply-content]");
+      const memoryBox = document.querySelector<HTMLElement>("[data-memory-candidate]");
+      const memoryContent = document.querySelector<HTMLElement>("[data-memory-content]");
+      const confidence = document.querySelector<HTMLElement>("[data-memory-confidence]");
+      const scope = document.querySelector<HTMLSelectElement>("[data-memory-scope]");
+      const memoryStatus = document.querySelector<HTMLElement>("[data-memory-status]");
+      if (replyContent) replyContent.textContent = "";
+      if (memoryBox) memoryBox.hidden = true;
+      if (memoryStatus) memoryStatus.hidden = true;
+      result?.removeAttribute("hidden");
+      result?.scrollIntoView({ behavior: "smooth", block: "start" });
+
       try {
-        const response = await submitAnnotation({
+        let finalResponse: AnnotationResponse | null = null;
+        let streamedReply = "";
+        for await (const streamEvent of submitAnnotationStream({
           briefingId,
           briefingItemId: String(values.get("itemId")),
           selectedText: String(values.get("selectedText")),
           comment,
           action: String(values.get("action")) as AnnotationAction,
-        });
+        })) {
+          if (streamEvent.type === "start") {
+            if (submitLabel) submitLabel.textContent = "Signal 正在回应";
+          } else if (streamEvent.type === "reply_delta") {
+            streamedReply += streamEvent.text;
+            if (replyContent) replyContent.textContent = streamedReply;
+          } else if (streamEvent.type === "reply") {
+            streamedReply = streamEvent.reply.content;
+            if (replyContent) replyContent.textContent = streamEvent.reply.content;
+            if (submitLabel) submitLabel.textContent = "正在整理 Memory";
+          } else if (streamEvent.type === "memory") {
+            activeCandidate = streamEvent.memoryCandidate ?? null;
+            if (memoryBox) memoryBox.hidden = !streamEvent.memoryCandidate;
+            if (streamEvent.memoryCandidate) {
+              if (memoryContent) memoryContent.textContent = `“${streamEvent.memoryCandidate.content}”`;
+              if (confidence) confidence.textContent = `置信 ${Math.round(streamEvent.memoryCandidate.confidence * 100)}`;
+              if (scope) scope.value = streamEvent.memoryCandidate.scope;
+            }
+          } else if (streamEvent.type === "done") {
+            finalResponse = streamEvent.response;
+          } else if (streamEvent.type === "error") {
+            throw new Error(streamEvent.error.message);
+          }
+        }
+        if (!finalResponse) throw new Error("Signal stream ended before completion");
+        const response = finalResponse;
         session.annotations.push(response.annotation);
         session.replies.push(response.reply);
         if (response.memoryCandidate) session.memoryCandidates.push(response.memoryCandidate);
         briefingSessionStore.save(session);
         activeCandidate = response.memoryCandidate ?? null;
 
-        const replyContent = document.querySelector<HTMLElement>("[data-reply-content]");
-        const memoryBox = document.querySelector<HTMLElement>("[data-memory-candidate]");
-        const memoryContent = document.querySelector<HTMLElement>("[data-memory-content]");
-        const confidence = document.querySelector<HTMLElement>("[data-memory-confidence]");
-        const scope = document.querySelector<HTMLSelectElement>("[data-memory-scope]");
-        const memoryStatus = document.querySelector<HTMLElement>("[data-memory-status]");
         if (replyContent) replyContent.textContent = response.reply.content;
         if (memoryBox) memoryBox.hidden = !response.memoryCandidate;
         if (response.memoryCandidate) {
@@ -398,8 +432,6 @@ const longTermThreads = [
           if (scope) scope.value = response.memoryCandidate.scope;
         }
         if (memoryStatus) memoryStatus.hidden = true;
-        result?.removeAttribute("hidden");
-        result?.scrollIntoView({ behavior: "smooth", block: "start" });
         if (submitLabel) submitLabel.textContent = "再次发送";
       } catch (error) {
         if (submitError) {

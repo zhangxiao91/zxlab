@@ -14,10 +14,11 @@ const item: BriefingItem = {
   sources: [{ id: "source-1", title: "Architecture note", url: "https://example.com/source" }],
 };
 
-function gatewayStream(data: unknown, requestId = "gateway-request-1"): Response {
+function gatewayStream(data: unknown, requestId = "gateway-request-1", deltas: string[] = []): Response {
   const events = [
     { type: "start", requestId },
     { type: "attempt", requestId, provider: "provider1", model: "gpt-test", fallbackIndex: 0, attempt: 1 },
+    ...deltas.map((text) => ({ type: "delta", requestId, text })),
     { type: "done", requestId, data },
   ];
   return new Response(events.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(""), {
@@ -97,5 +98,32 @@ describe("ProjectApiSignalLLM", () => {
       input_tokens: 40,
       output_tokens: 8,
     });
+  });
+
+  it("streams annotation reply deltas from the gateway JSON field", async () => {
+    const fetcher = vi.fn<typeof fetch>(async () => gatewayStream({
+      text: JSON.stringify({ reply: "流式回应已经可见。" }),
+      json: { reply: "流式回应已经可见。" },
+      provider: "provider1",
+      model: "gpt-test",
+      fallbackIndex: 0,
+      latencyMs: 10,
+    }, "gateway-stream-reply", [
+      "{\"reply\":\"流式",
+      "回应已经",
+      "可见。\"}",
+    ]));
+    const llm = new ProjectApiSignalLLM(env, fetcher);
+    let streamed = "";
+    const result = await llm.replyToAnnotation({
+      item,
+      selectedText: "project gateway",
+      comment: "确认回复是否流式出现",
+      action: "comment",
+      memories: [],
+    }, { onDelta: (text) => { streamed += text; } });
+
+    expect(result).toEqual({ reply: "流式回应已经可见。" });
+    expect(streamed).toBe("流式回应已经可见。");
   });
 });
