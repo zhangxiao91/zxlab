@@ -26,6 +26,7 @@
     "ZX_SIGNAL_ALLOWED_ORIGINS": "https://zx-dx.xyz,https://beta.zxlab.pages.dev,http://localhost:4321",
     "ZX_SIGNAL_ACCESS_ENABLED": "true",
     "ZX_SIGNAL_SCHEDULE_ENABLED": "true",
+    "ZX_SIGNAL_MARKET_NEWS_URL": "https://zxlab-risk-market.zhangxiao9118.workers.dev/api/market/news",
     "CF_ACCESS_TEAM_DOMAIN": "https://zxdx1.cloudflareaccess.com",
     "CF_ACCESS_AUD": "7559429b1da91fe218c27db2cdee8c70cec97195d9b86a0effea1b1916f84e64"
   },
