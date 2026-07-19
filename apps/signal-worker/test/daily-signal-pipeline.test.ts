@@ -2,13 +2,15 @@ import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import type {
   AnnotationReplyDraft,
+  CandidateSignal,
   GeneratedBriefingDraft,
   MemoryCandidateDraft,
+  SignalCategory,
   SignalSourceType,
 } from "@zxlab/signal-schema";
 import type { SignalCollector } from "../src/collectors/types";
 import { CollectionService } from "../src/services/collection-service";
-import { DailySignalPipeline } from "../src/services/daily-signal-pipeline";
+import { DailySignalPipeline, selectBalancedDailyCandidates } from "../src/services/daily-signal-pipeline";
 import type {
   AnnotationReplyInput,
   EditorialFilterInput,
@@ -29,6 +31,24 @@ const collector: SignalCollector = {
     }];
   },
 };
+
+function candidate(id: string, categoryHint: SignalCategory): CandidateSignal {
+  return {
+    id,
+    source: { sourceId: `source-${id}`, sourceName: `Source ${id}`, sourceType: "rss", externalId: id },
+    categoryHint,
+    title: `Candidate ${id}`,
+    url: `https://example.com/${id}`,
+    canonicalUrl: `https://example.com/${id}`,
+    summary: `Summary ${id}`,
+    fetchedAt: "2026-07-18T22:00:00.000Z",
+    tags: [],
+    contentHash: `hash-${id}`,
+    metadata: {},
+    collectionRunId: "balanced-test",
+    status: "eligible",
+  };
+}
 
 class PipelineLLM implements SignalLLM {
   async filterCandidates(input: EditorialFilterInput) {
@@ -67,6 +87,18 @@ class PipelineLLM implements SignalLLM {
 }
 
 describe("Daily Signal pipeline", () => {
+  it("balances daily candidates across categories before the LLM pass", () => {
+    const selected = selectBalancedDailyCandidates([
+      candidate("ai-1", "ai-engineering"),
+      candidate("ai-2", "ai-engineering"),
+      candidate("ai-3", "ai-engineering"),
+      candidate("market-1", "markets"),
+      candidate("zxlab-1", "zxlab"),
+      candidate("market-2", "markets"),
+    ], 5);
+    expect(selected.map((item) => item.categoryHint)).toEqual(["ai-engineering", "markets", "zxlab", "ai-engineering", "markets"]);
+  });
+
   it("collects, filters and persists the active briefing for the Shanghai day", async () => {
     const collectors = new Map<SignalSourceType, SignalCollector>([["rss", collector]]);
     const collection = new CollectionService(env, collectors);
