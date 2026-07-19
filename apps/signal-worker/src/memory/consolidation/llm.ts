@@ -1,5 +1,6 @@
 import { SignalError } from "../../lib/errors";
 import { ModelInvocationRepository } from "../../repositories/model-invocation-repository";
+import { requestGatewayJson, responseValue } from "../../services/gateway-client";
 import { memoryKinds, memoryNamespaces, type ConsolidationCandidate, type FeedbackEvent, type MemoryItem } from "../schema/types";
 import { buildConsolidationPrompt, consolidationJsonSchema, CONSOLIDATION_PROMPT_VERSION } from "./prompt";
 
@@ -20,10 +21,12 @@ export class MemoryConsolidationLLM {
       promptVersion: CONSOLIDATION_PROMPT_VERSION, startedAt });
     try {
       const prompt = buildConsolidationPrompt(events, memories);
-      const response = await this.fetcher(this.env.ZX_SIGNAL_LLM_API_URL, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${this.env.ZX_SIGNAL_LLM_API_TOKEN}`, "content-type": "application/json", accept: "application/json", "x-request-id": invocationId },
-        body: JSON.stringify({
+      const result = await requestGatewayJson({
+        fetcher: this.fetcher,
+        apiUrl: this.env.ZX_SIGNAL_LLM_API_URL,
+        token: this.env.ZX_SIGNAL_LLM_API_TOKEN,
+        invocationId,
+        body: {
           task: "signal-memory-consolidation",
           messages: [
             { role: "system", content: `${prompt.system}\nThe output JSON must match this schema exactly: ${JSON.stringify(consolidationJsonSchema)}` },
@@ -32,19 +35,13 @@ export class MemoryConsolidationLLM {
           temperature: 0,
           maxOutputTokens: 1_600,
           responseFormat: { type: "json" },
-        }),
+        },
       });
-      const raw = await response.text();
-      if (new TextEncoder().encode(raw).byteLength > 512 * 1024) throw new Error("Gateway response was too large");
-      const root = object(JSON.parse(raw) as unknown);
-      const data = object(root?.data);
-      if (!response.ok || root?.ok !== true || !data) throw new Error("Gateway consolidation request failed");
-      const payload = data.json ?? JSON.parse(String(data.text));
-      const parsed = this.validate(payload, events, memories);
+      const parsed = this.validate(responseValue(result), events, memories);
       await this.invocations.complete(invocationId, {
-        model: `${String(data.provider ?? "gateway")}/${String(data.model ?? this.env.ZX_SIGNAL_LLM_LABEL)}`,
-        inputTokens: object(data.usage)?.inputTokens as number | undefined,
-        outputTokens: object(data.usage)?.outputTokens as number | undefined,
+        model: `${result.data.provider}/${result.data.model}`,
+        inputTokens: result.data.usage?.inputTokens,
+        outputTokens: result.data.usage?.outputTokens,
       });
       return parsed;
     } catch (cause) {

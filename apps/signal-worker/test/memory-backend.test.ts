@@ -13,6 +13,17 @@ async function clearMemory(): Promise<void> {
   ]);
 }
 
+function gatewayStream(data: unknown): Response {
+  const requestId = "test-request";
+  const events = [
+    { type: "start", requestId },
+    { type: "done", requestId, data },
+  ];
+  return new Response(events.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(""), {
+    headers: { "Content-Type": "text/event-stream; charset=utf-8" },
+  });
+}
+
 describe("unified memory backend", () => {
   beforeEach(clearMemory);
 
@@ -47,15 +58,14 @@ describe("unified memory backend", () => {
     const feedback = await repository.createEvent({ targetType: "briefing_item", targetId: "funding-1", action: "dislike", comment: "这类纯融资新闻没有产品进展" });
     expect(await repository.activeItems()).toHaveLength(0);
 
-    const fetcher: typeof fetch = async () => Response.json({
-      ok: true,
-      data: {
+    const fetcher: typeof fetch = async (input) => {
+      expect(String(input)).toContain("/api/ai/stream");
+      return gatewayStream({
         text: "{}",
         json: { candidates: [{ action: "create", reason: "Explicit durable signal", namespace: "briefing", kind: "preference", content: "用户通常不关注只有融资金额的新闻。", importance: 0.7, confidence: 0.72, sourceEventIds: [feedback.id] }] },
         provider: "test", model: "test-model", fallbackIndex: 0, latencyMs: 1, usage: { inputTokens: 10, outputTokens: 20 },
-      },
-      requestId: "test-request",
-    });
+      });
+    };
     const consolidation = new MemoryConsolidationService(env, fetcher);
     const candidates = await consolidation.generate(10);
     expect(candidates).toHaveLength(1);

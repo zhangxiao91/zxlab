@@ -30,6 +30,17 @@ function llmOutput(pack: EvidencePack) {
   };
 }
 
+function gatewayStream(data: unknown, requestId = "gateway-1"): Response {
+  const events = [
+    { type: "start", requestId },
+    { type: "attempt", requestId, provider: "provider1", model: "gpt", fallbackIndex: 0, attempt: 1 },
+    { type: "done", requestId, data },
+  ];
+  return new Response(events.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(""), {
+    headers: { "Content-Type": "text/event-stream; charset=utf-8" },
+  });
+}
+
 class MemoryStorage implements Storage {
   private readonly values = new Map<string, string>();
   get length() { return this.values.size; }
@@ -99,11 +110,19 @@ test("Risk Review Function requires Access, calls the gateway, and degrades inva
   const request = new Request("https://beta.zxlab.pages.dev/api/risk/review", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ evidencePack: pack }) });
   const missing = await handleRiskReview({ request: request.clone(), env: {} });
   assert.equal(missing.status, 503);
-  const gateway = async () => Response.json({ ok: true, data: { json: llmOutput(pack), text: "{}", provider: "provider1", model: "gpt", fallbackIndex: 0, latencyMs: 20 }, requestId: "gateway-1" });
+  const requestedPaths: string[] = [];
+  const gateway: typeof fetch = async (input) => {
+    requestedPaths.push(new URL(String(input)).pathname);
+    return gatewayStream({ json: llmOutput(pack), text: "{}", provider: "provider1", model: "gpt", fallbackIndex: 0, latencyMs: 20 });
+  };
   const success = await handleRiskReview({ request: request.clone(), env: { AI_GATEWAY_ACCESS_TOKEN: "server-secret" } }, { verifyAccess: async () => ({}), fetcher: gateway });
   const successPayload = await success.json() as { data: ReviewExecution };
   assert.equal(successPayload.data.result.mode, "llm"); assert.equal(successPayload.data.result.requestId, "gateway-1"); assert.equal(successPayload.data.inputTokens, null);
-  const invalidGateway = async () => Response.json({ ok: true, data: { json: { ...llmOutput(pack), summary: "立即买入" }, text: "{}", provider: "provider1", model: "gpt", fallbackIndex: 0, latencyMs: 20 }, requestId: "gateway-2" });
+  assert.equal(requestedPaths[0], "/api/ai/stream");
+  const invalidGateway: typeof fetch = async (input) => {
+    assert.equal(new URL(String(input)).pathname, "/api/ai/stream");
+    return gatewayStream({ json: { ...llmOutput(pack), summary: "立即买入" }, text: "{}", provider: "provider1", model: "gpt", fallbackIndex: 0, latencyMs: 20 }, "gateway-2");
+  };
   const degraded = await handleRiskReview({ request: request.clone(), env: { AI_GATEWAY_ACCESS_TOKEN: "server-secret" } }, { verifyAccess: async () => ({}), fetcher: invalidGateway });
   const degradedPayload = await degraded.json() as { data: ReviewExecution };
   assert.equal(degradedPayload.data.result.mode, "mock"); assert.equal(degradedPayload.data.result.fallbackReason, "FORBIDDEN_TRADING_INSTRUCTION");

@@ -29,6 +29,7 @@ import {
   buildEditorialPrompt,
   buildMemoryPrompt,
 } from "./prompts";
+import { GatewayRequestError, requestGatewayJson, responseValue } from "./gateway-client";
 
 export interface GenerateBriefingInput { date: string; candidates: CandidateSignal[]; memories: MemoryEntry[]; runId: string; }
 export interface EditorialFilterInput { candidates: CandidateSignal[]; memories: MemoryEntry[]; runId: string; }
@@ -51,41 +52,6 @@ interface JsonRunOptions<T> {
   validate: (value: unknown) => T;
   runId?: string;
   repair?: boolean;
-}
-
-function object(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
-}
-
-interface GatewaySuccess {
-  ok: true;
-  data: {
-    text: string;
-    json?: unknown;
-    provider: string;
-    model: string;
-    fallbackIndex: number;
-    latencyMs: number;
-    usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
-  };
-  requestId: string;
-}
-
-function gatewaySuccess(value: unknown): GatewaySuccess {
-  const root = object(value);
-  const data = object(root?.data);
-  if (root?.ok !== true || !data || typeof root.requestId !== "string"
-    || typeof data.text !== "string" || typeof data.provider !== "string" || typeof data.model !== "string"
-    || typeof data.fallbackIndex !== "number" || typeof data.latencyMs !== "number") {
-    throw new SignalValidationError("Gateway response did not match the success contract");
-  }
-  return value as GatewaySuccess;
-}
-
-function responseValue(result: GatewaySuccess): unknown {
-  if (result.data.json !== undefined) return result.data.json;
-  const cleaned = result.data.text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
-  return JSON.parse(cleaned) as unknown;
 }
 
 export class ProjectApiSignalLLM implements SignalLLM {
@@ -143,15 +109,12 @@ export class ProjectApiSignalLLM implements SignalLLM {
     await this.invocations.start({ id: invocationId, task: options.task, runId: options.runId,
       model: this.env.ZX_SIGNAL_LLM_LABEL, promptVersion: options.promptVersion, startedAt });
     try {
-      const response = await this.fetcher(this.env.ZX_SIGNAL_LLM_API_URL, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${this.env.ZX_SIGNAL_LLM_API_TOKEN}`,
-          "Content-Type": "application/json",
-          Accept: "application/json",
-          "X-Request-Id": invocationId,
-        },
-        body: JSON.stringify({
+      const result = await requestGatewayJson({
+        fetcher: this.fetcher,
+        apiUrl: this.env.ZX_SIGNAL_LLM_API_URL,
+        token: this.env.ZX_SIGNAL_LLM_API_TOKEN,
+        invocationId,
+        body: {
           task: options.gatewayTask,
           messages: [
             { role: "system", content: `${options.prompt.system}\nThe output JSON must match this schema exactly: ${JSON.stringify(options.schema)}` },
@@ -161,23 +124,8 @@ export class ProjectApiSignalLLM implements SignalLLM {
           maxOutputTokens: options.gatewayTask === "signal-briefing" || options.gatewayTask === "signal-editorial-filter" ? 4_000
             : options.gatewayTask === "signal-memory-extraction" ? 800 : 1_200,
           responseFormat: { type: "json" },
-        }),
+        },
       });
-      const contentLength = Number(response.headers.get("content-length") ?? "0");
-      if (contentLength > 512 * 1024) throw new SignalValidationError("Gateway response was too large");
-      const raw = await response.text();
-      if (new TextEncoder().encode(raw).byteLength > 512 * 1024) throw new SignalValidationError("Gateway response was too large");
-      let payload: unknown;
-      try { payload = JSON.parse(raw) as unknown; }
-      catch (cause) { throw new SignalValidationError(`Gateway returned invalid JSON: ${cause instanceof Error ? cause.message : "parse failure"}`); }
-      if (!response.ok) {
-        const root = object(payload);
-        const error = object(root?.error);
-        const code = typeof error?.code === "string" ? error.code : `HTTP_${response.status}`;
-        failureCode = `GATEWAY_${response.status}_${code}`.slice(0, 120);
-        throw new SignalError("MODEL_REQUEST_FAILED", `Project AI gateway failed with ${code}`, 502);
-      }
-      const result = gatewaySuccess(payload);
       const value = options.validate(responseValue(result));
       await this.invocations.complete(invocationId, {
         model: `${result.data.provider}/${result.data.model}`,
@@ -186,6 +134,7 @@ export class ProjectApiSignalLLM implements SignalLLM {
       });
       return value;
     } catch (cause) {
+      if (cause instanceof GatewayRequestError) failureCode = cause.failureCode;
       const invalid = cause instanceof SignalValidationError || cause instanceof SyntaxError;
       if (!invalid && failureCode === "MODEL_REQUEST_FAILED" && cause instanceof Error) {
         const detail = `${cause.name}_${cause.message}`.replace(/[^a-zA-Z0-9_.-]+/g, "_");

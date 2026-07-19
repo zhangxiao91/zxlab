@@ -14,7 +14,7 @@
   ],
   "vars": {
     "ENVIRONMENT": "production",
-    "ZX_SIGNAL_LLM_API_URL": "https://gateway.test/api/ai/generate",
+    "ZX_SIGNAL_LLM_API_URL": "https://gateway.test/api/ai/stream",
     "ZX_SIGNAL_LLM_API_TOKEN": "test-gateway-token",
     "ZX_SIGNAL_LLM_LABEL": "test-project-gateway",
     "ZX_SIGNAL_USER_AGENT": "zxlab-signal-test/0.2",

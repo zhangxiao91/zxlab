@@ -31,17 +31,20 @@ to discard partial text before a retry or model fallback, preventing output
 from two attempts from being concatenated. Client cancellation aborts the
 active provider request.
 
-ZX Signal calls this endpoint server-to-server with its own encrypted copy of
-`AI_GATEWAY_ACCESS_TOKEN`. Its browser UI never receives that token. Signal
-keeps ownership of prompt construction, domain schema validation, the single
-briefing repair attempt, Memory semantics, and D1 persistence.
+ZX Signal calls the streaming endpoint server-to-server with its own encrypted
+copy of `AI_GATEWAY_ACCESS_TOKEN`. Its browser UI never receives that token.
+Signal reads the terminal `done.data.json` event for strict JSON tasks, falls
+back to the non-streaming endpoint only when the stream route is unavailable,
+and keeps ownership of prompt construction, domain schema validation, the
+single briefing repair attempt, Memory semantics, and D1 persistence.
 
 The Risk workbench uses the same boundary through `POST /api/risk/review`.
 That browser-facing endpoint validates the Cloudflare Access assertion, accepts
 only an `EvidencePack`, and calls this gateway server-to-server with the
-encrypted token. The Risk page never receives the gateway credential, provider
-configuration, or model fallback details beyond the selected provider/model
-metadata returned after a successful review.
+encrypted token, preferring the streaming endpoint and using the non-streaming
+endpoint as an availability fallback. The Risk page never receives the gateway
+credential, provider configuration, or model fallback details beyond the
+selected provider/model metadata returned after a successful review.
 
 ## Business-side example
 
