@@ -1,5 +1,6 @@
 export type Severity = "critical" | "high" | "medium" | "low";
 export type Quality = "live" | "cached" | "stale" | "unavailable";
+export type MarketSnapshotStatus = "live" | "closed-snapshot" | "stale" | "unavailable";
 export type TransactionType = "BUY" | "SELL" | "FEE" | "TAX" | "DIVIDEND" | "DEPOSIT" | "WITHDRAWAL" | "POSITION_ADJUSTMENT";
 export type MarketProviderMode = "mock" | "api";
 
@@ -232,7 +233,7 @@ export interface MemoryCandidate {
 
 export type WorkflowStatus = "pending" | "running" | "success" | "warning" | "error" | "needs-confirmation";
 export interface DailyWorkflowStep { id: "transactions" | "reconciliation" | "market" | "risk" | "review" | "complete"; label: string; status: WorkflowStatus; detail: string }
-export interface MarketDiagnostics { provider: string; lastSuccessAt: string | null; lastFailureAt: string | null; requestDurationMs: number | null; dataTimestamp: string | null; stale: boolean; warnings: string[]; errors: string[] }
+export interface MarketDiagnostics { provider: string; lastSuccessAt: string | null; lastFailureAt: string | null; requestDurationMs: number | null; dataTimestamp: string | null; stale: boolean; snapshotStatus: MarketSnapshotStatus; warnings: string[]; errors: string[] }
 export interface PortfolioDiagnostics { lastImportAt: string | null; successRows: number; duplicateRows: number; failedRows: number; unknownInstruments: string[]; reconciliationDifferences: number }
 export interface RiskDiagnostics { executedAt: string; durationMs: number; inputPositionCount: number; ruleCount: number; triggeredEventCount: number; blockedMetricCount: number; errors: string[] }
 export interface LlmDiagnostics { provider: string | null; model: string | null; fallbackPath: string[]; promptVersion: string; requestDurationMs: number | null; inputTokens: number | null; outputTokens: number | null; estimatedCost: number | null; schemaValidation: "not-run" | "valid" | "partial" | "failed"; retryCount: number | null; finalError: string | null }

@@ -28,7 +28,7 @@ export interface RiskJournalSnapshot {
   operations: OperationalState;
 }
 
-const emptyMarket = (): MarketDiagnostics => ({ provider: "尚未执行", lastSuccessAt: null, lastFailureAt: null, requestDurationMs: null, dataTimestamp: null, stale: true, warnings: [], errors: [] });
+const emptyMarket = (): MarketDiagnostics => ({ provider: "尚未执行", lastSuccessAt: null, lastFailureAt: null, requestDurationMs: null, dataTimestamp: null, stale: true, snapshotStatus: "unavailable", warnings: [], errors: [] });
 const emptyPortfolio = (): PortfolioDiagnostics => ({ lastImportAt: null, successRows: 0, duplicateRows: 0, failedRows: 0, unknownInstruments: [], reconciliationDifferences: 0 });
 const emptyLlm = (): LlmDiagnostics => ({ provider: null, model: null, fallbackPath: [], promptVersion: "portfolio-review.v2", requestDurationMs: null, inputTokens: null, outputTokens: null, estimatedCost: null, schemaValidation: "not-run", retryCount: null, finalError: null });
 const emptyOperations = (): OperationalState => ({ completedDates: [], market: emptyMarket(), portfolio: emptyPortfolio(), llm: emptyLlm() });

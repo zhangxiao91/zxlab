@@ -116,7 +116,7 @@ export class MockReviewService implements ReviewService {
       has("portfolio.max_effective_exposure") ? "有效敞口超过规则上限" : null,
       has("portfolio.max_theme_concentration") ? "主题风险出现集中" : null,
       has("position.max_weight") ? "存在单标的仓位超限" : null,
-      has("data_quality.quote_stale") ? "行情过期使估值只能作为警示" : null,
+      has("data_quality.quote_stale") ? "盘中行情过期使估值只能作为警示" : null,
       has("data_quality.position_unreconciled") ? "持仓尚未完成券商对账" : null,
     ].filter(Boolean);
     const result: ReviewResult = {

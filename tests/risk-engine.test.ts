@@ -5,7 +5,7 @@ import { calculateRisk } from "../src/features/risk/engine.ts";
 import { buildPositionsDetailed, reconcilePositions, stableFingerprint } from "../src/features/risk/ledger.ts";
 import { instruments, mockPortfolioHistory, mockQuotes, mockRiskRules, mockTradePlans, mockTransactions } from "../src/features/risk/mock.ts";
 import { MockReviewService } from "../src/features/risk/review.ts";
-import type { Transaction } from "../src/features/risk/types.ts";
+import type { Quote, Transaction } from "../src/features/risk/types.ts";
 
 const tx = (input: Omit<Transaction, "fingerprint" | "importedAt">): Transaction => ({ ...input, fingerprint: stableFingerprint(input), importedAt: "2026-07-18T15:00:00+08:00" });
 
@@ -42,17 +42,27 @@ test("CSV preview keeps valid rows, isolates errors, and detects repeat imports"
   assert.equal(repeated.valid.length, 0); assert.equal(repeated.duplicates.length, 1); assert.equal(repeated.invalid.length, 1);
 });
 
-test("risk engine lowers reliability and emits stable evidence ids", async () => {
+test("closed-market snapshots do not lower reliability", () => {
   const built = buildPositionsDetailed(mockTransactions, instruments);
   const reconciliation = reconcilePositions(built, built.positions.map((item) => ({ instrumentId: item.instrumentId, quantity: item.quantity, averageCost: item.averageCost })));
   const result = calculateRisk({ transactions: mockTransactions, positions: built.positions, quotes: mockQuotes, tradePlans: mockTradePlans, riskRules: mockRiskRules, portfolioHistory: mockPortfolioHistory, reconciliation, now: "2026-07-18T14:32:11+08:00" });
   assert.equal(result.positions.length, 3);
+  assert.equal(result.portfolio.reliable, true);
+  assert.equal(result.events.some((item) => item.ruleId === "data_quality.quote_stale"), false);
+  assert.equal(result.evidencePack.warnings.some((item) => item.includes("行情过期")), false);
+});
+
+test("risk engine lowers reliability for stale quotes during trading hours", async () => {
+  const built = buildPositionsDetailed(mockTransactions, instruments);
+  const reconciliation = reconcilePositions(built, built.positions.map((item) => ({ instrumentId: item.instrumentId, quantity: item.quantity, averageCost: item.averageCost })));
+  const intradayQuotes: Quote[] = mockQuotes.map((item) => item.instrumentId === "SSE:513100" ? { ...item, marketTimestamp: "2026-07-17T14:27:41+08:00", receivedAt: "2026-07-17T14:32:11+08:00", stale: true, quality: "stale", warnings: ["报价超过 120 秒"] } : { ...item, marketTimestamp: "2026-07-17T14:32:05+08:00", receivedAt: "2026-07-17T14:32:11+08:00", stale: false, quality: "live", warnings: [] });
+  const result = calculateRisk({ transactions: mockTransactions, positions: built.positions, quotes: intradayQuotes, tradePlans: mockTradePlans, riskRules: mockRiskRules, portfolioHistory: mockPortfolioHistory, reconciliation, now: "2026-07-17T14:32:11+08:00" });
   assert.equal(result.portfolio.reliable, false);
   assert.ok(result.events.some((item) => item.ruleId === "data_quality.quote_stale"));
   assert.ok(result.metrics.every((item) => item.calculation.formula && item.evidenceIds.length));
   const ids = new Set(result.evidencePack.evidence.map((item) => item.id));
   assert.ok(result.events.flatMap((item) => item.evidenceIds).some((id) => ids.has(id)));
   const review = await new MockReviewService().review(result.evidencePack);
-  assert.match(review.result.summary, /行情过期/);
+  assert.match(review.result.summary, /盘中行情过期/);
   assert.ok(review.result.mainRisks.some((item) => item.evidenceIds.length > 0));
 });

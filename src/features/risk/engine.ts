@@ -1,4 +1,5 @@
 import { calculateCash } from "./ledger";
+import { blockingStaleQuotes } from "./market-clock";
 import type { EvidenceItem, EvidencePack, PortfolioHistoryPoint, Position, Quote, ReconciliationResult, RiskEvent, RiskMetric, RiskRules, TradePlan, Transaction } from "./types";
 
 export interface RiskEngineInput { transactions: Transaction[]; positions: Position[]; quotes: Quote[]; tradePlans: TradePlan[]; riskRules: RiskRules; portfolioHistory: PortfolioHistoryPoint[]; reconciliation: ReconciliationResult; now?: string }
@@ -19,7 +20,7 @@ export function calculateRisk(input: RiskEngineInput): RiskEngineResult {
   const marketValue = valued.reduce((sum, item) => sum + (item.marketValue ?? 0), 0);
   const netValue = cash + marketValue;
   const missingQuotes = valued.filter((item) => item.marketValue == null);
-  const staleQuotes = input.quotes.filter((item) => item.stale || item.quality === "stale");
+  const staleQuotes = blockingStaleQuotes(input.quotes, now);
   const warnings = [
     ...missingQuotes.map((item) => `${item.instrumentId} 缺少可用报价`),
     ...staleQuotes.map((item) => `${item.instrumentId} 行情过期`),
@@ -58,7 +59,7 @@ export function calculateRisk(input: RiskEngineInput): RiskEngineResult {
   const exposureEvidence = [...new Set(positions.flatMap((item) => [...item.transactionEvidenceIds, quoteEvidence(item.instrumentId)])), "risk-rule:max-effective-exposure"];
   metrics.push({ id: "metric:effective-exposure", label: "有效总敞口", value: effectiveExposure, reliable, evidenceIds: exposureEvidence, calculation: { inputs: { netValue, positionCount: positions.length }, formula: "sum(positionMarketValue × leverageMultiplier) / netValue", intermediate: { nominalExposure, effectiveExposure }, finalResult: effectiveExposure, dataSources: ["local-ledger", ...input.quotes.map((item) => item.source)], dataTimes } });
   if (effectiveExposure > input.riskRules.maxEffectiveExposure) events.push(event("effective-exposure", "portfolio.max_effective_exposure", "有效总敞口超过限制", `有效敞口 ${(effectiveExposure * 100).toFixed(1)}%，超过 ${(input.riskRules.maxEffectiveExposure * 100).toFixed(0)}%；${reliable ? "结果可靠" : "因数据质量问题仅供警示"}。`, effectiveExposure, input.riskRules.maxEffectiveExposure, now, exposureEvidence, warnings));
-  for (const quote of staleQuotes) events.push(event(`stale:${quote.instrumentId}`, "data_quality.quote_stale", "行情过期，风险不可可靠计算", `${quote.instrumentId} 报价已过期，相关结果已降低可信度。`, null, input.riskRules.quoteStaleSeconds, now, [quoteEvidence(quote.instrumentId)], quote.warnings, "medium"));
+  for (const quote of staleQuotes) events.push(event(`stale:${quote.instrumentId}`, "data_quality.quote_stale", "盘中行情过期，风险不可可靠计算", `${quote.instrumentId} 盘中报价超过 ${(input.riskRules.quoteStaleSeconds / 60).toFixed(0)} 分钟未更新，相关结果已降低可信度。`, null, input.riskRules.quoteStaleSeconds, now, [quoteEvidence(quote.instrumentId)], quote.warnings, "medium"));
   if (input.reconciliation.unresolved) events.push(event("reconciliation", "data_quality.position_unreconciled", "持仓未对账", "交易推导持仓与券商数量尚未确认一致。", null, null, now, input.reconciliation.items.map((item) => `reconciliation:${item.instrumentId}`), warnings, "medium"));
   const evidence = createEvidence(input, positions, metrics, events, now);
   const evidencePack: EvidencePack = { id: `evidence-pack:${now}`, generatedAt: now, reliable, evidence, metrics, events, warnings };

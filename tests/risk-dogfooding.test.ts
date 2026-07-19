@@ -85,8 +85,9 @@ test("workspace reports API unavailable without falling back to Mock labels", as
   const storage = new MemoryStorage();
   const portfolio = new LocalPortfolioRepository(storage);
   portfolio.replaceTransactions(mockTransactions);
-  const journal = new LocalRiskJournalRepository(storage);
   const built = buildPositionsDetailed(mockTransactions, instruments);
+  portfolio.saveBrokerPositions(built.positions.map((position) => ({ instrumentId: position.instrumentId, quantity: position.quantity, averageCost: position.averageCost })));
+  const journal = new LocalRiskJournalRepository(storage);
   const unavailableQuotes: Quote[] = built.positions.map((position) => ({
     instrumentId: position.instrumentId,
     price: null,
@@ -110,9 +111,42 @@ test("workspace reports API unavailable without falling back to Mock labels", as
     const market = data.sourceHealth.find((source) => source.name === "ApiMarketDataProvider");
     assert.equal(data.dataMode, "api");
     assert.equal(market?.status, "offline");
+    assert.equal(data.diagnostics.market.snapshotStatus, "unavailable");
     assert.deepEqual(data.diagnostics.market.errors, ["全部行情上游不可用"]);
     assert.ok(data.dataWarnings.some((warning) => warning.includes("ApiMarketDataProvider")));
     assert.equal(data.sourceHealth.some((source) => source.name === "MockMarketDataProvider"), false);
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test("workspace treats weekend stale quotes as a closed-market snapshot", async () => {
+  const storage = new MemoryStorage();
+  const portfolio = new LocalPortfolioRepository(storage);
+  portfolio.replaceTransactions(mockTransactions);
+  const built = buildPositionsDetailed(mockTransactions, instruments);
+  portfolio.saveBrokerPositions(built.positions.map((position) => ({ instrumentId: position.instrumentId, quantity: position.quantity, averageCost: position.averageCost })));
+  const journal = new LocalRiskJournalRepository(storage);
+  const weekendQuotes: Quote[] = mockQuotes.map((quote) => ({
+    ...quote,
+    marketTimestamp: quote.instrumentId === "SSE:513100" ? "2026-07-17T16:14:52+08:00" : quote.instrumentId === "SZSE:159995" ? "2026-07-17T16:14:27+08:00" : "2026-07-17T16:14:36+08:00",
+    receivedAt: "2026-07-19T14:04:41+08:00",
+    source: "tencent-qt",
+    quality: "stale",
+    stale: true,
+    warnings: ["报价已过期"],
+  }));
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = (async () => Response.json({ data: weekendQuotes })) as typeof fetch;
+  try {
+    const data = await new RiskWorkspaceService(portfolio, journal, new MockReviewService(), () => "2026-07-19T14:04:41+08:00").load();
+    const market = data.sourceHealth.find((source) => source.name === "ApiMarketDataProvider");
+    assert.equal(data.diagnostics.market.snapshotStatus, "closed-snapshot");
+    assert.equal(data.diagnostics.market.stale, false);
+    assert.equal(data.portfolio.reliable, true);
+    assert.equal(data.dataWarnings.some((warning) => warning.includes("行情过期")), false);
+    assert.match(market?.freshness ?? "", /闭市快照/);
+    assert.equal(data.workflow.find((step) => step.id === "market")?.detail, "闭市快照可用于复盘");
   } finally {
     globalThis.fetch = previousFetch;
   }
