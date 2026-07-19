@@ -108,6 +108,7 @@ const longTermThreads = [
     import gsap from "gsap";
     import { ScrollTrigger } from "gsap/ScrollTrigger";
     import {
+      getLatestBriefing,
       submitAnnotationStream,
       getMemories,
       updateMemoryCandidate,
@@ -116,33 +117,40 @@ const longTermThreads = [
     import type {
       AnnotationAction,
       AnnotationResponse,
+      BriefingItem,
+      DailyBriefing,
       MemoryCandidate,
       MemoryScope,
     } from "../features/briefing/types";
 
     gsap.registerPlugin(ScrollTrigger);
 
-    const previewState = new URL(window.location.href).searchParams.get("state")
+    const previewParam = new URL(window.location.href).searchParams.get("state");
+    const previewState = previewParam
       ?? document.querySelector<HTMLElement>("[data-briefing-state]")?.dataset.briefingState
       ?? "ready";
     const supportedStates = ["ready", "generating", "partial", "failed", "empty"];
-    const activeState = supportedStates.includes(previewState) ? previewState : "ready";
-    const showReadyContent = activeState === "ready" || activeState === "partial";
-    document.querySelector<HTMLElement>("[data-ready-content]")?.toggleAttribute("hidden", !showReadyContent);
-    document.querySelector<HTMLElement>("[data-partial-preview]")?.toggleAttribute("hidden", activeState !== "partial");
-    document.querySelectorAll<HTMLElement>("[data-preview-state]").forEach((element) => {
-      element.toggleAttribute("hidden", element.dataset.previewState !== activeState);
-    });
     const statusLabel = document.querySelector<HTMLElement>("[data-briefing-status]");
-    if (statusLabel) {
-      statusLabel.textContent = {
+    let activeState = supportedStates.includes(previewState) ? previewState : "ready";
+
+    const setPreviewState = (state: string) => {
+      activeState = supportedStates.includes(state) ? state : "ready";
+      const showReadyContent = activeState === "ready" || activeState === "partial";
+      document.querySelector<HTMLElement>("[data-ready-content]")?.toggleAttribute("hidden", !showReadyContent);
+      document.querySelector<HTMLElement>("[data-partial-preview]")?.toggleAttribute("hidden", activeState !== "partial");
+      document.querySelectorAll<HTMLElement>("[data-preview-state]").forEach((element) => {
+        element.toggleAttribute("hidden", element.dataset.previewState !== activeState);
+      });
+      if (statusLabel) statusLabel.textContent = {
         ready: "已就绪",
         partial: "部分完成",
         generating: "生成中",
         failed: "生成失败",
         empty: "已扫描",
       }[activeState];
-    }
+    };
+
+    setPreviewState(activeState);
 
     const menu = document.querySelector<HTMLElement>("[data-annotation-menu]");
     const panel = document.querySelector<HTMLElement>("[data-annotation-panel]");
@@ -155,7 +163,8 @@ const longTermThreads = [
     const submitLabel = document.querySelector<HTMLElement>("[data-submit-label]");
     const submitError = document.querySelector<HTMLElement>("[data-annotation-error]");
     const commentLabel = document.querySelector<HTMLElement>("[data-comment-label]");
-    const briefingId = document.querySelector<HTMLElement>("[data-briefing-id]")?.dataset.briefingId ?? "";
+    const briefingPage = document.querySelector<HTMLElement>("[data-briefing-state]");
+    let briefingId = document.querySelector<HTMLElement>("[data-briefing-id]")?.dataset.briefingId ?? "";
     const session = briefingSessionStore.load();
     getMemories().then(({ candidates }) => {
       if (candidates.length === 0) return;
@@ -289,12 +298,13 @@ const longTermThreads = [
       if (button) openPanel(button.dataset.action as AnnotationAction);
     });
 
-    document.querySelectorAll<HTMLButtonElement>("[data-mobile-comment]").forEach((button) => {
-      button.addEventListener("click", () => {
+    document.addEventListener("click", (event) => {
+      const button = (event.target as Element).closest<HTMLButtonElement>("[data-mobile-comment]");
+      if (button) {
         selectedItem = button.closest<HTMLElement>("[data-briefing-item]");
         selectedText = selectedItem?.querySelector<HTMLElement>(".signal-item__summary")?.textContent?.trim() ?? "";
         openPanel("comment");
-      });
+      }
     });
 
     let selectedCategory = "all";
@@ -334,8 +344,9 @@ const longTermThreads = [
       applyReadingFilters();
     });
 
-    document.querySelectorAll<HTMLButtonElement>("[data-analysis-toggle]").forEach((button) => {
-      button.addEventListener("click", () => {
+    document.addEventListener("click", (event) => {
+      const button = (event.target as Element).closest<HTMLButtonElement>("[data-analysis-toggle]");
+      if (button) {
         const item = button.closest<HTMLElement>("[data-briefing-item]");
         const analysis = item?.querySelector<HTMLElement>("[data-item-analysis]");
         if (!analysis) return;
@@ -348,8 +359,88 @@ const longTermThreads = [
           gsap.from(analysis, { y: 12, opacity: 0, duration: 0.45, ease: "power3.out" });
         }
         ScrollTrigger.refresh();
-      });
+      }
     });
+
+    const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (character) => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;",
+    }[character] ?? character));
+
+    const dateLabel = (date: string) => new Intl.DateTimeFormat("zh-CN", {
+      month: "long",
+      day: "numeric",
+      weekday: "long",
+      timeZone: "Asia/Shanghai",
+    }).format(new Date(`${date}T12:00:00+08:00`));
+
+    const timeLabel = (timestamp: string) => new Intl.DateTimeFormat("zh-CN", {
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: "Asia/Shanghai",
+    }).format(new Date(timestamp));
+
+    const itemCard = (item: BriefingItem, index: number) => {
+      const categoryLabels = { "ai-engineering": "AI Engineering", markets: "Markets", zxlab: "zxlab" } as const;
+      const analysisHidden = index > 1 ? " hidden" : "";
+      const analysisExpanded = index <= 1 ? "true" : "false";
+      const sources = item.sources.map((source) => {
+        const href = escapeHtml(source.url);
+        const external = source.url.startsWith("http");
+        return `<a href="${href}"${external ? ' target="_blank" rel="noreferrer"' : ""}>${escapeHtml(source.publisher ?? source.title)}<span aria-hidden="true">↗</span></a>`;
+      }).join("");
+      return `<article class="signal-item" data-briefing-item="${escapeHtml(item.id)}" data-item-category="${item.category}" data-item-importance="${item.importance}" data-item-title="${escapeHtml(item.title)}" aria-labelledby="item-${escapeHtml(item.id)}">
+        <header class="signal-item__header"><div><p><span>${String(index + 1).padStart(2, "0")}</span> ${categoryLabels[item.category]}</p><h3 id="item-${escapeHtml(item.id)}">${escapeHtml(item.title)}</h3></div><div class="signal-item__score" aria-label="重要性 ${item.importance}，置信度 ${item.confidence}"><span>重要 ${item.importance}</span><span>置信 ${item.confidence}</span></div></header>
+        <div class="signal-item__body" data-selectable-copy><p class="signal-item__summary">${escapeHtml(item.summary)}</p><div class="signal-item__analysis" data-item-analysis${analysisHidden}>${item.whatChanged ? `<div><h4>变化</h4><p>${escapeHtml(item.whatChanged)}</p></div>` : ""}<div><h4>与你有关</h4><p>${escapeHtml(item.whyItMatters)}</p></div>${item.suggestedAction ? `<div class="signal-item__action"><h4>可行动</h4><p>${escapeHtml(item.suggestedAction)}</p></div>` : ""}</div></div>
+        <footer class="signal-item__footer"><div class="signal-sources"><span>来源</span>${sources}</div><div class="signal-item__controls"><button class="signal-analysis-toggle" type="button" data-analysis-toggle aria-expanded="${analysisExpanded}"><span>${index <= 1 ? "收起分析" : "展开分析"}</span><span aria-hidden="true">⌄</span></button><button class="signal-comment-trigger" type="button" data-mobile-comment><span>回应这条</span><span aria-hidden="true">＋</span></button></div></footer>
+      </article>`;
+    };
+
+    const renderBriefing = (briefing: DailyBriefing) => {
+      briefingId = briefing.id;
+      if (briefingPage) {
+        briefingPage.dataset.briefingId = briefing.id;
+        briefingPage.dataset.briefingState = briefing.status;
+      }
+      document.querySelector<HTMLElement>(".signal-kicker")?.replaceChildren(document.createElement("span"), ` ZX Signal · ${dateLabel(briefing.date)}`);
+      const deck = document.querySelector<HTMLElement>(".signal-deck");
+      if (deck) deck.textContent = briefing.title;
+      const summary = document.querySelector<HTMLElement>("[data-scrub-summary]");
+      if (summary) {
+        summary.textContent = briefing.summary;
+        summary.dataset.expanded = "false";
+      }
+      const origin = document.querySelector<HTMLElement>("[data-briefing-origin]");
+      if (origin) origin.textContent = { mock: "Mock 预览", fixture: "Fixture 生成", real: "真实候选生成" }[briefing.dataOrigin];
+      const editorialValues = document.querySelectorAll<HTMLElement>(".signal-editorial dl dd");
+      if (editorialValues[0]) editorialValues[0].textContent = timeLabel(briefing.generatedAt);
+      if (editorialValues[1]) editorialValues[1].textContent = briefing.promptVersion;
+      const filterTitle = document.querySelector<HTMLElement>("#filter-title");
+      if (filterTitle) filterTitle.textContent = `扫描了 ${briefing.stats.fetched} 个信号，最终保留 ${briefing.stats.selected} 条。`;
+      const marquee = document.querySelector<HTMLElement>(".signal-filter__marquee > div");
+      if (marquee) marquee.innerHTML = `<span>扫描 ${briefing.stats.fetched} 条</span><i></i><span>去重后 ${briefing.stats.deduplicated} 条</span><i></i><span>LLM 初筛 18 条</span><i></i><span>最终收录 ${briefing.stats.selected} 条</span><i></i><span>扫描 ${briefing.stats.fetched} 条</span><i></i><span>去重后 ${briefing.stats.deduplicated} 条</span><i></i><span>LLM 初筛 18 条</span><i></i><span>最终收录 ${briefing.stats.selected} 条</span><i></i>`;
+      const steps = document.querySelectorAll<HTMLElement>(".signal-filter__steps strong");
+      if (steps[0]) steps[0].textContent = String(briefing.stats.fetched);
+      if (steps[1]) steps[1].textContent = String(briefing.stats.deduplicated);
+      if (steps[3]) steps[3].textContent = String(briefing.stats.selected);
+      const stream = document.querySelector<HTMLElement>(".signal-stream__items");
+      if (stream) {
+        stream.querySelectorAll(".signal-item").forEach((item) => item.remove());
+        const empty = stream.querySelector<HTMLElement>("[data-filter-empty]");
+        empty?.insertAdjacentHTML("beforebegin", briefing.items.map(itemCard).join(""));
+      }
+      setPreviewState(briefing.status);
+      applyReadingFilters();
+    };
+
+    if (!previewParam && briefingId === "signal-unavailable") {
+      getLatestBriefing("ready").then(renderBriefing).catch(() => {
+        // The static failure state already explains that the API was unavailable.
+      });
+    }
 
     const summaryToggle = document.querySelector<HTMLButtonElement>("[data-summary-toggle]");
     summaryToggle?.addEventListener("click", () => {
