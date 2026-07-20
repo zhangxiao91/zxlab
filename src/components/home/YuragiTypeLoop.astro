@@ -3,7 +3,7 @@ import { HOME_HERO_WORDS } from "../../data/home-hero";
 ---
 
 <div class="hero-word" data-yuragi-loop data-state="boot" aria-hidden="true">
-  <svg viewBox="0 0 648 82" preserveAspectRatio="xMinYMid meet" focusable="false">
+  <svg viewBox="0 0 500 82" preserveAspectRatio="xMinYMid meet" focusable="false" data-word-svg>
     <g class="hero-word__glyphs" data-glyphs></g>
     <rect class="hero-word__cursor" data-cursor x="0" y="4" width="4" height="70" rx="1"></rect>
   </svg>
@@ -15,9 +15,11 @@ import { HOME_HERO_WORDS } from "../../data/home-hero";
   import {
     HOME_HERO_EVENT,
     HOME_HERO_TIMING,
+    HOME_HERO_VIEWBOX_WIDTHS,
     HOME_HERO_WORDS,
     type MotionState,
   } from "../../data/home-hero";
+  import { welcomeFinishedEvent } from "../welcome/welcome-config";
 
   type GlyphMap = Record<string, string[]>;
 
@@ -27,6 +29,7 @@ import { HOME_HERO_WORDS } from "../../data/home-hero";
     root.dataset.initialized = "true";
     const glyphLayer = root.querySelector<SVGGElement>("[data-glyphs]");
     const cursor = root.querySelector<SVGRectElement>("[data-cursor]");
+    const wordSvg = root.querySelector<SVGSVGElement>("[data-word-svg]");
     const hero = root.closest<HTMLElement>("[data-home-hero]");
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
     const glyphs = outlineData.glyphs as GlyphMap;
@@ -68,6 +71,12 @@ import { HOME_HERO_WORDS } from "../../data/home-hero";
       cursor?.setAttribute("x", String(visibleCount * advance + 6));
     };
 
+    const setWordMetrics = () => {
+      const word = HOME_HERO_WORDS[wordIndex];
+      root.dataset.word = word;
+      wordSvg?.setAttribute("viewBox", `0 0 ${HOME_HERO_VIEWBOX_WIDTHS[word]} 82`);
+    };
+
     const createGlyph = (character: string, index: number) => {
       const namespace = "http://www.w3.org/2000/svg";
       const group = document.createElementNS(namespace, "g");
@@ -100,6 +109,7 @@ import { HOME_HERO_WORDS } from "../../data/home-hero";
       if (!glyphLayer || visibleCount === 0) {
         publish("switching");
         wordIndex = (wordIndex + 1) % HOME_HERO_WORDS.length;
+        setWordMetrics();
         schedule(beginTyping, HOME_HERO_TIMING.switchGap);
         return;
       }
@@ -165,6 +175,7 @@ import { HOME_HERO_WORDS } from "../../data/home-hero";
       clearTimers();
       glyphLayer?.replaceChildren();
       visibleCount = 0;
+      setWordMetrics();
       HOME_HERO_WORDS[0].split("").forEach((character, index) => {
         const glyph = createGlyph(character, index);
         glyph.classList.remove("is-entering");
@@ -186,8 +197,16 @@ import { HOME_HERO_WORDS } from "../../data/home-hero";
       observer?.disconnect();
       document.removeEventListener("visibilitychange", handleVisibility);
       reducedMotion.removeEventListener("change", handleReducedMotion);
+      window.removeEventListener(welcomeFinishedEvent, startLoop);
       window.removeEventListener("pagehide", dispose);
     };
+
+    function startLoop() {
+      if (disposed) return;
+      setWordMetrics();
+      publish("boot");
+      schedule(beginTyping, HOME_HERO_TIMING.bootDelay);
+    }
 
     if (hero) {
       observer = new IntersectionObserver(([entry]) => {
@@ -203,9 +222,8 @@ import { HOME_HERO_WORDS } from "../../data/home-hero";
     window.addEventListener("pagehide", dispose, { once: true });
 
     if (reducedMotion.matches) renderStatic();
-    else {
-      publish("boot");
-      schedule(beginTyping, HOME_HERO_TIMING.bootDelay);
-    }
+    else if (document.documentElement.classList.contains("welcome-pending")) {
+      window.addEventListener(welcomeFinishedEvent, startLoop, { once: true });
+    } else startLoop();
   }
 </script>

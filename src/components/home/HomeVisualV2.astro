@@ -1,10 +1,10 @@
 ---
 import { getCollection } from "astro:content";
 import Layout from "../../layouts/Layout.astro";
+import ZxAnimatedBackground from "../background/ZxAnimatedBackground.astro";
+import WelcomeGate from "../welcome/WelcomeGate.astro";
 import { projects } from "../../data/projects";
 import HomeHeroV2 from "./HomeHeroV2.astro";
-import ScrollMeteorField from "./ScrollMeteorField.astro";
-import ZxBackgroundV2 from "./ZxBackgroundV2.astro";
 import "../../styles/home-visual-v2.css";
 
 const featuredProjects = projects.filter((project) => project.featured);
@@ -21,10 +21,12 @@ const dateFormatter = new Intl.DateTimeFormat("en-US", {
 <Layout
   title="zxlab — Zhangxiao's personal lab"
   description="Projects, notes, and experiments by Zhangxiao."
+  welcomeGate
 >
+  <WelcomeGate slot="overlay" />
+
   <main class="home-v2-page" data-home-v2-page>
-    <ZxBackgroundV2 />
-    <ScrollMeteorField />
+    <ZxAnimatedBackground />
     <HomeHeroV2 />
 
     <section class="home-v2-section home-v2-projects" id="selected-projects" aria-labelledby="selected-projects-title" data-reveal-section>
@@ -95,12 +97,13 @@ const dateFormatter = new Intl.DateTimeFormat("en-US", {
   </main>
 
   <script>
+    import { welcomeFinishedEvent } from "../welcome/welcome-config";
+
     const page = document.querySelector<HTMLElement>("[data-home-v2-page]");
 
     if (page && page.dataset.initialized !== "true") {
       page.dataset.initialized = "true";
       const hero = page.querySelector<HTMLElement>("[data-home-hero]");
-      const zxField = page.querySelector<HTMLElement>("[data-zx-field]");
       const header = document.querySelector<HTMLElement>(".site-header");
       const menuToggle = header?.querySelector<HTMLButtonElement>(".site-menu-toggle");
       const navigation = header?.querySelector<HTMLElement>(".site-nav");
@@ -114,7 +117,6 @@ const dateFormatter = new Intl.DateTimeFormat("en-US", {
         if (reduced.matches) return;
         const progress = Math.min(Math.max(window.scrollY / Math.max(window.innerHeight * 0.88, 1), 0), 1);
         hero?.style.setProperty("--hero-scroll-progress", progress.toFixed(4));
-        zxField?.style.setProperty("--zx-scroll-y", `${(window.scrollY * 0.075).toFixed(2)}px`);
       };
       const handleScroll = () => {
         if (!scrollFrame) scrollFrame = requestAnimationFrame(paintScroll);
@@ -137,6 +139,7 @@ const dateFormatter = new Intl.DateTimeFormat("en-US", {
         menuToggle.setAttribute("aria-expanded", "false");
         menuToggle.setAttribute("aria-label", "Open navigation");
       };
+      const revealPage = () => requestAnimationFrame(() => page.classList.add("is-ready"));
       const dispose = () => {
         cancelAnimationFrame(scrollFrame);
         revealObserver?.disconnect();
@@ -144,6 +147,7 @@ const dateFormatter = new Intl.DateTimeFormat("en-US", {
         reduced.removeEventListener("change", handleReduced);
         menuToggle?.removeEventListener("click", toggleMenu);
         navigation?.removeEventListener("click", closeMenu);
+        window.removeEventListener(welcomeFinishedEvent, revealPage);
         window.removeEventListener("pagehide", dispose);
       };
 
@@ -169,7 +173,11 @@ const dateFormatter = new Intl.DateTimeFormat("en-US", {
         navigation.addEventListener("click", closeMenu);
       }
       window.addEventListener("pagehide", dispose, { once: true });
-      requestAnimationFrame(() => page.classList.add("is-ready"));
+      if (document.documentElement.classList.contains("welcome-pending")) {
+        window.addEventListener(welcomeFinishedEvent, revealPage, { once: true });
+      } else {
+        revealPage();
+      }
       paintScroll();
     }
   </script>
