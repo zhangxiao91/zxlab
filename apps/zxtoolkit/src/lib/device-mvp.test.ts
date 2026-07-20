@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { canAdvanceDropStatus, classifyClipboard, validateDropPayload } from "../../shared/payload";
+import { credentialMetadata, resolveDefaultDeviceId } from "../../desktop/src/platform";
+import type { Device } from "../../shared/types";
 
 describe("desktop clipboard payloads", () => {
   it("classifies http and https links", () => {
@@ -31,5 +33,21 @@ describe("desktop clipboard payloads", () => {
     expect(canAdvanceDropStatus("opened", "claimed")).toBe(true);
     expect(canAdvanceDropStatus("claimed", "opened")).toBe(false);
     expect(canAdvanceDropStatus("expired", "claimed")).toBe(false);
+  });
+
+  it("keeps the long-lived token out of Tauri Store metadata", () => {
+    const device: Device = { id: "mac-1", name: "My Mac", platform: "macos", capabilities: ["drop.send"], createdAt: "2026-07-19T00:00:00.000Z", credentialVersion: 1 };
+    expect(credentialMetadata({ device, token: "secret-token" })).toEqual({ device });
+    expect("token" in credentialMetadata({ device, token: "secret-token" })).toBe(false);
+  });
+
+  it("keeps a valid default target and falls back when it is revoked", () => {
+    const devices: Device[] = [
+      { id: "phone-1", name: "Phone", platform: "ios", capabilities: ["drop.receive"], createdAt: "2026-07-19T00:00:00.000Z", credentialVersion: 1 },
+      { id: "tablet-1", name: "Tablet", platform: "ios", capabilities: ["drop.receive"], createdAt: "2026-07-19T00:00:00.000Z", credentialVersion: 1 }
+    ];
+    expect(resolveDefaultDeviceId(devices, "tablet-1")).toBe("tablet-1");
+    expect(resolveDefaultDeviceId(devices, "revoked-device")).toBe("phone-1");
+    expect(resolveDefaultDeviceId([], "tablet-1")).toBe("");
   });
 });

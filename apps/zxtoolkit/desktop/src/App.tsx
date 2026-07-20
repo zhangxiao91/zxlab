@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import QRCode from "qrcode";
-import { Check, ChevronDown, Clipboard, ExternalLink, FileUp, LoaderCircle, RefreshCw, Settings, Smartphone } from "lucide-react";
+import { ArrowLeft, Check, ChevronDown, Clipboard, ExternalLink, FileUp, LoaderCircle, LogOut, RefreshCw, RotateCw, Settings, Smartphone, Trash2 } from "lucide-react";
 import type { Device, DeviceCredential, DropItem, PairingSessionResponse, PublicStatusResponse } from "../../shared/types";
 import { ApiError } from "../../src/lib/api";
-import { createPairingSession, getDevices, getPairingStatus, getPublicStatus, getRecentDrops, removeDevice, sendDrop, uploadDropImage } from "../../src/lib/device-api";
-import { createCredentialStore, notifyDelivery, openExternal, readClipboardDrop, type ClipboardDrop } from "./platform";
+import { createPairingSession, getDevices, getPairingStatus, getPublicStatus, getRecentDrops, removeDevice, renameCurrentDevice, rotateDeviceCredential, sendDrop, uploadDropImage } from "../../src/lib/device-api";
+import { createCredentialStore, notifyDelivery, openExternal, quitApp, readClipboardDrop, resolveDefaultDeviceId, type ClipboardDrop } from "./platform";
 
 const store = createCredentialStore();
 const publicAppUrl = import.meta.env.VITE_ZXTOOLKIT_PUBLIC_URL || import.meta.env.VITE_PUBLIC_APP_URL || "http://localhost:4173";
@@ -22,6 +22,8 @@ export default function DesktopApp() {
   const [progress, setProgress] = useState(0);
   const [lastAttempt, setLastAttempt] = useState<ClipboardDrop | null>(null);
   const [connected, setConnected] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [deviceName, setDeviceName] = useState("");
 
   const refresh = useCallback(async (active: DeviceCredential) => {
     const [deviceResult, recentResult, publicResult] = await Promise.all([getDevices(active), getRecentDrops(active), getPublicStatus().catch(() => null)]);
@@ -30,7 +32,7 @@ export default function DesktopApp() {
     setPulse(publicResult);
     setConnected(true);
     const storedDefault = await store.loadDefaultDeviceId();
-    const next = deviceResult.pairedDevices.some((item) => item.id === storedDefault) ? storedDefault! : deviceResult.pairedDevices[0]?.id ?? "";
+    const next = resolveDefaultDeviceId(deviceResult.pairedDevices, storedDefault);
     setTargetId(next);
     if (next) await store.saveDefaultDeviceId(next);
   }, []);
@@ -40,7 +42,8 @@ export default function DesktopApp() {
       try {
         const saved = await store.loadCredential();
         if (!saved) { await beginPairing(); return; }
-        setCredential(saved);
+      setCredential(saved);
+      setDeviceName(saved.device.name);
         try {
           await refresh(saved);
         } catch (cause) {
@@ -69,7 +72,7 @@ export default function DesktopApp() {
           window.clearInterval(timer);
           await store.saveCredential(result.credential);
           await store.saveDefaultDeviceId(result.receiver.id);
-          setCredential(result.credential); setPairing(null); setQrCode(null);
+          setCredential(result.credential); setDeviceName(result.credential.device.name); setPairing(null); setQrCode(null);
           await refresh(result.credential);
         } else if (result.status === "expired") {
           window.clearInterval(timer); setMessage("配对二维码已过期，请重新生成");
@@ -131,12 +134,13 @@ export default function DesktopApp() {
     setStatus("error");
   }
 
-  async function removeCurrentDevice() {
-    if (!credential || !targetId || !selectedDevice) return;
-    if (!window.confirm(`解除与“${selectedDevice.name}”的绑定？解除后需要重新扫码才能投递。`)) return;
+  async function removePairedDevice(id: string) {
+    if (!credential) return;
+    const target = devices.find((device) => device.id === id);
+    if (!target || !window.confirm(`解除与“${target.name}”的绑定？解除后该设备凭证会立即失效。`)) return;
     try {
-      await removeDevice(credential, targetId);
-      const remaining = devices.filter((device) => device.id !== targetId);
+      await removeDevice(credential, id);
+      const remaining = devices.filter((device) => device.id !== id);
       setDevices(remaining);
       if (remaining.length) {
         setTargetId(remaining[0].id);
@@ -152,11 +156,41 @@ export default function DesktopApp() {
     }
   }
 
+  async function saveDeviceName() {
+    if (!credential || !deviceName.trim()) return;
+    try {
+      const device = await renameCurrentDevice(credential, deviceName.trim());
+      const updated = { ...credential, device };
+      await store.saveCredential(updated);
+      setCredential(updated);
+      setDeviceName(device.name);
+      setStatus("success"); setMessage("Mac 名称已更新");
+    } catch (cause) { setStatus("error"); setMessage(cause instanceof Error ? cause.message : "设备名称更新失败"); }
+  }
+
+  async function rotateCredential() {
+    if (!credential) return;
+    try {
+      const updated = await rotateDeviceCredential(credential);
+      await store.saveCredential(updated);
+      setCredential(updated);
+      setStatus("success"); setMessage("设备凭证已轮换，旧凭证立即失效");
+    } catch (cause) { setStatus("error"); setMessage(cause instanceof Error ? cause.message : "凭证轮换失败"); }
+  }
+
   const selectedDevice = useMemo(() => devices.find((device) => device.id === targetId), [devices, targetId]);
 
   return <main className="desktop-shell">
     <header className="desktop-header"><div className="desktop-brand"><span>z</span><strong>zxtoolkit</strong></div><i className={`online-dot ${connected ? "" : "is-offline"}`} title={connected ? "服务已连接" : "等待连接"} /></header>
-    {!credential || devices.length === 0 ? <section className="pairing-pane">
+    {settingsOpen && credential ? <section className="settings-pane">
+      <button className="settings-back" onClick={() => setSettingsOpen(false)}><ArrowLeft size={15} /> 返回投递</button>
+      <div className="settings-heading"><h1>设备管理</h1><p>长期凭证保存在 macOS 钥匙串，可随时轮换或吊销。</p></div>
+      <label className="settings-field"><span>这台 Mac 的名称</span><div><input value={deviceName} maxLength={48} onChange={(event) => setDeviceName(event.target.value)} /><button onClick={() => void saveDeviceName()} disabled={!deviceName.trim()}>保存</button></div></label>
+      <div className="settings-devices"><span>已配对设备</span>{devices.map((device) => <div key={device.id}><Smartphone size={16} /><p><strong>{device.name}</strong><small>{device.platform} · {device.revokedAt ? "已吊销" : "有效"}</small></p><button aria-label={`解除 ${device.name}`} onClick={() => void removePairedDevice(device.id)}><Trash2 size={16} /></button></div>)}</div>
+      <button className="settings-action" onClick={() => void rotateCredential()}><RotateCw size={16} /> 轮换这台 Mac 的凭证</button>
+      <button className="settings-action danger" onClick={() => void quitApp()}><LogOut size={16} /> 退出 zxtoolkit</button>
+      {message && <p className={`desktop-message ${status === "error" ? "error" : "success"}`}>{message}</p>}
+    </section> : !credential || devices.length === 0 ? <section className="pairing-pane">
       <div className="pairing-copy"><h1>先绑定一台<br />接收设备。</h1><p>手机扫码确认后，以后无需再次扫码。</p></div>
       <div className="desktop-qr">{qrCode ? <img src={qrCode} alt="设备配对二维码" /> : <LoaderCircle className="spin" size={26} />}</div>
       <p className="pairing-hint">用手机相机扫描二维码</p>
@@ -169,7 +203,7 @@ export default function DesktopApp() {
       {message && <p className={`desktop-message ${status === "error" ? "error" : "success"}`}>{message}{status === "error" && lastAttempt && <button onClick={() => void retryLast()}>重试</button>}</p>}
       <section className="recent-panel"><div className="panel-title"><span>最近投递</span><button onClick={() => credential && void refresh(credential)}><RefreshCw size={14} /></button></div>{recent.length ? <div className="recent-list">{recent.slice(0,4).map((item) => <div className="recent-item" key={item.id}><time>{formatTime(item.createdAt)}</time><span>{summary(item)}</span><small>{statusText(item.status)}</small></div>)}</div> : <div className="recent-empty">发送后的内容会出现在这里</div>}</section>
       <section className="pulse-summary"><div className="panel-title"><span>设备状态</span><button onClick={() => void openExternal(`${publicAppUrl.replace(/\/$/, "")}/pulse/preview`)}>Pulse</button></div><div><span>{pulse?.devices[0]?.name ?? selectedDevice?.name}</span><small>{pulse?.devices[0]?.presence === "online" ? "在线" : "等待状态"}</small></div></section>
-      <footer className="desktop-footer"><button onClick={() => void removeCurrentDevice()}><Settings size={14} /> 设备管理</button><button onClick={() => void openExternal(`${publicAppUrl.replace(/\/$/, "")}/inbox`)}><ExternalLink size={14} /> Web 控制台</button></footer>
+      <footer className="desktop-footer"><button onClick={() => { setMessage(null); setSettingsOpen(true); }}><Settings size={14} /> 设备管理</button><button onClick={() => void openExternal(`${publicAppUrl.replace(/\/$/, "")}/inbox`)}><ExternalLink size={14} /> Web 收件箱</button></footer>
       <p className="target-footnote">当前目标：{selectedDevice?.name}</p>
     </>}
   </main>;

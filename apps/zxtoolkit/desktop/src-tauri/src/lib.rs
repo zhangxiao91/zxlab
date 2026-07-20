@@ -43,6 +43,11 @@ async fn keychain_delete(device_id: String) -> Result<(), String> {
     .map_err(|_| "删除设备凭证失败".to_string())?
 }
 
+#[tauri::command]
+fn quit_app(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
@@ -53,7 +58,7 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
-        .invoke_handler(tauri::generate_handler![keychain_set, keychain_get, keychain_delete])
+        .invoke_handler(tauri::generate_handler![keychain_set, keychain_get, keychain_delete, quit_app])
         .setup(|app| {
             // One-time migration from the pre-zxtoolkit bundle identifier. This keeps
             // existing device tokens and default targets without exposing them to JS.

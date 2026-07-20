@@ -31,7 +31,7 @@ export function createCredentialStore(): CredentialStore {
       if (!token && stored.token) {
         await invoke("keychain_set", { deviceId: stored.device.id, token: stored.token });
         token = stored.token;
-        await store.set(CREDENTIAL_KEY, { device: stored.device });
+        await store.set(CREDENTIAL_KEY, credentialMetadata({ device: stored.device, token: stored.token }));
         await store.save();
       }
       return token ? { device: stored.device, token } : null;
@@ -40,7 +40,7 @@ export function createCredentialStore(): CredentialStore {
       const { invoke } = await import("@tauri-apps/api/core");
       await invoke("keychain_set", { deviceId: value.device.id, token: value.token });
       const store = await tauriStore();
-      await store.set(CREDENTIAL_KEY, { device: value.device });
+      await store.set(CREDENTIAL_KEY, credentialMetadata(value));
       await store.save();
     },
     async loadDefaultDeviceId() { const store = await tauriStore(); return await store.get<string>(DEFAULT_DEVICE_KEY) ?? null; },
@@ -57,6 +57,14 @@ export function createCredentialStore(): CredentialStore {
       await store.save();
     }
   };
+}
+
+export function credentialMetadata(value: DeviceCredential): { device: Device } {
+  return { device: value.device };
+}
+
+export function resolveDefaultDeviceId(devices: Device[], stored: string | null): string {
+  return devices.some((device) => device.id === stored) ? stored! : devices[0]?.id ?? "";
 }
 
 export async function readClipboardDrop(): Promise<ClipboardDrop> {
@@ -106,6 +114,12 @@ export async function openExternal(url: string): Promise<void> {
     return;
   }
   window.open(url, "_blank", "noopener,noreferrer");
+}
+
+export async function quitApp(): Promise<void> {
+  if (!isTauri()) { window.close(); return; }
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("quit_app");
 }
 
 async function tauriStore() {
