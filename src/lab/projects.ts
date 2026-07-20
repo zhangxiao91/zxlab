@@ -2,6 +2,22 @@ import type { LabProject } from "./types";
 
 export const labProjects: LabProject[] = [
   {
+    slug: "market",
+    title: "Market Center",
+    description:
+      "行情、K 线、公告、7x24 新闻与 provider health 的统一入口。Risk 只消费这里的结果，不再各自拼接行情请求。",
+    status: "beta",
+    category: "Market Console",
+    cardLabels: ["Quotes", "News", "Health"],
+    tags: ["Quotes", "K-Line", "Announcements"],
+    featured: true,
+    thumbnail: "https://picsum.photos/seed/market-console-ledger/1600/1200",
+    thumbnailAlt: "深色行情控制台抽象图，用于表示 Market Center",
+    href: "/lab/market",
+    customPage: true,
+    deviceSupport: ["desktop", "touch", "keyboard", "pointer"],
+  },
+  {
     slug: "risk",
     title: "持仓风险台",
     description:

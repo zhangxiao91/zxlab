@@ -22,36 +22,6 @@
   box-shadow: inset 0 -1px rgba(25, 26, 22, 0.13);
 }
 
-.site-shell:has(.signal-page) .site-name {
-  font-size: 0.92rem;
-  font-weight: 600;
-}
-
-.site-shell:has(.signal-page) .site-nav {
-  gap: var(--space-6);
-  color: #706f67;
-  font-size: 0.82rem;
-}
-
-.site-shell:has(.signal-page) .site-nav a {
-  padding: 0.35rem 0.15rem;
-  border-radius: 0;
-  transition:
-    color 600ms cubic-bezier(0.32, 0.72, 0, 1),
-    background-color 600ms cubic-bezier(0.32, 0.72, 0, 1),
-    transform 600ms cubic-bezier(0.32, 0.72, 0, 1);
-}
-
-.site-shell:has(.signal-page) .site-nav a:hover,
-.site-shell:has(.signal-page) .site-nav a[aria-current="page"] {
-  background: transparent;
-  color: #1d1f19;
-  text-decoration: underline;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 0.32em;
-  transform: none;
-}
-
 .signal-page {
   width: 100%;
   max-width: 100%;

@@ -67,7 +67,7 @@
 .risk-appbar__status strong { font-size: .72rem; font-weight: 540; }
 .risk-appbar__status small { margin-top: .28rem; color: var(--risk-muted); font-size: .61rem; }
 .risk-appbar__actions { display: flex; justify-self: end; align-items: center; gap: 1rem; }
-.risk-appbar__actions > button { padding: .58rem .8rem; border: 1px solid var(--risk-line); border-radius: 999px; background: transparent; color: #efede4; cursor: pointer; font-size: .67rem; }
+.risk-appbar__actions > button, .risk-appbar__link { padding: .58rem .8rem; border: 1px solid var(--risk-line); border-radius: 999px; background: transparent; color: #efede4; cursor: pointer; font-size: .67rem; text-decoration: none; }
 
 .risk-main { width: min(calc(100% - 3rem), 86rem); margin: 0 auto; padding-bottom: clamp(8rem, 15vw, 14rem); }
 .risk-hero { display: grid; grid-template-columns: minmax(0, 1fr) 13rem; min-height: 33rem; padding: clamp(7rem, 12vw, 10rem) 0 clamp(6rem, 9vw, 8rem); align-items: end; gap: 4rem; }
