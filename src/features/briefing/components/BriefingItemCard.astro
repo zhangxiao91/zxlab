@@ -30,11 +30,11 @@ const categoryLabels = {
   </header>
 
   <div class="signal-item__body" data-selectable-copy>
-    <p class="signal-item__summary">{item.summary}</p>
+    <p class="signal-item__summary" data-selectable-segment>{item.summary}</p>
     <div class="signal-item__analysis" data-item-analysis hidden={index > 1}>
-      {item.whatChanged && <div><h4>变化</h4><p>{item.whatChanged}</p></div>}
-      <div><h4>与你有关</h4><p>{item.whyItMatters}</p></div>
-      {item.suggestedAction && <div class="signal-item__action"><h4>可行动</h4><p>{item.suggestedAction}</p></div>}
+      {item.whatChanged && <div data-selectable-segment><h4>变化</h4><p>{item.whatChanged}</p></div>}
+      <div data-selectable-segment><h4>与你有关</h4><p>{item.whyItMatters}</p></div>
+      {item.suggestedAction && <div class="signal-item__action" data-selectable-segment><h4>可行动</h4><p>{item.suggestedAction}</p></div>}
     </div>
   </div>
 

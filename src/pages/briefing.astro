@@ -258,10 +258,19 @@ const longTermThreads = [
       if (semanticComment) window.setTimeout(() => form.requestSubmit(), 80);
     };
 
+    const normalizeSelectedText = (value: string) => value.trim().replace(/\s+/g, " ");
+
+    const defaultItemSelection = (item: HTMLElement | null): string => {
+      const preferred = item?.querySelector<HTMLElement>(".signal-item__action p")
+        ?? item?.querySelector<HTMLElement>("[data-item-analysis]:not([hidden]) [data-selectable-segment] p")
+        ?? item?.querySelector<HTMLElement>(".signal-item__summary");
+      return normalizeSelectedText(preferred?.textContent ?? "");
+    };
+
     const captureSelection = () => {
       const selection = window.getSelection();
-      const text = selection?.toString().trim().replace(/\s+/g, " ") ?? "";
-      if (!selection || text.length < 6 || selection.rangeCount === 0) {
+      let text = normalizeSelectedText(selection?.toString() ?? "");
+      if (!selection || selection.rangeCount === 0) {
         hideMenu();
         return;
       }
@@ -271,7 +280,13 @@ const longTermThreads = [
         : range.commonAncestorContainer.parentElement;
       const body = origin?.closest<HTMLElement>("[data-selectable-copy]");
       const item = body?.closest<HTMLElement>("[data-briefing-item]");
+      const segment = origin?.closest<HTMLElement>("[data-selectable-segment]");
       if (!body || !item || !menu) {
+        hideMenu();
+        return;
+      }
+      if (text.length < 6 && segment) text = normalizeSelectedText(segment.textContent ?? "");
+      if (text.length < 6) {
         hideMenu();
         return;
       }
@@ -302,7 +317,7 @@ const longTermThreads = [
       const button = (event.target as Element).closest<HTMLButtonElement>("[data-mobile-comment]");
       if (button) {
         selectedItem = button.closest<HTMLElement>("[data-briefing-item]");
-        selectedText = selectedItem?.querySelector<HTMLElement>(".signal-item__summary")?.textContent?.trim() ?? "";
+        selectedText = defaultItemSelection(selectedItem);
         openPanel("comment");
       }
     });
@@ -394,7 +409,7 @@ const longTermThreads = [
       }).join("");
       return `<article class="signal-item" data-briefing-item="${escapeHtml(item.id)}" data-item-category="${item.category}" data-item-importance="${item.importance}" data-item-title="${escapeHtml(item.title)}" aria-labelledby="item-${escapeHtml(item.id)}">
         <header class="signal-item__header"><div><p><span>${String(index + 1).padStart(2, "0")}</span> ${categoryLabels[item.category]}</p><h3 id="item-${escapeHtml(item.id)}">${escapeHtml(item.title)}</h3></div><div class="signal-item__score" aria-label="重要性 ${item.importance}，置信度 ${item.confidence}"><span>重要 ${item.importance}</span><span>置信 ${item.confidence}</span></div></header>
-        <div class="signal-item__body" data-selectable-copy><p class="signal-item__summary">${escapeHtml(item.summary)}</p><div class="signal-item__analysis" data-item-analysis${analysisHidden}>${item.whatChanged ? `<div><h4>变化</h4><p>${escapeHtml(item.whatChanged)}</p></div>` : ""}<div><h4>与你有关</h4><p>${escapeHtml(item.whyItMatters)}</p></div>${item.suggestedAction ? `<div class="signal-item__action"><h4>可行动</h4><p>${escapeHtml(item.suggestedAction)}</p></div>` : ""}</div></div>
+        <div class="signal-item__body" data-selectable-copy><p class="signal-item__summary" data-selectable-segment>${escapeHtml(item.summary)}</p><div class="signal-item__analysis" data-item-analysis${analysisHidden}>${item.whatChanged ? `<div data-selectable-segment><h4>变化</h4><p>${escapeHtml(item.whatChanged)}</p></div>` : ""}<div data-selectable-segment><h4>与你有关</h4><p>${escapeHtml(item.whyItMatters)}</p></div>${item.suggestedAction ? `<div class="signal-item__action" data-selectable-segment><h4>可行动</h4><p>${escapeHtml(item.suggestedAction)}</p></div>` : ""}</div></div>
         <footer class="signal-item__footer"><div class="signal-sources"><span>来源</span>${sources}</div><div class="signal-item__controls"><button class="signal-analysis-toggle" type="button" data-analysis-toggle aria-expanded="${analysisExpanded}"><span>${index <= 1 ? "收起分析" : "展开分析"}</span><span aria-hidden="true">⌄</span></button><button class="signal-comment-trigger" type="button" data-mobile-comment><span>回应这条</span><span aria-hidden="true">＋</span></button></div></footer>
       </article>`;
     };

@@ -1,5 +1,6 @@
 import { SignJWT, generateKeyPair } from "jose";
 import { describe, expect, it } from "vitest";
+import { corsHeaders } from "../src/lib/http";
 import { requireWriteAccess, verifyAccessJwt } from "../src/middleware/auth";
 
 const issuer = "https://zxdx1.cloudflareaccess.com";
@@ -42,5 +43,24 @@ describe("Cloudflare Access authentication", () => {
     const request = new Request("https://signal.example/api/annotations", { method: "POST" });
     await expect(requireWriteAccess(request, accessEnv({ ZX_SIGNAL_ACCESS_ENABLED: "false" })))
       .rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  });
+
+  it("allows the annotation stream accept header in CORS preflight", () => {
+    const request = new Request("https://signal.example/api/annotations", {
+      method: "OPTIONS",
+      headers: { origin: "https://beta.zxlab.pages.dev" },
+    });
+    const headers = corsHeaders(request, accessEnv({ ZX_SIGNAL_ALLOWED_ORIGINS: "https://*.zxlab.pages.dev" }));
+    expect(headers.get("access-control-allow-origin")).toBe("https://beta.zxlab.pages.dev");
+    expect(headers.get("access-control-allow-headers")).toContain("accept");
+  });
+
+  it("does not treat the preview wildcard as an arbitrary Pages origin", () => {
+    const request = new Request("https://signal.example/api/annotations", {
+      method: "OPTIONS",
+      headers: { origin: "https://other.pages.dev" },
+    });
+    const headers = corsHeaders(request, accessEnv({ ZX_SIGNAL_ALLOWED_ORIGINS: "https://*.zxlab.pages.dev" }));
+    expect(headers.has("access-control-allow-origin")).toBe(false);
   });
 });

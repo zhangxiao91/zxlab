@@ -37,12 +37,28 @@ export function errorResponse(error: unknown, path: string): Response {
 export function corsHeaders(request: Request, env: Env): Headers {
   const headers = new Headers({ "vary": "Origin" });
   const origin = request.headers.get("origin");
-  const allowed = env.ZX_SIGNAL_ALLOWED_ORIGINS.split(",").map((value) => value.trim());
-  if (origin && allowed.includes(origin)) {
+  const allowed = env.ZX_SIGNAL_ALLOWED_ORIGINS.split(",").map((value) => value.trim()).filter(Boolean);
+  if (origin && originAllowed(origin, allowed)) {
     headers.set("access-control-allow-origin", origin);
     headers.set("access-control-allow-credentials", "true");
-    headers.set("access-control-allow-headers", "content-type, authorization");
+    headers.set("access-control-allow-headers", "content-type, authorization, accept");
     headers.set("access-control-allow-methods", "GET, POST, PATCH, OPTIONS");
   }
   return headers;
+}
+
+function originAllowed(origin: string, allowed: string[]): boolean {
+  if (allowed.includes(origin)) return true;
+  let url: URL;
+  try { url = new URL(origin); }
+  catch { return false; }
+  return allowed.some((entry) => {
+    if (!entry.includes("*")) return false;
+    let pattern: URL;
+    try { pattern = new URL(entry); }
+    catch { return false; }
+    if (pattern.protocol !== url.protocol) return false;
+    const hostPattern = pattern.hostname.replace(/\./g, "\\.").replace(/\*/g, "[^.]+");
+    return new RegExp(`^${hostPattern}$`).test(url.hostname);
+  });
 }

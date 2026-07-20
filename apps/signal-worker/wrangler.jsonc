@@ -23,7 +23,7 @@
     "ZX_SIGNAL_LLM_API_URL": "https://beta.zxlab.pages.dev/api/ai/stream",
     "ZX_SIGNAL_LLM_LABEL": "zxlab-project-gateway",
     "ZX_SIGNAL_USER_AGENT": "zxlab-signal/0.2 (+https://zx-dx.xyz)",
-    "ZX_SIGNAL_ALLOWED_ORIGINS": "https://zx-dx.xyz,https://beta.zxlab.pages.dev,http://localhost:4321",
+    "ZX_SIGNAL_ALLOWED_ORIGINS": "https://zx-dx.xyz,https://zxlab.pages.dev,https://*.zxlab.pages.dev,http://localhost:4321",
     "ZX_SIGNAL_ACCESS_ENABLED": "true",
     "ZX_SIGNAL_SCHEDULE_ENABLED": "true",
     "ZX_SIGNAL_MARKET_NEWS_URL": "https://zxlab-risk-market.zhangxiao9118.workers.dev/api/market/news",
