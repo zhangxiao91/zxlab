@@ -1,0 +1,176 @@
+---
+import { getCollection } from "astro:content";
+import Layout from "../../layouts/Layout.astro";
+import { projects } from "../../data/projects";
+import HomeHeroV2 from "./HomeHeroV2.astro";
+import ScrollMeteorField from "./ScrollMeteorField.astro";
+import ZxBackgroundV2 from "./ZxBackgroundV2.astro";
+import "../../styles/home-visual-v2.css";
+
+const featuredProjects = projects.filter((project) => project.featured);
+const latestNotes = (await getCollection("notes", ({ data }) => !data.draft))
+  .sort((a, b) => b.data.publishedAt.valueOf() - a.data.publishedAt.valueOf())
+  .slice(0, 4);
+const dateFormatter = new Intl.DateTimeFormat("en-US", {
+  year: "numeric",
+  month: "short",
+  day: "numeric",
+});
+---
+
+<Layout
+  title="zxlab — Zhangxiao's personal lab"
+  description="Projects, notes, and experiments by Zhangxiao."
+>
+  <main class="home-v2-page" data-home-v2-page>
+    <ZxBackgroundV2 />
+    <ScrollMeteorField />
+    <HomeHeroV2 />
+
+    <section class="home-v2-section home-v2-projects" id="selected-projects" aria-labelledby="selected-projects-title" data-reveal-section>
+      <header class="home-v2-section__heading">
+        <p aria-hidden="true">01</p>
+        <h2 id="selected-projects-title">Selected Projects</h2>
+        <a href="/projects">View all /</a>
+      </header>
+
+      <div class="home-v2-project-list">
+        {featuredProjects.map((project, index) => (
+          <a
+            class="home-v2-project-row"
+            href={`/projects/${project.slug}`}
+            style={`--row-order:${index};--project-accent:${project.visual.accent}`}
+            data-reveal-item
+          >
+            <span class="home-v2-project-row__index">{String(index + 1).padStart(2, "0")}</span>
+            <span class="home-v2-project-row__main">
+              <strong>{project.title}</strong>
+              <span>{project.description}</span>
+            </span>
+            <span class="home-v2-project-row__tags">
+              {project.tags.map((tag) => <span>{tag}</span>)}
+            </span>
+            <span class="home-v2-project-row__mark" aria-hidden="true">/</span>
+          </a>
+        ))}
+      </div>
+    </section>
+
+    <section class="home-v2-section home-v2-notes" aria-labelledby="latest-notes-title" data-reveal-section>
+      <header class="home-v2-section__heading">
+        <p aria-hidden="true">02</p>
+        <h2 id="latest-notes-title">Latest Notes</h2>
+        <a href="/notes">Open notebook /</a>
+      </header>
+
+      <div class="home-v2-note-list">
+        {latestNotes.map((note, index) => (
+          <a
+            class="home-v2-note-row"
+            href={`/notes/${note.id}`}
+            style={`--row-order:${index}`}
+            data-reveal-item
+          >
+            <time datetime={note.data.publishedAt.toISOString()}>
+              {dateFormatter.format(note.data.publishedAt)}
+            </time>
+            <span>
+              <strong>{note.data.title}</strong>
+              <span>{note.data.description}</span>
+            </span>
+            <i aria-hidden="true">/</i>
+          </a>
+        ))}
+      </div>
+    </section>
+
+    <section class="home-v2-action" aria-labelledby="home-v2-action-title" data-reveal-section>
+      <p>THE LAB STAYS IN MOTION</p>
+      <h2 id="home-v2-action-title">Follow the experiments as they take shape.</h2>
+      <nav aria-label="Continue exploring zxlab">
+        <a href="/lab">Enter the lab <span aria-hidden="true">/</span></a>
+        <a href="/about">About Zhangxiao <span aria-hidden="true">/</span></a>
+      </nav>
+    </section>
+  </main>
+
+  <script>
+    const page = document.querySelector<HTMLElement>("[data-home-v2-page]");
+
+    if (page && page.dataset.initialized !== "true") {
+      page.dataset.initialized = "true";
+      const hero = page.querySelector<HTMLElement>("[data-home-hero]");
+      const zxField = page.querySelector<HTMLElement>("[data-zx-field]");
+      const header = document.querySelector<HTMLElement>(".site-header");
+      const menuToggle = header?.querySelector<HTMLButtonElement>(".site-menu-toggle");
+      const navigation = header?.querySelector<HTMLElement>(".site-nav");
+      const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
+      const sections = Array.from(page.querySelectorAll<HTMLElement>("[data-reveal-section]"));
+      let scrollFrame = 0;
+      let revealObserver: IntersectionObserver | undefined;
+
+      const paintScroll = () => {
+        scrollFrame = 0;
+        if (reduced.matches) return;
+        const progress = Math.min(Math.max(window.scrollY / Math.max(window.innerHeight * 0.88, 1), 0), 1);
+        hero?.style.setProperty("--hero-scroll-progress", progress.toFixed(4));
+        zxField?.style.setProperty("--zx-scroll-y", `${(window.scrollY * 0.075).toFixed(2)}px`);
+      };
+      const handleScroll = () => {
+        if (!scrollFrame) scrollFrame = requestAnimationFrame(paintScroll);
+      };
+      const revealAll = () => sections.forEach((section) => section.classList.add("is-revealed"));
+      const handleReduced = () => {
+        if (reduced.matches) revealAll();
+        paintScroll();
+      };
+      const toggleMenu = () => {
+        if (!header || !menuToggle) return;
+        const open = menuToggle.getAttribute("aria-expanded") !== "true";
+        header.dataset.menuOpen = String(open);
+        menuToggle.setAttribute("aria-expanded", String(open));
+        menuToggle.setAttribute("aria-label", open ? "Close navigation" : "Open navigation");
+      };
+      const closeMenu = () => {
+        if (!header || !menuToggle) return;
+        header.dataset.menuOpen = "false";
+        menuToggle.setAttribute("aria-expanded", "false");
+        menuToggle.setAttribute("aria-label", "Open navigation");
+      };
+      const dispose = () => {
+        cancelAnimationFrame(scrollFrame);
+        revealObserver?.disconnect();
+        window.removeEventListener("scroll", handleScroll);
+        reduced.removeEventListener("change", handleReduced);
+        menuToggle?.removeEventListener("click", toggleMenu);
+        navigation?.removeEventListener("click", closeMenu);
+        window.removeEventListener("pagehide", dispose);
+      };
+
+      if (reduced.matches) revealAll();
+      else {
+        revealObserver = new IntersectionObserver((entries) => {
+          entries.forEach((entry) => {
+            if (!entry.isIntersecting) return;
+            (entry.target as HTMLElement).classList.add("is-revealed");
+            revealObserver?.unobserve(entry.target);
+          });
+        }, { rootMargin: "0px 0px -12%", threshold: 0.08 });
+        sections.forEach((section) => revealObserver?.observe(section));
+      }
+
+      window.addEventListener("scroll", handleScroll, { passive: true });
+      reduced.addEventListener("change", handleReduced);
+      if (header && menuToggle && navigation && header.dataset.menuReady !== "true") {
+        header.dataset.menuBound = "v2";
+        header.dataset.menuReady = "true";
+        header.dataset.menuMotion = "css";
+        menuToggle.addEventListener("click", toggleMenu);
+        navigation.addEventListener("click", closeMenu);
+      }
+      window.addEventListener("pagehide", dispose, { once: true });
+      requestAnimationFrame(() => page.classList.add("is-ready"));
+      paintScroll();
+    }
+  </script>
+</Layout>

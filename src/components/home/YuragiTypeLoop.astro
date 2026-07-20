@@ -1,0 +1,211 @@
+---
+import { HOME_HERO_WORDS } from "../../data/home-hero";
+---
+
+<div class="hero-word" data-yuragi-loop data-state="boot" aria-hidden="true">
+  <svg viewBox="0 0 648 82" preserveAspectRatio="xMinYMid meet" focusable="false">
+    <g class="hero-word__glyphs" data-glyphs></g>
+    <rect class="hero-word__cursor" data-cursor x="0" y="4" width="4" height="70" rx="1"></rect>
+  </svg>
+  <span class="hero-word__fallback">{HOME_HERO_WORDS[0]}</span>
+</div>
+
+<script>
+  import outlineData from "../../generated/yuragi-home-outlines.json";
+  import {
+    HOME_HERO_EVENT,
+    HOME_HERO_TIMING,
+    HOME_HERO_WORDS,
+    type MotionState,
+  } from "../../data/home-hero";
+
+  type GlyphMap = Record<string, string[]>;
+
+  const root = document.querySelector<HTMLElement>("[data-yuragi-loop]");
+
+  if (root && root.dataset.initialized !== "true") {
+    root.dataset.initialized = "true";
+    const glyphLayer = root.querySelector<SVGGElement>("[data-glyphs]");
+    const cursor = root.querySelector<SVGRectElement>("[data-cursor]");
+    const hero = root.closest<HTMLElement>("[data-home-hero]");
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const glyphs = outlineData.glyphs as GlyphMap;
+    const cell = outlineData.meta.cell;
+    const advance = outlineData.meta.advance;
+    const timers = new Set<number>();
+    let observer: IntersectionObserver | undefined;
+    let wordIndex = 0;
+    let visibleCount = 0;
+    let state: MotionState = "boot";
+    let heroVisible = true;
+    let disposed = false;
+
+    const seeded = (a: number, b: number) => {
+      const value = Math.sin((a + 1) * 9283.17 + (b + 1) * 47.11) * 43758.5453;
+      return value - Math.floor(value);
+    };
+
+    const publish = (next: MotionState, intensity = 0) => {
+      state = next;
+      root.dataset.state = next;
+      window.dispatchEvent(new CustomEvent(HOME_HERO_EVENT, { detail: { state: next, intensity } }));
+    };
+
+    const schedule = (callback: () => void, delay: number) => {
+      const timer = window.setTimeout(() => {
+        timers.delete(timer);
+        if (!disposed && state !== "paused") callback();
+      }, delay);
+      timers.add(timer);
+    };
+
+    const clearTimers = () => {
+      timers.forEach((timer) => window.clearTimeout(timer));
+      timers.clear();
+    };
+
+    const setCursor = () => {
+      cursor?.setAttribute("x", String(visibleCount * advance + 6));
+    };
+
+    const createGlyph = (character: string, index: number) => {
+      const namespace = "http://www.w3.org/2000/svg";
+      const group = document.createElementNS(namespace, "g");
+      group.classList.add("hero-glyph", "is-entering");
+      group.dataset.character = character;
+      group.setAttribute("transform", `translate(${index * advance} 6)`);
+
+      glyphs[character]?.forEach((row, rowIndex) => {
+        Array.from(row).forEach((active, columnIndex) => {
+          if (active !== "1") return;
+          const shardIndex = rowIndex * 5 + columnIndex;
+          const shard = document.createElementNS(namespace, "path");
+          const inset = 0.7 + seeded(index, shardIndex) * 0.8;
+          const x = columnIndex * cell + inset;
+          const y = rowIndex * cell + inset;
+          const size = cell - inset * 2;
+          shard.setAttribute("d", `M${x.toFixed(2)} ${y.toFixed(2)}h${size.toFixed(2)}v${size.toFixed(2)}h-${size.toFixed(2)}Z`);
+          shard.style.setProperty("--shard-x", `${((seeded(shardIndex, index + 8) - 0.5) * 54).toFixed(2)}px`);
+          shard.style.setProperty("--shard-y", `${((seeded(index + 19, shardIndex) - 0.5) * 44).toFixed(2)}px`);
+          shard.style.setProperty("--shard-r", `${((seeded(index + 37, shardIndex) - 0.5) * 64).toFixed(2)}deg`);
+          shard.style.setProperty("--shard-delay", `${Math.round(seeded(shardIndex, index + 71) * 70)}ms`);
+          group.append(shard);
+        });
+      });
+
+      return group;
+    };
+
+    const beginDelete = () => {
+      if (!glyphLayer || visibleCount === 0) {
+        publish("switching");
+        wordIndex = (wordIndex + 1) % HOME_HERO_WORDS.length;
+        schedule(beginTyping, HOME_HERO_TIMING.switchGap);
+        return;
+      }
+
+      publish("deleting", 0.82);
+      const target = glyphLayer.lastElementChild as SVGGElement | null;
+      if (!target) return;
+      target.classList.remove("is-entering");
+      target.classList.add("is-exiting");
+      schedule(() => {
+        target.remove();
+        visibleCount -= 1;
+        setCursor();
+        schedule(beginDelete, HOME_HERO_TIMING.deleteInterval);
+      }, HOME_HERO_TIMING.glyphScatterDuration);
+    };
+
+    const holdWord = () => {
+      publish("holding");
+      root.classList.add("is-micro-glitch");
+      schedule(() => root.classList.remove("is-micro-glitch"), 110);
+      schedule(beginDelete, HOME_HERO_TIMING.holdDuration);
+    };
+
+    function beginTyping() {
+      if (!glyphLayer) return;
+      const word = HOME_HERO_WORDS[wordIndex];
+      if (visibleCount >= word.length) {
+        schedule(holdWord, HOME_HERO_TIMING.glyphSettleDuration);
+        return;
+      }
+
+      publish("typing", 0.38);
+      const glyph = createGlyph(word[visibleCount], visibleCount);
+      glyphLayer.append(glyph);
+      visibleCount += 1;
+      setCursor();
+      publish("settling", 0.72);
+      schedule(() => glyph.classList.remove("is-entering"), HOME_HERO_TIMING.glyphSettleDuration);
+      const interval = HOME_HERO_TIMING.typeIntervals[(visibleCount - 1) % HOME_HERO_TIMING.typeIntervals.length];
+      schedule(beginTyping, interval);
+    }
+
+    const pause = () => {
+      if (state === "paused") return;
+      clearTimers();
+      publish("paused");
+    };
+
+    const resume = () => {
+      if (disposed || reducedMotion.matches || document.hidden || !heroVisible || state !== "paused") return;
+      const word = HOME_HERO_WORDS[wordIndex];
+      if (visibleCount >= word.length) {
+        publish("holding");
+        schedule(beginDelete, 480);
+      } else {
+        publish("typing");
+        schedule(beginTyping, 120);
+      }
+    };
+
+    const renderStatic = () => {
+      clearTimers();
+      glyphLayer?.replaceChildren();
+      visibleCount = 0;
+      HOME_HERO_WORDS[0].split("").forEach((character, index) => {
+        const glyph = createGlyph(character, index);
+        glyph.classList.remove("is-entering");
+        glyphLayer?.append(glyph);
+        visibleCount += 1;
+      });
+      setCursor();
+      publish("paused");
+    };
+
+    const handleVisibility = () => document.hidden ? pause() : resume();
+    const handleReducedMotion = () => {
+      if (reducedMotion.matches) renderStatic();
+      else if (state === "paused") resume();
+    };
+    const dispose = () => {
+      disposed = true;
+      clearTimers();
+      observer?.disconnect();
+      document.removeEventListener("visibilitychange", handleVisibility);
+      reducedMotion.removeEventListener("change", handleReducedMotion);
+      window.removeEventListener("pagehide", dispose);
+    };
+
+    if (hero) {
+      observer = new IntersectionObserver(([entry]) => {
+        heroVisible = entry.isIntersecting;
+        if (heroVisible) resume();
+        else pause();
+      }, { threshold: 0.04 });
+      observer.observe(hero);
+    }
+
+    document.addEventListener("visibilitychange", handleVisibility);
+    reducedMotion.addEventListener("change", handleReducedMotion);
+    window.addEventListener("pagehide", dispose, { once: true });
+
+    if (reducedMotion.matches) renderStatic();
+    else {
+      publish("boot");
+      schedule(beginTyping, HOME_HERO_TIMING.bootDelay);
+    }
+  }
+</script>

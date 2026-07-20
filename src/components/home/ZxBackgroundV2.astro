@@ -1,0 +1,42 @@
+<div class="home-v2-background" data-home-v2-background aria-hidden="true">
+  <div class="home-v2-background__field" data-zx-field>
+    <span>ZX</span><span>ZX</span><span>ZX</span><span>ZX</span>
+  </div>
+  <div class="home-v2-background__grain"></div>
+</div>
+
+<script>
+  const background = document.querySelector<HTMLElement>("[data-home-v2-background]");
+  const field = background?.querySelector<HTMLElement>("[data-zx-field]");
+  const mobile = window.matchMedia("(max-width: 40rem)");
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+  if (background && field && background.dataset.initialized !== "true") {
+    background.dataset.initialized = "true";
+    let pointerFrame = 0;
+    let pointerX = 0;
+    let pointerY = 0;
+
+    const paintPointer = () => {
+      pointerFrame = 0;
+      if (mobile.matches || reduced.matches) return;
+      field.style.setProperty("--zx-pointer-x", `${pointerX.toFixed(2)}px`);
+      field.style.setProperty("--zx-pointer-y", `${pointerY.toFixed(2)}px`);
+    };
+
+    const handlePointer = (event: PointerEvent) => {
+      pointerX = (event.clientX / window.innerWidth - 0.5) * 8;
+      pointerY = (event.clientY / window.innerHeight - 0.5) * 6;
+      if (!pointerFrame) pointerFrame = requestAnimationFrame(paintPointer);
+    };
+
+    const dispose = () => {
+      cancelAnimationFrame(pointerFrame);
+      window.removeEventListener("pointermove", handlePointer);
+      window.removeEventListener("pagehide", dispose);
+    };
+
+    window.addEventListener("pointermove", handlePointer, { passive: true });
+    window.addEventListener("pagehide", dispose, { once: true });
+  }
+</script>

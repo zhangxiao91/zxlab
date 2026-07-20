@@ -16,7 +16,6 @@
     "build": "npm run build:stonks && astro build && node scripts/check-internal-links.mjs",
     "build:zxtoolkit": "npm run build --workspace zxtoolkit",
     "build:stonks": "npm run build --workspace stonks-wip",
-    "generate:home-outlines": "node scripts/generate-yuragi-home.mjs",
     "preview": "astro preview",
     "astro": "astro",
     "typecheck": "astro check --tsconfig tsconfig.digital-starter.json --minimumSeverity error",

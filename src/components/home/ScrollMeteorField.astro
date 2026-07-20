@@ -1,0 +1,191 @@
+<canvas class="home-v2-meteors" data-home-v2-meteors aria-hidden="true"></canvas>
+
+<script>
+  import { HOME_HERO_EVENT } from "../../data/home-hero";
+
+  type Meteor = {
+    active: boolean;
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    life: number;
+    ttl: number;
+    length: number;
+    alpha: number;
+  };
+
+  const canvas = document.querySelector<HTMLCanvasElement>("[data-home-v2-meteors]");
+  const hero = document.querySelector<HTMLElement>("[data-home-hero]");
+
+  if (canvas && hero && canvas.dataset.initialized !== "true") {
+    canvas.dataset.initialized = "true";
+    const context = canvas.getContext("2d");
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const pool: Meteor[] = Array.from({ length: 14 }, () => ({
+      active: false, x: 0, y: 0, vx: 0, vy: 0, life: 0, ttl: 0, length: 0, alpha: 0,
+    }));
+    let width = 0;
+    let height = 0;
+    let frame = 0;
+    let lastTime = performance.now();
+    let lastScrollY = window.scrollY;
+    let scrollVelocity = 0;
+    let scrollDirection = 1;
+    let heroIntensity = 0;
+    let heroVisible = true;
+    let documentVisible = !document.hidden;
+    let spawnAccumulator = 0;
+    let ambientClock = 0;
+    let seedIndex = 0;
+    let observer: IntersectionObserver | undefined;
+
+    const seeded = (index: number) => {
+      const value = Math.sin((index + 1) * 9187.31 + 71.7) * 43758.5453;
+      return value - Math.floor(value);
+    };
+
+    const resize = () => {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      width = window.innerWidth;
+      height = window.innerHeight;
+      canvas.width = Math.round(width * dpr);
+      canvas.height = Math.round(height * dpr);
+      canvas.style.width = `${width}px`;
+      canvas.style.height = `${height}px`;
+      context?.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+
+    const spawn = (intensity: number, ambient = false) => {
+      const meteor = pool.find((item) => !item.active);
+      if (!meteor) return;
+      const a = seeded(seedIndex++);
+      const b = seeded(seedIndex++);
+      const direction = scrollDirection >= 0 ? 1 : -1;
+      meteor.active = true;
+      meteor.x = direction > 0 ? width * (0.3 + a * 0.8) : width * (-0.1 + a * 0.7);
+      meteor.y = direction > 0 ? height * (-0.08 + b * 0.7) : height * (0.3 + b * 0.8);
+      meteor.vx = (-95 - intensity * 155) * direction;
+      meteor.vy = (120 + intensity * 220) * direction;
+      meteor.life = 0;
+      meteor.ttl = ambient ? 1.7 : 0.72 + (1 - intensity) * 0.5;
+      meteor.length = ambient ? 30 : 42 + intensity * 92;
+      meteor.alpha = ambient ? 0.08 : 0.13 + intensity * 0.23;
+    };
+
+    const draw = (time: number) => {
+      frame = 0;
+      if (!context || reduced.matches || !heroVisible || !documentVisible) return;
+      const delta = Math.min((time - lastTime) / 1000, 0.04);
+      lastTime = time;
+      scrollVelocity *= Math.pow(0.06, delta);
+      const motion = Math.min(Math.abs(scrollVelocity) / 900, 1);
+      const quieting = 1 - heroIntensity * 0.68;
+      const intensity = motion * quieting;
+      spawnAccumulator += delta * intensity * 7;
+      ambientClock += delta;
+
+      while (spawnAccumulator >= 1) {
+        spawn(intensity);
+        spawnAccumulator -= 1;
+      }
+      if (ambientClock > 7.5) {
+        spawn(0.08, true);
+        ambientClock = 0;
+      }
+
+      context.clearRect(0, 0, width, height);
+      pool.forEach((meteor) => {
+        if (!meteor.active) return;
+        meteor.life += delta;
+        if (meteor.life >= meteor.ttl) {
+          meteor.active = false;
+          return;
+        }
+        meteor.x += meteor.vx * delta;
+        meteor.y += meteor.vy * delta;
+        const progress = meteor.life / meteor.ttl;
+        const fade = Math.sin(progress * Math.PI);
+        const speed = Math.hypot(meteor.vx, meteor.vy);
+        const nx = meteor.vx / speed;
+        const ny = meteor.vy / speed;
+        const gradient = context.createLinearGradient(
+          meteor.x,
+          meteor.y,
+          meteor.x - nx * meteor.length,
+          meteor.y - ny * meteor.length,
+        );
+        gradient.addColorStop(0, `rgba(237, 238, 224, ${meteor.alpha * fade})`);
+        gradient.addColorStop(1, "rgba(237, 238, 224, 0)");
+        context.beginPath();
+        context.moveTo(meteor.x, meteor.y);
+        context.lineTo(meteor.x - nx * meteor.length, meteor.y - ny * meteor.length);
+        context.strokeStyle = gradient;
+        context.lineWidth = 0.8 + intensity * 0.8;
+        context.stroke();
+      });
+
+      frame = requestAnimationFrame(draw);
+    };
+
+    const ensureFrame = () => {
+      if (!frame && heroVisible && documentVisible && !reduced.matches) {
+        lastTime = performance.now();
+        frame = requestAnimationFrame(draw);
+      }
+    };
+
+    const handleScroll = () => {
+      const next = window.scrollY;
+      const delta = next - lastScrollY;
+      lastScrollY = next;
+      scrollVelocity = scrollVelocity * 0.58 + delta * 25;
+      if (Math.abs(delta) > 0.1) scrollDirection = delta > 0 ? 1 : -1;
+      ensureFrame();
+    };
+    const handleHeroMotion = (event: Event) => {
+      heroIntensity = Number((event as CustomEvent).detail?.intensity ?? 0);
+    };
+    const handleVisibility = () => {
+      documentVisible = !document.hidden;
+      if (!documentVisible) cancelAnimationFrame(frame);
+      frame = 0;
+      ensureFrame();
+    };
+    const handleReduced = () => {
+      if (reduced.matches) {
+        cancelAnimationFrame(frame);
+        frame = 0;
+        context?.clearRect(0, 0, width, height);
+      } else ensureFrame();
+    };
+    const dispose = () => {
+      cancelAnimationFrame(frame);
+      observer?.disconnect();
+      window.removeEventListener("resize", resize);
+      window.removeEventListener("scroll", handleScroll);
+      window.removeEventListener(HOME_HERO_EVENT, handleHeroMotion);
+      document.removeEventListener("visibilitychange", handleVisibility);
+      reduced.removeEventListener("change", handleReduced);
+      window.removeEventListener("pagehide", dispose);
+    };
+
+    observer = new IntersectionObserver(([entry]) => {
+      heroVisible = entry.isIntersecting;
+      if (!heroVisible) {
+        cancelAnimationFrame(frame);
+        frame = 0;
+        context?.clearRect(0, 0, width, height);
+      } else ensureFrame();
+    }, { threshold: 0.01 });
+    observer.observe(hero);
+    resize();
+    window.addEventListener("resize", resize, { passive: true });
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    window.addEventListener(HOME_HERO_EVENT, handleHeroMotion);
+    document.addEventListener("visibilitychange", handleVisibility);
+    reduced.addEventListener("change", handleReduced);
+    window.addEventListener("pagehide", dispose, { once: true });
+    ensureFrame();
+  }
+</script>

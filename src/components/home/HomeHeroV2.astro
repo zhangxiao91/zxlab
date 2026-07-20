@@ -1,0 +1,28 @@
+---
+import YuragiTypeLoop from "./YuragiTypeLoop.astro";
+---
+
+<section class="home-v2-hero" data-home-hero aria-labelledby="home-v2-title">
+  <h1 class="sr-only" id="home-v2-title">
+    A personal lab for building, observing, experimenting, and remembering.
+  </h1>
+
+  <div class="home-v2-hero__topline" data-hero-intro>
+    <p>ZHANGXIAO / ZXLAB</p>
+    <p>INDEX 00</p>
+  </div>
+
+  <div class="home-v2-hero__statement" data-hero-title>
+    <p class="home-v2-hero__stable" data-hero-intro>A PERSONAL LAB FOR</p>
+    <YuragiTypeLoop />
+  </div>
+
+  <div class="home-v2-hero__footer" data-hero-intro>
+    <nav aria-label="Home collections">
+      <a href="/projects">Projects</a>
+      <a href="/notes">Notes</a>
+      <a href="/lab">Experiments</a>
+    </nav>
+    <a class="home-v2-scroll" href="#selected-projects">SCROLL <span aria-hidden="true">↓</span></a>
+  </div>
+</section>

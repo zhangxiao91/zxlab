@@ -1,0 +1,468 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import WelcomeGate from "../welcome/WelcomeGate.astro";
+import ZxAnimatedBackground from "../background/ZxAnimatedBackground.astro";
+import ZxSectionTexture from "../background/ZxSectionTexture.astro";
+import { projects } from "../../data/projects";
+import { getCollection } from "astro:content";
+
+const featuredProjects = projects.filter((project) => project.featured);
+const latestNotes = (await getCollection("notes", ({ data }) => !data.draft))
+  .sort((a, b) => b.data.publishedAt.valueOf() - a.data.publishedAt.valueOf())
+  .slice(0, 4);
+
+const dateFormatter = new Intl.DateTimeFormat("en-US", {
+  year: "numeric",
+  month: "short",
+  day: "numeric",
+});
+---
+
+<Layout
+  title="zxlab — Zhangxiao's digital workshop"
+  description="Projects, technical notes, and experiments by Zhangxiao."
+  welcomeGate
+>
+  <WelcomeGate slot="overlay" />
+
+  <main class="home-page">
+    <ZxAnimatedBackground />
+
+    <section class="home-hero" aria-labelledby="intro-title">
+      <p class="home-kicker">A digital workshop by Zhangxiao</p>
+
+      <h1 id="intro-title">
+        <span>
+          I build systems
+          <span
+            class="title-image"
+            role="img"
+            aria-label="Abstract architectural detail"
+          ></span>
+        </span>
+        <span>that make ideas tangible.</span>
+      </h1>
+
+      <p class="home-hero__intro">
+        Computer science, AI infrastructure, and the patient craft of turning
+        difficult questions into working software.
+      </p>
+
+      <div class="home-actions" aria-label="Explore zxlab">
+        <a class="home-button home-button--primary" href="/projects">
+          <span>Explore projects</span>
+          <span class="home-button__icon" aria-hidden="true">↗</span>
+        </a>
+        <a class="home-button home-button--ghost" href="/about">
+          <span>More about me</span>
+          <span class="home-button__icon" aria-hidden="true">↗</span>
+        </a>
+      </div>
+
+      <div class="hero-frame" data-scroll-image>
+        <img
+          src="https://picsum.photos/seed/digital-material/1920/1200"
+          alt="Monochrome abstract landscape"
+          fetchpriority="high"
+        />
+        <p>Built by hand, extended with intent.</p>
+      </div>
+    </section>
+
+    <section class="home-chapter work-chapter" aria-labelledby="work-title">
+      <div class="chapter-heading">
+        <p>Selected work</p>
+        <h2 id="work-title">Three ways of learning by building.</h2>
+        <a href="/projects">View the full archive ↗</a>
+      </div>
+
+      <div class="project-bento">
+        {
+          featuredProjects.map((project, index) => (
+            <a
+              class:list={["project-card", { "project-card--lead": index === 0 }]}
+              href={`/projects/${project.slug}`}
+            >
+              <div class="project-card__media">
+                <img
+                  src={project.visual.cover}
+                  alt=""
+                  loading="lazy"
+                  data-scroll-image
+                />
+              </div>
+              <div class="project-card__wash" aria-hidden="true" />
+              <div class="project-card__content">
+                <div>
+                  <h3>{project.title}</h3>
+                  <p>{project.description}</p>
+                </div>
+                <ul aria-label={`${project.title} technologies`}>
+                  {project.tags.map((tag) => <li>{tag}</li>)}
+                </ul>
+              </div>
+            </a>
+          ))
+        }
+      </div>
+    </section>
+
+    <section class="home-chapter curiosity-chapter" aria-labelledby="curiosity-title">
+      <ZxSectionTexture density="quiet" />
+      <div class="chapter-heading chapter-heading--light">
+        <p>Current curiosities</p>
+        <h2 id="curiosity-title">The questions behind the repository.</h2>
+      </div>
+
+      <div class="curiosity-accordion">
+        <article class="curiosity-panel curiosity-panel--active" tabindex="0">
+          <div class="curiosity-panel__image">
+            <img
+              src="https://picsum.photos/seed/model-evaluation/1000/1400"
+              alt="Abstract layers suggesting model evaluation"
+              loading="lazy"
+              data-scroll-image
+            />
+          </div>
+          <div class="curiosity-panel__copy">
+            <h3>Evaluation</h3>
+            <p>How do we measure whether an intelligent system is actually useful?</p>
+          </div>
+        </article>
+
+        <article class="curiosity-panel" tabindex="0">
+          <div class="curiosity-panel__image">
+            <img
+              src="https://picsum.photos/seed/infrastructure-system/1000/1400"
+              alt="Structural detail representing infrastructure"
+              loading="lazy"
+              data-scroll-image
+            />
+          </div>
+          <div class="curiosity-panel__copy">
+            <h3>Infrastructure</h3>
+            <p>What makes complex software dependable when the prototype ends?</p>
+          </div>
+        </article>
+
+        <article class="curiosity-panel" tabindex="0">
+          <div class="curiosity-panel__image">
+            <img
+              src="https://picsum.photos/seed/algorithm-pattern/1000/1400"
+              alt="Geometric pattern representing algorithms"
+              loading="lazy"
+              data-scroll-image
+            />
+          </div>
+          <div class="curiosity-panel__copy">
+            <h3>Algorithms</h3>
+            <p>Where can a clearer model turn an intimidating problem into a small one?</p>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="home-chapter method-chapter" aria-labelledby="method-title">
+      <div class="method-intro">
+        <p>Working method</p>
+        <h2 id="method-title">A small set of principles, tested in public.</h2>
+      </div>
+
+      <div class="method-stack">
+        <article class="method-card">
+          <p class="method-card__number" aria-hidden="true">A</p>
+          <div>
+            <h3>Build enough by hand.</h3>
+            <p>
+              Understanding starts where abstraction stops. I make the first
+              version close to the metal before reaching for automation.
+            </p>
+          </div>
+        </article>
+        <article class="method-card method-card--dark">
+          <p class="method-card__number" aria-hidden="true">B</p>
+          <div>
+            <h3>Make judgment visible.</h3>
+            <p>
+              Notes, decisions, and failed approaches belong beside the final
+              result. The trail is part of the work.
+            </p>
+          </div>
+        </article>
+        <article class="method-card method-card--accent">
+          <p class="method-card__number" aria-hidden="true">C</p>
+          <div>
+            <h3>Leave room to change.</h3>
+            <p>
+              Good systems are precise without becoming rigid. Each project is
+              an experiment with a next version already in mind.
+            </p>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="home-chapter notes-chapter" aria-labelledby="notes-title">
+      <ZxSectionTexture tone="light" density="quiet" />
+      <div class="chapter-heading">
+        <p>From the notebook</p>
+        <h2 id="notes-title">Field notes from work in progress.</h2>
+      </div>
+
+      <div class="note-carousel" aria-label="Latest notes">
+        <div class="note-carousel__track">
+          {
+            latestNotes.map((note) => (
+              <a class="note-slide" href={`/notes/${note.id}`}>
+                <time datetime={note.data.publishedAt.toISOString()}>
+                  {dateFormatter.format(note.data.publishedAt)}
+                </time>
+                <h3>{note.data.title}</h3>
+                <p>{note.data.description}</p>
+                <span>Read note ↗</span>
+              </a>
+            ))
+          }
+        </div>
+        {
+          latestNotes.length > 1 && (
+            <div class="note-carousel__controls">
+              <button type="button" data-carousel-direction="-1" aria-label="Previous note">←</button>
+              <button type="button" data-carousel-direction="1" aria-label="Next note">→</button>
+            </div>
+          )
+        }
+      </div>
+    </section>
+
+    <section class="home-cta" aria-labelledby="cta-title">
+      <ZxSectionTexture density="quiet" />
+      <p>There is always another question worth building around.</p>
+      <h2 id="cta-title">Follow the experiments as they take shape.</h2>
+      <div class="home-actions home-actions--centered">
+        <a class="home-button home-button--light" href="/notes">
+          <span>Browse the notebook</span>
+          <span class="home-button__icon" aria-hidden="true">↗</span>
+        </a>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    import gsap from "gsap";
+    import { ScrollTrigger } from "gsap/ScrollTrigger";
+    import { welcomeFinishedEvent } from "../welcome/welcome-config";
+
+    gsap.registerPlugin(ScrollTrigger);
+
+    const motion = gsap.matchMedia();
+
+    motion.add("(prefers-reduced-motion: no-preference)", () => {
+      let heroStarted = false;
+
+      const revealHero = () => {
+        if (heroStarted) return;
+        heroStarted = true;
+        gsap.from(".home-hero > *", {
+          y: 48,
+          opacity: 0,
+          duration: 1.1,
+          stagger: 0.09,
+          ease: "power3.out",
+        });
+      };
+
+      if (document.documentElement.classList.contains("welcome-pending")) {
+        window.addEventListener(welcomeFinishedEvent, revealHero, { once: true });
+      } else {
+        revealHero();
+      }
+
+      gsap.utils.toArray<HTMLElement>("[data-scroll-image]").forEach((image) => {
+        gsap.timeline({
+          scrollTrigger: {
+            trigger: image,
+            start: "top 92%",
+            end: "bottom 8%",
+            scrub: 0.8,
+          },
+        })
+          .fromTo(image, { scale: 0.82, opacity: 0.45 }, { scale: 1, opacity: 1, ease: "none" })
+          .to(image, { scale: 1.035, opacity: 0.28, ease: "none" });
+      });
+
+      gsap.utils.toArray<HTMLElement>(".home-chapter, .home-cta").forEach((section) => {
+        const heading = section.querySelector<HTMLElement>(".chapter-heading, .method-intro");
+        const body = section.matches(".home-cta")
+          ? null
+          : section.querySelector<HTMLElement>(
+              ".project-bento, .curiosity-accordion, .method-stack, .note-carousel",
+            );
+        const ctaItems = section.matches(".home-cta")
+          ? Array.from(section.querySelectorAll<HTMLElement>(":scope > p, :scope > h2, :scope > .home-actions"))
+          : [];
+        const revealItems = [...ctaItems, heading, body].filter((item): item is HTMLElement => Boolean(item));
+        if (!revealItems.length) return;
+
+        gsap.from(revealItems, {
+          y: 32,
+          opacity: 0,
+          filter: "blur(6px)",
+          duration: 0.95,
+          stagger: 0.12,
+          ease: "power3.out",
+          scrollTrigger: {
+            trigger: section,
+            start: "top 82%",
+            toggleActions: "play none none none",
+          },
+        });
+      });
+
+      const cards = gsap.utils.toArray<HTMLElement>(".method-card");
+      cards.forEach((card, index) => {
+        const nextCard = cards[index + 1];
+        if (!nextCard) return;
+
+        gsap.to(card, {
+          scale: 0.93,
+          opacity: 0.42,
+          ease: "none",
+          scrollTrigger: {
+            trigger: nextCard,
+            start: "top 78%",
+            end: "top 28%",
+            scrub: true,
+          },
+        });
+      });
+
+      return () => window.removeEventListener(welcomeFinishedEvent, revealHero);
+    });
+
+    const carouselTrack = document.querySelector<HTMLElement>(".note-carousel__track");
+		const reducedCarouselMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+		let carouselFrame = 0;
+		let pointerId: number | null = null;
+		let grabX = 0;
+		let grabScroll = 0;
+		let lastX = 0;
+		let lastTime = 0;
+		let releaseVelocity = 0;
+		let didDrag = false;
+		let suppressClickUntil = 0;
+
+		const carouselStops = () => carouselTrack
+			? Array.from(carouselTrack.children, (slide) => (slide as HTMLElement).offsetLeft)
+			: [];
+
+		const nearestStop = (projected: number) => {
+			const stops = carouselStops();
+			return stops.reduce((nearest, stop) =>
+				Math.abs(stop - projected) < Math.abs(nearest - projected) ? stop : nearest,
+				stops[0] ?? 0,
+			);
+		};
+
+		const settleCarousel = (target: number, velocity = 0) => {
+			if (!carouselTrack) return;
+			cancelAnimationFrame(carouselFrame);
+			const max = Math.max(0, carouselTrack.scrollWidth - carouselTrack.clientWidth);
+			target = Math.max(0, Math.min(max, target));
+			if (reducedCarouselMotion.matches) {
+				carouselTrack.scrollLeft = target;
+				return;
+			}
+
+			let position = carouselTrack.scrollLeft;
+			let springVelocity = velocity;
+			let previous = performance.now();
+			const tick = (now: number) => {
+				const dt = Math.min((now - previous) / 1000, 0.032);
+				previous = now;
+				const displacement = target - position;
+				const acceleration = displacement * 190 - springVelocity * 28;
+				springVelocity += acceleration * dt;
+				position += springVelocity * dt;
+				carouselTrack.scrollLeft = position;
+				if (Math.abs(displacement) < 0.5 && Math.abs(springVelocity) < 5) {
+					carouselTrack.scrollLeft = target;
+					return;
+				}
+				carouselFrame = requestAnimationFrame(tick);
+			};
+			carouselFrame = requestAnimationFrame(tick);
+		};
+
+		carouselTrack?.addEventListener("pointerdown", (event) => {
+			if (event.button !== 0 || pointerId !== null) return;
+			cancelAnimationFrame(carouselFrame);
+			pointerId = event.pointerId;
+			grabX = lastX = event.clientX;
+			grabScroll = carouselTrack.scrollLeft;
+			lastTime = event.timeStamp;
+			releaseVelocity = 0;
+			didDrag = false;
+			carouselTrack.setPointerCapture(event.pointerId);
+			carouselTrack.dataset.dragging = "true";
+		});
+
+		carouselTrack?.addEventListener("pointermove", (event) => {
+			if (event.pointerId !== pointerId) return;
+			const delta = event.clientX - grabX;
+			const desired = grabScroll - delta;
+			const max = Math.max(0, carouselTrack.scrollWidth - carouselTrack.clientWidth);
+			const clamped = Math.max(0, Math.min(max, desired));
+			const overshoot = desired - clamped;
+			carouselTrack.scrollLeft = clamped;
+			carouselTrack.style.transform = `translate3d(${(-overshoot * 0.22).toFixed(2)}px, 0, 0)`;
+			const elapsed = Math.max(1, event.timeStamp - lastTime);
+			releaseVelocity = -(event.clientX - lastX) / elapsed * 1000;
+			lastX = event.clientX;
+			lastTime = event.timeStamp;
+			didDrag ||= Math.abs(delta) > 8;
+		});
+
+		const releaseCarousel = (event: PointerEvent) => {
+			if (!carouselTrack || event.pointerId !== pointerId) return;
+			pointerId = null;
+			if (didDrag) suppressClickUntil = performance.now() + 320;
+			carouselTrack.dataset.dragging = "false";
+			gsap.to(carouselTrack, {
+				x: 0,
+				duration: reducedCarouselMotion.matches ? 0 : 0.38,
+				ease: "power3.out",
+				overwrite: "auto",
+				onComplete: () => carouselTrack.style.removeProperty("transform"),
+			});
+			const projection = Math.max(
+				-carouselTrack.clientWidth * 1.35,
+				Math.min(carouselTrack.clientWidth * 1.35, releaseVelocity * 0.499),
+			);
+			settleCarousel(nearestStop(carouselTrack.scrollLeft + projection), releaseVelocity);
+		};
+		carouselTrack?.addEventListener("pointerup", releaseCarousel);
+		carouselTrack?.addEventListener("pointercancel", releaseCarousel);
+		carouselTrack?.addEventListener("click", (event) => {
+			if (performance.now() > suppressClickUntil) return;
+			event.preventDefault();
+			event.stopPropagation();
+		}, true);
+
+    document.querySelectorAll<HTMLButtonElement>("[data-carousel-direction]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const direction = Number(button.dataset.carouselDirection);
+				if (!carouselTrack) return;
+				const stops = carouselStops();
+				const current = stops.reduce((nearestIndex, stop, index) =>
+					Math.abs(stop - carouselTrack.scrollLeft) < Math.abs(stops[nearestIndex] - carouselTrack.scrollLeft)
+						? index
+						: nearestIndex,
+					0,
+				);
+				const next = Math.max(0, Math.min(stops.length - 1, current + direction));
+				settleCarousel(stops[next] ?? 0);
+      });
+    });
+  </script>
+</Layout>
