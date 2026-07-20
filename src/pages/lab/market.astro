@@ -1,0 +1,11 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import MarketCenter from "../../features/market/MarketCenter";
+import "../../styles/risk.css";
+---
+
+<Layout title="Market Center | zxlab" description="行情、K 线、公告、消息面与 provider health 的统一入口。" lang="zh-CN">
+  <div class="risk-page market-page">
+    <MarketCenter client:load />
+  </div>
+</Layout>

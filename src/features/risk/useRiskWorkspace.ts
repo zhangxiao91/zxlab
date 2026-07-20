@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createRiskBackup, previewRiskBackup, restoreRiskBackup, type BackupPreview } from "./backup";
 import { previewCsv } from "./csv";
+import { ApiHoldingsParseError, ApiHoldingsParseService, brokerSnapshotFromDraft } from "./holdings-parser";
 import { LocalRiskJournalRepository } from "./journal";
 import { LocalPortfolioRepository } from "./ledger";
 import { instruments, mockRiskRules, mockTradePlans } from "./mock";
 import { ApiReviewError, ApiReviewService, LocalReviewRepository, MockReviewService } from "./review";
-import type { CsvFieldMapping, CsvPreview, MarketProviderMode, ReviewItemFeedback, ReviewResult, ReviewRun, RiskDashboardData } from "./types";
+import type { CsvFieldMapping, CsvPreview, HoldingParseDraft, MarketProviderMode, ReviewItemFeedback, ReviewResult, ReviewRun, RiskDashboardData } from "./types";
 import { EVIDENCE_SCHEMA_VERSION, RISK_RULE_VERSION, RiskWorkspaceService } from "./workspace";
 
 const serverValues = new Map<string, string>();
@@ -42,11 +43,14 @@ export function useRiskWorkspace() {
   const service = useMemo(() => new RiskWorkspaceService(portfolioRepository, journal), [portfolioRepository, journal]);
   const reviewRepository = useMemo(() => new LocalReviewRepository(storage), [storage]);
   const apiReviewService = useMemo(() => new ApiReviewService(), []);
+  const holdingsParseService = useMemo(() => new ApiHoldingsParseService(), []);
   const [data, setData] = useState<RiskDashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [reviewLoading, setReviewLoading] = useState(false);
+  const [holdingsParseLoading, setHoldingsParseLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reviewError, setReviewError] = useState<string | null>(null);
+  const [holdingsParseError, setHoldingsParseError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -88,8 +92,23 @@ export function useRiskWorkspace() {
     } finally { setReviewLoading(false); }
   }, [apiReviewService, data, journal, reviewLoading, reviewRepository]);
 
+  const parseHoldingsDraft = useCallback(async (text: string, sourceKind: "csv" | "text"): Promise<HoldingParseDraft | null> => {
+    setHoldingsParseLoading(true); setHoldingsParseError(null);
+    try {
+      return await holdingsParseService.parseDraft({ text, sourceKind });
+    } catch (reason) {
+      const code = reason instanceof ApiHoldingsParseError ? reason.code : reason instanceof Error ? reason.name : "UNKNOWN";
+      setHoldingsParseError(`持仓解析失败：${code}`);
+      return null;
+    } finally {
+      setHoldingsParseLoading(false);
+    }
+  }, [holdingsParseService]);
+
   return {
-    data, loading, error, reviewLoading, reviewError, reload, generateReview,
+    data, loading, error, reviewLoading, reviewError, holdingsParseLoading, holdingsParseError, reload, generateReview,
+    parseHoldingsDraft,
+    confirmHoldingsDraft: async (draft: HoldingParseDraft) => { service.saveBrokerSnapshot(brokerSnapshotFromDraft(draft)); await reload(); },
     previewCsv: (text: string, mapping?: CsvFieldMapping): CsvPreview => previewCsv(text, mapping, data?.transactions ?? []),
     importTransactions: async (preview: CsvPreview) => {
       const result = service.importTransactions(preview.valid);

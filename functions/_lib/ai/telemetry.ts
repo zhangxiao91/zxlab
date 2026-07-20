@@ -42,7 +42,7 @@ export function normalizeUsage(value: AIUsage | undefined): AIUsage | undefined 
 }
 
 export function resolveCallContext(task: string, context: LLMCallContext | undefined): Required<Pick<LLMCallContext, "source">> & Pick<LLMCallContext, "operation"> {
-  const source = context?.source?.trim() || (task.startsWith("signal-") ? "signal" : (task.startsWith("risk-") || task === "portfolio-review") ? "risk" : task.startsWith("notes-") ? "notes" : task.startsWith("chat-") ? "chat" : "unknown");
+  const source = context?.source?.trim() || (task.startsWith("signal-") ? "signal" : (task.startsWith("risk-") || task === "portfolio-review" || task === "holdings-parse") ? "risk" : task.startsWith("notes-") ? "notes" : task.startsWith("chat-") ? "chat" : "unknown");
   return { source: source.slice(0, 48), ...(context?.operation ? { operation: context.operation.slice(0, 64) } : {}) };
 }
 

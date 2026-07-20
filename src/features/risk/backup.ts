@@ -18,6 +18,7 @@ export interface RiskBackup {
   settings: {
     marketProviderMode: "mock" | "api";
     brokerPositions: ReturnType<PortfolioRepository["getBrokerPositions"]>;
+    brokerSnapshot: ReturnType<PortfolioRepository["getBrokerSnapshot"]>;
   };
   operations: RiskJournalSnapshot["operations"];
 }
@@ -41,7 +42,7 @@ export function createRiskBackup(repository: PortfolioRepository, journal: Local
     reviews: snapshot.reviews,
     reviewFeedback: snapshot.reviewFeedback,
     memoryCandidates: snapshot.memoryCandidates,
-    settings: { marketProviderMode: repository.getMarketMode(), brokerPositions: repository.getBrokerPositions() },
+    settings: { marketProviderMode: repository.getMarketMode(), brokerPositions: repository.getBrokerPositions(), brokerSnapshot: repository.getBrokerSnapshot() },
     operations: snapshot.operations,
   };
 }
@@ -76,6 +77,8 @@ export function restoreRiskBackup(preview: BackupPreview, mode: "merge" | "overw
     const ids = new Set(current.map((item) => item.instrumentId));
     repository.saveBrokerPositions([...current, ...backup.settings.brokerPositions.filter((item) => !ids.has(item.instrumentId))]);
   }
+  if (mode === "overwrite") repository.saveBrokerSnapshot(backup.settings.brokerSnapshot);
+  else if (backup.settings.brokerSnapshot && !repository.getBrokerSnapshot()) repository.saveBrokerSnapshot(backup.settings.brokerSnapshot);
   repository.setMarketMode(backup.settings.marketProviderMode);
   journal.restore({ reviews: backup.reviews, reviewFeedback: backup.reviewFeedback, memoryCandidates: backup.memoryCandidates, operations: backup.operations }, mode);
 }
@@ -98,7 +101,11 @@ export function migrateBackup(value: unknown): RiskBackup {
     reviews: value.reviews as RiskBackup["reviews"],
     reviewFeedback: value.reviewFeedback as RiskBackup["reviewFeedback"],
     memoryCandidates: value.memoryCandidates as RiskBackup["memoryCandidates"],
-    settings: { marketProviderMode: value.settings.marketProviderMode as "mock" | "api", brokerPositions: value.settings.brokerPositions as RiskBackup["settings"]["brokerPositions"] },
+    settings: {
+      marketProviderMode: value.settings.marketProviderMode as "mock" | "api",
+      brokerPositions: value.settings.brokerPositions as RiskBackup["settings"]["brokerPositions"],
+      brokerSnapshot: isObject(value.settings.brokerSnapshot) ? value.settings.brokerSnapshot as unknown as RiskBackup["settings"]["brokerSnapshot"] : null,
+    },
     operations: {
       completedDates: Array.isArray(value.operations.completedDates) ? value.operations.completedDates.filter((item): item is string => typeof item === "string") : [],
       market: value.operations.market as RiskBackup["operations"]["market"],

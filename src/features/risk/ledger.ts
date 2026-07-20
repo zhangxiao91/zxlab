@@ -1,7 +1,8 @@
-import type { BrokerPosition, BuildPositionsResult, Instrument, Position, ReconciliationResult, Transaction } from "./types";
+import type { BrokerPosition, BrokerSnapshot, BuildPositionsResult, Instrument, Position, ReconciliationResult, Transaction } from "./types";
 
 const STORAGE_KEY = "zxlab.risk.ledger.v1";
 const BROKER_KEY = "zxlab.risk.broker-positions.v1";
+const BROKER_SNAPSHOT_KEY = "zxlab.risk.broker-snapshot.v1";
 const MODE_KEY = "zxlab.risk.market-provider.v1";
 
 export function stableFingerprint(input: Omit<Transaction, "fingerprint" | "importedAt">): string {
@@ -22,6 +23,8 @@ export interface PortfolioRepository {
   replaceTransactions(items: Transaction[]): void;
   getBrokerPositions(): BrokerPosition[];
   saveBrokerPositions(items: BrokerPosition[]): void;
+  getBrokerSnapshot(): BrokerSnapshot | null;
+  saveBrokerSnapshot(snapshot: BrokerSnapshot | null): void;
   getMarketMode(): "mock" | "api";
   setMarketMode(mode: "mock" | "api"): void;
 }
@@ -43,10 +46,12 @@ export class LocalPortfolioRepository implements PortfolioRepository {
     this.storage.setItem(STORAGE_KEY, JSON.stringify([...current, ...added]));
     return { added, duplicates };
   }
-  clearTransactions() { this.storage.setItem(STORAGE_KEY, "[]"); this.storage.removeItem(BROKER_KEY); }
+  clearTransactions() { this.storage.setItem(STORAGE_KEY, "[]"); this.storage.removeItem(BROKER_KEY); this.storage.removeItem(BROKER_SNAPSHOT_KEY); }
   replaceTransactions(items: Transaction[]) { this.storage.setItem(STORAGE_KEY, JSON.stringify(items)); }
   getBrokerPositions() { return this.read<BrokerPosition[]>(BROKER_KEY, []); }
   saveBrokerPositions(items: BrokerPosition[]) { this.storage.setItem(BROKER_KEY, JSON.stringify(items)); }
+  getBrokerSnapshot() { return this.read<BrokerSnapshot | null>(BROKER_SNAPSHOT_KEY, null); }
+  saveBrokerSnapshot(snapshot: BrokerSnapshot | null) { if (snapshot) this.storage.setItem(BROKER_SNAPSHOT_KEY, JSON.stringify(snapshot)); else this.storage.removeItem(BROKER_SNAPSHOT_KEY); }
   getMarketMode() { return this.storage.getItem(MODE_KEY) === "mock" ? "mock" : "api"; }
   setMarketMode(mode: "mock" | "api") { this.storage.setItem(MODE_KEY, mode); }
   private read<T>(key: string, fallback: T): T { try { const value = this.storage.getItem(key); return value ? JSON.parse(value) as T : fallback; } catch { return fallback; } }

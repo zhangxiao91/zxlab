@@ -6,7 +6,7 @@ import { ApiMarketDataProvider, MockMarketDataProvider, type MarketDataProvider 
 import { instruments, mockRiskRules, mockTradePlans, mockTransactions } from "./mock";
 import { buildPortfolioHistory } from "./portfolio-history";
 import { MockReviewService, type ReviewService } from "./review";
-import type { ActivityItem, DailyWorkflowStep, MarketDiagnostics, MarketProviderMode, PortfolioDiagnostics, Quote, RiskDashboardData, Transaction } from "./types";
+import type { ActivityItem, BrokerSnapshot, DailyWorkflowStep, MarketDiagnostics, MarketProviderMode, PortfolioDiagnostics, Quote, RiskDashboardData, Transaction } from "./types";
 
 export const RISK_RULE_VERSION = "risk-rules.v1.2";
 export const EVIDENCE_SCHEMA_VERSION = "evidence-pack.v1.2";
@@ -94,6 +94,7 @@ export class RiskWorkspaceService {
         risk: { executedAt: now, durationMs: riskDurationMs, inputPositionCount: built.positions.length, ruleCount: 4, triggeredEventCount: calculated.events.length, blockedMetricCount: calculated.metrics.filter((item) => !item.reliable).length, errors: [] },
         llm: operations.llm,
       },
+      brokerSnapshot: this.repository.getBrokerSnapshot(),
       reviewRuns,
       memoryCandidates: this.journal.listMemoryCandidates(),
     };
@@ -105,6 +106,10 @@ export class RiskWorkspaceService {
   saveBrokerQuantity(instrumentId: string, quantity: number, averageCost: number | null) {
     const current = this.repository.getBrokerPositions().filter((item) => item.instrumentId !== instrumentId);
     this.repository.saveBrokerPositions([...current, { instrumentId, quantity, averageCost }]);
+  }
+  saveBrokerSnapshot(snapshot: BrokerSnapshot) {
+    this.repository.saveBrokerSnapshot(snapshot);
+    this.repository.saveBrokerPositions(snapshot.positions);
   }
 }
 

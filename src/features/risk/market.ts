@@ -1,11 +1,16 @@
+import { MarketClient, MarketDataError as SharedMarketDataError } from "../market/client";
+import type { MarketBar, MarketNewsItem, MarketProviders, MarketStatus } from "../market/types";
 import { mockQuotes } from "./mock";
-import type { MarketBar, Quote } from "./types";
+import type { Quote } from "./types";
 
 export interface MarketDataProvider {
   readonly name: string;
   getQuotes(instrumentIds: string[]): Promise<Quote[]>;
   getBars(instrumentId: string, interval: "1d" | "1m"): Promise<MarketBar[]>;
-  getStatus(exchange: "SSE" | "SZSE"): Promise<{ exchange: string; open: boolean; marketTimestamp: string | null; source: string }>;
+  getStatus(exchange: "SSE" | "SZSE"): Promise<MarketStatus>;
+  getProviders?(): Promise<MarketProviders>;
+  getNews?(instrumentIds: string[], limit?: number): Promise<MarketNewsItem[]>;
+  getAnnouncements?(instrumentId: string, limit?: number): Promise<MarketNewsItem[]>;
 }
 
 export class MockMarketDataProvider implements MarketDataProvider {
@@ -15,20 +20,18 @@ export class MockMarketDataProvider implements MarketDataProvider {
   async getStatus(exchange: "SSE" | "SZSE") { return { exchange, open: true, marketTimestamp: "2026-07-18T14:32:10+08:00", source: "mock-market" }; }
 }
 
-export class MarketDataError extends Error { constructor(message: string, readonly code: string) { super(message); } }
+export class MarketDataError extends SharedMarketDataError {}
 
 export class ApiMarketDataProvider implements MarketDataProvider {
   readonly name = "ApiMarketDataProvider";
-  constructor(private readonly baseUrl = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env?.PUBLIC_RISK_MARKET_API_URL || "") {}
-  async getQuotes(instrumentIds: string[]): Promise<Quote[]> { return this.request(`/api/market/quotes?instruments=${encodeURIComponent(instrumentIds.join(","))}`); }
-  async getBars(instrumentId: string, interval: "1d" | "1m"): Promise<MarketBar[]> { return this.request(`/api/market/bars/${encodeURIComponent(instrumentId)}?interval=${interval}`); }
-  async getStatus(exchange: "SSE" | "SZSE") { return this.request<{ exchange: string; open: boolean; marketTimestamp: string | null; source: string }>(`/api/market/status?exchange=${exchange}`); }
-  private async request<T>(path: string): Promise<T> {
-    let response: Response;
-    try { response = await fetch(`${this.baseUrl.replace(/\/$/, "")}${path}`, { signal: AbortSignal.timeout(12_000) }); }
-    catch (error) { throw new MarketDataError(error instanceof Error ? error.message : "行情网关不可达", "GATEWAY_UNREACHABLE"); }
-    const body = await response.json().catch(() => null) as { data?: T; error?: { code?: string; message?: string } } | null;
-    if (!response.ok || !body?.data) throw new MarketDataError(body?.error?.message || `行情网关返回 ${response.status}`, body?.error?.code || "UPSTREAM_ERROR");
-    return body.data;
+  private readonly client: MarketClient;
+  constructor(baseUrl = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env?.PUBLIC_RISK_MARKET_API_URL || "", fetcher: typeof fetch = fetch) {
+    this.client = new MarketClient(baseUrl, fetcher);
   }
+  async getQuotes(instrumentIds: string[]): Promise<Quote[]> { return (await this.client.getQuotes(instrumentIds)).data as Quote[]; }
+  async getBars(instrumentId: string, interval: "1d" | "1m"): Promise<MarketBar[]> { return (await this.client.getBars(instrumentId, interval)).data; }
+  async getStatus(exchange: "SSE" | "SZSE") { return (await this.client.getStatus(exchange)).data; }
+  async getProviders() { return (await this.client.getProviders()).data; }
+  async getNews(instrumentIds: string[], limit = 30) { return (await this.client.getNews(instrumentIds, limit)).data; }
+  async getAnnouncements(instrumentId: string, limit = 20) { return (await this.client.getAnnouncements(instrumentId, limit)).data; }
 }

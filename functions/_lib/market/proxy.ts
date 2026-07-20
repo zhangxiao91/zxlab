@@ -9,7 +9,7 @@ export interface RiskMarketFunctionContext {
 }
 
 const DEFAULT_UPSTREAM = "https://zxlab-risk-market.zhangxiao9118.workers.dev";
-const ALLOWED_PATH = /^\/api\/market\/(?:quotes|providers|status|bars\/[^/]+)$/;
+const ALLOWED_PATH = /^\/api\/market\/(?:quotes|providers|status|news|announcements|bars\/[^/]+)$/;
 const RESPONSE_HEADERS = ["content-type", "cache-control", "etag", "last-modified"];
 
 function json(data: unknown, status: number) {

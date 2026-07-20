@@ -54,6 +54,7 @@ test("complete backup restores ledger, runs, feedback and candidates after clear
   const { portfolio, journal, run } = await fixture();
   journal.saveRun(run);
   journal.saveFeedback(run.id, { helpful: false, hasFactErrors: false, missingKeyFactors: true, note: "需要补充策略上下文。", itemFeedback: [] });
+  portfolio.saveBrokerSnapshot({ id: "snapshot-backup", snapshotAt: "2026-07-20T15:00:00+08:00", accountName: "测试账户", sourceKind: "csv", importedAt: "2026-07-20T15:00:01+08:00", positions: [{ instrumentId: "SSE:512480", quantity: 10000, averageCost: 0.92 }], rawDraftWarnings: [] });
   const backup = createRiskBackup(portfolio, journal, { tradePlans: mockTradePlans, riskRules: mockRiskRules, instruments });
   portfolio.clearTransactions(); journal.clear();
   const preview = previewRiskBackup(backup, portfolio, journal);
@@ -62,6 +63,7 @@ test("complete backup restores ledger, runs, feedback and candidates after clear
   assert.equal(portfolio.listTransactions().length, mockTransactions.length);
   assert.equal(journal.listRuns()[0].evidencePack.id, run.evidencePack.id);
   assert.equal(journal.listFeedback().length, 1); assert.equal(journal.listMemoryCandidates().length, 1);
+  assert.equal(portfolio.getBrokerSnapshot()?.id, "snapshot-backup");
   const conflictPreview = previewRiskBackup(backup, portfolio, journal);
   assert.equal(conflictPreview.conflicts.transactions, mockTransactions.length); assert.equal(conflictPreview.conflicts.reviews, 1);
 });
@@ -118,6 +120,27 @@ test("workspace reports API unavailable without falling back to Mock labels", as
   } finally {
     globalThis.fetch = previousFetch;
   }
+});
+
+test("workspace keeps broker snapshots separate from ledger-derived positions", async () => {
+  const storage = new MemoryStorage();
+  const portfolio = new LocalPortfolioRepository(storage);
+  portfolio.replaceTransactions(mockTransactions);
+  const journal = new LocalRiskJournalRepository(storage);
+  const workspace = new RiskWorkspaceService(portfolio, journal);
+  const draft = {
+    snapshotAt: "2026-07-20T15:00:00+08:00",
+    accountName: "测试账户",
+    sourceKind: "csv" as const,
+    positions: [
+      { rawName: "半导体ETF", rawSymbol: "512480", instrumentId: "SSE:512480", quantity: 10000, availableQuantity: null, averageCost: 0.92, marketValue: null, unrealizedPnl: null, currency: "CNY", confidence: 0.91, warnings: [] },
+    ],
+    unresolvedRows: [],
+    warnings: [],
+  };
+  workspace.saveBrokerSnapshot({ id: "snapshot-1", snapshotAt: draft.snapshotAt, accountName: draft.accountName, sourceKind: draft.sourceKind, importedAt: "2026-07-20T15:00:01+08:00", positions: [{ instrumentId: "SSE:512480", quantity: 10000, averageCost: 0.92 }], rawDraftWarnings: [] });
+  assert.equal(portfolio.getBrokerSnapshot()?.positions[0].instrumentId, "SSE:512480");
+  assert.equal(portfolio.listTransactions().length, mockTransactions.length);
 });
 
 test("workspace treats weekend stale quotes as a closed-market snapshot", async () => {

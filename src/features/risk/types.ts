@@ -95,6 +95,40 @@ export interface LedgerAnomaly {
 
 export interface BuildPositionsResult { positions: Position[]; anomalies: LedgerAnomaly[] }
 export interface BrokerPosition { instrumentId: string; quantity: number; averageCost: number | null }
+export interface BrokerSnapshot {
+  id: string;
+  snapshotAt: string;
+  accountName: string | null;
+  sourceKind: "csv" | "text";
+  importedAt: string;
+  positions: BrokerPosition[];
+  rawDraftWarnings: string[];
+}
+export interface HoldingParsePosition {
+  rawName: string | null;
+  rawSymbol: string | null;
+  instrumentId: string | null;
+  quantity: number | null;
+  availableQuantity: number | null;
+  averageCost: number | null;
+  marketValue: number | null;
+  unrealizedPnl: number | null;
+  currency: string | null;
+  confidence: number;
+  warnings: string[];
+}
+export interface HoldingParseUnresolvedRow { rowNumber: number | null; raw: string; reason: string }
+export interface HoldingParseDraft {
+  snapshotAt: string;
+  accountName: string | null;
+  sourceKind: "csv" | "text";
+  positions: HoldingParsePosition[];
+  unresolvedRows: HoldingParseUnresolvedRow[];
+  warnings: string[];
+  provider?: string;
+  model?: string;
+  requestId?: string;
+}
 export interface ReconciliationItem {
   instrumentId: string;
   name: string;
@@ -249,7 +283,7 @@ export interface RiskDashboardData {
   sourceHealth: Array<{ name: string; status: "healthy" | "degraded" | "offline"; latency: string; freshness: string }>;
   transactions: Transaction[]; positions: Position[]; reconciliation: ReconciliationResult; riskMetrics: RiskMetric[]; riskEvents: RiskEvent[]; activity: ActivityItem[];
   equityCurve: PortfolioHistoryPoint[]; evidence: EvidenceItem[]; evidencePack: EvidencePack; review: ReviewResult; dataWarnings: string[];
-  analysisDate: string; riskCalculatedAt: string; workflow: DailyWorkflowStep[]; diagnostics: RiskDiagnosticsBundle;
+  analysisDate: string; riskCalculatedAt: string; workflow: DailyWorkflowStep[]; diagnostics: RiskDiagnosticsBundle; brokerSnapshot: BrokerSnapshot | null;
   reviewRuns: ReviewRun[]; memoryCandidates: MemoryCandidate[];
 }
 
