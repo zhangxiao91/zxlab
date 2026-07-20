@@ -149,12 +149,12 @@ export async function* submitAnnotationStream(input: AnnotationInput): AsyncGene
   }
   let response: Response;
   try {
-    response = await fetch(endpoint("/api/annotations"), {
+    response = await fetch(endpoint("/api/annotations?stream=1"), {
       method: "POST",
       credentials: "include",
       redirect: "manual",
       signal: AbortSignal.timeout(60_000),
-      headers: { "content-type": "application/json", accept: "text/event-stream" },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ ...input, actionType: input.action }),
     });
   } catch (cause) {

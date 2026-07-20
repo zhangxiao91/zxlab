@@ -120,9 +120,9 @@ describe("ZX Signal intelligence loop", () => {
     const llm = new StreamingAnnotationFixtureLLM();
     const generated = await new BriefingGenerator(env, llm).generate({ date: "2026-07-18", candidates: new BriefingGenerator(env, llm).fixture(), dataOrigin: "fixture" });
     const item = generated.briefing.items[0]!;
-    const request = new Request("https://signal.example/api/annotations", {
+    const request = new Request("https://signal.example/api/annotations?stream=1", {
       method: "POST",
-      headers: { "content-type": "application/json", accept: "text/event-stream" },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({
         briefingId: generated.briefing.id,
         briefingItemId: item.id,

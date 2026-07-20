@@ -21,7 +21,9 @@ export async function handleAnnotations(request: Request, pathname: string, env:
   if (request.method !== "POST" || pathname !== "/api/annotations") return null;
   const input = parseAnnotationInput(await readJson(request));
   const responder = new AnnotationResponder(env, dependencies.llm ?? new ProjectApiSignalLLM(env));
-  if (request.headers.get("accept")?.toLowerCase().includes("text/event-stream")) {
+  const streamRequested = new URL(request.url).searchParams.get("stream") === "1"
+    || request.headers.get("accept")?.toLowerCase().includes("text/event-stream");
+  if (streamRequested) {
     const encoder = new TextEncoder();
     const body = new ReadableStream<Uint8Array>({
       async start(controller) {
