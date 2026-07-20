@@ -1,0 +1,43 @@
+---
+---
+<div class="system-status" data-system-status aria-busy="true">
+  <section class="system-status__overview" aria-live="polite">
+    <p class="system-status__eyebrow">ZX SYSTEM STATUS</p>
+    <div class="system-status__overview-row">
+      <div><p class="status-badge" data-overview-status="unknown">Unknown</p><h2 data-overview-title>Loading system status</h2><p data-overview-summary>Retrieving the latest module signals.</p></div>
+      <button class="system-status__refresh" type="button" data-status-refresh aria-label="Refresh status">Refresh</button>
+    </div>
+    <dl class="system-status__counts" data-overview-counts><div><dt>Modules</dt><dd>--</dd></div><div><dt>Operational</dt><dd>--</dd></div><div><dt>Degraded</dt><dd>--</dd></div><div><dt>Offline</dt><dd>--</dd></div></dl>
+    <p class="system-status__updated"><span>Updated</span> <time data-overview-updated></time><span data-refresh-state>Auto refreshes every 30 seconds</span></p>
+  </section>
+  <section class="system-status__modules" data-module-list aria-label="System modules">
+    {Array.from({ length: 3 }).map(() => <article class="status-module-card status-skeleton"><span></span><span></span><span></span></article>)}
+  </section>
+  <section class="system-status__activity" aria-labelledby="activity-title"><div><p class="system-status__eyebrow">Recent activity</p><h2 id="activity-title">The latest system signals.</h2></div><ol data-activity-list><li class="status-skeleton"></li><li class="status-skeleton"></li><li class="status-skeleton"></li></ol></section>
+  <section class="system-status__error" data-status-error hidden role="alert"><h2>Status is unavailable</h2><p data-status-error-message>The status API could not be reached.</p><button type="button" data-status-retry>Try again</button></section>
+</div>
+
+<script>
+  import gsap from "gsap";
+  import { ScrollTrigger } from "gsap/ScrollTrigger";
+  gsap.registerPlugin(ScrollTrigger);
+  type HealthStatus = "operational" | "degraded" | "offline" | "unknown";
+  type Metric = { id: string; label: string; value: string | number | null; unit?: string; format?: string };
+  type Module = { id: string; name: string; description: string; status: HealthStatus; summary: string; updatedAt: string; metrics: Metric[]; details: { kind: string; agents?: Array<{ name: string; online: boolean; currentTask?: { name: string }; lastHeartbeatAt: string; lastError?: string }>; memory?: { freshness: string; sources: Array<{ name: string; status: HealthStatus }>; lastError?: string }; runtime?: { version: string; services: Array<{ name: string; status: HealthStatus }> } } };
+  type Response = { overview: { status: HealthStatus; summary: string; counts: Record<string, number>; updatedAt: string }; modules: Module[]; activities: Array<{ id: string; type: string; title: string; description?: string; status?: HealthStatus; createdAt: string }> };
+  const root = document.querySelector<HTMLElement>("[data-system-status]");
+  const relative = (value: string) => { const seconds = Math.round((new Date(value).getTime() - Date.now()) / 1000); const abs = Math.abs(seconds); if (abs < 60) return `${abs}s ago`; const minutes = Math.round(abs / 60); if (minutes < 60) return `${minutes}m ago`; return `${Math.round(minutes / 60)}h ago`; };
+  const format = (metric: Metric) => { if (metric.value === null) return "--"; if (metric.format === "bytes" && typeof metric.value === "number") return `${Math.round(metric.value / 1_000_000)} MB`; if (metric.format === "percentage") return `${metric.value}${metric.unit ?? "%"}`; return `${metric.value}${metric.unit ? ` ${metric.unit}` : ""}`; };
+  const escape = (value: string) => value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
+  const renderDetail = (module: Module) => { if (module.details.kind === "agent") return `<ul class="status-detail-list">${(module.details.agents ?? []).map((agent) => `<li data-status="${agent.online ? "operational" : "offline"}"><strong>${escape(agent.name)}</strong><span>${agent.online ? escape(agent.currentTask?.name ?? "idle") : escape(agent.lastError ?? "offline")} · ${relative(agent.lastHeartbeatAt)}</span></li>`).join("")}</ul>`; if (module.details.kind === "memory") return `<div class="status-detail-line"><span>Freshness: ${escape(module.details.memory?.freshness ?? "unknown")}</span><span>${escape(module.details.memory?.lastError ?? "Sources healthy")}</span></div>`; return `<div class="status-detail-line"><span>Version: ${escape(module.details.runtime?.version ?? "unknown")}</span><span>${(module.details.runtime?.services ?? []).filter((service) => service.status === "operational").length} services healthy</span></div>`; };
+  const render = (data: Response) => { if (!root) return; root.setAttribute("aria-busy", "false"); const overview = root.querySelector<HTMLElement>("[data-overview-status]"); if (overview) { overview.dataset.status = data.overview.status; overview.textContent = data.overview.status; } const title = root.querySelector<HTMLElement>("[data-overview-title]"); if (title) title.textContent = data.overview.status === "operational" ? "All core systems are operational." : data.overview.status === "degraded" ? "Partial degradation." : "System status needs attention."; const summary = root.querySelector<HTMLElement>("[data-overview-summary]"); if (summary) summary.textContent = data.overview.summary; const counts = root.querySelector<HTMLElement>("[data-overview-counts]"); if (counts) counts.innerHTML = [["Modules", data.overview.counts.total], ["Operational", data.overview.counts.operational], ["Degraded", data.overview.counts.degraded], ["Offline", data.overview.counts.offline]].map(([label, value]) => `<div><dt>${label}</dt><dd>${value}</dd></div>`).join(""); const updated = root.querySelector<HTMLTimeElement>("[data-overview-updated]"); if (updated) { updated.dateTime = data.overview.updatedAt; updated.textContent = relative(data.overview.updatedAt); updated.title = new Date(data.overview.updatedAt).toLocaleString(); }
+    const modules = root.querySelector<HTMLElement>("[data-module-list]"); if (modules) modules.innerHTML = data.modules.map((module) => `<article class="status-module-card" data-status="${module.status}"><header><div><p>${escape(module.description)}</p><h2>${escape(module.name)}</h2></div><span class="status-badge" data-status="${module.status}">${module.status}</span></header><p class="status-module-card__summary">${escape(module.summary)}</p><dl>${module.metrics.map((metric) => `<div><dt>${escape(metric.label)}</dt><dd>${escape(format(metric))}</dd></div>`).join("")}</dl>${renderDetail(module)}<time datetime="${module.updatedAt}" title="${new Date(module.updatedAt).toLocaleString()}">Updated ${relative(module.updatedAt)}</time></article>`).join("");
+    const activity = root.querySelector<HTMLOListElement>("[data-activity-list]"); if (activity) activity.innerHTML = data.activities.map((item) => `<li data-status="${item.status ?? "unknown"}"><time datetime="${item.createdAt}" title="${new Date(item.createdAt).toLocaleString()}">${relative(item.createdAt)}</time><div><p>${escape(item.type)}</p><h3>${escape(item.title)}</h3>${item.description ? `<span>${escape(item.description)}</span>` : ""}</div></li>`).join("");
+  };
+  let refreshTimer: number | undefined;
+  const load = async () => { const error = root?.querySelector<HTMLElement>("[data-status-error]"); try { const response = await fetch("/api/status", { headers: { Accept: "application/json" }, cache: "no-store" }); if (!response.ok) throw new Error(`Status API returned ${response.status}`); render(await response.json() as Response); if (error) error.hidden = true; } catch { if (error) error.hidden = false; } };
+  root?.querySelector("[data-status-refresh]")?.addEventListener("click", load); root?.querySelector("[data-status-retry]")?.addEventListener("click", load);
+  const schedule = () => { if (document.hidden || refreshTimer) return; refreshTimer = window.setInterval(load, 30_000); }; const pause = () => { if (refreshTimer) window.clearInterval(refreshTimer); refreshTimer = undefined; }; document.addEventListener("visibilitychange", () => document.hidden ? pause() : schedule());
+  if (!matchMedia("(prefers-reduced-motion: reduce)").matches) gsap.from(".system-status__overview, .system-status__modules, .system-status__activity", { y: 36, opacity: 0, duration: .8, stagger: .12, ease: "power3.out", scrollTrigger: { trigger: root, start: "top 84%" } });
+  load(); schedule();
+</script>
