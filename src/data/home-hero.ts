@@ -14,13 +14,6 @@ export const HOME_HERO_WORDS = [
   "REMEMBERING",
 ] as const;
 
-export const HOME_HERO_VIEWBOX_WIDTHS: Record<(typeof HOME_HERO_WORDS)[number], number> = {
-  BUILDING: 500,
-  OBSERVING: 560,
-  EXPERIMENTING: 770,
-  REMEMBERING: 660,
-};
-
 export const HOME_HERO_TIMING = Object.freeze({
   bootDelay: 420,
   typeIntervals: [72, 64, 82, 58, 76, 68, 86, 62, 74, 66, 80],

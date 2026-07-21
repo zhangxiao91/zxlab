@@ -223,6 +223,7 @@ const config = welcomeGateConfig;
 
     const beginHit = () => {
       if (state !== "revealing") return;
+      gate.classList.add("is-shard-exit");
       setState("hit");
       setMotion({
         phase: "intro-hit",

@@ -141,18 +141,22 @@
   display: none;
 }
 
-.hero-glyph path {
+.hero-glyph text {
   fill: #efefe5;
+  font-family: "Geist", "Outfit", sans-serif;
+  font-size: 70px;
+  font-weight: 500;
+  letter-spacing: 0;
   transform-box: fill-box;
   transform-origin: center;
 }
 
-.hero-glyph.is-entering path {
+.hero-glyph.is-entering text {
   animation: home-v2-glyph-in 430ms var(--motion-ease-settle) both;
   animation-delay: var(--shard-delay);
 }
 
-.hero-glyph.is-exiting path {
+.hero-glyph.is-exiting text {
   animation: home-v2-glyph-out 145ms var(--motion-ease-out) both;
   animation-delay: calc(var(--shard-delay) * 0.12);
 }
@@ -357,14 +361,35 @@
 }
 
 .home-v2-project-row__mark {
+  position: relative;
+  display: block;
+  width: 1.2rem;
+  height: 1.8rem;
   font-size: 1.4rem;
   transform: rotate(-20deg);
   transition: transform var(--motion-medium) var(--motion-ease-out);
 }
 
+.home-v2-project-row__mark i {
+  position: absolute;
+  inset: 0;
+  font-style: normal;
+  transition: transform 115ms var(--motion-ease-out);
+}
+
+.home-v2-project-row__mark i:nth-child(1) { clip-path: inset(0 0 73%); }
+.home-v2-project-row__mark i:nth-child(2) { clip-path: inset(24% 0 48%); }
+.home-v2-project-row__mark i:nth-child(3) { clip-path: inset(49% 0 23%); }
+.home-v2-project-row__mark i:nth-child(4) { clip-path: inset(74% 0 0); }
+
 .home-v2-project-row:hover .home-v2-project-row__mark {
   transform: rotate(0) translateX(4px);
 }
+
+.home-v2-project-row:is(:hover, :focus-visible) .home-v2-project-row__mark i:nth-child(1) { transform: translate(2px, -1px); }
+.home-v2-project-row:is(:hover, :focus-visible) .home-v2-project-row__mark i:nth-child(2) { transform: translate(-2px, 1px); }
+.home-v2-project-row:is(:hover, :focus-visible) .home-v2-project-row__mark i:nth-child(3) { transform: translate(1px, -1px); }
+.home-v2-project-row:is(:hover, :focus-visible) .home-v2-project-row__mark i:nth-child(4) { transform: translate(-1px, 1px); }
 
 .home-v2-note-row {
   display: grid;
@@ -696,6 +721,31 @@ html:has(.home-v2-page) .welcome-target__brand-channel--cyan {
 html:has(.home-v2-page) .welcome-target__brand-channel--violet {
   color: #d9d8cc;
 }
+
+html:has(.home-v2-page) .welcome-gate.is-shard-exit .welcome-target__slice {
+  opacity: 0.9;
+  animation: home-v2-welcome-shard-a 360ms var(--motion-ease-out) both;
+}
+
+html:has(.home-v2-page) .welcome-gate.is-shard-exit .welcome-target__slice--b {
+  animation-name: home-v2-welcome-shard-b;
+  animation-delay: 18ms;
+}
+
+html:has(.home-v2-page) .welcome-gate.is-shard-exit .welcome-target__slice--c {
+  animation-name: home-v2-welcome-shard-c;
+  animation-delay: 34ms;
+}
+
+html:has(.home-v2-page) .welcome-gate.is-shard-exit .welcome-target__slice--d {
+  animation-name: home-v2-welcome-shard-d;
+  animation-delay: 52ms;
+}
+
+@keyframes home-v2-welcome-shard-a { to { opacity: 0; transform: translate3d(-24px, -18px, 0) rotate(-7deg); } }
+@keyframes home-v2-welcome-shard-b { to { opacity: 0; transform: translate3d(30px, -6px, 0) rotate(5deg); } }
+@keyframes home-v2-welcome-shard-c { to { opacity: 0; transform: translate3d(-18px, 12px, 0) rotate(-4deg); } }
+@keyframes home-v2-welcome-shard-d { to { opacity: 0; transform: translate3d(26px, 20px, 0) rotate(6deg); } }
 
 .welcome-pending .site-shell:has(.home-v2-page) :is(.site-header, .home-v2-hero > *),
 .welcome-active .site-shell:has(.home-v2-page) :is(.site-header, .home-v2-hero > *) {

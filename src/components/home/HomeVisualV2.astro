@@ -52,7 +52,9 @@ const dateFormatter = new Intl.DateTimeFormat("en-US", {
             <span class="home-v2-project-row__tags">
               {project.tags.map((tag) => <span>{tag}</span>)}
             </span>
-            <span class="home-v2-project-row__mark" aria-hidden="true">/</span>
+            <span class="home-v2-project-row__mark" aria-hidden="true">
+              <i>/</i><i>/</i><i>/</i><i>/</i>
+            </span>
           </a>
         ))}
       </div>
