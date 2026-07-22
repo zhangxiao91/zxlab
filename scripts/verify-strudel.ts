@@ -19,4 +19,15 @@ assert.match(STRUDEL_HARDSTYLE_PRESET, /setcpm\(160 \/ 4\)/);
 assert.match(STRUDEL_HARDSTYLE_PRESET, /\[6, dropB\]/);
 assert.deepEqual(STRUDEL_PRESETS.map((preset) => preset.id), ["dream-trance", "future-bass", "euphoric-hardstyle"]);
 
+for (const preset of STRUDEL_PRESETS) {
+  const presetUrl = new URL(createStrudelUrl(preset.source));
+  const presetBinary = atob(decodeURIComponent(presetUrl.hash.slice(1)));
+  const presetBytes = Uint8Array.from(presetBinary, (character) => character.charCodeAt(0));
+  const presetDecoded = new TextDecoder().decode(presetBytes);
+
+  assert.equal(presetDecoded, preset.source, `${preset.id} source should survive URL encoding`);
+  assert.doesNotMatch(presetDecoded, /\\`/, `${preset.id} must not contain escaped backticks`);
+  assert.match(presetDecoded, /\n\s+(?:<|const|\.|\[)/, `${preset.id} should preserve readable multiline source`);
+}
+
 process.stdout.write("Strudel preset and URL verification passed.\n");
