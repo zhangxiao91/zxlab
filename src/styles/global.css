@@ -5396,9 +5396,7 @@ a {
   padding: 0.5rem 0.6rem 0.5rem 1.25rem;
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 999px;
-  background:
-    linear-gradient(115deg, rgba(53, 55, 49, 0.34), transparent 46%),
-    rgba(15, 16, 14, 0.72);
+  background: rgba(15, 16, 14, 0.78);
   color: #f6f5ee;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.12),
@@ -5503,6 +5501,16 @@ a {
 }
 
 /* Static Yuragi title placements */
+.yuragi-static-title {
+  display: block;
+  width: 100%;
+}
+
+.yuragi-static-title__fallback {
+  display: block;
+  width: 100%;
+}
+
 .project-detail-title-yuragi,
 .project-detail-title-yuragi svg,
 .note-detail-title-yuragi,

@@ -81,7 +81,10 @@ function isCurrent(href: string) {
 		let closeToken = 0;
 		let scrollFrame = 0;
 		let scrollIdleTimer = 0;
+		let scrollCooldownUntil = 0;
 		let lastScrollY = window.scrollY;
+		const scrollIdleDelay = 3000;
+		const scrollCooldown = 220;
 
 		const showHeader = () => {
 			header.dataset.scrollState = "visible";
@@ -94,16 +97,25 @@ function isCurrent(href: string) {
 				const currentScrollY = Math.max(window.scrollY, 0);
 				const delta = currentScrollY - lastScrollY;
 				lastScrollY = currentScrollY;
+				window.clearTimeout(scrollIdleTimer);
 
 				if (reducedMotion.matches || currentScrollY < 72 || toggle.getAttribute("aria-expanded") === "true") {
 					showHeader();
 					return;
 				}
 
-				if (delta > 5) header.dataset.scrollState = "hidden";
-				if (delta < -3) showHeader();
-				window.clearTimeout(scrollIdleTimer);
-				scrollIdleTimer = window.setTimeout(showHeader, 260);
+				const now = performance.now();
+				if (now >= scrollCooldownUntil) {
+					if (delta > 5) {
+						header.dataset.scrollState = "hidden";
+						scrollCooldownUntil = now + scrollCooldown;
+					}
+					if (delta < -3) {
+						showHeader();
+						scrollCooldownUntil = now + scrollCooldown;
+					}
+				}
+				scrollIdleTimer = window.setTimeout(showHeader, scrollIdleDelay);
 			});
 		};
 
