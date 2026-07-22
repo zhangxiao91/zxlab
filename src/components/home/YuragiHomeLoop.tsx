@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { YuragiStyles, YuragiText } from "@yuragi-labs/react/static";
-import outlines from "../../generated/yuragi-home-outlines.json";
 import { HOME_HERO_WORDS } from "../../data/home-hero";
 import { welcomeFinishedEvent } from "../welcome/welcome-config";
+import { YuragiStaticTitle } from "../yuragi/YuragiStaticTitle";
 
 const HOLD_DURATION = 1650;
 
@@ -78,16 +77,13 @@ export default function YuragiHomeLoop() {
   };
 
   const word = HOME_HERO_WORDS[wordIndex];
-  const outline = outlines.outlines[word];
 
   return (
     <div ref={rootRef} className="home-yuragi-loop" aria-hidden="true">
-      <YuragiStyles />
-      {ready && outline ? (
-        <YuragiText
+      {ready ? (
+        <YuragiStaticTitle
           key={`${word}-${motionKey}`}
           text={word}
-          outline={outline}
           size={240}
           maxWidth={2100}
           hover="outline"

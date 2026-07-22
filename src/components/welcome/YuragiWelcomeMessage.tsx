@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-import { YuragiStyles, YuragiText } from "@yuragi-labs/react/static";
-import outlines from "../../generated/yuragi-home-outlines.json";
+import { YuragiStaticTitle } from "../yuragi/YuragiStaticTitle";
 
 export const welcomeYuragiShowEvent = "zxlab:welcome-yuragi-show";
 export const welcomeYuragiHideEvent = "zxlab:welcome-yuragi-hide";
@@ -33,11 +32,9 @@ export default function YuragiWelcomeMessage() {
 
   return (
     <div className="welcome-yuragi-message" aria-hidden="true">
-      <YuragiStyles />
-      {visible && outlines.outlines[text] ? (
-        <YuragiText
+      {visible ? (
+        <YuragiStaticTitle
           text={text}
-          outline={outlines.outlines[text]}
           size={52}
           maxWidth={760}
           hover={reducedMotion ? "none" : "outline"}

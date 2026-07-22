@@ -5396,13 +5396,30 @@ a {
   padding: 0.5rem 0.6rem 0.5rem 1.25rem;
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 999px;
-  background: rgba(15, 16, 14, 0.78);
+  background:
+    linear-gradient(115deg, rgba(53, 55, 49, 0.34), transparent 46%),
+    rgba(15, 16, 14, 0.72);
   color: #f6f5ee;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.12),
     0 18px 48px rgba(20, 20, 16, 0.12);
   backdrop-filter: blur(18px) saturate(140%);
   -webkit-backdrop-filter: blur(18px) saturate(140%);
+  transform: translateX(-50%);
+  transition:
+    transform 420ms cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 260ms ease,
+    background-color 260ms ease,
+    border-color 260ms ease;
+}
+
+.site-shell:not(:has(.risk-page)) > .site-header[data-scroll-state="hidden"]:not([data-menu-open="true"]) {
+  opacity: 0.76;
+  transform: translate(-50%, calc(-100% - 1rem));
+}
+
+.site-shell:not(:has(.risk-page)) > .site-header[data-scroll-state="visible"] {
+  opacity: 1;
   transform: translateX(-50%);
 }
 
@@ -5473,6 +5490,64 @@ a {
     background: #151611;
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .site-shell:not(:has(.risk-page)) > .site-header,
+  .site-shell:not(:has(.risk-page)) > .site-header[data-scroll-state="hidden"],
+  .site-shell:not(:has(.risk-page)) > .site-header[data-scroll-state="visible"] {
+    transform: translateX(-50%);
+    transition-duration: 0.01ms;
+  }
+}
+
+/* Static Yuragi title placements */
+.project-detail-title-yuragi,
+.project-detail-title-yuragi svg,
+.note-detail-title-yuragi,
+.note-detail-title-yuragi svg,
+.lab-yuragi-title__text,
+.lab-yuragi-title__text svg {
+  display: block;
+  width: 100%;
+  overflow: visible;
+}
+
+.project-detail-title-yuragi svg {
+  height: clamp(5.4rem, 12vw, 11rem);
+  color: currentColor;
+  fill: currentColor;
+}
+
+.note-detail-title-yuragi svg {
+  height: clamp(4.6rem, 9vw, 8.2rem);
+  color: currentColor;
+  fill: currentColor;
+}
+
+.lab-yuragi-title {
+  width: min(100%, 27rem);
+  margin-top: 1.6rem;
+}
+
+.lab-yuragi-title__text svg {
+  height: clamp(4.8rem, 9vw, 7rem);
+  color: currentColor;
+  fill: currentColor;
+}
+
+@media (max-width: 40rem) {
+  .project-detail-title-yuragi svg {
+    height: clamp(4.2rem, 16vw, 6.4rem);
+  }
+
+  .note-detail-title-yuragi svg {
+    height: clamp(3.8rem, 14vw, 5.6rem);
+  }
+
+  .lab-yuragi-title {
+    margin-top: 1.2rem;
   }
 }
 

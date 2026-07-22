@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { compileOutlines } from "@yuragi-labs/compiler";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const font = resolve(root, "node_modules/geist/dist/fonts/geist-sans/Geist-Variable.ttf");
+const font = resolve(root, "src/assets/fonts/CabinetGrotesk-Variable.ttf");
 const output = resolve(root, "src/generated/yuragi-home-outlines.json");
 const titles = [
   "BUILDING",
@@ -12,6 +12,11 @@ const titles = [
   "EXPERIMENTING",
   "REMEMBERING",
   "welcome to zxlab!",
+  "LAB",
+  "OilShield",
+  "Long-memo",
+  "ZXLab",
+  "Building ZXLab by hand",
 ];
 
 const bundle = await compileOutlines({
@@ -21,5 +26,5 @@ const bundle = await compileOutlines({
 });
 
 // Keep generated output deterministic and avoid encoding a local machine path.
-bundle.font.source = "geist@1.7.2/Geist-Variable.ttf";
+bundle.font.source = "src/assets/fonts/CabinetGrotesk-Variable.ttf";
 await writeFile(output, `${JSON.stringify(bundle, null, 2)}\n`, "utf8");

@@ -1,5 +1,6 @@
 ---
 import Layout from "../../layouts/Layout.astro";
+import { YuragiStaticTitle } from "../../components/yuragi/YuragiStaticTitle";
 import LabProjectCard from "../../components/lab/LabProjectCard.astro";
 import BoopiPet from "../../components/lab/BoopiPet.astro";
 import { labProjects } from "../../lab/projects";
@@ -19,6 +20,17 @@ const statement =
     <section class="lab-hero" aria-labelledby="lab-title">
       <div class="lab-hero__copy">
         <p class="lab-kicker">A place for unfinished interaction</p>
+        <div class="lab-yuragi-title" aria-hidden="true">
+          <YuragiStaticTitle
+            client:load
+            text="LAB"
+            size={120}
+            maxWidth={720}
+            hover="outline"
+            transition={{ enter: "settle", exit: "scatter", speed: 1.04 }}
+            className="lab-yuragi-title__text"
+          />
+        </div>
         <h1 id="lab-title">
           Experiments need
           <span class="lab-title-image" role="img" aria-label="Abstract light signal"></span>

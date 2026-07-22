@@ -79,6 +79,33 @@ function isCurrent(href: string) {
 		const mobileQuery = window.matchMedia("(max-width: 40rem)");
 		const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 		let closeToken = 0;
+		let scrollFrame = 0;
+		let scrollIdleTimer = 0;
+		let lastScrollY = window.scrollY;
+
+		const showHeader = () => {
+			header.dataset.scrollState = "visible";
+		};
+
+		const handleScroll = () => {
+			if (scrollFrame) return;
+			scrollFrame = window.requestAnimationFrame(() => {
+				scrollFrame = 0;
+				const currentScrollY = Math.max(window.scrollY, 0);
+				const delta = currentScrollY - lastScrollY;
+				lastScrollY = currentScrollY;
+
+				if (reducedMotion.matches || currentScrollY < 72 || toggle.getAttribute("aria-expanded") === "true") {
+					showHeader();
+					return;
+				}
+
+				if (delta > 5) header.dataset.scrollState = "hidden";
+				if (delta < -3) showHeader();
+				window.clearTimeout(scrollIdleTimer);
+				scrollIdleTimer = window.setTimeout(showHeader, 260);
+			});
+		};
 
 		const prepareMotion = () => {
 			const useGsap = mobileQuery.matches && !reducedMotion.matches;
@@ -96,6 +123,7 @@ function isCurrent(href: string) {
 			header.dataset.menuOpen = String(open);
 			toggle.setAttribute("aria-expanded", String(open));
 			toggle.setAttribute("aria-label", open ? "Close navigation" : "Open navigation");
+			if (open) showHeader();
 
 			if (header.dataset.menuMotion === "gsap") {
 				gsap.killTweensOf([navigation, ...links]);
@@ -179,7 +207,12 @@ function isCurrent(href: string) {
 			setMenu(false);
 			prepareMotion();
 		});
-		reducedMotion.addEventListener("change", prepareMotion);
+		reducedMotion.addEventListener("change", () => {
+			prepareMotion();
+			showHeader();
+		});
+		window.addEventListener("scroll", handleScroll, { passive: true });
+		header.dataset.scrollState = "visible";
 		prepareMotion();
 	}
 </script>

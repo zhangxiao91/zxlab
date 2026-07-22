@@ -1,6 +1,7 @@
 ---
 import { getCollection, render, type CollectionEntry } from "astro:content";
 import Layout from "../../layouts/Layout.astro";
+import { YuragiStaticTitle } from "../../components/yuragi/YuragiStaticTitle";
 import referenceGraphData from "../../data/note-references.json";
 
 interface InternalReference {
@@ -72,6 +73,7 @@ const articleJsonLd = {
   ...(citationUrls.length ? { citation: citationUrls } : {}),
 };
 const articleJsonLdString = JSON.stringify(articleJsonLd).replace(/</g, "\\u003c");
+const yuragiNoteTitle = note.data.title === "Building ZXLab by hand";
 
 const dateFormatter = new Intl.DateTimeFormat("en-US", {
   year: "numeric",
@@ -99,7 +101,21 @@ const dateFormatter = new Intl.DateTimeFormat("en-US", {
           <time datetime={noteDate.toISOString()}>
             Updated {dateFormatter.format(noteDate)}
           </time>
-          <h1>{note.data.title}</h1>
+          <h1 aria-label={note.data.title}>
+            {yuragiNoteTitle ? (
+              <YuragiStaticTitle
+                client:load
+                text={note.data.title}
+                size={108}
+                maxWidth={1450}
+                hover="outline"
+                transition={{ enter: "settle", exit: "scatter", speed: 1.04 }}
+                className="note-detail-title-yuragi"
+              />
+            ) : (
+              note.data.title
+            )}
+          </h1>
           <p>{note.data.description}</p>
         </div>
       </header>

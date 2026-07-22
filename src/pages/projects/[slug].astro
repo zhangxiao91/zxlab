@@ -1,5 +1,6 @@
 ---
 import Layout from "../../layouts/Layout.astro";
+import { YuragiStaticTitle } from "../../components/yuragi/YuragiStaticTitle";
 import { projects, type Project } from "../../data/projects";
 
 export function getStaticPaths() {
@@ -29,7 +30,17 @@ const nextProject = projects[(projectIndex + 1) % projects.length];
 
       <div class="project-detail-hero__content">
         <a href="/projects">← Back to projects</a>
-        <h1 id="project-title">{project.title}</h1>
+        <h1 id="project-title" aria-label={project.title}>
+          <YuragiStaticTitle
+            client:load
+            text={project.title}
+            size={176}
+            maxWidth={1500}
+            hover="outline"
+            transition={{ enter: "settle", exit: "scatter", speed: 1.04 }}
+            className="project-detail-title-yuragi"
+          />
+        </h1>
         <p>{project.description}</p>
       </div>
 
