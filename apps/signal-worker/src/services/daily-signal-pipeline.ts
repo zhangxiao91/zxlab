@@ -4,28 +4,52 @@ import { BriefingGenerator } from "./briefing-generator";
 import { CollectionService } from "./collection-service";
 import { ProjectApiSignalLLM, type SignalLLM } from "./llm";
 
-const DAILY_CANDIDATE_POOL = 40;
+const DAILY_CANDIDATE_POOL = 200;
 const DAILY_MAX_CANDIDATES = 24;
 const BALANCE_ORDER: SignalCategory[] = ["ai-engineering", "markets", "zxlab", "uncategorized"];
+const MAX_CANDIDATES_PER_SOURCE = 3;
 
 export function selectBalancedDailyCandidates(candidates: CandidateSignal[], maxCandidates = DAILY_MAX_CANDIDATES): CandidateSignal[] {
-  const buckets = new Map<SignalCategory, CandidateSignal[]>();
-  for (const category of BALANCE_ORDER) buckets.set(category, []);
-  for (const candidate of candidates) buckets.get(candidate.categoryHint)?.push(candidate);
+  const buckets = new Map<SignalCategory, Map<string, CandidateSignal[]>>();
+  for (const category of BALANCE_ORDER) buckets.set(category, new Map());
+  for (const candidate of candidates) {
+    const category = buckets.get(candidate.categoryHint);
+    if (!category) continue;
+    const source = category.get(candidate.source.sourceId) ?? [];
+    source.push(candidate);
+    category.set(candidate.source.sourceId, source);
+  }
 
   const selected: CandidateSignal[] = [];
   const seen = new Set<string>();
-  while (selected.length < maxCandidates) {
-    let added = false;
-    for (const category of BALANCE_ORDER) {
-      const candidate = buckets.get(category)?.shift();
-      if (!candidate || seen.has(candidate.id)) continue;
-      selected.push(candidate);
-      seen.add(candidate.id);
-      added = true;
-      if (selected.length >= maxCandidates) break;
+  const sourceCounts = new Map<string, number>();
+  const takeFromCategory = (category: SignalCategory, enforceSourceCap: boolean): boolean => {
+    const sources = buckets.get(category);
+    if (!sources) return false;
+    const choice = [...sources.entries()]
+      .filter(([sourceId, items]) => items.length > 0 && (!enforceSourceCap || (sourceCounts.get(sourceId) ?? 0) < MAX_CANDIDATES_PER_SOURCE))
+      .sort(([leftId], [rightId]) => (sourceCounts.get(leftId) ?? 0) - (sourceCounts.get(rightId) ?? 0) || leftId.localeCompare(rightId))[0];
+    if (!choice) return false;
+    const [sourceId, items] = choice;
+    const candidate = items.shift();
+    if (!candidate || seen.has(candidate.id)) return false;
+    selected.push(candidate);
+    seen.add(candidate.id);
+    sourceCounts.set(sourceId, (sourceCounts.get(sourceId) ?? 0) + 1);
+    return true;
+  };
+
+  for (const enforceSourceCap of [true, false]) {
+    while (selected.length < maxCandidates) {
+      let added = false;
+      for (const category of BALANCE_ORDER) {
+        if (!takeFromCategory(category, enforceSourceCap)) continue;
+        added = true;
+        if (selected.length >= maxCandidates) break;
+      }
+      if (!added) break;
     }
-    if (!added) break;
+    if (selected.length >= maxCandidates) break;
   }
   return selected;
 }

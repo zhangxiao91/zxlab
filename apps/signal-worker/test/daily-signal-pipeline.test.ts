@@ -32,10 +32,10 @@ const collector: SignalCollector = {
   },
 };
 
-function candidate(id: string, categoryHint: SignalCategory): CandidateSignal {
+function candidate(id: string, categoryHint: SignalCategory, sourceId = `source-${id}`): CandidateSignal {
   return {
     id,
-    source: { sourceId: `source-${id}`, sourceName: `Source ${id}`, sourceType: "rss", externalId: id },
+    source: { sourceId, sourceName: `Source ${sourceId}`, sourceType: "rss", externalId: id },
     categoryHint,
     title: `Candidate ${id}`,
     url: `https://example.com/${id}`,
@@ -97,6 +97,17 @@ describe("Daily Signal pipeline", () => {
       candidate("market-2", "markets"),
     ], 5);
     expect(selected.map((item) => item.categoryHint)).toEqual(["ai-engineering", "markets", "zxlab", "ai-engineering", "markets"]);
+  });
+
+  it("limits a prolific source before falling back to it", () => {
+    const selected = selectBalancedDailyCandidates([
+      ...Array.from({ length: 8 }, (_, index) => candidate(`cloudflare-${index}`, "zxlab", "cloudflare")),
+      ...Array.from({ length: 4 }, (_, index) => candidate(`openai-${index}`, "ai-engineering", "openai")),
+      ...Array.from({ length: 4 }, (_, index) => candidate(`market-${index}`, "markets", "market")),
+      ...Array.from({ length: 4 }, (_, index) => candidate(`research-${index}`, "ai-engineering", "research")),
+    ], 12);
+    expect(selected.filter((item) => item.source.sourceId === "cloudflare")).toHaveLength(3);
+    expect(new Set(selected.map((item) => item.source.sourceId))).toEqual(new Set(["cloudflare", "openai", "market", "research"]));
   });
 
   it("collects, filters and persists the active briefing for the Shanghai day", async () => {

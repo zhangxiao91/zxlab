@@ -60,7 +60,7 @@ export class CollectionService {
       } catch (cause) {
         failedSources += 1;
         const error = cause instanceof SignalError ? cause : new SignalError("SOURCE_FETCH_FAILED", "Source collection failed", 502, cause);
-        errors.push(`${source.id}:${error.code}`);
+        errors.push(`${source.id}:${error.code}:${error.message.replace(/\s+/g, " ").slice(0, 240)}`);
         await this.repository.failSourceRun(sourceRunId, error.code, error.message);
       }
     }

@@ -13,6 +13,7 @@ import { parseWebChangelog } from "../src/collectors/web-changelog";
 import { findSource } from "../src/config/sources";
 import { CollectionRepository } from "../src/repositories/collection-repository";
 import { CollectionService } from "../src/services/collection-service";
+import { SignalError } from "../src/lib/errors";
 
 const collector: SignalCollector = {
   type: "rss",
@@ -80,6 +81,17 @@ describe("Signal collection pipeline", () => {
       .rejects.toMatchObject({ code: "SOURCE_NOT_FOUND" });
     await expect(service.run({ sourceIds: ["producthunt-ai-devtools"] }, { runId: "missing-secret-explicit", now: "2026-07-18T10:00:00.000Z" }))
       .rejects.toMatchObject({ code: "SOURCE_DISABLED" });
+  });
+
+  it("preserves source failure details in the collection summary", async () => {
+    const failingCollector: SignalCollector = {
+      type: "rss",
+      async collect() { throw new SignalError("SOURCE_FETCH_FAILED", "Source returned HTTP 403", 502); },
+    };
+    const service = new CollectionService(env, new Map<SignalSourceType, SignalCollector>([["rss", failingCollector]]));
+    const run = await service.run({ sourceIds: ["cloudflare-developer-platform"] }, { runId: "source-error-detail", now: "2026-07-18T10:00:00.000Z" });
+    expect(run.errorSummary).toContain("cloudflare-developer-platform:SOURCE_FETCH_FAILED:Source returned HTTP 403");
+    expect(run.sources[0]).toMatchObject({ errorCode: "SOURCE_FETCH_FAILED", errorMessage: "Source returned HTTP 403" });
   });
 
   it("deduplicates different URLs with the same title and summary inside a dedup group", async () => {
