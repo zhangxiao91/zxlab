@@ -1,5 +1,5 @@
 ---
-import YuragiTypeLoop from "./YuragiTypeLoop.astro";
+import YuragiHomeLoop from "./YuragiHomeLoop";
 ---
 
 <section class="home-v2-hero" data-home-hero aria-labelledby="home-v2-title">
@@ -13,7 +13,7 @@ import YuragiTypeLoop from "./YuragiTypeLoop.astro";
 
   <div class="home-v2-hero__statement" data-hero-title>
     <p class="home-v2-hero__stable" data-hero-intro>A PERSONAL LAB FOR</p>
-    <YuragiTypeLoop />
+    <YuragiHomeLoop client:load />
   </div>
 
   <div class="home-v2-hero__footer" data-hero-intro>

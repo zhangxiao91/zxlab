@@ -14,6 +14,7 @@
   "scripts": {
     "dev": "astro dev",
     "build": "npm run build:stonks && astro build && node scripts/check-internal-links.mjs",
+    "generate:yuragi-home": "node scripts/generate-yuragi-home.mjs",
     "build:zxtoolkit": "npm run build --workspace zxtoolkit",
     "build:stonks": "npm run build --workspace stonks-wip",
     "preview": "astro preview",
@@ -35,6 +36,7 @@
   "dependencies": {
     "@astrojs/react": "^6.0.1",
     "@astrojs/sitemap": "^3.7.3",
+    "@yuragi-labs/react": "0.1.0",
     "astro": "^7.0.5",
     "echarts": "^6.1.0",
     "gsap": "^3.15.0",
@@ -50,6 +52,8 @@
     "@astrojs/check": "^0.9.9",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
+    "@yuragi-labs/compiler": "0.1.0",
+    "geist": "1.7.2",
     "typescript": "^6.0.3"
   }
 }

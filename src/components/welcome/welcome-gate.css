@@ -234,6 +234,19 @@ body.welcome-locked {
   white-space: nowrap;
 }
 
+.welcome-yuragi-message,
+.welcome-yuragi-message__text,
+.welcome-yuragi-message__text svg {
+  display: block;
+  width: min(100%, 46rem);
+  height: auto;
+}
+
+.welcome-yuragi-message__text svg {
+  color: var(--welcome-ink);
+  fill: currentColor;
+}
+
 .welcome-message::before,
 .welcome-message::after {
   position: absolute;
@@ -677,6 +690,12 @@ body.welcome-locked {
   .welcome-message {
     top: calc(50% + 8.4rem);
     font-size: clamp(1.4rem, 7vw, 1.9rem);
+  }
+
+  .welcome-yuragi-message,
+  .welcome-yuragi-message__text,
+  .welcome-yuragi-message__text svg {
+    width: min(100%, 19rem);
   }
 
   .welcome-stripes i:nth-child(n + 7),

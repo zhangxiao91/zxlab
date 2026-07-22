@@ -10,18 +10,6 @@
   font-family: "Geist", "Outfit", ui-sans-serif, system-ui, sans-serif;
 }
 
-.site-shell:has(.signal-page) .site-header {
-  position: relative;
-  z-index: 10;
-  width: min(calc(100% - 2rem), var(--page-width));
-  margin: 0 auto;
-  padding-block: var(--space-6);
-  border-bottom: 1px solid var(--color-border);
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-}
-
 .signal-page {
   width: 100%;
   max-width: 100%;
@@ -633,9 +621,6 @@
 }
 
 @media (max-width: 40rem) {
-  .site-shell:has(.signal-page) .site-header { width: calc(100% - 2rem); margin-top: 0; padding-block: 1.1rem; }
-  .site-shell:has(.signal-page) .site-menu-toggle { color: #1d1f19; }
-  .site-shell:has(.signal-page) .site-nav { background: rgba(243, 241, 233, 0.96); }
   .signal-hero,
   .signal-filter,
   .signal-stream,

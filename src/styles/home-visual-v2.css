@@ -11,46 +11,6 @@
   color: #ecece2;
   font-family: var(--font-sans);
 }
-.site-shell:has(.home-v2-page) .site-header {
-  position: fixed;
-  top: 1.1rem;
-  left: 50%;
-  z-index: 20;
-  width: min(calc(100% - 2rem), 82rem);
-  padding: 0.65rem 0.8rem 0.65rem 1rem;
-  border: 1px solid rgba(239, 239, 227, 0.13);
-  border-radius: 0.35rem;
-  background: rgba(23, 24, 20, 0.76);
-  color: #f1f1e7;
-  backdrop-filter: blur(16px);
-  transform: translateX(-50%);
-}
-
-.site-shell:has(.home-v2-page) .site-name {
-  font-size: 0.78rem;
-  font-weight: 600;
-  letter-spacing: 0;
-  text-transform: uppercase;
-}
-
-.site-shell:has(.home-v2-page) .site-nav {
-  gap: 0.1rem;
-  color: rgba(239, 239, 227, 0.58);
-  font-size: 0.72rem;
-}
-
-.site-shell:has(.home-v2-page) .site-nav a {
-  padding: 0.5rem 0.65rem;
-  transition: color var(--motion-medium) var(--motion-ease-out), background-color var(--motion-medium) var(--motion-ease-out);
-}
-
-.site-shell:has(.home-v2-page) .site-nav a:hover,
-.site-shell:has(.home-v2-page) .site-nav a[aria-current="page"] {
-  background: rgba(239, 239, 227, 0.08);
-  color: #fff;
-  text-decoration: none;
-}
-
 .home-v2-page {
   position: relative;
   width: 100%;
@@ -182,6 +142,24 @@
 
 .hero-word.is-micro-glitch .hero-word__glyphs {
   animation: home-v2-micro-glitch 110ms steps(2, end);
+}
+
+.home-yuragi-loop {
+  width: 100%;
+  min-height: clamp(7rem, 15vw, 13.2rem);
+}
+
+.home-yuragi-loop__text,
+.home-yuragi-loop__text svg {
+  display: block;
+  width: 100%;
+  height: clamp(7rem, 15vw, 13.2rem);
+  overflow: visible;
+}
+
+.home-yuragi-loop__text svg {
+  color: #efefe5;
+  fill: currentColor;
 }
 
 .home-v2-hero__footer a {
@@ -580,16 +558,6 @@
 }
 
 @media (max-width: 40rem) {
-  .site-shell:has(.home-v2-page) .site-header {
-    top: 0.65rem;
-    width: calc(100% - 1rem);
-    min-height: 3.5rem;
-  }
-
-  .site-shell:has(.home-v2-page) .site-nav {
-    color: rgba(240, 240, 230, 0.68);
-  }
-
   .home-v2-hero {
     min-height: 100svh;
     padding: 6.5rem 1rem 1.5rem;
@@ -610,6 +578,13 @@
 
   .hero-word,
   .hero-word svg {
+    min-height: 5.5rem;
+    height: 27vw;
+  }
+
+  .home-yuragi-loop,
+  .home-yuragi-loop__text,
+  .home-yuragi-loop__text svg {
     min-height: 5.5rem;
     height: 27vw;
   }

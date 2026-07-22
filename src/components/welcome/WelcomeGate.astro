@@ -1,5 +1,6 @@
 ---
 import WelcomeTarget from "./WelcomeTarget.astro";
+import YuragiWelcomeMessage from "./YuragiWelcomeMessage";
 import { welcomeGateConfig } from "./welcome-config";
 import "./welcome-gate.css";
 
@@ -32,8 +33,8 @@ const config = welcomeGateConfig;
 
   <div class="welcome-gate__center">
     <WelcomeTarget enterLabel={config.enterLabel} />
-    <div class="welcome-message" data-welcome-message data-text="" aria-hidden="true" hidden>
-      <span data-welcome-message-text></span>
+    <div class="welcome-message" data-welcome-message aria-hidden="true" hidden>
+      <YuragiWelcomeMessage client:load />
     </div>
     <p class="welcome-visually-hidden" aria-live="polite" data-welcome-announcer></p>
   </div>
@@ -56,7 +57,6 @@ const config = welcomeGateConfig;
     const target = gate.querySelector<HTMLButtonElement>("[data-welcome-target]");
     const skip = gate.querySelector<HTMLButtonElement>("[data-welcome-skip]");
     const message = gate.querySelector<HTMLElement>("[data-welcome-message]");
-    const messageText = gate.querySelector<HTMLElement>("[data-welcome-message-text]");
     const announcer = gate.querySelector<HTMLElement>("[data-welcome-announcer]");
     const burst = gate.querySelector<HTMLElement>(".welcome-gate__burst");
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -65,7 +65,6 @@ const config = welcomeGateConfig;
     const timers = new Set<number>();
     const hitDuration = Number(gate.dataset.hitDuration ?? 980);
     const leaveDuration = Number(gate.dataset.leaveDuration ?? 1180);
-    const messageStepInterval = Number(gate.dataset.messageStepInterval ?? 175);
     const storageKey = gate.dataset.storageKey ?? "zxlab-welcome-seen:v1";
     const hadInert = siteShell?.hasAttribute("inert") ?? false;
     let state: WelcomeState = "idle";
@@ -137,28 +136,12 @@ const config = welcomeGateConfig;
     };
 
     const revealWelcomeMessage = () => {
-      if (!message || !messageText || !announcer) return;
+      if (!message || !announcer) return;
       message.removeAttribute("hidden");
-
-      welcomeGateConfig.messageSteps.forEach((text, index) => {
-        schedule(() => {
-          const isFinalStep = index === welcomeGateConfig.messageSteps.length - 1;
-          message.classList.remove("is-updating");
-          message.classList.remove("is-glitch-step");
-          message.dataset.step = String(index);
-          message.dataset.text = text;
-          messageText.textContent = text;
-          void message.offsetWidth;
-          message.classList.add("is-updating");
-
-          if (isFinalStep) {
-            announcer.textContent = welcomeGateConfig.welcomeText;
-            schedule(() => message.classList.add("is-glitch-step"), 72);
-            schedule(beginHit, messageStepInterval + 90);
-          }
-          pulseTextMotion();
-        }, welcomeGateConfig.messageStepDelays[index] ?? index * messageStepInterval);
-      });
+      announcer.textContent = welcomeGateConfig.welcomeText;
+      window.dispatchEvent(new Event("zxlab:welcome-yuragi-show"));
+      pulseTextMotion();
+      schedule(beginHit, 1120);
     };
 
     const unlockPage = () => {
@@ -223,6 +206,7 @@ const config = welcomeGateConfig;
 
     const beginHit = () => {
       if (state !== "revealing") return;
+      window.dispatchEvent(new Event("zxlab:welcome-yuragi-hide"));
       gate.classList.add("is-shard-exit");
       setState("hit");
       setMotion({
@@ -320,7 +304,7 @@ const config = welcomeGateConfig;
         return;
       }
 
-      if (!target || !skip || !message || !messageText || !announcer || !burst) {
+      if (!target || !skip || !message || !announcer || !burst) {
         clearFailsafe();
         unlockPage();
         dispatchCompletion();

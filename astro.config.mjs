@@ -5,4 +5,9 @@ import react from "@astrojs/react";
 export default defineConfig({
 	site: "https://zx-dx.xyz",
 	integrations: [sitemap(), react()],
+	vite: {
+		resolve: {
+			dedupe: ["react", "react-dom"],
+		},
+	},
 });

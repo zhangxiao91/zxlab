@@ -5383,3 +5383,102 @@ a {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Shared public navigation shell */
+.site-shell:not(:has(.risk-page)) > .site-header {
+  position: fixed;
+  top: 1.25rem;
+  left: 50%;
+  z-index: 100;
+  width: min(calc(100% - 2rem), 70rem);
+  min-height: 4.1rem;
+  margin: 0;
+  padding: 0.5rem 0.6rem 0.5rem 1.25rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: rgba(15, 16, 14, 0.78);
+  color: #f6f5ee;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 18px 48px rgba(20, 20, 16, 0.12);
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  transform: translateX(-50%);
+}
+
+.site-shell:not(:has(.risk-page)) > .site-header .site-name {
+  color: #f6f5ee;
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.site-shell:not(:has(.risk-page)) > .site-header .site-nav {
+  gap: 0.15rem;
+  color: rgba(246, 245, 238, 0.58);
+  font-size: 0.875rem;
+}
+
+.site-shell:not(:has(.risk-page)) > .site-header .site-nav a {
+  padding: 0.62rem 0.9rem;
+  border-radius: 999px;
+  color: inherit;
+  text-decoration: none;
+  transition:
+    transform 120ms ease-out,
+    color 180ms cubic-bezier(0.32, 0.72, 0, 1),
+    background-color 180ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.site-shell:not(:has(.risk-page)) > .site-header .site-nav a:hover,
+.site-shell:not(:has(.risk-page)) > .site-header .site-nav a[aria-current="page"] {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  text-decoration: none;
+}
+
+.site-shell:not(:has(.risk-page)) > .site-header .site-nav a:active {
+  transform: scale(0.97);
+}
+
+.site-shell:not(:has(.risk-page)) > .site-header .site-menu-toggle:active {
+  transform: scale(0.94);
+}
+
+@media (max-width: 40rem) {
+  .site-shell:not(:has(.risk-page)) > .site-header,
+  .site-shell:not(:has(.risk-page)) > .site-header[data-menu-ready] {
+    position: fixed;
+    top: 0.75rem;
+    width: calc(100% - 1.25rem);
+    min-height: 3.5rem;
+    padding-left: 1rem;
+    align-items: center;
+    flex-direction: row;
+  }
+
+  .site-shell:not(:has(.risk-page)) > .site-header[data-menu-ready] .site-nav {
+    right: 0;
+    left: 0;
+    border-radius: 1.35rem;
+    background: rgba(15, 16, 14, 0.96);
+    box-shadow: 0 20px 48px rgba(15, 16, 14, 0.28);
+    backdrop-filter: blur(20px) saturate(140%);
+    -webkit-backdrop-filter: blur(20px) saturate(140%);
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .site-shell:not(:has(.risk-page)) > .site-header,
+  .site-shell:not(:has(.risk-page)) > .site-header[data-menu-ready] .site-nav {
+    background: #151611;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .site-shell:not(:has(.risk-page)) > .site-header {
+    border-color: rgba(255, 255, 255, 0.56);
+    background: #11120f;
+  }
+}
