@@ -2,8 +2,8 @@
 title: "Markdown 入门"
 description: "从写一份清晰文档开始，体验文本、预览和版本管理。"
 routeId: "coding"
-status: "planned"
-updatedAt: 2026-07-06
+status: "placeholder"
+updatedAt: 2026-07-22
 tags:
   - Markdown
   - 编程入门

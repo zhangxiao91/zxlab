@@ -2,8 +2,8 @@
 title: "AI 入门讲义"
 description: "AI 工具的基本使用方式、边界和适合新生的轻量场景。"
 routeId: "ai"
-status: "planned"
-updatedAt: 2026-07-06
+status: "placeholder"
+updatedAt: 2026-07-22
 tags:
   - AI
   - 入门

@@ -1,13 +1,6 @@
 export type DigitalStarterRouteId = "computer" | "ai" | "coding";
 
-export type DigitalStarterStatus =
-  | "planned"
-  | "draft"
-  | "ready"
-  | "writing"
-  | "todo"
-  | "pending"
-  | "organizing";
+export type DigitalStarterStatus = "open" | "placeholder" | "building";
 
 export type DigitalStarterResourceType =
   | "link"
@@ -18,7 +11,6 @@ export type DigitalStarterResourceType =
   | "task";
 
 export type DigitalStarterSoftwareToolType = "software" | "plugin" | "web" | "system";
-export type DigitalStarterPublicStatus = "open" | "updating" | "soon";
 export type DigitalStarterSoftwareLinkChannel =
   | "官网"
   | "Microsoft Store"
@@ -46,23 +38,26 @@ export interface DigitalStarterRoute {
   detailHref?: string;
   learningOutcome: string;
   durationLabel: string;
-  publicStatus: DigitalStarterPublicStatus;
+  updatedAt: string;
   actionLabel: string;
 }
 
 export interface DigitalStarterRouteModule {
   id: string;
   routeId: DigitalStarterRouteId;
+  status: DigitalStarterStatus;
   title: string;
   description: string;
   capabilities: string[];
   task: string;
   toolCategories?: string[];
   outcome: string;
-  coreDocument: { title: string; href: string };
-  practice: { title: string; href?: string };
-  extension?: { title: string; href: string };
+  coreDocumentId?: string;
+  practiceTaskId?: string;
+  practiceLabel?: string;
+  extensionDocumentId?: string;
   duration: string;
+  updatedAt: string;
 }
 
 export interface DigitalStarterResource {
@@ -75,6 +70,7 @@ export interface DigitalStarterResource {
   status: DigitalStarterStatus;
   tags: string[];
   actionLabel: string;
+  updatedAt: string;
 }
 
 export interface DigitalStarterDoc {
@@ -95,6 +91,7 @@ export interface DigitalStarterAsset {
   description: string;
   url: string;
   status: DigitalStarterStatus;
+  updatedAt: string;
 }
 
 export interface DigitalStarterUpdate {
@@ -118,9 +115,10 @@ export interface DigitalStarterFeaturedResource {
   title: string;
   description: string;
   duration: string;
-  publicStatus: DigitalStarterPublicStatus;
+  status: DigitalStarterStatus;
   href?: string;
   actionLabel: string;
+  updatedAt: string;
 }
 
 export interface DigitalStarterSoftwareScenario {
@@ -135,6 +133,8 @@ export interface DigitalStarterWebsiteRecommendation {
   url: string;
   description: string;
   note?: string;
+  status: DigitalStarterStatus;
+  updatedAt: string;
 }
 
 export interface DigitalStarterSoftwareTool {
@@ -153,8 +153,9 @@ export interface DigitalStarterSoftwareTool {
   optionalChoice: string;
   noInstallChoice: string;
   freeLabel: string;
-  status: "ready" | "draft" | "todo";
+  status: DigitalStarterStatus;
   tags: string[];
+  updatedAt: string;
 }
 
 export const digitalStarterResourceTypeLabels: Record<DigitalStarterResourceType, string> = {
@@ -176,40 +177,41 @@ export const digitalStarterResourceTypeMarks: Record<DigitalStarterResourceType,
 };
 
 export const digitalStarterStatusLabels: Record<DigitalStarterStatus, string> = {
-  planned: "即将开放",
-  draft: "持续更新",
-  ready: "已开放",
-  writing: "持续更新",
-  todo: "即将开放",
-  pending: "即将开放",
-  organizing: "持续更新",
-};
-
-export const digitalStarterPublicStatusLabels: Record<DigitalStarterPublicStatus, string> = {
   open: "已开放",
-  updating: "持续更新",
-  soon: "即将开放",
+  placeholder: "完全占位",
+  building: "建设中",
 };
 
-export const digitalStarterRoutes: DigitalStarterRoute[] = [
+const DIGITAL_STARTER_UPDATED_AT = "2026-07-22";
+
+const withUpdatedAt = <T extends object>(items: Array<Omit<T, "updatedAt">>): T[] =>
+  items.map((item) => ({ ...item, updatedAt: DIGITAL_STARTER_UPDATED_AT }) as T);
+
+export const digitalStarterRoutes = withUpdatedAt<DigitalStarterRoute>([
   {
     id: "computer",
     title: "电脑基础",
-    subtitle: "从文件、快捷键、软件安装到跨设备同步，先把电脑用顺手。",
+    subtitle: "从文件、软件、浏览器到同步和安全，把电脑用顺手。",
     description:
       "这条路线适合刚开始熟悉电脑的同学。它不会假设你已经懂很多术语，而是从最常见的真实场景开始：下载的文件去哪了、怎么截图、怎么解压、怎么安装和卸载软件、怎么整理大学资料、怎么让手机和电脑互传文件。",
     audience: ["刚拿到新电脑", "准备进入大学", "想先补齐电脑基础"],
-    modules: ["电脑基础", "键盘与快捷键", "软件工具", "跨设备同步"],
-    status: "draft",
+    modules: ["文件管理", "软件安装与安全", "浏览器使用", "键盘与输入法", "硬件基础", "办公工具", "跨设备同步", "故障排查", "反诈与账号安全"],
+    status: "building",
     links: [],
     assets: ["college-folder-template"],
     docs: [
       "computer-basics",
+      "file-management-doc",
       "keyboard-shortcuts-doc",
       "safe-download-guide",
+      "browser-basics-doc",
+      "hardware-basics-doc",
+      "office-tools-doc",
       "file-structure-doc",
       "sync-plan-doc",
       "computer-help-prompt-doc",
+      "troubleshooting-doc",
+      "anti-fraud-doc",
       "software-toolbox",
     ],
     resourceIds: [
@@ -224,8 +226,7 @@ export const digitalStarterRoutes: DigitalStarterRoute[] = [
     ],
     detailHref: "/lab/digital-starter/computer",
     learningOutcome: "学会管理文件、安装软件、截图解压，以及在手机和电脑之间同步资料。",
-    durationLabel: "4 个模块 · 约 60 分钟",
-    publicStatus: "open",
+    durationLabel: "9 个模块 · 按需阅读",
     actionLabel: "开始学习",
   },
   {
@@ -233,15 +234,15 @@ export const digitalStarterRoutes: DigitalStarterRoute[] = [
     title: "AI 提效",
     description: "适合想用 AI 辅助学习、整理资料、写作和制作展示内容的同学。",
     modules: ["AI 入门", "AI 做 PPT"],
-    status: "draft",
+    status: "placeholder",
     links: [],
     assets: ["ai-ppt-example-asset"],
     docs: ["ai-intro-doc"],
     resourceIds: ["ai-intro-doc", "ai-ppt-prompt", "ai-ppt-example-asset"],
+    detailHref: "/lab/digital-starter/ai",
     learningOutcome: "学会向 AI 提问、整理资料，并完成一次简单的 PPT 或学习任务。",
-    durationLabel: "逐步开放",
-    publicStatus: "updating",
-    actionLabel: "查看路线",
+    durationLabel: "内容待补充",
+    actionLabel: "查看占位路线",
   },
   {
     id: "coding",
@@ -249,23 +250,24 @@ export const digitalStarterRoutes: DigitalStarterRoute[] = [
     description:
       "适合对编程有一点好奇，想从文档、命令行、代码托管和 AI 辅助写代码开始体验的同学。",
     modules: ["Markdown", "helloworld", "命令行", "GitHub", "vibe coding"],
-    status: "planned",
+    status: "placeholder",
     links: ["github-example-repo"],
     assets: ["personal-start-page-file"],
     docs: ["markdown-start-doc"],
     resourceIds: ["markdown-start-doc", "github-example-repo", "personal-start-page-file"],
+    detailHref: "/lab/digital-starter/coding",
     learningOutcome: "从 Markdown、命令行和 GitHub 开始，完成第一次真正的编程体验。",
-    durationLabel: "即将开放",
-    publicStatus: "soon",
-    actionLabel: "查看预告",
+    durationLabel: "内容待补充",
+    actionLabel: "查看占位路线",
   },
-];
+]);
 
-export const digitalStarterRouteModules: DigitalStarterRouteModule[] = [
+export const digitalStarterRouteModules = withUpdatedAt<DigitalStarterRouteModule>([
   {
-    id: "computer-basics",
+    id: "file-management",
     routeId: "computer",
-    title: "电脑与文件管理",
+    status: "building",
+    title: "文件管理",
     description:
       "学会文件、文件夹、下载目录、软件安装、卸载、截图、压缩和解压。",
     capabilities: [
@@ -279,16 +281,17 @@ export const digitalStarterRouteModules: DigitalStarterRouteModule[] = [
     ],
     task: "整理一个“大学资料”文件夹，并完成一次截图、压缩和解压练习。",
     outcome: "学会创建、整理、查找、移动和备份文件。",
-    coreDocument: { title: "电脑基础速查", href: "/lab/digital-starter/docs/computer-basics" },
-    practice: { title: "完成截图、命名、压缩与解压", href: "/lab/digital-starter/docs/tasks" },
-    extension: { title: "大学资料文件夹模板", href: "/lab/digital-starter/docs/file-structure" },
+    coreDocumentId: "file-management-doc",
+    practiceTaskId: "screenshot-zip-unzip",
+    extensionDocumentId: "file-structure-doc",
     duration: "15 分钟",
   },
   {
-    id: "keyboard-shortcuts",
+    id: "keyboard-input",
     routeId: "computer",
-    title: "快捷键",
-    description: "掌握最常用的键盘操作，让电脑用起来更顺手。",
+    status: "building",
+    title: "键盘与输入法",
+    description: "掌握键盘认识、高频快捷键和输入法管理，让电脑用起来更顺手。",
     capabilities: [
       "复制、粘贴、剪切、撤销、保存",
       "全选、查找、重命名",
@@ -299,16 +302,17 @@ export const digitalStarterRouteModules: DigitalStarterRouteModule[] = [
     ],
     task: "用快捷键完成一段文字的复制、修改、保存、截图和文件重命名。",
     outcome: "用高频快捷键更快地编辑文字、切换窗口、截图和整理文件。",
-    coreDocument: { title: "键盘快捷键清单", href: "/lab/digital-starter/docs/keyboard-shortcuts" },
-    practice: { title: "只用快捷键完成一次保存与重命名" },
-    extension: { title: "电脑问题求助模板", href: "/lab/digital-starter/docs/help-prompt" },
+    coreDocumentId: "keyboard-shortcuts-doc",
+    practiceLabel: "只用快捷键完成一次保存与重命名",
+    extensionDocumentId: "computer-help-prompt-doc",
     duration: "10 分钟",
   },
   {
-    id: "software-toolkit",
+    id: "software-safety",
     routeId: "computer",
-    title: "软件工具",
-    description: "建立一套适合大学生活的基础软件工具箱，不追求装得多，先覆盖真实需求。",
+    status: "building",
+    title: "软件安装与安全",
+    description: "建立安全下载、安装、卸载和防止养蛊的基础习惯。",
     capabilities: [
       "从官网或可信来源下载软件",
       "识别假下载按钮和捆绑安装",
@@ -331,14 +335,15 @@ export const digitalStarterRouteModules: DigitalStarterRouteModule[] = [
     ],
     task: "建立自己的“常用软件清单”，每类最多选择 1 到 2 个工具。",
     outcome: "能按真实需求选择软件，并从官方来源安全下载和安装。",
-    coreDocument: { title: "推荐软件与插件", href: "/lab/digital-starter/docs/software-toolbox" },
-    practice: { title: "从官网找到并检查一个安装包", href: "/lab/digital-starter/docs/safe-download" },
-    extension: { title: "安全下载软件指南", href: "/lab/digital-starter/docs/safe-download" },
+    coreDocumentId: "safe-download-guide",
+    practiceLabel: "从官网找到并检查一个安装包",
+    extensionDocumentId: "software-toolbox",
     duration: "20 分钟",
   },
   {
     id: "device-sync",
     routeId: "computer",
+    status: "building",
     title: "跨设备同步",
     description: "让手机、电脑和平板之间可以稳定传文件、同步资料和备份重要内容。",
     capabilities: [
@@ -351,31 +356,172 @@ export const digitalStarterRouteModules: DigitalStarterRouteModule[] = [
     ],
     task: "设计自己的多设备同步方案，至少包含“临时传输”“长期同步”“重要资料备份”三类。",
     outcome: "分清传输、同步和备份，为手机与电脑选择合适的资料流转方式。",
-    coreDocument: { title: "跨设备同步入门", href: "/lab/digital-starter/docs/device-sync" },
-    practice: { title: "写下自己的三层同步与备份方案" },
-    extension: { title: "大学资料文件夹模板", href: "/lab/digital-starter/docs/file-structure" },
+    coreDocumentId: "sync-plan-doc",
+    practiceLabel: "写下自己的三层同步与备份方案",
+    extensionDocumentId: "file-structure-doc",
     duration: "15 分钟",
   },
-];
+  {
+    id: "browser-basics",
+    routeId: "computer",
+    status: "building",
+    title: "浏览器使用",
+    description: "掌握标签页、收藏、下载记录和插件权限。",
+    capabilities: ["会使用地址栏和标签页", "会查看下载记录", "知道插件来源和权限风险"],
+    task: "用浏览器完成一次搜索、收藏和下载记录检查。",
+    outcome: "把浏览器当作可靠的学习和资料入口。",
+    coreDocumentId: "browser-basics-doc",
+    extensionDocumentId: "software-toolbox",
+    duration: "15 分钟",
+  },
+  {
+    id: "hardware-basics",
+    routeId: "computer",
+    status: "placeholder",
+    title: "硬件基础",
+    description: "开机、睡眠、外接设备等内容的预留模块。",
+    capabilities: [],
+    task: "内容待补充。",
+    outcome: "内容待补充。",
+    coreDocumentId: "hardware-basics-doc",
+    duration: "待定",
+  },
+  {
+    id: "office-tools",
+    routeId: "computer",
+    status: "placeholder",
+    title: "办公工具",
+    description: "PDF、Word、Excel、PowerPoint 和邮件的预留模块。",
+    capabilities: [],
+    task: "内容待补充。",
+    outcome: "内容待补充。",
+    coreDocumentId: "office-tools-doc",
+    duration: "待定",
+  },
+  {
+    id: "troubleshooting",
+    routeId: "computer",
+    status: "building",
+    title: "故障排查",
+    description: "先做任务管理器、磁盘和网络的基础判断，再清楚地求助。",
+    capabilities: ["会打开任务管理器", "能初步判断磁盘和网络问题", "能提供清楚的报错信息"],
+    task: "用求助模板描述一次真实或模拟的电脑问题。",
+    outcome: "遇到问题时知道先看哪里、怎么说清楚。",
+    coreDocumentId: "troubleshooting-doc",
+    extensionDocumentId: "computer-help-prompt-doc",
+    duration: "15 分钟",
+  },
+  {
+    id: "anti-fraud",
+    routeId: "computer",
+    status: "building",
+    title: "反诈与账号安全",
+    description: "把验证码、远程控制、假下载和账号保护的提醒集中起来。",
+    capabilities: ["识别常见催促和授权话术", "知道遇到可疑情况先停下", "能通过官方渠道核验"],
+    task: "完成一次可疑链接和软件来源的核验练习。",
+    outcome: "给自己留出核验时间，不被催促着做高风险操作。",
+    coreDocumentId: "anti-fraud-doc",
+    extensionDocumentId: "safe-download-guide",
+    duration: "10 分钟",
+  },
+  {
+    id: "ai-intro",
+    routeId: "ai",
+    status: "placeholder",
+    title: "AI 入门",
+    description: "AI 工具的基本使用方式和边界。",
+    capabilities: [],
+    task: "内容待补充。",
+    outcome: "内容待补充。",
+    coreDocumentId: "ai-intro-doc",
+    duration: "待定",
+  },
+  {
+    id: "ai-ppt",
+    routeId: "ai",
+    status: "placeholder",
+    title: "AI 做 PPT",
+    description: "把资料整理成展示大纲和页面计划。",
+    capabilities: [],
+    task: "内容待补充。",
+    outcome: "内容待补充。",
+    practiceLabel: "内容待补充。",
+    duration: "待定",
+  },
+  {
+    id: "markdown",
+    routeId: "coding",
+    status: "placeholder",
+    title: "Markdown",
+    description: "从清晰的文本结构开始体验编程和版本管理。",
+    capabilities: [],
+    task: "内容待补充。",
+    outcome: "内容待补充。",
+    coreDocumentId: "markdown-start-doc",
+    duration: "待定",
+  },
+  {
+    id: "command-line",
+    routeId: "coding",
+    status: "placeholder",
+    title: "命令行",
+    description: "认识文件路径、命令和程序运行环境。",
+    capabilities: [],
+    task: "内容待补充。",
+    outcome: "内容待补充。",
+    duration: "待定",
+  },
+  {
+    id: "github",
+    routeId: "coding",
+    status: "placeholder",
+    title: "GitHub",
+    description: "认识代码仓库、提交和协作。",
+    capabilities: [],
+    task: "内容待补充。",
+    outcome: "内容待补充。",
+    duration: "待定",
+  },
+  {
+    id: "vibe-coding",
+    routeId: "coding",
+    status: "placeholder",
+    title: "Vibe Coding",
+    description: "在理解文件和代码边界后体验 AI 辅助编程。",
+    capabilities: [],
+    task: "内容待补充。",
+    outcome: "内容待补充。",
+    duration: "待定",
+  },
+]);
 
 export const digitalStarterDocs: DigitalStarterDoc[] = [
   {
     id: "computer-basics",
     title: "电脑基础速查表",
     routeId: "computer",
-    description: "面向准大学生的 Windows 电脑基础操作小抄。",
+    description: "电脑基础路线导航，按问题找到文件、软件、浏览器、同步和安全文档。",
     path: "/lab/digital-starter/docs/computer-basics",
-    status: "draft",
-    updatedAt: "2026-07-08",
+    status: "building",
+    updatedAt: "2026-07-22",
+  },
+  {
+    id: "file-management-doc",
+    title: "文件管理基础",
+    routeId: "computer",
+    description: "认识常用位置、下载目录、文件扩展名、压缩包和 Windows 文件名。",
+    path: "/lab/digital-starter/docs/file-management",
+    status: "building",
+    updatedAt: "2026-07-22",
   },
   {
     id: "keyboard-shortcuts-doc",
-    title: "键盘快捷键清单",
+    title: "键盘讲解、键盘快捷键与输入法管理",
     routeId: "computer",
     description: "收集 Windows 和 macOS 最常用快捷键，适合新手反复查看。",
     path: "/lab/digital-starter/docs/keyboard-shortcuts",
-    status: "draft",
-    updatedAt: "2026-07-08",
+    status: "building",
+    updatedAt: "2026-07-22",
   },
   {
     id: "safe-download-guide",
@@ -383,8 +529,35 @@ export const digitalStarterDocs: DigitalStarterDoc[] = [
     routeId: "computer",
     description: "说明如何找到官网、识别假下载按钮、避免捆绑安装和恶意软件。",
     path: "/lab/digital-starter/docs/safe-download",
-    status: "draft",
-    updatedAt: "2026-07-08",
+    status: "building",
+    updatedAt: "2026-07-22",
+  },
+  {
+    id: "browser-basics-doc",
+    title: "浏览器使用基础",
+    routeId: "computer",
+    description: "从地址栏、标签页、收藏和下载记录开始，理解浏览器插件的来源和权限。",
+    path: "/lab/digital-starter/docs/browser-basics",
+    status: "building",
+    updatedAt: "2026-07-22",
+  },
+  {
+    id: "hardware-basics-doc",
+    title: "电脑硬件基本操作",
+    routeId: "computer",
+    description: "预留开机、关机、睡眠、重启和外接设备等硬件基础内容。",
+    path: "/lab/digital-starter/docs/hardware-basics",
+    status: "placeholder",
+    updatedAt: "2026-07-22",
+  },
+  {
+    id: "office-tools-doc",
+    title: "办公工具速讲",
+    routeId: "computer",
+    description: "预留 PDF、Excel、PowerPoint、Word 和邮件的基础操作内容。",
+    path: "/lab/digital-starter/docs/office-tools",
+    status: "placeholder",
+    updatedAt: "2026-07-22",
   },
   {
     id: "file-structure-doc",
@@ -392,8 +565,8 @@ export const digitalStarterDocs: DigitalStarterDoc[] = [
     routeId: "computer",
     description: "给课程、作业、证件、项目、临时下载和归档备份预留一套清晰结构。",
     path: "/lab/digital-starter/docs/file-structure",
-    status: "draft",
-    updatedAt: "2026-07-08",
+    status: "building",
+    updatedAt: "2026-07-22",
   },
   {
     id: "sync-plan-doc",
@@ -401,8 +574,8 @@ export const digitalStarterDocs: DigitalStarterDoc[] = [
     routeId: "computer",
     description: "介绍手机、电脑、平板之间传文件、同步和备份的基本方案。",
     path: "/lab/digital-starter/docs/device-sync",
-    status: "draft",
-    updatedAt: "2026-07-08",
+    status: "building",
+    updatedAt: "2026-07-22",
   },
   {
     id: "computer-help-prompt-doc",
@@ -410,17 +583,35 @@ export const digitalStarterDocs: DigitalStarterDoc[] = [
     routeId: "computer",
     description: "把报错、截图、设备信息和已经尝试过的方法整理清楚，再去求助。",
     path: "/lab/digital-starter/docs/help-prompt",
-    status: "draft",
-    updatedAt: "2026-07-08",
+    status: "building",
+    updatedAt: "2026-07-22",
+  },
+  {
+    id: "troubleshooting-doc",
+    title: "电脑故障排查",
+    routeId: "computer",
+    description: "从任务管理器、磁盘空间和网络连接开始做安全的基础排查。",
+    path: "/lab/digital-starter/docs/troubleshooting",
+    status: "building",
+    updatedAt: "2026-07-22",
+  },
+  {
+    id: "anti-fraud-doc",
+    title: "反诈与账号安全基础",
+    routeId: "computer",
+    description: "集中整理验证码、远程控制、假下载和账号保护的提醒。",
+    path: "/lab/digital-starter/docs/anti-fraud",
+    status: "building",
+    updatedAt: "2026-07-22",
   },
   {
     id: "software-toolbox",
-    title: "推荐插件与软件列表",
+    title: "下载中心",
     routeId: "computer",
-    description: "给准大学生的 Windows 基础工具箱。",
+    description: "按真实使用场景选择软件、浏览器插件和网站，并从官方入口获取。",
     path: "/lab/digital-starter/docs/software-toolbox",
-    status: "draft",
-    updatedAt: "2026-07-06",
+    status: "building",
+    updatedAt: "2026-07-22",
   },
   {
     id: "ai-intro-doc",
@@ -428,8 +619,8 @@ export const digitalStarterDocs: DigitalStarterDoc[] = [
     routeId: "ai",
     description: "AI 工具的基本使用方式、边界和适合新生的轻量场景。",
     path: "/lab/digital-starter/docs/ai-intro",
-    status: "planned",
-    updatedAt: "2026-07-06",
+    status: "placeholder",
+    updatedAt: "2026-07-22",
   },
   {
     id: "markdown-start-doc",
@@ -437,12 +628,12 @@ export const digitalStarterDocs: DigitalStarterDoc[] = [
     routeId: "coding",
     description: "从写一份清晰文档开始，体验文本、预览和版本管理。",
     path: "/lab/digital-starter/docs/markdown-start",
-    status: "planned",
-    updatedAt: "2026-07-06",
+    status: "placeholder",
+    updatedAt: "2026-07-22",
   },
 ];
 
-export const digitalStarterAssets: DigitalStarterAsset[] = [
+export const digitalStarterAssets = withUpdatedAt<DigitalStarterAsset>([
   {
     id: "college-folder-template",
     title: "大学资料文件夹模板",
@@ -450,7 +641,7 @@ export const digitalStarterAssets: DigitalStarterAsset[] = [
     fileType: "ZIP",
     description: "提供一套适合大学新生的文件夹结构示例，用于整理课程、作业、证件、项目和临时下载。",
     url: "/assets/digital-starter/computer/",
-    status: "pending",
+    status: "placeholder",
   },
   {
     id: "ai-ppt-example-asset",
@@ -459,7 +650,7 @@ export const digitalStarterAssets: DigitalStarterAsset[] = [
     fileType: "PPTX",
     description: "后续接入 AI 辅助制作展示内容的示例文件。",
     url: "/assets/digital-starter/ai-ppt/",
-    status: "planned",
+    status: "placeholder",
   },
   {
     id: "personal-start-page-file",
@@ -468,11 +659,11 @@ export const digitalStarterAssets: DigitalStarterAsset[] = [
     fileType: "HTML/ZIP",
     description: "后续放置一个极小的个人起点页示例和下载文件。",
     url: "/assets/digital-starter/examples/",
-    status: "planned",
+    status: "placeholder",
   },
-];
+]);
 
-export const digitalStarterResources: DigitalStarterResource[] = [
+export const digitalStarterResources = withUpdatedAt<DigitalStarterResource>([
   {
     id: "computer-basics",
     title: "电脑基础速查表",
@@ -480,7 +671,7 @@ export const digitalStarterResources: DigitalStarterResource[] = [
     routeId: "computer",
     description: "整理文件夹、下载目录、截图、解压、软件安装和卸载等基础操作。",
     url: "/lab/digital-starter/docs/computer-basics",
-    status: "draft",
+    status: "building",
     tags: ["Windows", "电脑基础", "文件管理", "截图", "解压"],
     actionLabel: "查看文档",
   },
@@ -491,7 +682,7 @@ export const digitalStarterResources: DigitalStarterResource[] = [
     routeId: "computer",
     description: "收集 Windows 和 macOS 最常用快捷键，适合新手反复查看。",
     url: "/lab/digital-starter/docs/keyboard-shortcuts",
-    status: "draft",
+    status: "building",
     tags: ["文档", "快捷键"],
     actionLabel: "查看清单",
   },
@@ -502,7 +693,7 @@ export const digitalStarterResources: DigitalStarterResource[] = [
     routeId: "computer",
     description: "说明如何找到官网、识别假下载按钮、避免捆绑安装和恶意软件。",
     url: "/lab/digital-starter/docs/safe-download",
-    status: "draft",
+    status: "building",
     tags: ["文档", "软件工具"],
     actionLabel: "查看指南",
   },
@@ -513,7 +704,7 @@ export const digitalStarterResources: DigitalStarterResource[] = [
     routeId: "computer",
     description: "提供一套适合大学新生的文件夹结构示例，用于整理课程、作业、证件、项目和临时下载。",
     url: "/lab/digital-starter/docs/file-structure",
-    status: "pending",
+    status: "placeholder",
     tags: ["示例文件", "文件管理"],
     actionLabel: "查看使用说明",
   },
@@ -524,7 +715,7 @@ export const digitalStarterResources: DigitalStarterResource[] = [
     routeId: "computer",
     description: "通过一个小任务练习截图、标注、压缩和解压。",
     url: "/lab/digital-starter/docs/tasks",
-    status: "draft",
+    status: "building",
     tags: ["任务", "文件管理"],
     actionLabel: "查看任务",
   },
@@ -535,7 +726,7 @@ export const digitalStarterResources: DigitalStarterResource[] = [
     routeId: "computer",
     description: "介绍手机、电脑、平板之间传文件、同步和备份的基本方案。",
     url: "/lab/digital-starter/docs/device-sync",
-    status: "draft",
+    status: "building",
     tags: ["文档", "同步备份"],
     actionLabel: "查看方案",
   },
@@ -546,7 +737,7 @@ export const digitalStarterResources: DigitalStarterResource[] = [
     routeId: "computer",
     description: "教新手把“电脑出问题了”描述清楚，方便向同学、搜索引擎或 AI 求助。",
     url: "/lab/digital-starter/docs/help-prompt",
-    status: "draft",
+    status: "building",
     tags: ["求助模板", "求助"],
     actionLabel: "复制模板",
   },
@@ -557,7 +748,7 @@ export const digitalStarterResources: DigitalStarterResource[] = [
     routeId: "computer",
     description: "按浏览器、广告过滤、视频播放、压缩解压、截图录屏、笔记、同步和安全等类别整理常用工具。",
     url: "/lab/digital-starter/docs/software-toolbox",
-    status: "draft",
+    status: "building",
     tags: ["Windows", "软件工具", "浏览器插件", "工具箱"],
     actionLabel: "查看列表",
   },
@@ -568,7 +759,7 @@ export const digitalStarterResources: DigitalStarterResource[] = [
     routeId: "ai",
     description: "面向新生的 AI 工具基本概念、使用边界和学习场景。",
     url: "/lab/digital-starter/docs/ai-intro",
-    status: "planned",
+    status: "placeholder",
     tags: ["文档", "AI"],
     actionLabel: "查看",
   },
@@ -579,7 +770,7 @@ export const digitalStarterResources: DigitalStarterResource[] = [
     routeId: "ai",
     description: "把资料整理成展示大纲、页面结构和讲稿提示词的占位模板。",
     url: "/lab/digital-starter/docs/prompt-templates#ai-ppt",
-    status: "planned",
+    status: "placeholder",
     tags: ["Prompt", "PPT"],
     actionLabel: "复制",
   },
@@ -590,7 +781,7 @@ export const digitalStarterResources: DigitalStarterResource[] = [
     routeId: "ai",
     description: "用于后续接入 PPTX、PDF 或图片素材的资产入口。",
     url: "/assets/digital-starter/ai-ppt/",
-    status: "planned",
+    status: "placeholder",
     tags: ["课件资产", "PPT"],
     actionLabel: "下载",
   },
@@ -601,7 +792,7 @@ export const digitalStarterResources: DigitalStarterResource[] = [
     routeId: "coding",
     description: "从标题、列表、链接和代码块开始，写一份可维护的学习文档。",
     url: "/lab/digital-starter/docs/markdown-start",
-    status: "planned",
+    status: "placeholder",
     tags: ["文档", "Markdown"],
     actionLabel: "查看",
   },
@@ -612,7 +803,7 @@ export const digitalStarterResources: DigitalStarterResource[] = [
     routeId: "coding",
     description: "用于后续连接示例代码仓库，先保留统一外链入口。",
     url: "#",
-    status: "planned",
+    status: "placeholder",
     tags: ["外链", "GitHub"],
     actionLabel: "打开",
   },
@@ -623,30 +814,30 @@ export const digitalStarterResources: DigitalStarterResource[] = [
     routeId: "coding",
     description: "一个极小网页文件的占位入口，用来体验文件、代码和发布流程。",
     url: "/assets/digital-starter/examples/",
-    status: "planned",
+    status: "placeholder",
     tags: ["示例文件", "helloworld"],
     actionLabel: "下载",
   },
-];
+]);
 
-export const digitalStarterFeaturedResources: DigitalStarterFeaturedResource[] = [
+export const digitalStarterFeaturedResources = withUpdatedAt<DigitalStarterFeaturedResource>([
   {
     id: "computer-basics",
     typeLabel: "文档",
     title: "电脑基础速查",
     description: "快速找到文件、截图、解压，并处理常见电脑小问题。",
     duration: "阅读约 12 分钟",
-    publicStatus: "open",
+    status: "open",
     href: "/lab/digital-starter/docs/computer-basics",
     actionLabel: "打开文档",
   },
   {
     id: "software-toolbox",
     typeLabel: "工具清单",
-    title: "推荐软件与插件",
+    title: "下载中心",
     description: "按使用场景选择真正需要的软件，并从官方入口获取。",
     duration: "浏览约 10 分钟",
-    publicStatus: "open",
+    status: "open",
     href: "/lab/digital-starter/docs/software-toolbox",
     actionLabel: "查看清单",
   },
@@ -656,7 +847,7 @@ export const digitalStarterFeaturedResources: DigitalStarterFeaturedResource[] =
     title: "截图与解压练习",
     description: "完成一次截图、规范命名、压缩和重新解压。",
     duration: "完成约 10 分钟",
-    publicStatus: "open",
+    status: "open",
     href: "/lab/digital-starter/docs/tasks",
     actionLabel: "开始任务",
   },
@@ -666,7 +857,7 @@ export const digitalStarterFeaturedResources: DigitalStarterFeaturedResource[] =
     title: "安全下载软件指南",
     description: "识别官网、假下载按钮、高速下载器和捆绑安装。",
     duration: "阅读约 8 分钟",
-    publicStatus: "open",
+    status: "open",
     href: "/lab/digital-starter/docs/safe-download",
     actionLabel: "查看指南",
   },
@@ -676,7 +867,7 @@ export const digitalStarterFeaturedResources: DigitalStarterFeaturedResource[] =
     title: "跨设备同步入门",
     description: "分清临时传输、长期同步和重要资料备份。",
     duration: "阅读约 10 分钟",
-    publicStatus: "open",
+    status: "open",
     href: "/lab/digital-starter/docs/device-sync",
     actionLabel: "开始阅读",
   },
@@ -686,19 +877,20 @@ export const digitalStarterFeaturedResources: DigitalStarterFeaturedResource[] =
     title: "AI 做 PPT 入门",
     description: "把资料整理成结构清楚的展示大纲和页面计划。",
     duration: "预计 20 分钟",
-    publicStatus: "soon",
-    actionLabel: "即将开放",
+    status: "placeholder",
+    href: "/lab/digital-starter/ai",
+    actionLabel: "查看占位路线",
   },
-];
+]);
 
-export const digitalStarterTasks: DigitalStarterTask[] = [
+export const digitalStarterTasks = withUpdatedAt<DigitalStarterTask>([
   {
     id: "organize-college-folder",
     routeId: "computer",
     title: "整理大学资料文件夹",
     description: "新建一个总文件夹，并用固定结构收纳课程、作业、证件、项目和临时下载。",
     steps: ["课程资料", "作业与实验", "证件材料", "项目作品", "临时下载", "归档备份"],
-    status: "todo",
+    status: "placeholder",
   },
   {
     id: "screenshot-zip-unzip",
@@ -706,7 +898,7 @@ export const digitalStarterTasks: DigitalStarterTask[] = [
     title: "完成一次截图、压缩和解压",
     description: "截一张图，保存到指定文件夹，把它压缩成 zip，再解压到另一个文件夹。",
     steps: ["完成截图", "保存到指定文件夹", "压缩成 zip", "解压到另一个文件夹"],
-    status: "draft",
+    status: "building",
   },
   {
     id: "software-shortlist",
@@ -715,9 +907,9 @@ export const digitalStarterTasks: DigitalStarterTask[] = [
     description:
       "为浏览器、截图、压缩、播放器、笔记、PDF、同步和密码管理各选一个工具，写下用途和下载来源。",
     steps: ["选择工具类别", "记录工具用途", "记录下载来源", "删除暂时不用的软件"],
-    status: "organizing",
+    status: "building",
   },
-];
+]);
 
 export const digitalStarterSoftwareCategories = [
   "浏览器与插件",
@@ -751,7 +943,7 @@ export const digitalStarterSoftwareScenarios: DigitalStarterSoftwareScenario[] =
   { label: "开始编程", category: "编程入门", targetId: "software-code" },
 ];
 
-export const digitalStarterSoftwareTools: DigitalStarterSoftwareTool[] = [
+export const digitalStarterSoftwareTools = withUpdatedAt<DigitalStarterSoftwareTool>([
   {
     id: "browser-basics",
     name: "Microsoft Edge / Chrome / Firefox",
@@ -772,7 +964,7 @@ export const digitalStarterSoftwareTools: DigitalStarterSoftwareTool[] = [
     optionalChoice: "Chrome 或 Firefox",
     noInstallChoice: "Windows 已自带 Edge，可以先直接使用。",
     freeLabel: "免费",
-    status: "draft",
+    status: "building",
     tags: ["Browser", "书签", "下载"],
   },
   {
@@ -802,7 +994,7 @@ export const digitalStarterSoftwareTools: DigitalStarterSoftwareTool[] = [
     optionalChoice: "需要 PDF 或视频字幕翻译时再深入配置",
     noInstallChoice: "偶尔查一个单词时，浏览器自带翻译就够用。",
     freeLabel: "提供免费功能，具体以官方说明为准",
-    status: "draft",
+    status: "building",
     tags: ["插件", "翻译", "PDF", "双语阅读"],
   },
   {
@@ -832,7 +1024,7 @@ export const digitalStarterSoftwareTools: DigitalStarterSoftwareTool[] = [
     optionalChoice: "需要跨网站统一控制时再安装 Global Speed",
     noInstallChoice: "只看短视频或很少调整速度时，不需要安装。",
     freeLabel: "免费",
-    status: "draft",
+    status: "building",
     tags: ["插件", "视频", "播放速度"],
   },
   {
@@ -853,7 +1045,7 @@ export const digitalStarterSoftwareTools: DigitalStarterSoftwareTool[] = [
     optionalChoice: "熟悉 AI 工作流后再探索更多工具",
     noInstallChoice: "只是问一个简单问题时，不需要额外安装 AI 工作台。",
     freeLabel: "以官方说明为准",
-    status: "draft",
+    status: "building",
     tags: ["AI", "工作台", "资料整理"],
   },
   {
@@ -888,7 +1080,7 @@ export const digitalStarterSoftwareTools: DigitalStarterSoftwareTool[] = [
     optionalChoice: "AdGuard 浏览器扩展",
     noInstallChoice: "如果很少遇到广告干扰，可以先用浏览器自带防护。",
     freeLabel: "均有免费版本",
-    status: "draft",
+    status: "building",
     tags: ["Plugin", "广告过滤", "Browser"],
   },
   {
@@ -913,7 +1105,7 @@ export const digitalStarterSoftwareTools: DigitalStarterSoftwareTool[] = [
     optionalChoice: "需要时再试微信输入法",
     noInstallChoice: "Windows 自带输入法已经够用，不必为了跟风安装。",
     freeLabel: "免费",
-    status: "draft",
+    status: "building",
     tags: ["输入法", "拼音", "语音"],
   },
   {
@@ -934,7 +1126,7 @@ export const digitalStarterSoftwareTools: DigitalStarterSoftwareTool[] = [
     optionalChoice: "需要语音或智能候选时再启用",
     noInstallChoice: "只做普通文字输入时，不需要额外安装。",
     freeLabel: "以官方说明为准",
-    status: "draft",
+    status: "building",
     tags: ["输入法", "语音", "AI"],
   },
   {
@@ -956,7 +1148,7 @@ export const digitalStarterSoftwareTools: DigitalStarterSoftwareTool[] = [
     optionalChoice: "Windows 用户也可以选择 PotPlayer",
     noInstallChoice: "普通 MP4 视频先用系统自带播放器。",
     freeLabel: "免费",
-    status: "draft",
+    status: "building",
     tags: ["视频", "课程录像"],
   },
   {
@@ -978,7 +1170,7 @@ export const digitalStarterSoftwareTools: DigitalStarterSoftwareTool[] = [
     optionalChoice: "Bandizip",
     noInstallChoice: "只处理 ZIP 时，可以先使用 Windows 自带解压功能。",
     freeLabel: "7-Zip 免费；Bandizip 提供免费版",
-    status: "draft",
+    status: "building",
     tags: ["zip", "rar", "7z"],
   },
   {
@@ -1005,7 +1197,7 @@ export const digitalStarterSoftwareTools: DigitalStarterSoftwareTool[] = [
     optionalChoice: "Snipaste；需要复杂录屏时再看 ShareX",
     noInstallChoice: "系统工具已经足够完成日常截图。",
     freeLabel: "免费",
-    status: "draft",
+    status: "building",
     tags: ["截图", "录屏", "标注"],
   },
   {
@@ -1026,7 +1218,7 @@ export const digitalStarterSoftwareTools: DigitalStarterSoftwareTool[] = [
     optionalChoice: "Windows 搜索",
     noInstallChoice: "如果文件夹命名清楚，先用系统搜索即可。",
     freeLabel: "免费",
-    status: "draft",
+    status: "building",
     tags: ["文件搜索", "Windows"],
   },
   {
@@ -1049,7 +1241,7 @@ export const digitalStarterSoftwareTools: DigitalStarterSoftwareTool[] = [
     optionalChoice: "Adobe Acrobat Reader 用于阅读和批注 PDF",
     noInstallChoice: "只查看 PDF 时，浏览器通常已经够用。",
     freeLabel: "WPS 和 Reader 有免费版；Microsoft 365 以学校授权为准",
-    status: "draft",
+    status: "building",
     tags: ["PDF", "PPT", "Office"],
   },
   {
@@ -1072,7 +1264,7 @@ export const digitalStarterSoftwareTools: DigitalStarterSoftwareTool[] = [
     optionalChoice: "Typora 或 Visual Studio Code",
     noInstallChoice: "偶尔记录文字时，系统记事本就够用。",
     freeLabel: "Obsidian 个人使用免费；Typora 付费；VS Code 免费",
-    status: "draft",
+    status: "building",
     tags: ["Markdown", "笔记", "VS Code"],
   },
   {
@@ -1104,7 +1296,7 @@ export const digitalStarterSoftwareTools: DigitalStarterSoftwareTool[] = [
     optionalChoice: "坚果云、百度网盘或移动硬盘",
     noInstallChoice: "只临时传一个文件时，可以使用微信文件传输助手。",
     freeLabel: "均提供基础免费空间，容量和功能以官方说明为准",
-    status: "draft",
+    status: "building",
     tags: ["OneDrive", "iCloud", "备份"],
   },
   {
@@ -1125,7 +1317,7 @@ export const digitalStarterSoftwareTools: DigitalStarterSoftwareTool[] = [
     optionalChoice: "需要长期远控时再配置固定设备",
     noInstallChoice: "不需要远程控制时不要安装或常驻。",
     freeLabel: "提供免费功能，具体以官方说明为准",
-    status: "draft",
+    status: "building",
     tags: ["远程控制", "文件传输", "屏幕"],
   },
   {
@@ -1146,7 +1338,7 @@ export const digitalStarterSoftwareTools: DigitalStarterSoftwareTool[] = [
     optionalChoice: "游戏串流场景可进一步比较 Moonlight",
     noInstallChoice: "普通文件同步不需要远程控制软件。",
     freeLabel: "以官方说明为准",
-    status: "draft",
+    status: "building",
     tags: ["远程控制", "文件传输", "游戏串流"],
   },
   {
@@ -1167,7 +1359,7 @@ export const digitalStarterSoftwareTools: DigitalStarterSoftwareTool[] = [
     optionalChoice: "先从 Steam Link 或 UU 远程开始体验",
     noInstallChoice: "不玩远程串流时不需要安装。",
     freeLabel: "开源免费",
-    status: "draft",
+    status: "building",
     tags: ["远程控制", "游戏串流", "开源"],
   },
   {
@@ -1189,7 +1381,7 @@ export const digitalStarterSoftwareTools: DigitalStarterSoftwareTool[] = [
     optionalChoice: "1Password",
     noInstallChoice: "账号不多时，可以先使用浏览器密码管理器。",
     freeLabel: "Bitwarden 有免费版；1Password 付费",
-    status: "draft",
+    status: "building",
     tags: ["密码管理", "账号安全"],
   },
   {
@@ -1210,7 +1402,7 @@ export const digitalStarterSoftwareTools: DigitalStarterSoftwareTool[] = [
     optionalChoice: "熟悉基础后再考虑其他编辑器",
     noInstallChoice: "还没准备开始编程时，不需要提前安装。",
     freeLabel: "免费",
-    status: "draft",
+    status: "building",
     tags: ["VS Code", "编程", "Markdown"],
   },
   {
@@ -1240,23 +1432,25 @@ export const digitalStarterSoftwareTools: DigitalStarterSoftwareTool[] = [
     optionalChoice: "需要批量重命名或窗口管理时再安装 PowerToys",
     noInstallChoice: "先把 Windows 自带快捷键和设置用熟。",
     freeLabel: "免费",
-    status: "draft",
+    status: "building",
     tags: ["Windows", "效率工具"],
   },
-];
+]);
 
-export const digitalStarterWebsiteRecommendations: DigitalStarterWebsiteRecommendation[] = [
+export const digitalStarterWebsiteRecommendations = withUpdatedAt<DigitalStarterWebsiteRecommendation>([
   {
     id: "monkeytype",
     name: "Monkeytype",
     url: "https://monkeytype.com/",
     description: "简洁、可自定义的打字练习网站，适合用短时间练习英文输入速度和准确率。",
+    status: "open",
   },
   {
     id: "vscode-web",
     name: "VS Code for the Web",
     url: "https://vscode.dev/",
     description: "直接在浏览器里打开的 VS Code 编辑器，适合快速查看或修改代码和 Markdown。",
+    status: "open",
     note: "它不是完整桌面开发环境，复杂项目仍需要本地工具或远程开发环境。",
   },
   {
@@ -1264,6 +1458,7 @@ export const digitalStarterWebsiteRecommendations: DigitalStarterWebsiteRecommen
     name: "Linux.do",
     url: "https://linux.do/",
     description: "面向 Linux、开发工具和 AI 等主题的技术社区，适合搜索经验和参与讨论。",
+    status: "open",
     note: "社区经验需要结合自己的系统版本和官方文档核对。",
   },
   {
@@ -1271,6 +1466,7 @@ export const digitalStarterWebsiteRecommendations: DigitalStarterWebsiteRecommen
     name: "V2EX",
     url: "https://www.v2ex.com/",
     description: "以技术、产品和互联网生活为主题的社区，适合观察真实用户讨论和工具经验。",
+    status: "open",
     note: "论坛回复不等于官方结论，涉及安全、账号和付费服务时要回到产品官网确认。",
   },
   {
@@ -1278,6 +1474,7 @@ export const digitalStarterWebsiteRecommendations: DigitalStarterWebsiteRecommen
     name: "Stack Overflow",
     url: "https://stackoverflow.com/",
     description: "英文编程问答网站，适合把报错文字、代码片段和环境信息放在一起检索。",
+    status: "open",
     note: "优先查看高票答案的更新时间，并确认答案适用于当前版本。",
   },
   {
@@ -1285,6 +1482,7 @@ export const digitalStarterWebsiteRecommendations: DigitalStarterWebsiteRecommen
     name: "CyberChef",
     url: "https://cyberchef.org/",
     description: "用于编码、解码、格式转换和文本处理的网页工具，适合学习数据处理的基本思路。",
+    status: "open",
     note: "不要把密码、验证码、个人证件或未公开的敏感数据粘贴进去。",
   },
   {
@@ -1292,8 +1490,9 @@ export const digitalStarterWebsiteRecommendations: DigitalStarterWebsiteRecommen
     name: "Desmos 图形计算器",
     url: "https://www.desmos.com/calculator",
     description: "在线图形计算器，适合把函数、参数变化和坐标关系直接画出来观察。",
+    status: "open",
   },
-];
+]);
 
 export const digitalStarterSafetyNotes = [
   "优先从官网或可信应用商店下载软件",
@@ -1313,6 +1512,11 @@ export const digitalStarterRoadmap = [
 ];
 
 export const digitalStarterUpdates: DigitalStarterUpdate[] = [
+  {
+    date: "2026-07-22",
+    title: "重构电脑基础信息架构",
+    description: "把电脑速查表改为导航页，拆分浏览器、文件管理、故障排查、办公和反诈文档，并建立统一状态与更新时间模型。",
+  },
   {
     date: "2026-07-05",
     title: "创建三条路线骨架",

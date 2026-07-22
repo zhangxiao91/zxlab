@@ -2,8 +2,8 @@
 title: "安全下载软件指南"
 description: "从找官网到安装后检查，避开假下载按钮、高速下载器和捆绑软件。"
 routeId: "computer"
-status: "draft"
-updatedAt: 2026-07-08
+status: "building"
+updatedAt: 2026-07-22
 tags:
   - 软件工具
   - 下载安全
@@ -70,3 +70,11 @@ tags:
 ## 已经装了奇怪软件怎么办
 
 先断开正在进行的可疑下载，再从“已安装的应用”正常卸载。随后用 Windows 安全中心做一次扫描，检查浏览器扩展和默认搜索设置。若持续弹广告或无法卸载，先截图记录现象，再向熟悉电脑的人求助。
+
+## 防止养蛊：不要把电脑装成工具箱
+
+普通 Windows 用户通常不需要同时安装各种“安全卫士”“软件管家”“驱动管家”“系统清理器”或“加速器”。它们可能重复占用后台、弹出推广、修改默认设置，甚至互相冲突。
+
+Windows 自带的 Windows Security 已经包含 Microsoft Defender Antivirus、Windows Firewall 和基础的病毒威胁防护。日常使用先做好 Windows Update，必要时在 Windows Security 中运行扫描，不要为了安装陌生软件而关闭 Defender 或防火墙。
+
+清理空间时，先处理下载目录、回收站和明确的临时文件，不要随意删除系统目录。学校或单位管理设备、特殊行业软件和企业安全策略可能有额外要求，应以管理员说明为准。

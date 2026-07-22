@@ -2,8 +2,8 @@
 import Layout from "../../layouts/Layout.astro";
 import {
   digitalStarterFeaturedResources,
-  digitalStarterPublicStatusLabels,
   digitalStarterRoutes,
+  digitalStarterStatusLabels,
   digitalStarterUpdates,
 } from "../../data/digitalStarter";
 import "../../styles/lab-status-shell.css";
@@ -63,8 +63,8 @@ const taskRevealCopy = "先完成一次从截图到解压的完整操作，你�
             <article class="digital-starter-home-route-card" data-starter-reveal>
               <div class="digital-starter-home-route-card__top">
                 <span>{String(index + 1).padStart(2, "0")}</span>
-                <span data-public-status={route.publicStatus}>
-                  状态：{digitalStarterPublicStatusLabels[route.publicStatus]}
+                <span data-public-status={route.status}>
+                  状态：{digitalStarterStatusLabels[route.status]}
                 </span>
               </div>
               <h3>{route.title}</h3>
@@ -122,8 +122,8 @@ const taskRevealCopy = "先完成一次从截图到解压的完整操作，你�
             <article class="digital-starter-featured-card" data-starter-reveal>
               <div>
                 <span>{resource.typeLabel}</span>
-                <span data-public-status={resource.publicStatus}>
-                  {digitalStarterPublicStatusLabels[resource.publicStatus]}
+                <span data-public-status={resource.status}>
+                  {digitalStarterStatusLabels[resource.status]}
                 </span>
               </div>
               <h3>{resource.title}</h3>

@@ -2,8 +2,8 @@
 title: "键盘讲解、键盘快捷键与输入法管理"
 description: "从键盘基本认识、高频快捷键和输入法管理开始，Windows 为主、macOS 为辅。"
 routeId: "computer"
-status: "draft"
-updatedAt: 2026-07-08
+status: "building"
+updatedAt: 2026-07-22
 tags:
   - 快捷键
   - Windows

@@ -31,6 +31,7 @@
     "verify:status": "node --experimental-strip-types scripts/verify-status-usage.ts",
     "verify:strudel": "node --experimental-strip-types scripts/verify-strudel.ts",
     "check:links": "node scripts/check-internal-links.mjs",
+    "check:digital-starter": "node --experimental-strip-types scripts/check-digital-starter.mjs",
     "test:collector": "npm --prefix services/codex-usage-collector test"
   },
   "dependencies": {

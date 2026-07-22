@@ -5,6 +5,7 @@ import {
   digitalStarterSoftwareCategories,
   digitalStarterSoftwareScenarios,
   digitalStarterSoftwareTools,
+  digitalStarterStatusLabels,
   digitalStarterWebsiteRecommendations,
   type DigitalStarterSoftwareToolType,
 } from "../../../../data/digitalStarter";
@@ -107,7 +108,7 @@ const principles = [
               <section class="digital-starter-toolbox-category" id={categoryId} aria-labelledby={`${categoryId}-title`}>
                 <div class="digital-starter-toolbox-category__heading">
                   <h3 id={`${categoryId}-title`}>{category}</h3>
-                  <span>{tools.length > 0 ? "选择建议" : "即将开放"}</span>
+                  <span>{tools.length > 0 ? "选择建议" : digitalStarterStatusLabels.placeholder}</span>
                 </div>
                 {tools.length > 0 ? (
                   <div class="digital-starter-tool-grid">
@@ -115,7 +116,7 @@ const principles = [
                       <article class="digital-starter-tool-card" data-starter-reveal>
                         <div class="digital-starter-tool-card__top">
                           <span>{typeLabels[tool.type]}</span>
-                          <span>{tool.freeLabel}</span>
+                          <span>{digitalStarterStatusLabels[tool.status]} · {tool.freeLabel}</span>
                         </div>
                         <h4>{tool.defaultChoice}</h4>
                         <p>{tool.description}</p>
@@ -195,7 +196,7 @@ const principles = [
           <article class="digital-starter-tool-card digital-starter-website-card">
             <div class="digital-starter-tool-card__top">
               <span>网站</span>
-              <span>外部链接</span>
+              <span>{digitalStarterStatusLabels[website.status]} · 外部链接</span>
             </div>
             <h4>{website.name}</h4>
             <p>{website.description}</p>

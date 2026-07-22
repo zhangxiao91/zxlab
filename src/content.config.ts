@@ -32,7 +32,7 @@ const digitalStarterDocs = defineCollection({
 		title: z.string(),
 		description: z.string(),
 		routeId: z.enum(["computer", "ai", "coding"]),
-		status: z.enum(["planned", "draft", "ready", "writing", "todo", "pending", "organizing"]),
+		status: z.enum(["open", "placeholder", "building"]),
 		updatedAt: z.coerce.date(),
 		tags: z.array(z.string()).default([]),
 	}),

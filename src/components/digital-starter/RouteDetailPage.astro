@@ -1,0 +1,208 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import LocalLearningProgress from "./LocalLearningProgress.astro";
+import {
+  digitalStarterDocs,
+  digitalStarterRouteModules,
+  digitalStarterRoutes,
+  digitalStarterStatusLabels,
+  digitalStarterTasks,
+  type DigitalStarterRouteId,
+} from "../../data/digitalStarter";
+
+interface Props {
+  routeId: DigitalStarterRouteId;
+}
+
+const { routeId } = Astro.props;
+const route = digitalStarterRoutes.find((item) => item.id === routeId);
+
+if (!route) {
+  throw new Error(`Digital Starter route is missing: ${routeId}`);
+}
+
+const modules = digitalStarterRouteModules.filter((module) => module.routeId === route.id);
+const docsById = new Map(digitalStarterDocs.map((doc) => [doc.id, doc]));
+const tasksById = new Map(digitalStarterTasks.map((task) => [task.id, task]));
+const taskHrefById: Record<string, string> = {
+  "organize-college-folder": "/lab/digital-starter/docs/file-structure",
+  "screenshot-zip-unzip": "/lab/digital-starter/docs/tasks",
+  "software-shortlist": "/lab/digital-starter/docs/software-toolbox",
+};
+
+const docFor = (id?: string) => (id ? docsById.get(id) : undefined);
+const moduleStatus = (module: (typeof modules)[number]) => docFor(module.coreDocumentId)?.status ?? module.status;
+const firstOpenModule = modules.find((module) => moduleStatus(module) !== "placeholder");
+const pageTitle = `${route.title}学习路线 | 准大学生数字技能启动包 | zxlab`;
+const pageDescription = `${route.title}：${route.learningOutcome}`;
+---
+
+<Layout title={pageTitle} description={pageDescription} lang="zh-CN">
+  <main class="digital-starter-detail-page digital-starter-computer-v2">
+    <section class="digital-starter-detail-hero digital-starter-computer-hero" aria-labelledby={`${route.id}-route-title`}>
+      <div class="digital-starter-detail-hero__copy">
+        <a class="digital-starter-back" href="/lab/digital-starter">← 返回数字技能启动包</a>
+        <p class="digital-starter-kicker">{route.status === "placeholder" ? "独立路线占位" : "学习路线"}</p>
+        <h1 id={`${route.id}-route-title`}>{route.title}</h1>
+        <p class="digital-starter-subtitle">{route.learningOutcome}</p>
+        <p class="digital-starter-intro">{route.description}</p>
+        <div class="digital-starter-computer-hero__meta">
+          <span>{route.durationLabel}</span>
+          <span>{digitalStarterStatusLabels[route.status]}</span>
+          <span>{routeId === "computer" ? "主要面向 Windows" : "后续逐步开放"}</span>
+        </div>
+        {route.status !== "placeholder" && firstOpenModule ? (
+          <div class="digital-starter-actions">
+            <a class="digital-starter-button" href="#route-modules">
+              <span>开始第一个模块</span><span aria-hidden="true">↓</span>
+            </a>
+            <a class="digital-starter-button digital-starter-button--ghost" href={docFor(firstOpenModule.coreDocumentId)?.path ?? route.detailHref ?? "/lab/digital-starter"}>
+              <span>打开核心文档</span><span aria-hidden="true">↗</span>
+            </a>
+          </div>
+        ) : (
+          <p class="digital-starter-route-placeholder">这条路线已经建立入口，正文内容待补充。</p>
+        )}
+      </div>
+      <aside class="digital-starter-computer-hero__map" aria-label="路线概览" data-starter-image>
+        <p>{modules.length} 个模块</p>
+        <ol>
+          {modules.map((module, index) => (
+            <li>
+              <span>{String(index + 1).padStart(2, "0")}</span>
+              <strong>{module.title}</strong>
+              <small>{digitalStarterStatusLabels[moduleStatus(module)]} · {module.duration}</small>
+            </li>
+          ))}
+        </ol>
+      </aside>
+    </section>
+
+    <section class="digital-starter-computer-learning" id="route-modules" aria-labelledby={`${route.id}-modules-title`}>
+      <div class="digital-starter-section-heading">
+        <p>{modules.length} 个模块</p>
+        <h2 id={`${route.id}-modules-title`}>{route.status === "placeholder" ? "先看清楚未来会从哪里开始。" : "按问题选择模块，不需要一次全部完成。"}</h2>
+      </div>
+
+      {route.status !== "placeholder" && (
+        <LocalLearningProgress
+          storageKey={`zxlab:digital-starter:${route.id}:v2`}
+          itemIds={modules.filter((module) => moduleStatus(module) !== "placeholder").map((module) => module.id)}
+        />
+      )}
+
+      <div class="digital-starter-computer-timeline">
+        {modules.map((module, index) => {
+          const status = moduleStatus(module);
+          const coreDocument = docFor(module.coreDocumentId);
+          const practiceTask = module.practiceTaskId ? tasksById.get(module.practiceTaskId) : undefined;
+          const practiceHref = module.practiceTaskId ? taskHrefById[module.practiceTaskId] : undefined;
+          const extensionDocument = docFor(module.extensionDocumentId);
+          const canComplete = status !== "placeholder" && route.status !== "placeholder";
+
+          return (
+            <article class="digital-starter-computer-module" data-starter-reveal data-module-status={status}>
+              <div class="digital-starter-computer-module__rail" aria-hidden="true">
+                <span>{String(index + 1).padStart(2, "0")}</span>
+              </div>
+              <div class="digital-starter-computer-module__content">
+                <div class="digital-starter-computer-module__heading">
+                  <div>
+                    <p>模块 {String(index + 1).padStart(2, "0")}</p>
+                    <h3>{module.title}</h3>
+                  </div>
+                  <span class="digital-starter-module-status">{digitalStarterStatusLabels[status]}</span>
+                </div>
+                <p class="digital-starter-computer-module__outcome">{module.outcome}</p>
+                <dl>
+                  <div>
+                    <dt>核心文档</dt>
+                    <dd>
+                      {coreDocument ? (
+                        <a href={coreDocument.path}>{coreDocument.title}</a>
+                      ) : "内容待补充"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>实战任务</dt>
+                    <dd>
+                      {practiceTask && practiceHref ? <a href={practiceHref}>{practiceTask.title}</a> : module.practiceLabel ?? "内容待补充"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>可选扩展</dt>
+                    <dd>{extensionDocument ? <a href={extensionDocument.path}>{extensionDocument.title}</a> : "完成核心内容后再继续"}</dd>
+                  </div>
+                  <div>
+                    <dt>预计用时</dt>
+                    <dd>{module.duration}</dd>
+                  </div>
+                </dl>
+                <div class="digital-starter-computer-module__actions">
+                  {coreDocument ? (
+                    <a href={coreDocument.path}>{status === "placeholder" ? "打开占位页" : "开始模块"}<span aria-hidden="true">↗</span></a>
+                  ) : (
+                    <span class="digital-starter-module-placeholder">正文待补充</span>
+                  )}
+                  {canComplete && (
+                    <>
+                      <button type="button" data-progress-complete={module.id}>标记完成</button>
+                      <button type="button" data-progress-cancel={module.id} hidden>取消完成</button>
+                    </>
+                  )}
+                </div>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+
+    {routeId === "computer" && (
+      <section class="digital-starter-safety-note" aria-labelledby="computer-safety-title">
+        <div>
+          <p>路线说明</p>
+          <h2 id="computer-safety-title">工具越少，入口越清楚。</h2>
+        </div>
+        <p>
+          先从<a href="/lab/digital-starter/docs/computer-basics">电脑基础速查表</a>找到需要的文档，再进入<a href="/lab/digital-starter/docs/software-toolbox">下载中心</a>选择工具。
+        </p>
+      </section>
+    )}
+  </main>
+
+  <script>
+    import gsap from "gsap";
+    import { ScrollTrigger } from "gsap/ScrollTrigger";
+
+    gsap.registerPlugin(ScrollTrigger);
+    const detailMotion = gsap.matchMedia();
+
+    detailMotion.add("(prefers-reduced-motion: no-preference)", () => {
+      gsap.from(".digital-starter-detail-hero__copy > *", {
+        y: 34,
+        opacity: 0,
+        duration: 0.8,
+        stagger: 0.07,
+        ease: "power3.out",
+      });
+
+      gsap.from(".digital-starter-computer-hero__map", {
+        scale: 0.86,
+        opacity: 0,
+        duration: 1,
+        ease: "power3.out",
+      });
+
+      gsap.utils.toArray<HTMLElement>("[data-starter-reveal]").forEach((item) => {
+        gsap.from(item, {
+          y: 30,
+          opacity: 0,
+          duration: 0.72,
+          ease: "power3.out",
+          scrollTrigger: { trigger: item, start: "top 88%" },
+        });
+      });
+    });
+  </script>
+</Layout>

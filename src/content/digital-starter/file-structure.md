@@ -2,8 +2,8 @@
 title: "大学资料文件夹模板"
 description: "一套适合大学新生的资料目录结构，附带命名、整理和备份说明。"
 routeId: "computer"
-status: "draft"
-updatedAt: 2026-07-08
+status: "building"
+updatedAt: 2026-07-22
 tags:
   - 文件管理
   - 大学资料

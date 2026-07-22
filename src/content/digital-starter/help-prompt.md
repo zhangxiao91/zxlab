@@ -2,8 +2,8 @@
 title: "电脑问题求助模板"
 description: "把设备、系统、软件、报错、截图、已尝试操作和期望结果一次说明白。"
 routeId: "computer"
-status: "draft"
-updatedAt: 2026-07-08
+status: "building"
+updatedAt: 2026-07-22
 tags:
   - 求助模板
   - 排查
