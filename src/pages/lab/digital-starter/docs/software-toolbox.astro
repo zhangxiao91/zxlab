@@ -5,6 +5,7 @@ import {
   digitalStarterSoftwareCategories,
   digitalStarterSoftwareScenarios,
   digitalStarterSoftwareTools,
+  digitalStarterWebsiteRecommendations,
   type DigitalStarterSoftwareToolType,
 } from "../../../../data/digitalStarter";
 import "../../../../styles/lab-status-shell.css";
@@ -32,12 +33,13 @@ const categoryIds = new Map(
 const principles = [
   "每一类先选一个主力工具，用熟之后再考虑替代品。",
   "能用 Windows 自带功能解决时，不必为了“必装”而安装。",
+  "这不是必装清单，工具越少，越容易真正用熟。",
   "只从官网、应用商店或浏览器官方扩展商店获取软件。",
 ];
 ---
 
 <Layout
-  title="推荐软件与插件 | 数字技能启动包 | zxlab"
+  title="下载中心 | 数字技能启动包 | zxlab"
   description="按真实使用场景选择 Windows 软件，了解默认推荐、可选替代和官方获取入口。"
   lang="zh-CN"
 >
@@ -47,9 +49,8 @@ const principles = [
         <a class="digital-starter-back" href="/lab/digital-starter/computer">← 返回 {route?.title ?? "电脑基础"}</a>
         <p class="digital-starter-kicker">按问题找工具</p>
         <h1 id="software-toolbox-title">
-          推荐软件与
+          下载中心
           <span class="digital-starter-toolbox-title-image" aria-hidden="true"></span>
-          插件
         </h1>
         <p>不做“装机大全”。先说清楚默认选什么、什么时候需要替代品，以及什么时候根本不用安装。</p>
       </div>
@@ -92,7 +93,7 @@ const principles = [
 
     <section class="digital-starter-toolbox-catalog" aria-labelledby="toolbox-catalog-title">
       <div class="digital-starter-section-heading digital-starter-section-heading--light">
-        <p>软件选择清单</p>
+        <p>下载中心</p>
         <h2 id="toolbox-catalog-title">每类工具先给你一个明确答案。</h2>
       </div>
 
@@ -182,6 +183,48 @@ const principles = [
           })
         }
       </div>
+    </section>
+
+    <section class="digital-starter-toolbox-catalog" aria-labelledby="website-recommendations-title">
+      <div class="digital-starter-section-heading digital-starter-section-heading--light">
+        <p>网站推荐</p>
+        <h2 id="website-recommendations-title">打开浏览器，先从这些地方开始。</h2>
+      </div>
+      <div class="digital-starter-tool-grid">
+        {digitalStarterWebsiteRecommendations.map((website) => (
+          <article class="digital-starter-tool-card digital-starter-website-card">
+            <div class="digital-starter-tool-card__top">
+              <span>网站</span>
+              <span>外部链接</span>
+            </div>
+            <h4>{website.name}</h4>
+            <p>{website.description}</p>
+            {website.note && <p class="digital-starter-website-card__note">{website.note}</p>}
+            <div class="digital-starter-tool-card__sources">
+              <p>打开网站</p>
+              <div class="digital-starter-tool-card__source-links">
+                <a href={website.url} target="_blank" rel="noopener noreferrer">
+                  <span>
+                    <strong>{website.url.replace(/^https?:\/\//, "").replace(/\/$/, "")}</strong>
+                    <small>官网</small>
+                  </span>
+                  <span aria-hidden="true">↗</span>
+                </a>
+              </div>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+
+    <section class="digital-starter-safety-note" aria-labelledby="not-easy-to-say-title">
+      <div>
+        <p>保留一个入口</p>
+        <h2 id="not-easy-to-say-title">那些不方便直接讲的</h2>
+      </div>
+      <p>
+        <a href="/404.html">暂时不在这里展开，打开 404 页面</a>
+      </p>
     </section>
 
     <section class="digital-starter-safety-note" aria-labelledby="toolbox-safety-title">

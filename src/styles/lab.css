@@ -3057,6 +3057,18 @@
   line-height: 1.6;
 }
 
+.digital-starter-website-card {
+  min-height: 22rem;
+}
+
+.digital-starter-tool-card > .digital-starter-website-card__note {
+  grid-area: details;
+  margin-top: 0.9rem;
+  color: #77786f;
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+
 .digital-starter-tool-card dl {
   display: grid;
   grid-area: details;

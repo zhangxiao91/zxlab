@@ -129,6 +129,14 @@ export interface DigitalStarterSoftwareScenario {
   targetId: string;
 }
 
+export interface DigitalStarterWebsiteRecommendation {
+  id: string;
+  name: string;
+  url: string;
+  description: string;
+  note?: string;
+}
+
 export interface DigitalStarterSoftwareTool {
   id: string;
   name: string;
@@ -713,7 +721,10 @@ export const digitalStarterTasks: DigitalStarterTask[] = [
 
 export const digitalStarterSoftwareCategories = [
   "浏览器与插件",
+  "浏览器插件",
+  "AI 与工作台",
   "广告过滤",
+  "输入法",
   "视频播放",
   "压缩解压",
   "截图与录屏",
@@ -721,17 +732,21 @@ export const digitalStarterSoftwareCategories = [
   "文档与 PDF",
   "笔记与 Markdown",
   "同步与备份",
+  "远程桌面与屏幕",
   "密码与账号安全",
   "编程入门",
   "系统效率工具",
 ];
 
 export const digitalStarterSoftwareScenarios: DigitalStarterSoftwareScenario[] = [
+  { label: "翻译和控制视频速度", category: "浏览器插件", targetId: "software-browser-plugins" },
   { label: "打开压缩包", category: "压缩解压", targetId: "software-archive" },
   { label: "找不到文件", category: "文件搜索与管理", targetId: "software-search" },
   { label: "截图和录屏", category: "截图与录屏", targetId: "software-capture" },
+  { label: "管理输入法", category: "输入法", targetId: "software-input" },
   { label: "写作业和做 PPT", category: "文档与 PDF", targetId: "software-office" },
   { label: "同步手机与电脑", category: "同步与备份", targetId: "software-sync" },
+  { label: "远程控制屏幕", category: "远程桌面与屏幕", targetId: "software-remote" },
   { label: "管理密码", category: "密码与账号安全", targetId: "software-password" },
   { label: "开始编程", category: "编程入门", targetId: "software-code" },
 ];
@@ -759,6 +774,87 @@ export const digitalStarterSoftwareTools: DigitalStarterSoftwareTool[] = [
     freeLabel: "免费",
     status: "draft",
     tags: ["Browser", "书签", "下载"],
+  },
+  {
+    id: "immersive-translate",
+    name: "沉浸式翻译",
+    category: "浏览器插件",
+    platform: ["Windows", "macOS", "Browser"],
+    type: "plugin",
+    description: "在网页、PDF、视频字幕等场景提供双语或辅助翻译，适合阅读英文资料。",
+    useCase: "阅读课程资料、技术文档、论文摘要和外文网页。",
+    recommendedFor: "需要经常阅读英文网页或 PDF，但不想每段文字都手动复制翻译的同学。",
+    officialLinks: [
+      {
+        label: "沉浸式翻译官方站",
+        url: "https://immersivetranslate.com/",
+        channel: "官网",
+      },
+      {
+        label: "Chrome 扩展商店",
+        url: "https://chromewebstore.google.com/detail/immersive-translate-ai-we/bpoadfkcbjbfhfodiogcnhhhpibjhbnh",
+        channel: "扩展商店",
+      },
+    ],
+    alternatives: ["浏览器自带翻译", "手动复制到可信翻译工具"],
+    caution: "翻译结果只能作为辅助理解；处理未公开资料、账号信息或敏感文档前，先确认扩展权限和数据处理方式。",
+    defaultChoice: "先在公开网页上试用双语阅读",
+    optionalChoice: "需要 PDF 或视频字幕翻译时再深入配置",
+    noInstallChoice: "偶尔查一个单词时，浏览器自带翻译就够用。",
+    freeLabel: "提供免费功能，具体以官方说明为准",
+    status: "draft",
+    tags: ["插件", "翻译", "PDF", "双语阅读"],
+  },
+  {
+    id: "global-speed",
+    name: "Global Speed",
+    category: "浏览器插件",
+    platform: ["Windows", "macOS", "Browser"],
+    type: "plugin",
+    description: "统一控制网页音视频的播放速度、快进、后退和部分播放参数。",
+    useCase: "观看课程、讲座、访谈和长视频时调整播放速度。",
+    recommendedFor: "经常看在线课程，希望用快捷键控制不同网站播放速度的同学。",
+    officialLinks: [
+      {
+        label: "Global Speed（Chrome）",
+        url: "https://chromewebstore.google.com/detail/global-speed-video-speed/jpbjcnkcffbooppibceonlgknpkniiff",
+        channel: "扩展商店",
+      },
+      {
+        label: "Global Speed（Firefox）",
+        url: "https://addons.mozilla.org/en-GB/firefox/addon/global-speed/",
+        channel: "扩展商店",
+      },
+    ],
+    alternatives: ["网站自带播放速度设置", "系统媒体快捷键"],
+    caution: "插件需要读取或控制部分网页媒体；只从官方扩展商店安装，不要为了倍速播放安装来路不明的脚本。",
+    defaultChoice: "先使用网站自带的 1.25x / 1.5x 速度",
+    optionalChoice: "需要跨网站统一控制时再安装 Global Speed",
+    noInstallChoice: "只看短视频或很少调整速度时，不需要安装。",
+    freeLabel: "免费",
+    status: "draft",
+    tags: ["插件", "视频", "播放速度"],
+  },
+  {
+    id: "workbuddy",
+    name: "WorkBuddy",
+    category: "AI 与工作台",
+    platform: ["Windows", "macOS", "Web"],
+    type: "software",
+    description: "腾讯的 AI 工作台，可以把资料整理、检索和生成文件等任务交给 AI 协助完成。",
+    useCase: "整理资料、做调研、生成文档和处理重复性工作。",
+    recommendedFor: "想尝试 AI 辅助完成具体任务，但还不想自己搭建复杂工具的同学。",
+    officialLinks: [
+      { label: "WorkBuddy 官方入口", url: "https://www.workbuddy.cn/", channel: "官网" },
+    ],
+    alternatives: ["先使用现有 AI 聊天工具", "Windows 自带文件和搜索功能"],
+    caution: "使用前确认上传内容不包含密码、验证码、身份证号或未公开的敏感资料；生成结果仍需要自己核对。",
+    defaultChoice: "先从 WorkBuddy 的一个具体任务开始",
+    optionalChoice: "熟悉 AI 工作流后再探索更多工具",
+    noInstallChoice: "只是问一个简单问题时，不需要额外安装 AI 工作台。",
+    freeLabel: "以官方说明为准",
+    status: "draft",
+    tags: ["AI", "工作台", "资料整理"],
   },
   {
     id: "ad-blocking",
@@ -794,6 +890,52 @@ export const digitalStarterSoftwareTools: DigitalStarterSoftwareTool[] = [
     freeLabel: "均有免费版本",
     status: "draft",
     tags: ["Plugin", "广告过滤", "Browser"],
+  },
+  {
+    id: "wechat-input",
+    name: "微信输入法",
+    category: "输入法",
+    platform: ["Windows", "macOS", "Mobile"],
+    type: "software",
+    description: "腾讯提供的输入法，支持拼音、语音和常用词输入。",
+    useCase: "日常聊天、写作业、中文输入和跨设备使用输入习惯。",
+    recommendedFor: "想换一套界面简单、中文输入为主的输入法的同学。",
+    officialLinks: [
+      {
+        label: "微信输入法（Microsoft Store）",
+        url: "https://apps.microsoft.com/detail/XPFFFP686NDRDZ?hl=zh-CN&gl=CN",
+        channel: "Microsoft Store",
+      },
+    ],
+    alternatives: ["微软拼音", "系统自带输入法"],
+    caution: "安装后检查云同步、剪贴板、语音和个性化推荐等权限，敏感内容不要随意输入或同步。",
+    defaultChoice: "先使用 Windows 自带微软拼音",
+    optionalChoice: "需要时再试微信输入法",
+    noInstallChoice: "Windows 自带输入法已经够用，不必为了跟风安装。",
+    freeLabel: "免费",
+    status: "draft",
+    tags: ["输入法", "拼音", "语音"],
+  },
+  {
+    id: "doubao-input",
+    name: "豆包输入法",
+    category: "输入法",
+    platform: ["Windows", "macOS", "Mobile"],
+    type: "software",
+    description: "提供拼音、语音和智能输入能力的第三方输入法。",
+    useCase: "中文输入、语音转文字和需要智能候选词的场景。",
+    recommendedFor: "想体验语音输入或 AI 辅助输入的同学。",
+    officialLinks: [
+      { label: "豆包输入法官方站", url: "https://srf.doubao.com/", channel: "官网" },
+    ],
+    alternatives: ["微软拼音", "微信输入法"],
+    caution: "输入法可能接触你输入的文字、剪贴板或语音，安装和启用前先看清权限与隐私说明。",
+    defaultChoice: "先用系统输入法，确有需求再试豆包输入法",
+    optionalChoice: "需要语音或智能候选时再启用",
+    noInstallChoice: "只做普通文字输入时，不需要额外安装。",
+    freeLabel: "以官方说明为准",
+    status: "draft",
+    tags: ["输入法", "语音", "AI"],
   },
   {
     id: "video-player",
@@ -966,6 +1108,69 @@ export const digitalStarterSoftwareTools: DigitalStarterSoftwareTool[] = [
     tags: ["OneDrive", "iCloud", "备份"],
   },
   {
+    id: "sunlogin",
+    name: "向日葵远程控制",
+    category: "远程桌面与屏幕",
+    platform: ["Windows", "macOS", "Mobile"],
+    type: "software",
+    description: "用于远程控制电脑、查看屏幕和传输文件的远程桌面工具。",
+    useCase: "远程协助家人、从另一台设备查看电脑和临时取用文件。",
+    recommendedFor: "确实需要远程控制自己或获得明确授权的电脑的同学。",
+    officialLinks: [
+      { label: "向日葵官方下载", url: "https://sunlogin.oray.com/download", channel: "官网" },
+    ],
+    alternatives: ["Windows 快速助手", "UU 远程"],
+    caution: "远程控制涉及屏幕、文件和设备权限，只连接自己或明确授权的设备，使用后关闭不需要的无人值守和开机自启。",
+    defaultChoice: "临时协助时再安装向日葵",
+    optionalChoice: "需要长期远控时再配置固定设备",
+    noInstallChoice: "不需要远程控制时不要安装或常驻。",
+    freeLabel: "提供免费功能，具体以官方说明为准",
+    status: "draft",
+    tags: ["远程控制", "文件传输", "屏幕"],
+  },
+  {
+    id: "uu-remote",
+    name: "UU 远程",
+    category: "远程桌面与屏幕",
+    platform: ["Windows", "macOS", "Mobile"],
+    type: "software",
+    description: "用于远程控制、文件传输和低延迟游戏串流的跨设备工具。",
+    useCase: "远程办公、从手机控制电脑、传文件或串流使用电脑上的游戏和应用。",
+    recommendedFor: "明确需要跨设备远程控制或游戏串流的用户。",
+    officialLinks: [
+      { label: "UU 远程官方下载", url: "https://uuyc163.com/download/", channel: "官网" },
+    ],
+    alternatives: ["向日葵远程控制", "Moonlight"],
+    caution: "远程控制涉及屏幕、文件和设备权限；只使用官方入口，连接前确认设备和授权对象，使用后检查后台常驻状态。",
+    defaultChoice: "需要远程控制和文件传输时再安装",
+    optionalChoice: "游戏串流场景可进一步比较 Moonlight",
+    noInstallChoice: "普通文件同步不需要远程控制软件。",
+    freeLabel: "以官方说明为准",
+    status: "draft",
+    tags: ["远程控制", "文件传输", "游戏串流"],
+  },
+  {
+    id: "moonlight",
+    name: "Moonlight",
+    category: "远程桌面与屏幕",
+    platform: ["Windows", "macOS", "Linux", "Mobile"],
+    type: "software",
+    description: "开源游戏串流客户端，通常需要搭配 Sunshine 等主机端使用。",
+    useCase: "把电脑画面和游戏串流到另一台电脑、手机、平板或电视。",
+    recommendedFor: "已经了解主机端、网络和账号配对，希望体验低延迟串流的用户。",
+    officialLinks: [
+      { label: "Moonlight 官方发行页", url: "https://github.com/moonlight-stream/moonlight-qt/releases", channel: "官网" },
+    ],
+    alternatives: ["UU 远程", "Steam Link"],
+    caution: "Moonlight 是客户端，配置网络和主机端时仍需确认访问权限；不要把远程端口和账号凭据随意公开。",
+    defaultChoice: "只在明确需要游戏串流时使用",
+    optionalChoice: "先从 Steam Link 或 UU 远程开始体验",
+    noInstallChoice: "不玩远程串流时不需要安装。",
+    freeLabel: "开源免费",
+    status: "draft",
+    tags: ["远程控制", "游戏串流", "开源"],
+  },
+  {
     id: "password-manager",
     name: "Bitwarden / 1Password",
     category: "密码与账号安全",
@@ -1040,8 +1245,60 @@ export const digitalStarterSoftwareTools: DigitalStarterSoftwareTool[] = [
   },
 ];
 
+export const digitalStarterWebsiteRecommendations: DigitalStarterWebsiteRecommendation[] = [
+  {
+    id: "monkeytype",
+    name: "Monkeytype",
+    url: "https://monkeytype.com/",
+    description: "简洁、可自定义的打字练习网站，适合用短时间练习英文输入速度和准确率。",
+  },
+  {
+    id: "vscode-web",
+    name: "VS Code for the Web",
+    url: "https://vscode.dev/",
+    description: "直接在浏览器里打开的 VS Code 编辑器，适合快速查看或修改代码和 Markdown。",
+    note: "它不是完整桌面开发环境，复杂项目仍需要本地工具或远程开发环境。",
+  },
+  {
+    id: "linux-do",
+    name: "Linux.do",
+    url: "https://linux.do/",
+    description: "面向 Linux、开发工具和 AI 等主题的技术社区，适合搜索经验和参与讨论。",
+    note: "社区经验需要结合自己的系统版本和官方文档核对。",
+  },
+  {
+    id: "v2ex",
+    name: "V2EX",
+    url: "https://www.v2ex.com/",
+    description: "以技术、产品和互联网生活为主题的社区，适合观察真实用户讨论和工具经验。",
+    note: "论坛回复不等于官方结论，涉及安全、账号和付费服务时要回到产品官网确认。",
+  },
+  {
+    id: "stackoverflow",
+    name: "Stack Overflow",
+    url: "https://stackoverflow.com/",
+    description: "英文编程问答网站，适合把报错文字、代码片段和环境信息放在一起检索。",
+    note: "优先查看高票答案的更新时间，并确认答案适用于当前版本。",
+  },
+  {
+    id: "cyberchef",
+    name: "CyberChef",
+    url: "https://cyberchef.org/",
+    description: "用于编码、解码、格式转换和文本处理的网页工具，适合学习数据处理的基本思路。",
+    note: "不要把密码、验证码、个人证件或未公开的敏感数据粘贴进去。",
+  },
+  {
+    id: "desmos",
+    name: "Desmos 图形计算器",
+    url: "https://www.desmos.com/calculator",
+    description: "在线图形计算器，适合把函数、参数变化和坐标关系直接画出来观察。",
+  },
+];
+
 export const digitalStarterSafetyNotes = [
   "优先从官网或可信应用商店下载软件",
+  "普通 Windows 用户不需要同时安装各种安全卫士、软件管家或系统清理器",
+  "Windows 自带的 Defender、防火墙和系统更新先保持正常运行",
   "不要随便运行陌生 exe 文件",
   "不要把验证码、密码和身份证号发给别人或 AI",
   "重要文件至少保留一份备份",
