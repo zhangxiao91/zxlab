@@ -1,14 +1,17 @@
 ---
 import { createStrudelUrl, STRUDEL_ORIGIN } from "../../lab/strudel/embed";
-import { STRUDEL_TRANCE_PRESET } from "../../lab/strudel/preset";
+import { DEFAULT_STRUDEL_PRESET_ID, STRUDEL_PRESETS } from "../../lab/strudel/preset";
 
-const defaultUrl = createStrudelUrl(STRUDEL_TRANCE_PRESET);
+const defaultPreset = STRUDEL_PRESETS.find((preset) => preset.id === DEFAULT_STRUDEL_PRESET_ID) ?? STRUDEL_PRESETS[0];
+const defaultUrl = createStrudelUrl(defaultPreset.source);
 ---
 
 <section
   class="strudel-embed"
   data-strudel-embed
   data-default-url={defaultUrl}
+  data-default-preset={DEFAULT_STRUDEL_PRESET_ID}
+  data-presets={JSON.stringify(STRUDEL_PRESETS.map(({ id, source }) => ({ id, source })))}
   data-state="loading"
   aria-label="Embedded Strudel live coding editor"
 >
@@ -20,9 +23,26 @@ const defaultUrl = createStrudelUrl(STRUDEL_TRANCE_PRESET);
     <div class="strudel-embed__actions" aria-label="Strudel editor actions">
       <button type="button" data-strudel-reset>Reset template</button>
       <button type="button" data-strudel-fullscreen aria-pressed="false">Fullscreen</button>
-      <a href={defaultUrl} target="_blank" rel="noreferrer">Open on Strudel<span aria-hidden="true">↗</span></a>
+      <a href={defaultUrl} data-strudel-open target="_blank" rel="noreferrer">Open on Strudel<span aria-hidden="true">↗</span></a>
     </div>
   </header>
+
+  <nav class="strudel-embed__presets" aria-label="Strudel presets">
+    <span class="strudel-embed__presets-label">Choose a starting pattern</span>
+    <div class="strudel-embed__preset-list">
+      {STRUDEL_PRESETS.map((preset) => (
+        <button
+          type="button"
+          class:list={{ "is-active": preset.id === DEFAULT_STRUDEL_PRESET_ID }}
+          data-strudel-preset={preset.id}
+          aria-pressed={preset.id === DEFAULT_STRUDEL_PRESET_ID ? "true" : "false"}
+        >
+          <span>{preset.title}</span>
+          <small>{preset.bpm} BPM</small>
+        </button>
+      ))}
+    </div>
+  </nav>
 
   <div class="strudel-embed__shell" data-strudel-shell>
     <iframe
@@ -53,6 +73,8 @@ const defaultUrl = createStrudelUrl(STRUDEL_TRANCE_PRESET);
 </section>
 
 <script>
+  import { createStrudelUrl } from "../../lab/strudel/embed";
+
   document.querySelectorAll<HTMLElement>("[data-strudel-embed]").forEach((root) => {
     const defaultUrl = root.dataset.defaultUrl;
     const shell = root.querySelector<HTMLElement>("[data-strudel-shell]");
@@ -60,11 +82,17 @@ const defaultUrl = createStrudelUrl(STRUDEL_TRANCE_PRESET);
     const fullscreen = root.querySelector<HTMLButtonElement>("[data-strudel-fullscreen]");
     const stateText = root.querySelector<HTMLElement>("[data-strudel-state-text]");
     const fallback = root.querySelector<HTMLAnchorElement>("[data-strudel-fallback]");
+    const openLink = root.querySelector<HTMLAnchorElement>("[data-strudel-open]");
+    const presetButtons = Array.from(root.querySelectorAll<HTMLButtonElement>("[data-strudel-preset]"));
     const controller = new AbortController();
     let activeFrame = root.querySelector<HTMLIFrameElement>("[data-strudel-iframe]");
     let loadTimer: number | undefined;
     let fallbackFullscreen = false;
+    let activePresetId = root.dataset.defaultPreset ?? "";
     const previousBodyOverflow = document.body.style.overflow;
+    const storageKey = "zxlab:strudel:last-preset";
+    const presets = JSON.parse(root.dataset.presets ?? "[]") as Array<{ id: string; source: string }>;
+    const presetMap = new Map(presets.map((preset) => [preset.id, preset.source]));
 
     if (!defaultUrl || !shell || !activeFrame) return;
 
@@ -102,7 +130,7 @@ const defaultUrl = createStrudelUrl(STRUDEL_TRANCE_PRESET);
       const frame = document.createElement("iframe");
       frame.className = "strudel-embed__iframe";
       frame.dataset.strudelIframe = "";
-      frame.src = defaultUrl;
+      frame.src = createStrudelUrl(presetMap.get(activePresetId) ?? presets[0].source);
       frame.title = "Strudel Playground editor with the ZXLab trance preset";
       frame.loading = "eager";
       frame.referrerPolicy = "strict-origin-when-cross-origin";
@@ -128,6 +156,19 @@ const defaultUrl = createStrudelUrl(STRUDEL_TRANCE_PRESET);
       stateText?.focus({ preventScroll: true });
     };
 
+    const setActivePreset = (presetId: string, reset = true) => {
+      if (!presetMap.has(presetId)) return;
+      activePresetId = presetId;
+      window.localStorage.setItem(storageKey, presetId);
+      if (openLink) openLink.href = createStrudelUrl(presetMap.get(presetId) ?? presets[0].source);
+      presetButtons.forEach((button) => {
+        const active = button.dataset.strudelPreset === presetId;
+        button.classList.toggle("is-active", active);
+        button.setAttribute("aria-pressed", String(active));
+      });
+      if (reset) resetFrame();
+    };
+
     const dispose = () => {
       controller.abort();
       window.clearTimeout(loadTimer);
@@ -148,6 +189,9 @@ const defaultUrl = createStrudelUrl(STRUDEL_TRANCE_PRESET);
     };
 
     reset?.addEventListener("click", resetFrame, { signal: controller.signal });
+    presetButtons.forEach((button) => {
+      button.addEventListener("click", () => setActivePreset(button.dataset.strudelPreset ?? ""), { signal: controller.signal });
+    });
     fullscreen?.addEventListener("click", async () => {
       if (fallbackFullscreen) {
         setFallbackFullscreen(false);
@@ -174,6 +218,16 @@ const defaultUrl = createStrudelUrl(STRUDEL_TRANCE_PRESET);
     }, { signal: controller.signal });
     window.addEventListener("pagehide", dispose, { once: true });
     document.addEventListener("astro:before-swap", dispose, { once: true });
+    const storedPreset = window.localStorage.getItem(storageKey);
+    if (storedPreset && presetMap.has(storedPreset)) {
+      activePresetId = storedPreset;
+      presetButtons.forEach((button) => {
+        const active = button.dataset.strudelPreset === activePresetId;
+        button.classList.toggle("is-active", active);
+        button.setAttribute("aria-pressed", String(active));
+      });
+      activeFrame.src = createStrudelUrl(presetMap.get(activePresetId) ?? presets[0].source);
+    }
     armFrame(activeFrame);
   });
 </script>

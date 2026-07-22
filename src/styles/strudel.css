@@ -126,6 +126,49 @@
   outline-offset: 3px;
 }
 
+.strudel-embed__presets {
+  display: grid;
+  padding: .55rem .65rem .85rem 1.2rem;
+  gap: .7rem;
+  border-top: 1px solid rgba(23,24,20,.08);
+}
+
+.strudel-embed__presets-label {
+  color: #696a62;
+  font-size: .66rem;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.strudel-embed__preset-list {
+  display: flex;
+  min-width: 0;
+  gap: .5rem;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.strudel-embed__preset-list button {
+  display: grid;
+  min-width: 10rem;
+  padding: .7rem .8rem;
+  border: 1px solid transparent;
+  border-radius: .9rem;
+  background: rgba(23,24,20,.07);
+  color: #292a25;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 500ms cubic-bezier(.32,.72,0,1), background-color 500ms cubic-bezier(.32,.72,0,1), border-color 500ms cubic-bezier(.32,.72,0,1);
+}
+
+.strudel-embed__preset-list button:hover { transform: translateY(-2px); }
+.strudel-embed__preset-list button.is-active { border-color: #20211d; background: #20211d; color: #fff; }
+.strudel-embed__preset-list button:focus-visible { outline: 2px solid #20211d; outline-offset: 3px; }
+.strudel-embed__preset-list button span { font-size: .78rem; font-weight: 600; }
+.strudel-embed__preset-list button small { margin-top: .25rem; color: #73746c; font-size: .65rem; }
+.strudel-embed__preset-list button.is-active small { color: rgba(255,255,255,.62); }
+
 .strudel-embed__shell {
   position: relative;
   min-height: 46rem;
@@ -218,6 +261,9 @@
 .strudel-embed--fullscreen .strudel-embed__iframe { height: 100%; }
 
 .strudel-instructions > div { min-width: 0; }
+.strudel-instructions { position: relative; z-index: 2; isolation: isolate; }
+.strudel-instructions > div { position: relative; z-index: 1; }
+.strudel-experiment > [data-strudel-frame] { position: relative; z-index: 0; min-width: 0; }
 
 .strudel-guide {
   display: flex;
@@ -229,13 +275,15 @@
 .strudel-guide details {
   flex: 1;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
   padding: 1.4rem;
   border-radius: 1.5rem;
   background: rgba(23,24,20,.08);
   transition: flex 700ms cubic-bezier(.32,.72,0,1), transform 700ms cubic-bezier(.32,.72,0,1);
 }
 
-.strudel-guide details[open] { flex: 2; background: #181914; color: #f5f5ed; }
+.strudel-guide details[open] { position: relative; z-index: 1; flex: 2; background: #181914; color: #f5f5ed; }
 .strudel-guide details:hover { transform: translateY(-4px); }
 .strudel-guide summary { display: flex; min-height: 3rem; align-items: start; justify-content: space-between; gap: 1rem; font-size: 1rem; cursor: pointer; list-style: none; }
 .strudel-guide summary::-webkit-details-marker { display: none; }
@@ -247,6 +295,7 @@
   .strudel-experiment { grid-template-columns: 1fr; }
   .strudel-experiment__note { max-width: 32rem; }
   .strudel-embed__toolbar { align-items: start; flex-direction: column; }
+  .strudel-embed__presets { padding-left: .8rem; }
   .strudel-embed__actions { width: 100%; overflow-x: auto; }
 }
 
