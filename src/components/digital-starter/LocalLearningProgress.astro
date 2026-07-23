@@ -3,9 +3,10 @@ interface Props {
   storageKey: string;
   itemIds: string[];
   label?: string;
+  totalItemCount?: number;
 }
 
-const { storageKey, itemIds, label = "你的进度" } = Astro.props;
+const { storageKey, itemIds, label = "你的进度", totalItemCount = itemIds.length } = Astro.props;
 ---
 
 <section
@@ -13,10 +14,11 @@ const { storageKey, itemIds, label = "你的进度" } = Astro.props;
   data-learning-progress
   data-storage-key={storageKey}
   data-item-ids={itemIds.join(",")}
+  data-total-item-count={totalItemCount}
   aria-labelledby="learning-progress-title"
 >
   <div class="digital-starter-learning-progress__copy">
-    <p id="learning-progress-title">{label}：<strong data-progress-count aria-live="polite">0 / {itemIds.length}</strong></p>
+    <p id="learning-progress-title">{label}：<strong data-progress-count aria-live="polite">0 / {totalItemCount}</strong></p>
     <span>进度只保存在当前浏览器，不需要登录。</span>
   </div>
   <div
@@ -24,7 +26,7 @@ const { storageKey, itemIds, label = "你的进度" } = Astro.props;
     role="progressbar"
     aria-label={label}
     aria-valuemin="0"
-    aria-valuemax={itemIds.length}
+    aria-valuemax={totalItemCount}
     aria-valuenow="0"
   >
     <span data-progress-bar></span>
@@ -40,6 +42,7 @@ const { storageKey, itemIds, label = "你的进度" } = Astro.props;
   progressRoots.forEach((root) => {
     const storageKey = root.dataset.storageKey;
     const itemIds = (root.dataset.itemIds ?? "").split(",").filter(Boolean);
+    const totalItemCount = Number(root.dataset.totalItemCount) || itemIds.length;
 
     if (!storageKey || itemIds.length === 0) return;
 
@@ -69,8 +72,8 @@ const { storageKey, itemIds, label = "你的进度" } = Astro.props;
       const bar = root.querySelector<HTMLElement>("[data-progress-bar]");
       const track = root.querySelector<HTMLElement>("[role='progressbar']");
 
-      if (countNode) countNode.textContent = `${count} / ${itemIds.length}`;
-      if (bar) bar.style.width = `${(count / itemIds.length) * 100}%`;
+      if (countNode) countNode.textContent = `${count} / ${totalItemCount}`;
+      if (bar) bar.style.width = `${(count / totalItemCount) * 100}%`;
       track?.setAttribute("aria-valuenow", String(count));
 
       itemIds.forEach((id) => {

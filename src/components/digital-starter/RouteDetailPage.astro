@@ -34,7 +34,7 @@ const taskHrefById: Record<string, string> = {
 
 const docFor = (id?: string) => (id ? docsById.get(id) : undefined);
 const moduleStatus = (module: (typeof modules)[number]) => docFor(module.coreDocumentId)?.status ?? module.status;
-const firstOpenModule = modules.find((module) => moduleStatus(module) !== "placeholder");
+const progressModuleIds = modules.filter((module) => moduleStatus(module) !== "placeholder").map((module) => module.id);
 const pageTitle = `${route.title}学习路线 | 准大学生数字技能启动包 | zxlab`;
 const pageDescription = `${route.title}：${route.learningOutcome}`;
 ---
@@ -53,13 +53,10 @@ const pageDescription = `${route.title}：${route.learningOutcome}`;
           <span>{digitalStarterStatusLabels[route.status]}</span>
           <span>{routeId === "computer" ? "主要面向 Windows" : "后续逐步开放"}</span>
         </div>
-        {route.status !== "placeholder" && firstOpenModule ? (
+        {route.status !== "placeholder" ? (
           <div class="digital-starter-actions">
             <a class="digital-starter-button" href="#route-modules">
               <span>开始第一个模块</span><span aria-hidden="true">↓</span>
-            </a>
-            <a class="digital-starter-button digital-starter-button--ghost" href={docFor(firstOpenModule.coreDocumentId)?.path ?? route.detailHref ?? "/lab/digital-starter"}>
-              <span>打开核心文档</span><span aria-hidden="true">↗</span>
             </a>
           </div>
         ) : (
@@ -89,7 +86,8 @@ const pageDescription = `${route.title}：${route.learningOutcome}`;
       {route.status !== "placeholder" && (
         <LocalLearningProgress
           storageKey={`zxlab:digital-starter:${route.id}:v2`}
-          itemIds={modules.filter((module) => moduleStatus(module) !== "placeholder").map((module) => module.id)}
+          itemIds={progressModuleIds}
+          totalItemCount={modules.length}
         />
       )}
 

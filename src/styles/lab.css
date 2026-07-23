@@ -815,7 +815,10 @@
 
 .digital-starter-featured {
   padding: clamp(8rem, 14vw, 13rem) max(1.25rem, calc((100vw - 78rem) / 2));
-  background: #e5e4dc;
+  background:
+    radial-gradient(circle at 82% 12%, rgba(216, 255, 115, 0.12), transparent 28rem),
+    #151611;
+  color: #f5f5ed;
 }
 
 .digital-starter-featured-grid {
@@ -845,7 +848,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  color: #6b6c64;
+  color: #a9aaa0;
   font-size: 0.74rem;
 }
 

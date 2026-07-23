@@ -881,6 +881,36 @@ export const digitalStarterFeaturedResources = withUpdatedAt<DigitalStarterFeatu
     href: "/lab/digital-starter/ai",
     actionLabel: "查看占位路线",
   },
+  {
+    id: "browser-basics-resource",
+    typeLabel: "文档",
+    title: "浏览器使用基础",
+    description: "从地址栏、标签页、下载记录和插件管理开始，建立可靠的浏览器使用习惯。",
+    duration: "阅读约 10 分钟",
+    status: "building",
+    href: "/lab/digital-starter/docs/browser-basics",
+    actionLabel: "开始阅读",
+  },
+  {
+    id: "keyboard-shortcuts-resource",
+    typeLabel: "文档",
+    title: "键盘与输入法",
+    description: "认识常用按键、快捷键和输入法入口，先把高频操作整理成自己的习惯。",
+    duration: "阅读约 10 分钟",
+    status: "building",
+    href: "/lab/digital-starter/docs/keyboard-shortcuts",
+    actionLabel: "开始阅读",
+  },
+  {
+    id: "anti-fraud-resource",
+    typeLabel: "文档",
+    title: "反诈与账号安全",
+    description: "在下载、登录、付款和授权之前留出核验时间，降低被催促操作的风险。",
+    duration: "阅读约 10 分钟",
+    status: "building",
+    href: "/lab/digital-starter/docs/anti-fraud",
+    actionLabel: "查看指南",
+  },
 ]);
 
 export const digitalStarterTasks = withUpdatedAt<DigitalStarterTask>([
@@ -1512,6 +1542,11 @@ export const digitalStarterRoadmap = [
 ];
 
 export const digitalStarterUpdates: DigitalStarterUpdate[] = [
+  {
+    date: "2026-07-23",
+    title: "修正路线进度与精选资源入口",
+    description: "把路线进度分母对齐完整模块数，移除无效的 Hero 文档按钮，并补充浏览器、键盘和反诈资源卡片。",
+  },
   {
     date: "2026-07-22",
     title: "重构电脑基础信息架构",
