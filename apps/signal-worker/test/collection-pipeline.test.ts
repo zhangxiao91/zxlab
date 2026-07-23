@@ -4,7 +4,7 @@ import type { SignalSourceType } from "@zxlab/signal-schema";
 import type { SignalCollector } from "../src/collectors/types";
 import { parseArxivFeed } from "../src/collectors/arxiv";
 import { transformGitHubReleases } from "../src/collectors/github-releases";
-import { transformHackerNewsStory } from "../src/collectors/hacker-news";
+import { HackerNewsCollector, transformHackerNewsStory } from "../src/collectors/hacker-news";
 import { transformHfDailyPapers } from "../src/collectors/hf-daily-papers";
 import { transformMarketNews } from "../src/collectors/market-news";
 import { transformProductHuntPosts } from "../src/collectors/producthunt";
@@ -48,6 +48,24 @@ describe("Signal collection pipeline", () => {
       .toMatchObject({ title: "Gemini API model update", url: "https://ai.google.dev/gemini-api/docs/changelog#models" });
     expect(transformMarketNews({ data: [{ id: "n1", title: "ETF announcement", url: "https://example.com/news", source: "cninfo-announcement", type: "announcement" }] })[0])
       .toMatchObject({ externalId: "n1", title: "ETF announcement" });
+  });
+
+  it("caps Hacker News probes so the daily Worker retains gateway subrequest capacity", async () => {
+    let requests = 0;
+    const collector = new HackerNewsCollector(async (input) => {
+      requests += 1;
+      const url = String(input);
+      if (url.endsWith("beststories.json")) {
+        return new Response(JSON.stringify(Array.from({ length: 20 }, (_, index) => index + 1)), { headers: { "content-type": "application/json" } });
+      }
+      const id = Number(url.match(/item\/(\d+)\.json/)?.[1]);
+      return new Response(JSON.stringify({ id, type: "story", by: "builder", time: 1_784_361_600, title: `Agent tool ${id}`, score: 10 }), { headers: { "content-type": "application/json" } });
+    });
+    const source = findSource("hn-ai-engineering");
+    expect(source).toBeDefined();
+    const items = await collector.collect(source!, { runId: "hn-budget", now: "2026-07-18T10:00:00.000Z", since: "2026-07-18T00:00:00.000Z" });
+    expect(requests).toBe(11);
+    expect(items).toHaveLength(6);
   });
 
   it("persists normalized candidates and records later sightings as duplicates", async () => {

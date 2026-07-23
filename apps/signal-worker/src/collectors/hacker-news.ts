@@ -3,6 +3,10 @@ import type { SignalSourceConfig } from "../config/sources";
 import { fetchSource } from "./http";
 import type { CollectionContext, RawCollectedItem, SignalCollector } from "./types";
 
+// The scheduled Signal pipeline also fetches 17 other sources and calls the AI gateway twice.
+// Keep both Hacker News feeds comfortably below the Worker subrequest limit.
+const STORY_PROBE_LIMIT = 10;
+
 interface HackerNewsStory {
   id?: number;
   type?: string;
@@ -50,7 +54,7 @@ export class HackerNewsCollector implements SignalCollector {
     const idsResponse = await fetchSource(this.fetcher, `https://hacker-news.firebaseio.com/v0/${feed}.json`, { expectedTypes: ["application/json"] });
     const ids = await idsResponse.json();
     if (!Array.isArray(ids)) throw new SignalError("INVALID_SOURCE_RESPONSE", "Hacker News story list was invalid", 502);
-    const probeCount = Math.min(Math.max(source.maxItemsPerRun * 4, 40), 120);
+    const probeCount = Math.min(ids.length, STORY_PROBE_LIMIT);
     const stories = await Promise.all(ids.slice(0, probeCount).map(async (id) => {
       if (typeof id !== "number") return null;
       try {
