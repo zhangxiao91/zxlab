@@ -22,7 +22,7 @@ tags:
 | 找官网、安装或卸载软件，不想把电脑装成工具箱 | [安全下载、安装与防止养蛊](/lab/digital-starter/docs/safe-download) |
 | 使用标签页、收藏、下载记录和浏览器插件 | [浏览器使用基础](/lab/digital-starter/docs/browser-basics) |
 | 认识键盘、快捷键和输入法 | [键盘讲解、键盘快捷键与输入法管理](/lab/digital-starter/docs/keyboard-shortcuts) |
-| 了解开机、睡眠、外接设备等硬件操作 | [电脑硬件基本操作](/lab/digital-starter/docs/hardware-basics) |
+| 了解开机、睡眠、外接设备和常用系统设置 | [硬件基础与电脑设置](/lab/digital-starter/docs/hardware-basics) |
 | 处理 PDF、Word、Excel、PPT 和邮件 | [办公工具速讲](/lab/digital-starter/docs/office-tools) |
 | 在手机和电脑之间传文件、同步和备份 | [跨设备同步方案](/lab/digital-starter/docs/device-sync) |
 | 电脑卡、没网、没空间，不知道怎么描述问题 | [电脑故障排查](/lab/digital-starter/docs/troubleshooting) 和 [电脑问题求助模板](/lab/digital-starter/docs/help-prompt) |

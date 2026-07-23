@@ -98,6 +98,7 @@ const pageDescription = `${route.title}：${route.learningOutcome}`;
           const practiceTask = module.practiceTaskId ? tasksById.get(module.practiceTaskId) : undefined;
           const practiceHref = module.practiceTaskId ? taskHrefById[module.practiceTaskId] : undefined;
           const extensionDocument = docFor(module.extensionDocumentId);
+          const moduleEntryHref = coreDocument?.path ?? module.entryHref;
           const canComplete = status !== "placeholder" && route.status !== "placeholder";
 
           return (
@@ -116,10 +117,12 @@ const pageDescription = `${route.title}：${route.learningOutcome}`;
                 <p class="digital-starter-computer-module__outcome">{module.outcome}</p>
                 <dl>
                   <div>
-                    <dt>核心文档</dt>
+                    <dt>{module.entryHref ? "保留入口" : "核心文档"}</dt>
                     <dd>
                       {coreDocument ? (
                         <a href={coreDocument.path}>{coreDocument.title}</a>
+                      ) : module.entryHref ? (
+                        <a href={module.entryHref}>{module.entryLabel ?? "打开入口"}</a>
                       ) : "内容待补充"}
                     </dd>
                   </div>
@@ -139,8 +142,8 @@ const pageDescription = `${route.title}：${route.learningOutcome}`;
                   </div>
                 </dl>
                 <div class="digital-starter-computer-module__actions">
-                  {coreDocument ? (
-                    <a href={coreDocument.path}>{status === "placeholder" ? "打开占位页" : "开始模块"}<span aria-hidden="true">↗</span></a>
+                  {moduleEntryHref ? (
+                    <a href={moduleEntryHref}>{status === "placeholder" ? module.entryLabel ?? "打开占位页" : "开始模块"}<span aria-hidden="true">↗</span></a>
                   ) : (
                     <span class="digital-starter-module-placeholder">正文待补充</span>
                   )}

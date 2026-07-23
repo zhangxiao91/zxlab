@@ -191,41 +191,30 @@ const principles = [
         <p>网站推荐</p>
         <h2 id="website-recommendations-title">打开浏览器，先从这些地方开始。</h2>
       </div>
-      <div class="digital-starter-tool-grid">
+      <div class="digital-starter-website-grid">
         {digitalStarterWebsiteRecommendations.map((website) => (
-          <article class="digital-starter-tool-card digital-starter-website-card">
-            <div class="digital-starter-tool-card__top">
+          <article class="digital-starter-website-card">
+            <div class="digital-starter-website-card__top">
               <span>网站</span>
               <span>{digitalStarterStatusLabels[website.status]} · 外部链接</span>
             </div>
-            <h4>{website.name}</h4>
-            <p>{website.description}</p>
-            {website.note && <p class="digital-starter-website-card__note">{website.note}</p>}
-            <div class="digital-starter-tool-card__sources">
-              <p>打开网站</p>
-              <div class="digital-starter-tool-card__source-links">
-                <a href={website.url} target="_blank" rel="noopener noreferrer">
-                  <span>
-                    <strong>{website.url.replace(/^https?:\/\//, "").replace(/\/$/, "")}</strong>
-                    <small>官网</small>
-                  </span>
-                  <span aria-hidden="true">↗</span>
-                </a>
+            <div class="digital-starter-website-card__body">
+              <div>
+                <h4>{website.name}</h4>
+                <p>{website.description}</p>
+                {website.note && <p class="digital-starter-website-card__note">{website.note}</p>}
               </div>
+              <a class="digital-starter-website-card__link" href={website.url} target="_blank" rel="noopener noreferrer">
+                <span>
+                  <strong>{website.url.replace(/^https?:\/\//, "").replace(/\/$/, "")}</strong>
+                  <small>官网</small>
+                </span>
+                <span aria-hidden="true">↗</span>
+              </a>
             </div>
           </article>
         ))}
       </div>
-    </section>
-
-    <section class="digital-starter-safety-note" aria-labelledby="not-easy-to-say-title">
-      <div>
-        <p>保留一个入口</p>
-        <h2 id="not-easy-to-say-title">那些不方便直接讲的</h2>
-      </div>
-      <p>
-        <a href="/404.html">暂时不在这里展开，打开 404 页面</a>
-      </p>
     </section>
 
     <section class="digital-starter-safety-note" aria-labelledby="toolbox-safety-title">

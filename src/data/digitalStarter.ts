@@ -56,6 +56,8 @@ export interface DigitalStarterRouteModule {
   practiceTaskId?: string;
   practiceLabel?: string;
   extensionDocumentId?: string;
+  entryHref?: string;
+  entryLabel?: string;
   duration: string;
   updatedAt: string;
 }
@@ -182,7 +184,7 @@ export const digitalStarterStatusLabels: Record<DigitalStarterStatus, string> = 
   building: "建设中",
 };
 
-const DIGITAL_STARTER_UPDATED_AT = "2026-07-22";
+const DIGITAL_STARTER_UPDATED_AT = "2026-07-23";
 
 const withUpdatedAt = <T extends object>(items: Array<Omit<T, "updatedAt">>): T[] =>
   items.map((item) => ({ ...item, updatedAt: DIGITAL_STARTER_UPDATED_AT }) as T);
@@ -195,7 +197,7 @@ export const digitalStarterRoutes = withUpdatedAt<DigitalStarterRoute>([
     description:
       "这条路线适合刚开始熟悉电脑的同学。它不会假设你已经懂很多术语，而是从最常见的真实场景开始：下载的文件去哪了、怎么截图、怎么解压、怎么安装和卸载软件、怎么整理大学资料、怎么让手机和电脑互传文件。",
     audience: ["刚拿到新电脑", "准备进入大学", "想先补齐电脑基础"],
-    modules: ["文件管理", "软件安装与安全", "浏览器使用", "键盘与输入法", "硬件基础", "办公工具", "跨设备同步", "故障排查", "反诈与账号安全"],
+    modules: ["文件管理", "硬件基础与电脑设置", "键盘与输入法", "软件安装与安全", "跨设备同步", "浏览器使用", "办公工具", "故障排查", "反诈与账号安全", "那些不方便直接讲的"],
     status: "building",
     links: [],
     assets: ["college-folder-template"],
@@ -226,21 +228,21 @@ export const digitalStarterRoutes = withUpdatedAt<DigitalStarterRoute>([
     ],
     detailHref: "/lab/digital-starter/computer",
     learningOutcome: "学会管理文件、安装软件、截图解压，以及在手机和电脑之间同步资料。",
-    durationLabel: "9 个模块 · 按需阅读",
+    durationLabel: "10 个模块 · 按需阅读",
     actionLabel: "开始学习",
   },
   {
     id: "ai",
     title: "AI 提效",
-    description: "适合想用 AI 辅助学习、整理资料、写作和制作展示内容的同学。",
-    modules: ["AI 入门", "AI 做 PPT"],
+    description: "适合想先建立 AI 基础，再把 AI 用到学习、整理资料、写作和具体任务中的同学。",
+    modules: ["AI 基础", "实战 AI 使用"],
     status: "placeholder",
     links: [],
     assets: ["ai-ppt-example-asset"],
     docs: ["ai-intro-doc"],
     resourceIds: ["ai-intro-doc", "ai-ppt-prompt", "ai-ppt-example-asset"],
     detailHref: "/lab/digital-starter/ai",
-    learningOutcome: "学会向 AI 提问、整理资料，并完成一次简单的 PPT 或学习任务。",
+    learningOutcome: "先理解 AI 的基本使用方式，再把它用于真实的学习和工作任务。",
     durationLabel: "内容待补充",
     actionLabel: "查看占位路线",
   },
@@ -248,15 +250,15 @@ export const digitalStarterRoutes = withUpdatedAt<DigitalStarterRoute>([
     id: "coding",
     title: "编程入门",
     description:
-      "适合对编程有一点好奇，想从文档、命令行、代码托管和 AI 辅助写代码开始体验的同学。",
-    modules: ["Markdown", "helloworld", "命令行", "GitHub", "vibe coding"],
+      "适合对编程有一点好奇，想从 Hello World、命令行、Markdown、GitHub 和 AI Coding 开始体验的同学。",
+    modules: ["Hello World", "命令行", "Markdown", "GitHub", "AI Coding"],
     status: "placeholder",
     links: ["github-example-repo"],
     assets: ["personal-start-page-file"],
     docs: ["markdown-start-doc"],
     resourceIds: ["markdown-start-doc", "github-example-repo", "personal-start-page-file"],
     detailHref: "/lab/digital-starter/coding",
-    learningOutcome: "从 Markdown、命令行和 GitHub 开始，完成第一次真正的编程体验。",
+    learningOutcome: "从 Hello World、命令行、Markdown 和 GitHub 开始，最后体验 AI Coding。",
     durationLabel: "内容待补充",
     actionLabel: "查看占位路线",
   },
@@ -285,6 +287,18 @@ export const digitalStarterRouteModules = withUpdatedAt<DigitalStarterRouteModul
     practiceTaskId: "screenshot-zip-unzip",
     extensionDocumentId: "file-structure-doc",
     duration: "15 分钟",
+  },
+  {
+    id: "hardware-basics",
+    routeId: "computer",
+    status: "placeholder",
+    title: "硬件基础与电脑设置",
+    description: "预留开机、睡眠、重启、外接设备和 Windows 常用设置等基础内容。",
+    capabilities: [],
+    task: "内容待补充。",
+    outcome: "内容待补充。",
+    coreDocumentId: "hardware-basics-doc",
+    duration: "待定",
   },
   {
     id: "keyboard-input",
@@ -375,18 +389,6 @@ export const digitalStarterRouteModules = withUpdatedAt<DigitalStarterRouteModul
     duration: "15 分钟",
   },
   {
-    id: "hardware-basics",
-    routeId: "computer",
-    status: "placeholder",
-    title: "硬件基础",
-    description: "开机、睡眠、外接设备等内容的预留模块。",
-    capabilities: [],
-    task: "内容待补充。",
-    outcome: "内容待补充。",
-    coreDocumentId: "hardware-basics-doc",
-    duration: "待定",
-  },
-  {
     id: "office-tools",
     routeId: "computer",
     status: "placeholder",
@@ -425,10 +427,23 @@ export const digitalStarterRouteModules = withUpdatedAt<DigitalStarterRouteModul
     duration: "10 分钟",
   },
   {
+    id: "not-easy-to-say",
+    routeId: "computer",
+    status: "placeholder",
+    title: "那些不方便直接讲的",
+    description: "保留一个暂不展开的入口，等内容和边界明确后再补充正文。",
+    capabilities: [],
+    task: "内容待补充。",
+    outcome: "内容待补充。",
+    entryHref: "/404.html",
+    entryLabel: "暂时不在这里展开，打开 404 页面",
+    duration: "待定",
+  },
+  {
     id: "ai-intro",
     routeId: "ai",
     status: "placeholder",
-    title: "AI 入门",
+    title: "AI 基础",
     description: "AI 工具的基本使用方式和边界。",
     capabilities: [],
     task: "内容待补充。",
@@ -440,12 +455,23 @@ export const digitalStarterRouteModules = withUpdatedAt<DigitalStarterRouteModul
     id: "ai-ppt",
     routeId: "ai",
     status: "placeholder",
-    title: "AI 做 PPT",
-    description: "把资料整理成展示大纲和页面计划。",
+    title: "实战 AI 使用",
+    description: "把 AI 基础用于学习、整理资料、写作和具体任务。",
     capabilities: [],
     task: "内容待补充。",
     outcome: "内容待补充。",
     practiceLabel: "内容待补充。",
+    duration: "待定",
+  },
+  {
+    id: "hello-world",
+    routeId: "coding",
+    status: "placeholder",
+    title: "Hello World",
+    description: "运行第一个最小程序，认识输入、输出和程序运行结果。",
+    capabilities: [],
+    task: "内容待补充。",
+    outcome: "内容待补充。",
     duration: "待定",
   },
   {
@@ -486,7 +512,7 @@ export const digitalStarterRouteModules = withUpdatedAt<DigitalStarterRouteModul
     id: "vibe-coding",
     routeId: "coding",
     status: "placeholder",
-    title: "Vibe Coding",
+    title: "AI Coding",
     description: "在理解文件和代码边界后体验 AI 辅助编程。",
     capabilities: [],
     task: "内容待补充。",
@@ -543,12 +569,12 @@ export const digitalStarterDocs: DigitalStarterDoc[] = [
   },
   {
     id: "hardware-basics-doc",
-    title: "电脑硬件基本操作",
+    title: "硬件基础与电脑设置",
     routeId: "computer",
-    description: "预留开机、关机、睡眠、重启和外接设备等硬件基础内容。",
+    description: "预留开机、关机、睡眠、重启、外接设备和 Windows 常用设置等基础内容。",
     path: "/lab/digital-starter/docs/hardware-basics",
     status: "placeholder",
-    updatedAt: "2026-07-22",
+    updatedAt: "2026-07-23",
   },
   {
     id: "office-tools-doc",
@@ -874,8 +900,8 @@ export const digitalStarterFeaturedResources = withUpdatedAt<DigitalStarterFeatu
   {
     id: "ai-ppt-intro",
     typeLabel: "学习任务",
-    title: "AI 做 PPT 入门",
-    description: "把资料整理成结构清楚的展示大纲和页面计划。",
+    title: "实战 AI 使用",
+    description: "把 AI 基础用于学习、整理资料、写作和具体任务。",
     duration: "预计 20 分钟",
     status: "placeholder",
     href: "/lab/digital-starter/ai",
@@ -1542,6 +1568,16 @@ export const digitalStarterRoadmap = [
 ];
 
 export const digitalStarterUpdates: DigitalStarterUpdate[] = [
+  {
+    date: "2026-07-23",
+    title: "调整电脑路线入口与网站推荐卡片",
+    description: "把保留的 404 入口移入电脑基础第十模块，并为网站推荐统一卡片结构和外链按钮样式。",
+  },
+  {
+    date: "2026-07-23",
+    title: "确定 AI 与编程路线模块",
+    description: "将 AI 路线固定为 AI 基础与实战 AI 使用，将编程路线固定为 Hello World、命令行、Markdown、GitHub 和 AI Coding，正文暂保持占位。",
+  },
   {
     date: "2026-07-23",
     title: "修正路线进度与精选资源入口",
