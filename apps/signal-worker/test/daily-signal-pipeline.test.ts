@@ -11,6 +11,7 @@ import type {
 import type { SignalCollector } from "../src/collectors/types";
 import { CollectionService } from "../src/services/collection-service";
 import { DailySignalPipeline, selectBalancedDailyCandidates } from "../src/services/daily-signal-pipeline";
+import { BriefingRepository } from "../src/repositories/briefing-repository";
 import type {
   AnnotationReplyInput,
   EditorialFilterInput,
@@ -108,6 +109,18 @@ describe("Daily Signal pipeline", () => {
     ], 12);
     expect(selected.filter((item) => item.source.sourceId === "cloudflare")).toHaveLength(3);
     expect(new Set(selected.map((item) => item.source.sourceId))).toEqual(new Set(["cloudflare", "openai", "market", "research"]));
+  });
+
+  it("exposes failed briefing and model invocation diagnostics", async () => {
+    const repository = new BriefingRepository(env.DB);
+    await repository.startRun({ id: "briefing-diagnostic", date: "2026-07-19", triggerType: "workflow", promptVersion: "test", model: "test-model", candidateCount: 24, startedAt: "2026-07-19T00:00:00.000Z" });
+    await env.DB.prepare(`INSERT INTO model_invocations (id, task, run_id, model, prompt_version, status, started_at, completed_at, error_code)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .bind("invocation-diagnostic", "editorial-filter", "briefing-diagnostic", "test-model", "test", "failed", "2026-07-19T00:00:01.000Z", "2026-07-19T00:00:02.000Z", "GATEWAY_STREAM_PROVIDER_UNAVAILABLE").run();
+    await repository.failRun("briefing-diagnostic", "MODEL_REQUEST_FAILED", "The model request failed");
+    const diagnostic = (await repository.latestDiagnostics()).find((run) => run.id === "briefing-diagnostic");
+    expect(diagnostic).toMatchObject({ status: "failed", candidateCount: 24, errorCode: "MODEL_REQUEST_FAILED" });
+    expect(diagnostic?.invocations).toMatchObject([{ task: "editorial-filter", errorCode: "GATEWAY_STREAM_PROVIDER_UNAVAILABLE" }]);
   });
 
   it("collects, filters and persists the active briefing for the Shanghai day", async () => {

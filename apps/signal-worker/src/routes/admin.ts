@@ -2,6 +2,7 @@ import { parseGenerateBriefingRequest } from "@zxlab/signal-schema";
 import { readJson, json } from "../lib/http";
 import { SignalError } from "../lib/errors";
 import { CollectionRepository } from "../repositories/collection-repository";
+import { BriefingRepository } from "../repositories/briefing-repository";
 import { BriefingGenerator } from "../services/briefing-generator";
 import { ProjectApiSignalLLM } from "../services/llm";
 
@@ -10,6 +11,9 @@ function today(): string {
 }
 
 export async function handleAdmin(request: Request, pathname: string, env: Env): Promise<Response | null> {
+  if (request.method === "GET" && pathname === "/api/admin/briefing-runs/latest") {
+    return json({ runs: await new BriefingRepository(env.DB).latestDiagnostics() });
+  }
   if (request.method !== "POST" || pathname !== "/api/admin/briefings/generate") return null;
   const input = parseGenerateBriefingRequest(await readJson(request));
   const generator = new BriefingGenerator(env, new ProjectApiSignalLLM(env));

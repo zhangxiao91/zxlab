@@ -13,8 +13,46 @@ interface ItemRow {
 }
 interface SourceRow { id: string; item_id: string; title: string; url: string; publisher: string | null; published_at: string | null; }
 
+interface BriefingRunDiagnosticRow {
+  id: string; briefing_date: string; status: "running" | "succeeded" | "failed"; trigger_type: string;
+  started_at: string; completed_at: string | null; candidate_count: number; selected_count: number;
+  error_code: string | null; error_message: string | null; collection_run_id: string | null;
+}
+
+interface ModelInvocationDiagnosticRow {
+  id: string; task: string; model: string; status: "running" | "succeeded" | "failed";
+  started_at: string; completed_at: string | null; error_code: string | null;
+}
+
 export class BriefingRepository {
   constructor(private readonly db: D1Database) {}
+
+  async latestDiagnostics(limit = 10): Promise<Array<{
+    id: string; date: string; status: "running" | "succeeded" | "failed"; triggerType: string;
+    startedAt: string; completedAt?: string; candidateCount: number; selectedCount: number;
+    errorCode?: string; errorMessage?: string; collectionRunId?: string;
+    invocations: Array<{ id: string; task: string; model: string; status: "running" | "succeeded" | "failed"; startedAt: string; completedAt?: string; errorCode?: string }>;
+  }>> {
+    const runs = await this.db.prepare(`SELECT id, briefing_date, status, trigger_type, started_at, completed_at,
+      candidate_count, selected_count, error_code, error_message, collection_run_id
+      FROM briefing_runs ORDER BY started_at DESC LIMIT ?`).bind(Math.min(Math.max(limit, 1), 20)).all<BriefingRunDiagnosticRow>();
+    return Promise.all(runs.results.map(async (run) => {
+      const invocations = await this.db.prepare(`SELECT id, task, model, status, started_at, completed_at, error_code
+        FROM model_invocations WHERE run_id = ? ORDER BY started_at`).bind(run.id).all<ModelInvocationDiagnosticRow>();
+      return {
+        id: run.id, date: run.briefing_date, status: run.status, triggerType: run.trigger_type,
+        startedAt: run.started_at, completedAt: run.completed_at ?? undefined,
+        candidateCount: run.candidate_count, selectedCount: run.selected_count,
+        errorCode: run.error_code ?? undefined, errorMessage: run.error_message ?? undefined,
+        collectionRunId: run.collection_run_id ?? undefined,
+        invocations: invocations.results.map((invocation) => ({
+          id: invocation.id, task: invocation.task, model: invocation.model, status: invocation.status,
+          startedAt: invocation.started_at, completedAt: invocation.completed_at ?? undefined,
+          errorCode: invocation.error_code ?? undefined,
+        })),
+      };
+    }));
+  }
 
   async startRun(input: { id: string; date: string; triggerType: string; promptVersion: string; model: string; candidateCount: number; startedAt: string; collectionRunId?: string }): Promise<void> {
     await this.db.prepare(`INSERT INTO briefing_runs
