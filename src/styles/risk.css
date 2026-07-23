@@ -307,13 +307,49 @@
   font-size: .78rem;
   line-height: 1.65;
 }
+.market-hero__panel {
+  display: flex;
+  min-width: min(100%, 18rem);
+  padding: 1.2rem 1.15rem;
+  flex-direction: column;
+  align-self: stretch;
+  justify-content: space-between;
+  gap: 1rem;
+  border: 1px solid var(--risk-line);
+  border-radius: 1rem;
+  background: rgba(255,255,255,.028);
+}
+.market-hero__panel p {
+  color: var(--risk-muted);
+  font-size: .64rem;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+.market-hero__panel strong {
+  font-size: clamp(1.8rem, 3vw, 2.8rem);
+  font-weight: 470;
+  line-height: .95;
+  letter-spacing: -.05em;
+}
+.market-hero__panel small,
+.market-hero__panel span {
+  color: var(--risk-muted);
+  font-size: .7rem;
+  line-height: 1.55;
+}
 .market-hero__link {
+  display: inline-flex;
+  width: fit-content;
   padding: .85rem 1rem;
   border: 1px solid var(--risk-line);
   border-radius: 999px;
   color: #efede4;
   text-decoration: none;
   font-size: .7rem;
+}
+.market-hero__panel .market-hero__link {
+  margin-top: auto;
+  padding: .85rem 1rem;
 }
 .market-grid {
   display: grid;
@@ -369,6 +405,10 @@
   cursor: pointer;
   font-size: .62rem;
 }
+.market-auto-button.is-active {
+  border-color: rgba(217,255,116,.5);
+  color: var(--risk-lime);
+}
 .market-table tbody tr.is-selected { background: rgba(217,255,116,.055); }
 .market-instrument-button {
   display: flex;
@@ -390,23 +430,38 @@
   background: transparent;
   color: var(--risk-muted);
 }
-.market-sparkline {
+.market-chart-controls {
+  display: flex;
+  padding: .18rem;
+  gap: .15rem;
+  border: 1px solid var(--risk-line);
+  border-radius: 999px;
+  background: rgba(0,0,0,.12);
+}
+.market-chart-controls button {
+  padding: .42rem .62rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--risk-muted);
+  cursor: pointer;
+  font-size: .61rem;
+}
+.market-chart-controls button.is-active {
+  background: var(--risk-lime);
+  color: var(--risk-ink);
+}
+.market-candlestick {
   display: block;
   width: 100%;
-  height: 10.5rem;
+  height: 12.5rem;
   margin: .5rem 0 1rem;
   border-radius: .75rem;
   background:
     linear-gradient(rgba(239,237,228,.055) 1px, transparent 1px) 0 0 / 100% 25%,
     rgba(0,0,0,.16);
 }
-.market-sparkline path {
-  fill: none;
-  stroke: var(--risk-lime);
-  stroke-width: 2.4;
-  vector-effect: non-scaling-stroke;
-}
-.market-sparkline.is-empty {
+.market-candlestick.is-empty {
   display: grid;
   place-items: center;
   color: var(--risk-muted);

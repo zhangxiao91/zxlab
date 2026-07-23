@@ -9,6 +9,8 @@ import { ApiReviewError, ApiReviewService, LocalReviewRepository, MockReviewServ
 import type { CsvFieldMapping, CsvPreview, HoldingParseDraft, MarketProviderMode, ReviewItemFeedback, ReviewResult, ReviewRun, RiskDashboardData } from "./types";
 import { EVIDENCE_SCHEMA_VERSION, RISK_RULE_VERSION, RiskWorkspaceService } from "./workspace";
 
+const RISK_MARKET_POLL_MS = 30_000;
+
 const serverValues = new Map<string, string>();
 const serverStorage: Storage = {
   get length() { return serverValues.size; }, clear: () => serverValues.clear(), getItem: (key) => serverValues.get(key) ?? null,
@@ -64,6 +66,18 @@ export function useRiskWorkspace() {
     finally { setLoading(false); }
   }, [service, reviewRepository]);
   useEffect(() => { void reload(); }, [reload]);
+  useEffect(() => {
+    if (data?.dataMode !== "api") return;
+    const tick = () => {
+      if (document.visibilityState === "visible") void reload();
+    };
+    const timer = window.setInterval(tick, RISK_MARKET_POLL_MS);
+    document.addEventListener("visibilitychange", tick);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", tick);
+    };
+  }, [data?.dataMode, reload]);
 
   const generateReview = useCallback(async () => {
     if (!data || reviewLoading) return;
