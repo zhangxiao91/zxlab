@@ -519,10 +519,14 @@
 }
 
 .digital-starter-home-hero {
-  grid-template-columns: minmax(0, 1.18fr) minmax(19rem, 0.62fr);
+  grid-template-columns: minmax(0, 1fr);
   background:
     radial-gradient(circle at 77% 21%, rgba(216, 255, 115, 0.24), transparent 25rem),
     #f0efe8;
+}
+
+.digital-starter-home-hero__copy {
+  max-width: 72rem;
 }
 
 .digital-starter-home-hero h1 {
@@ -1386,7 +1390,6 @@
 
 @media (max-width: 64rem) {
   .digital-starter-home-hero,
-  .digital-starter-first-task,
   .digital-starter-training,
   .digital-starter-computer-hero {
     grid-template-columns: 1fr;
@@ -1399,10 +1402,6 @@
 
   .digital-starter-home-route-card {
     min-height: 25rem;
-  }
-
-  .digital-starter-first-task__copy {
-    position: static;
   }
 
   .digital-starter-learning-progress {
@@ -1465,7 +1464,6 @@
     margin-top: 2rem;
   }
 
-  .digital-starter-first-task,
   .digital-starter-featured,
   .digital-starter-training,
   .digital-starter-computer-learning,
