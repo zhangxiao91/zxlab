@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.env
+data/*
+!data/.gitkeep
+credentials/*
+!credentials/.gitkeep
+*.log

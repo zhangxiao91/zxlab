@@ -1,0 +1,17 @@
+services:
+  zxlab-bot-bridge:
+    build: .
+    container_name: zxlab-bot-bridge
+    restart: unless-stopped
+    init: true
+    env_file:
+      - .env
+    expose:
+      - "8789"
+    networks:
+      - memoh_internal
+
+networks:
+  memoh_internal:
+    external: true
+    name: memoh_internal_v016
