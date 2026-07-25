@@ -153,7 +153,8 @@ function marketWorkflowDetail(market: MarketDiagnostics): string {
 
 function exchangeList(instrumentIds: string[]): Array<"SSE" | "SZSE"> {
   const exchanges = instrumentIds.map((item) => item.split(":")[0]).filter((item): item is "SSE" | "SZSE" => item === "SSE" || item === "SZSE");
-  return [...new Set(exchanges.length ? exchanges : ["SSE", "SZSE"])];
+  const defaults: Array<"SSE" | "SZSE"> = ["SSE", "SZSE"];
+  return [...new Set(exchanges.length ? exchanges : defaults)];
 }
 function workflowSteps(input: { transactions: Transaction[]; reconciliationUnresolved: boolean; market: MarketDiagnostics; riskWarnings: string[]; currentRunStatus?: "pending" | "success" | "partial" | "failed"; complete: boolean }): DailyWorkflowStep[] {
   return [

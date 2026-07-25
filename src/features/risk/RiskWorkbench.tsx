@@ -120,7 +120,8 @@ function EvidenceDrawer({ evidence, onClose }: { evidence: EvidenceItem | undefi
 
 export default function RiskWorkbench() {
   const workspace = useRiskWorkspace(); const [view, setView] = useState<View>("dashboard"); const [selectedEvidence, setSelectedEvidence] = useState<string>(); const [importOpen, setImportOpen] = useState(false); const [holdingsOpen, setHoldingsOpen] = useState(false); const [csvText, setCsvText] = useState(""); const [mapping, setMapping] = useState(DEFAULT_CSV_MAPPING); const preview = useMemo(() => csvText ? workspace.previewCsv(csvText, mapping) : null, [csvText, mapping, workspace.data]);
-  useEffect(() => { if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return; let cleanup = () => {}; void Promise.all([import("gsap"), import("gsap/ScrollTrigger")]).then(([module, trigger]) => { const gsap = module.default; gsap.registerPlugin(trigger.ScrollTrigger); const context = gsap.context(() => gsap.from(".risk-hero > div:first-child > *", { y: 32, opacity: 0, duration: 0.8, stagger: 0.08, ease: "power3.out" })); cleanup = () => context.revert(); }); return () => cleanup(); }, [view]);
+  const hasData = Boolean(workspace.data);
+  useEffect(() => { if (!hasData || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return; let cleanup = () => {}; void Promise.all([import("gsap"), import("gsap/ScrollTrigger")]).then(([module, trigger]) => { const gsap = module.default; gsap.registerPlugin(trigger.ScrollTrigger); const context = gsap.context(() => gsap.from(".risk-hero > div:first-child > *", { y: 32, opacity: 0, duration: 0.8, stagger: 0.08, ease: "power3.out" })); cleanup = () => context.revert(); }); return () => cleanup(); }, [view, hasData]);
   if (workspace.loading && !workspace.data) return <div className="risk-loading">正在从本地账本重建风险工作区…</div>;
   if (!workspace.data) return <div className="risk-loading">{workspace.error ?? "工作区暂不可用"}</div>;
   const data = workspace.data;
