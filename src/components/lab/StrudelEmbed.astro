@@ -11,7 +11,7 @@ const defaultUrl = createStrudelUrl(defaultPreset.source);
   data-strudel-embed
   data-default-url={defaultUrl}
   data-default-preset={DEFAULT_STRUDEL_PRESET_ID}
-  data-presets={JSON.stringify(STRUDEL_PRESETS.map(({ id, source }) => ({ id, source })))}
+  data-presets={JSON.stringify(STRUDEL_PRESETS.map(({ id, title, bpm, source }) => ({ id, title, bpm, source })))}
   data-state="loading"
   aria-label="Embedded Strudel live coding editor"
 >
@@ -45,23 +45,47 @@ const defaultUrl = createStrudelUrl(defaultPreset.source);
   </nav>
 
   <div class="strudel-embed__shell" data-strudel-shell>
-    <iframe
-      class="strudel-embed__iframe"
-      data-strudel-iframe
-      src={defaultUrl}
-      title="Strudel Playground editor with the ZXLab trance preset"
-      loading="eager"
-      referrerpolicy="strict-origin-when-cross-origin"
-      sandbox="allow-scripts allow-same-origin allow-downloads"
-      allow="autoplay; clipboard-read; clipboard-write; fullscreen"
-      allowfullscreen
-    ></iframe>
-    <div class="strudel-embed__state" data-strudel-state aria-live="polite">
-      <span aria-hidden="true"></span>
-      <p data-strudel-state-text tabindex="-1">Loading the Strudel editor.</p>
-      <a href={STRUDEL_ORIGIN} target="_blank" rel="noreferrer" hidden data-strudel-fallback>
-        Open Strudel directly
-      </a>
+    <aside
+      class="strudel-visualizer"
+      data-strudel-visualizer
+      data-preset={defaultPreset.id}
+      aria-label="Preset-driven rhythm visualization"
+    >
+      <header class="strudel-visualizer__header">
+        <span>Pattern pulse</span>
+        <strong><span data-strudel-visualizer-bpm>{defaultPreset.bpm}</span> BPM</strong>
+      </header>
+      <canvas
+        data-strudel-visualizer-canvas
+        width="240"
+        height="720"
+        aria-hidden="true"
+      ></canvas>
+      <footer class="strudel-visualizer__footer">
+        <span data-strudel-visualizer-title>{defaultPreset.title}</span>
+        <span>Tempo driven</span>
+      </footer>
+    </aside>
+
+    <div class="strudel-embed__stage" data-strudel-stage>
+      <iframe
+        class="strudel-embed__iframe"
+        data-strudel-iframe
+        src={defaultUrl}
+        title="Strudel Playground editor with the ZXLab trance preset"
+        loading="eager"
+        referrerpolicy="strict-origin-when-cross-origin"
+        sandbox="allow-scripts allow-same-origin allow-downloads"
+        allow="autoplay; clipboard-read; clipboard-write; fullscreen"
+        allowfullscreen
+      ></iframe>
+      <div class="strudel-embed__state" data-strudel-state aria-live="polite">
+        <span aria-hidden="true"></span>
+        <p data-strudel-state-text tabindex="-1">Loading the Strudel editor.</p>
+        <a href={STRUDEL_ORIGIN} target="_blank" rel="noreferrer" hidden data-strudel-fallback>
+          Open Strudel directly
+        </a>
+      </div>
     </div>
   </div>
 
@@ -78,23 +102,84 @@ const defaultUrl = createStrudelUrl(defaultPreset.source);
   document.querySelectorAll<HTMLElement>("[data-strudel-embed]").forEach((root) => {
     const defaultUrl = root.dataset.defaultUrl;
     const shell = root.querySelector<HTMLElement>("[data-strudel-shell]");
+    const stage = root.querySelector<HTMLElement>("[data-strudel-stage]");
     const reset = root.querySelector<HTMLButtonElement>("[data-strudel-reset]");
     const fullscreen = root.querySelector<HTMLButtonElement>("[data-strudel-fullscreen]");
     const stateText = root.querySelector<HTMLElement>("[data-strudel-state-text]");
     const fallback = root.querySelector<HTMLAnchorElement>("[data-strudel-fallback]");
     const openLink = root.querySelector<HTMLAnchorElement>("[data-strudel-open]");
+    const visualizer = root.querySelector<HTMLElement>("[data-strudel-visualizer]");
+    const visualizerCanvas = root.querySelector<HTMLCanvasElement>("[data-strudel-visualizer-canvas]");
+    const visualizerBpm = root.querySelector<HTMLElement>("[data-strudel-visualizer-bpm]");
+    const visualizerTitle = root.querySelector<HTMLElement>("[data-strudel-visualizer-title]");
     const presetButtons = Array.from(root.querySelectorAll<HTMLButtonElement>("[data-strudel-preset]"));
     const controller = new AbortController();
     let activeFrame = root.querySelector<HTMLIFrameElement>("[data-strudel-iframe]");
     let loadTimer: number | undefined;
     let fallbackFullscreen = false;
+    let visualizerFrame: number | undefined;
+    let visualizerStart = performance.now();
     let activePresetId = root.dataset.defaultPreset ?? "";
     const previousBodyOverflow = document.body.style.overflow;
     const storageKey = "zxlab:strudel:last-preset";
-    const presets = JSON.parse(root.dataset.presets ?? "[]") as Array<{ id: string; source: string }>;
+    const presets = JSON.parse(root.dataset.presets ?? "[]") as Array<{ id: string; title: string; bpm: number; source: string }>;
     const presetMap = new Map(presets.map((preset) => [preset.id, preset.source]));
 
-    if (!defaultUrl || !shell || !activeFrame) return;
+    if (!defaultUrl || !shell || !stage || !activeFrame) return;
+
+    const drawVisualizer = (timestamp: number) => {
+      if (!visualizerCanvas) return;
+      const context = visualizerCanvas.getContext("2d");
+      const preset = presets.find((item) => item.id === activePresetId) ?? presets[0];
+      if (!context || !preset) return;
+
+      const bounds = visualizerCanvas.getBoundingClientRect();
+      const density = Math.min(window.devicePixelRatio || 1, 2);
+      const width = Math.max(1, Math.round(bounds.width * density));
+      const height = Math.max(1, Math.round(bounds.height * density));
+      if (visualizerCanvas.width !== width || visualizerCanvas.height !== height) {
+        visualizerCanvas.width = width;
+        visualizerCanvas.height = height;
+      }
+
+      const elapsed = (timestamp - visualizerStart) / 1000;
+      const beat = elapsed * preset.bpm / 60;
+      const bars = 18;
+      const gap = Math.max(3 * density, width * 0.012);
+      const barWidth = (width - gap * (bars - 1)) / bars;
+
+      context.clearRect(0, 0, width, height);
+      for (let index = 0; index < bars; index += 1) {
+        const spread = index / Math.max(1, bars - 1);
+        const envelope = 0.24 + Math.sin(spread * Math.PI) * 0.7;
+        const motion = 0.5 + Math.sin(beat * Math.PI * 2 + index * 0.72) * 0.22;
+        const secondary = Math.sin(beat * Math.PI + index * 1.83) * 0.11;
+        const barHeight = Math.max(10 * density, height * envelope * (motion + secondary));
+        const x = index * (barWidth + gap);
+        const y = (height - barHeight) / 2;
+        const radius = Math.min(barWidth / 2, 6 * density);
+
+        context.fillStyle = index % 3 === 0 ? "rgba(216,255,115,.96)" : "rgba(216,255,115,.48)";
+        context.beginPath();
+        context.roundRect(x, y, barWidth, barHeight, radius);
+        context.fill();
+      }
+
+      if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        visualizerFrame = window.requestAnimationFrame(drawVisualizer);
+      }
+    };
+
+    const updateVisualizer = (presetId: string) => {
+      const preset = presets.find((item) => item.id === presetId) ?? presets[0];
+      if (!preset) return;
+      visualizerStart = performance.now();
+      if (visualizer) visualizer.dataset.preset = preset.id;
+      if (visualizerBpm) visualizerBpm.textContent = String(preset.bpm);
+      if (visualizerTitle) visualizerTitle.textContent = preset.title;
+      window.cancelAnimationFrame(visualizerFrame ?? 0);
+      visualizerFrame = window.requestAnimationFrame(drawVisualizer);
+    };
 
     const setState = (state: "loading" | "ready" | "error") => {
       root.dataset.state = state;
@@ -150,7 +235,7 @@ const defaultUrl = createStrudelUrl(defaultPreset.source);
       const previous = activeFrame;
       const next = createFrame();
       activeFrame = next;
-      shell.prepend(next);
+      stage.prepend(next);
       destroyFrame(previous);
       armFrame(next);
       stateText?.focus({ preventScroll: true });
@@ -160,6 +245,7 @@ const defaultUrl = createStrudelUrl(defaultPreset.source);
       if (!presetMap.has(presetId)) return;
       activePresetId = presetId;
       window.localStorage.setItem(storageKey, presetId);
+      updateVisualizer(presetId);
       if (openLink) openLink.href = createStrudelUrl(presetMap.get(presetId) ?? presets[0].source);
       presetButtons.forEach((button) => {
         const active = button.dataset.strudelPreset === presetId;
@@ -172,6 +258,7 @@ const defaultUrl = createStrudelUrl(defaultPreset.source);
     const dispose = () => {
       controller.abort();
       window.clearTimeout(loadTimer);
+      window.cancelAnimationFrame(visualizerFrame ?? 0);
       root.classList.remove("strudel-embed--fullscreen");
       document.body.style.overflow = previousBodyOverflow;
       destroyFrame(activeFrame);
@@ -228,6 +315,7 @@ const defaultUrl = createStrudelUrl(defaultPreset.source);
       });
       activeFrame.src = createStrudelUrl(presetMap.get(activePresetId) ?? presets[0].source);
     }
+    updateVisualizer(activePresetId);
     armFrame(activeFrame);
   });
 </script>

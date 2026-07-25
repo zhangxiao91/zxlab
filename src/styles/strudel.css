@@ -171,10 +171,19 @@
 
 .strudel-embed__shell {
   position: relative;
+  display: grid;
   min-height: 46rem;
   overflow: hidden;
   border-radius: calc(2.2rem - .45rem);
+  grid-template-columns: clamp(10rem, 18vw, 13rem) minmax(0,1fr);
   background: radial-gradient(circle at 50% 30%,rgba(216,255,115,.1),transparent 28rem),#171814;
+}
+
+.strudel-embed__stage {
+  position: relative;
+  min-width: 0;
+  min-height: 46rem;
+  overflow: hidden;
 }
 
 .strudel-embed__iframe {
@@ -183,6 +192,72 @@
   height: 46rem;
   border: 0;
   background: #171814;
+}
+
+.strudel-visualizer {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 46rem;
+  padding: 1.15rem 1rem;
+  overflow: hidden;
+  grid-template-rows: auto minmax(0,1fr) auto;
+  gap: 1rem;
+  border-right: 1px solid rgba(216,255,115,.13);
+  background:
+    radial-gradient(circle at 50% 20%,rgba(216,255,115,.13),transparent 38%),
+    #11120f;
+  color: #f5f5ed;
+  font-family: "Satoshi", "Cabinet Grotesk", "Outfit", ui-sans-serif, system-ui, sans-serif;
+}
+
+.strudel-visualizer::after {
+  position: absolute;
+  inset: 0;
+  opacity: .18;
+  background-image: linear-gradient(rgba(255,255,255,.05) 1px,transparent 1px);
+  background-size: 100% 2.5rem;
+  content: "";
+  pointer-events: none;
+}
+
+.strudel-visualizer__header,
+.strudel-visualizer__footer {
+  position: relative;
+  display: flex;
+  z-index: 1;
+  justify-content: space-between;
+  gap: .7rem;
+  color: rgba(245,245,237,.5);
+  font-size: .62rem;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.strudel-visualizer__header strong {
+  color: #d8ff73;
+  font-weight: 600;
+}
+
+.strudel-visualizer canvas {
+  position: relative;
+  display: block;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+}
+
+.strudel-visualizer__footer {
+  align-items: end;
+  flex-direction: column;
+  text-align: right;
+}
+
+.strudel-visualizer__footer span:first-child {
+  color: rgba(245,245,237,.86);
+  font-size: .72rem;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .strudel-embed__state {
@@ -246,6 +321,8 @@
 }
 
 .strudel-embed__shell:fullscreen .strudel-embed__iframe { height: 100dvh; }
+.strudel-embed__shell:fullscreen .strudel-embed__stage,
+.strudel-embed__shell:fullscreen .strudel-visualizer { min-height: 100dvh; }
 
 .strudel-embed--fullscreen {
   position: fixed;
@@ -297,6 +374,7 @@
   .strudel-embed__toolbar { align-items: start; flex-direction: column; }
   .strudel-embed__presets { padding-left: .8rem; }
   .strudel-embed__actions { width: 100%; overflow-x: auto; }
+  .strudel-embed__shell { grid-template-columns: 8.5rem minmax(0,1fr); }
 }
 
 @media (max-width: 40rem) {
@@ -304,7 +382,21 @@
   .strudel-experiment { padding-right: 1rem; padding-left: 1rem; }
   .strudel-embed { border-radius: 1.5rem; }
   .strudel-embed__shell { min-height: 38rem; border-radius: calc(1.5rem - .45rem); }
+  .strudel-embed__shell { grid-template-columns: 1fr; }
+  .strudel-embed__stage { min-height: 38rem; }
   .strudel-embed__iframe { height: 38rem; }
+  .strudel-visualizer {
+    min-height: 8rem;
+    padding: .85rem 1rem;
+    grid-template-columns: auto minmax(0,1fr) auto;
+    grid-template-rows: 1fr;
+    align-items: center;
+    border-right: 0;
+    border-bottom: 1px solid rgba(216,255,115,.13);
+  }
+  .strudel-visualizer canvas { height: 5rem; }
+  .strudel-visualizer__header { flex-direction: column; }
+  .strudel-visualizer__footer { align-items: end; }
   .strudel-embed__actions :is(button,a) { flex: 0 0 auto; }
   .strudel-embed__hints { grid-template-columns: 1fr; }
   .strudel-embed__hints p:last-child { justify-content: start; }
