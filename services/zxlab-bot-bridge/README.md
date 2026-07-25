@@ -41,6 +41,8 @@ CF_ACCESS_CLIENT_SECRET=
 `AI_GATEWAY_ACCESS_TOKEN`, the Memory bearer token, and Cloudflare Access
 service-token fields belong only in the bridge's mode `0600` environment file.
 They must not be copied into Memoh Workspace files, prompts, or chat memory.
+`CANONICAL_MEMORY_API_TOKEN` must match the Signal Worker's encrypted
+`ZX_MEMORY_BRIDGE_TOKEN` secret.
 
 ## Local verification
 

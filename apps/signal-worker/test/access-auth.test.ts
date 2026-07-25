@@ -45,6 +45,27 @@ describe("Cloudflare Access authentication", () => {
       .rejects.toMatchObject({ code: "UNAUTHORIZED" });
   });
 
+  it("allows the dedicated bridge token only on the two canonical Memory routes", async () => {
+    const env = accessEnv({ ZX_MEMORY_BRIDGE_TOKEN: "memory-bridge-secret" });
+    const headers = { authorization: "Bearer memory-bridge-secret" };
+    await expect(requireWriteAccess(
+      new Request("https://signal.example/api/memory/retrieve", { method: "POST", headers }),
+      env,
+    )).resolves.toBeUndefined();
+    await expect(requireWriteAccess(
+      new Request("https://signal.example/api/memory/items", { method: "POST", headers }),
+      env,
+    )).resolves.toBeUndefined();
+    await expect(requireWriteAccess(
+      new Request("https://signal.example/api/annotations", { method: "POST", headers }),
+      env,
+    )).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    await expect(requireWriteAccess(
+      new Request("https://signal.example/api/memory/consolidate", { method: "POST", headers }),
+      env,
+    )).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  });
+
   it("allows the annotation stream accept header in CORS preflight", () => {
     const request = new Request("https://signal.example/api/annotations", {
       method: "OPTIONS",

@@ -47,11 +47,19 @@ async function safeEqual(provided: string, expected: string): Promise<boolean> {
   return difference === 0;
 }
 
-export async function requireWriteAccess(request: Request, env: Env): Promise<void> {
+function bridgeMemoryRoute(request: Request, pathname: string): boolean {
+  if (request.method === "POST" && pathname === "/api/memory/retrieve") return true;
+  return request.method === "POST" && pathname === "/api/memory/items";
+}
+
+export async function requireWriteAccess(request: Request, env: Env, pathname = new URL(request.url).pathname): Promise<void> {
+  const bridgeToken = String(env.ZX_MEMORY_BRIDGE_TOKEN ?? "").trim();
+  const authorization = request.headers.get("authorization") ?? "";
+  const providedBearer = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
+  if (bridgeToken && bridgeMemoryRoute(request, pathname) && providedBearer && await safeEqual(providedBearer, bridgeToken)) return;
+
   if (String(env.ENVIRONMENT) === "development") {
-    const authorization = request.headers.get("authorization") ?? "";
-    const provided = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
-    if (provided && await safeEqual(provided, env.ZX_SIGNAL_WRITE_TOKEN)) return;
+    if (providedBearer && await safeEqual(providedBearer, env.ZX_SIGNAL_WRITE_TOKEN)) return;
     throw new SignalError("UNAUTHORIZED", "A valid local development write token is required", 401);
   }
 

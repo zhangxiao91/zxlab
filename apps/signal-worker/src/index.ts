@@ -35,7 +35,7 @@ export default {
     try {
       if (request.method === "OPTIONS") return withCors(new Response(null, { status: 204 }), request, env);
       if (request.method === "GET" && url.pathname === "/health") return withCors(json({ ok: true, service: "zx-signal" }), request, env);
-      if (isProtected(request, url.pathname)) await requireWriteAccess(request, env);
+      if (isProtected(request, url.pathname)) await requireWriteAccess(request, env, url.pathname);
       const response = await handleBriefingRead(url.pathname, env)
         ?? await handleCollection(request, url, env)
         ?? await handleAdmin(request, url.pathname, env)
