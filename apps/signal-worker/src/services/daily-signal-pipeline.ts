@@ -5,7 +5,7 @@ import { CollectionService } from "./collection-service";
 import { ProjectApiSignalLLM, type SignalLLM } from "./llm";
 
 const DAILY_CANDIDATE_POOL = 200;
-const DAILY_MAX_CANDIDATES = 24;
+const DAILY_MAX_CANDIDATES = 12;
 const BALANCE_ORDER: SignalCategory[] = ["ai-engineering", "markets", "zxlab", "uncategorized"];
 const MAX_CANDIDATES_PER_SOURCE = 3;
 

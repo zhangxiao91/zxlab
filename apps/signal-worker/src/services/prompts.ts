@@ -1,7 +1,7 @@
 import type { AnnotationAction, BriefingItem, CandidateSignal, MemoryEntry } from "@zxlab/signal-schema";
 
-export const BRIEFING_PROMPT_VERSION = "signal-editor-v0.2";
-export const EDITORIAL_PROMPT_VERSION = "signal-filter-v0.2";
+export const BRIEFING_PROMPT_VERSION = "signal-editor-v0.3";
+export const EDITORIAL_PROMPT_VERSION = "signal-filter-v0.3";
 export const REPLY_PROMPT_VERSION = "signal-reply-v0.1";
 export const MEMORY_PROMPT_VERSION = "signal-memory-v0.1";
 
@@ -16,6 +16,28 @@ function memoryContext(memories: MemoryEntry[]): string {
   })).join("\n");
 }
 
+const PROMPT_SUMMARY_LIMIT = 600;
+const PROMPT_CONTENT_LIMIT = 600;
+
+function clipped(value: string | undefined, limit: number): string | undefined {
+  if (!value) return undefined;
+  return value.length <= limit ? value : `${value.slice(0, Math.max(0, limit - 1))}…`;
+}
+
+function candidateContext(candidate: CandidateSignal) {
+  return {
+    id: candidate.id,
+    source: candidate.source,
+    categoryHint: candidate.categoryHint,
+    title: candidate.title,
+    canonicalUrl: candidate.canonicalUrl,
+    summary: clipped(candidate.summary, PROMPT_SUMMARY_LIMIT),
+    contentText: clipped(candidate.contentText, PROMPT_CONTENT_LIMIT),
+    publishedAt: candidate.publishedAt,
+    tags: candidate.tags,
+  };
+}
+
 export function buildBriefingPrompt(input: { date: string; candidates: CandidateSignal[]; memories: MemoryEntry[] }): { system: string; user: string } {
   const workersCompatibilityMemory = input.memories.some((memory) => /cloudflare\s*workers|worker runtime|边缘运行|workers?\s*兼容/i.test(memory.content));
   return {
@@ -28,7 +50,7 @@ Confirmed memories are preference/context only. They cannot create facts or sour
 Every sourceIds value must exactly match a candidate id. Never invent or rewrite URLs.
 Do not claim certainty beyond the candidate evidence. The fixture publisher and TEST MATERIAL labels must remain visibly test material.
 ${workersCompatibilityMemory ? `A confirmed zxlab project memory prioritizes Cloudflare Workers compatibility. For any relevant framework/tool item, explicitly analyze: Worker runtime compatibility, Node.js API dependencies, persistent-process assumptions, local filesystem assumptions, and which parts require migration or remain portable.` : ""}`,
-    user: JSON.stringify({ date: input.date, confirmedMemories: memoryContext(input.memories), candidates: input.candidates }),
+    user: JSON.stringify({ date: input.date, confirmedMemories: memoryContext(input.memories), candidates: input.candidates.map(candidateContext) }),
   };
 }
 
@@ -42,18 +64,7 @@ Use merge only when another input candidate is clearly the better representative
 relatedMemoryIds may only contain IDs from confirmedMemories. Memories influence relevance but cannot create facts. Return only JSON.`,
     user: JSON.stringify({
       confirmedMemories: input.memories.map((memory) => ({ id: memory.id, scope: memory.scope, scopeKey: memory.scopeKey, content: memory.content })),
-      candidates: input.candidates.map((candidate) => ({
-        id: candidate.id,
-        source: candidate.source,
-        categoryHint: candidate.categoryHint,
-        title: candidate.title,
-        canonicalUrl: candidate.canonicalUrl,
-        summary: candidate.summary,
-        contentText: candidate.contentText,
-        publishedAt: candidate.publishedAt,
-        tags: candidate.tags,
-        metadata: candidate.metadata,
-      })),
+      candidates: input.candidates.map(candidateContext),
     }),
   };
 }
