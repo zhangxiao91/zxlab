@@ -40,7 +40,7 @@ export async function fetchLatestSignal(options: SignalClientOptions): Promise<S
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs);
   try {
     const response = await fetcher(`${options.baseUrl.replace(/\/$/, "")}/api/briefings/latest`, {
-      headers: { accept: "application/json", "user-agent": "zxlab-bot-bridge/0.1" },
+      headers: { accept: "application/json", "user-agent": "zxlab-bot-bridge/0.2" },
       signal: controller.signal,
     });
     if (!response.ok) throw new Error(`Signal API returned HTTP ${response.status}`);
