@@ -3,7 +3,7 @@ title: "电脑基础速查表"
 description: "电脑基础路线的导航页：按文件、软件、浏览器、输入、办公、同步和安全问题找到对应文档。"
 routeId: "computer"
 status: "building"
-updatedAt: 2026-07-22
+updatedAt: 2026-07-25
 tags:
   - Windows
   - 电脑基础
@@ -30,7 +30,10 @@ tags:
 
 ## 先完成一项小练习
 
-如果你只是想马上动手，可以做一次[截图、压缩和解压练习](/lab/digital-starter/docs/tasks)。它会带你走完保存、查找、压缩、解压和确认文件的完整流程。
+如果你只是想马上动手，可以完成两项练习：
+
+- [截图、命名、压缩与解压](/lab/digital-starter/docs/tasks)：走完保存、查找、压缩、解压和确认文件。
+- [找官网、下载与安装](/lab/digital-starter/docs/safe-install-task)：走完确认需求、核对来源、安装和结果检查。
 
 ## 三条最小原则
 
@@ -40,6 +43,6 @@ tags:
 
 ## 电脑基础路线
 
-电脑路线会逐步补齐硬件和办公内容。页面上标记为“建设中”的文档可以先阅读，标记为“完全占位”的文档只表示入口已经预留。
+电脑路线已经没有只有入口的空白文档。页面上标记为“基础版 · 持续补充”的内容可以直接阅读，但设备差异、案例或配套文件还会继续增加。
 
 需要工具时，进入[下载中心](/lab/digital-starter/docs/software-toolbox)；需要练习时，进入[实战任务](/lab/digital-starter/docs/tasks)。

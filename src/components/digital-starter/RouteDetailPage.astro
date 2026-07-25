@@ -29,7 +29,7 @@ const tasksById = new Map(digitalStarterTasks.map((task) => [task.id, task]));
 const taskHrefById: Record<string, string> = {
   "organize-college-folder": "/lab/digital-starter/docs/file-structure",
   "screenshot-zip-unzip": "/lab/digital-starter/docs/tasks",
-  "software-shortlist": "/lab/digital-starter/docs/software-toolbox",
+  "software-shortlist": "/lab/digital-starter/docs/safe-install-task",
 };
 
 const docFor = (id?: string) => (id ? docsById.get(id) : undefined);
@@ -53,6 +53,12 @@ const pageDescription = `${route.title}：${route.learningOutcome}`;
           <span>{digitalStarterStatusLabels[route.status]}</span>
           <span>{routeId === "computer" ? "主要面向 Windows" : "后续逐步开放"}</span>
         </div>
+        {route.status === "building" && (
+          <div class="digital-starter-foundation-note digital-starter-foundation-note--route" role="note">
+            <strong>基础版路线</strong>
+            <span>现有内容可以直接学习；标记为“持续补充”的模块已提供基础正文，后续还会增加案例和练习。</span>
+          </div>
+        )}
         {route.status !== "placeholder" ? (
           <div class="digital-starter-actions">
             <a class="digital-starter-button" href="#route-modules">
@@ -114,6 +120,12 @@ const pageDescription = `${route.title}：${route.learningOutcome}`;
                   </div>
                   <span class="digital-starter-module-status">{digitalStarterStatusLabels[status]}</span>
                 </div>
+                {status === "building" && (
+                  <div class="digital-starter-foundation-note" role="note">
+                    <strong>基础版内容</strong>
+                    <span>现在可以开始学习，案例、细节或配套文件仍会继续补充。</span>
+                  </div>
+                )}
                 <p class="digital-starter-computer-module__outcome">{module.outcome}</p>
                 <dl>
                   <div>
