@@ -243,6 +243,28 @@
 .setting-row { display: flex; padding: 1rem 0; align-items: center; justify-content: space-between; border-top: 1px solid var(--risk-line); font-size: .7rem; }
 .setting-row span { display: flex; align-items: center; gap: .55rem; color: var(--risk-muted); }
 .setting-row strong { font-weight: 500; }
+.risk-rule-editor { display: grid; margin-top: 1rem; gap: .65rem; }
+.risk-rule-editor label { display: grid; gap: .35rem; color: var(--risk-muted); font-size: .62rem; }
+.risk-rule-editor input { width: 100%; padding: .66rem .72rem; border: 1px solid var(--risk-line); border-radius: .45rem; background: rgba(0,0,0,.16); color: var(--risk-paper); }
+.risk-rule-editor button:disabled { cursor: not-allowed; opacity: .45; }
+.trade-plan-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 5.5rem auto;
+  padding: .75rem 0;
+  align-items: center;
+  gap: .5rem;
+  border-top: 1px solid var(--risk-line);
+  color: var(--risk-muted);
+  font-size: .68rem;
+}
+.trade-plan-row input {
+  width: 100%;
+  padding: .58rem .62rem;
+  border: 1px solid var(--risk-line);
+  border-radius: .45rem;
+  background: rgba(0,0,0,.16);
+  color: var(--risk-paper);
+}
 .source-dot { width: .45rem; height: .45rem; border-radius: 50%; background: var(--risk-lime); }
 .source-dot--degraded { background: var(--risk-amber); }
 .source-dot--offline { background: var(--risk-red); }

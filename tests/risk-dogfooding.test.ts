@@ -83,6 +83,47 @@ test("market provider defaults to API and Mock requires an explicit local choice
   assert.equal(portfolio.getMarketMode(), "api");
 });
 
+test("workspace no longer seeds mock transactions until explicitly restored", async () => {
+  const storage = new MemoryStorage();
+  const portfolio = new LocalPortfolioRepository(storage);
+  portfolio.setMarketMode("mock");
+  const journal = new LocalRiskJournalRepository(storage);
+  const workspace = new RiskWorkspaceService(portfolio, journal, new MockReviewService());
+  const empty = await workspace.load();
+  assert.equal(empty.transactions.length, 0);
+  assert.equal(empty.positions.length, 0);
+  workspace.restoreMock();
+  const restored = await workspace.load();
+  assert.equal(restored.transactions.length, mockTransactions.length);
+});
+
+test("workspace uses persisted rules and realtime polling while exchanges are open", async () => {
+  const storage = new MemoryStorage();
+  const portfolio = new LocalPortfolioRepository(storage);
+  portfolio.replaceTransactions(mockTransactions);
+  portfolio.saveRiskRules({ maxSinglePosition: 0.12, maxThemeConcentration: 0.22, maxEffectiveExposure: 0.4, quoteStaleSeconds: 90 });
+  const built = buildPositionsDetailed(mockTransactions, instruments);
+  portfolio.saveBrokerPositions(built.positions.map((position) => ({ instrumentId: position.instrumentId, quantity: position.quantity, averageCost: position.averageCost })));
+  const journal = new LocalRiskJournalRepository(storage);
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = new URL(String(input), "https://beta.zxlab.pages.dev");
+    if (url.pathname.includes("/status")) return Response.json({ data: { exchange: url.searchParams.get("exchange") ?? "SSE", open: true, marketTimestamp: "2026-07-20T10:02:00+08:00", source: "test-status" } });
+    if (url.pathname.includes("/bars/")) return Response.json({ data: [] });
+    return Response.json({ data: mockQuotes.map((quote) => ({ ...quote, marketTimestamp: "2026-07-20T10:02:00+08:00", receivedAt: "2026-07-20T10:02:01+08:00", stale: false, quality: "live", warnings: [] })) });
+  }) as typeof fetch;
+  try {
+    const data = await new RiskWorkspaceService(portfolio, journal, new MockReviewService(), () => "2026-07-20T10:02:01+08:00").load();
+    assert.equal(data.riskRules.maxSinglePosition, 0.12);
+    assert.equal(data.diagnostics.market.realtimePolling, true);
+    assert.equal(data.diagnostics.market.pollIntervalMs, 15_000);
+    assert.equal(data.workflow.find((step) => step.id === "market")?.detail, "交易所开市，实时轮询 15 秒");
+    assert.ok(data.riskEvents.some((event) => event.ruleId === "portfolio.max_effective_exposure"));
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
 test("workspace reports API unavailable without falling back to Mock labels", async () => {
   const storage = new MemoryStorage();
   const portfolio = new LocalPortfolioRepository(storage);
@@ -120,6 +161,14 @@ test("workspace reports API unavailable without falling back to Mock labels", as
   } finally {
     globalThis.fetch = previousFetch;
   }
+});
+
+test("backup exports persisted local risk configuration", async () => {
+  const { portfolio, journal } = await fixture();
+  portfolio.saveRiskRules({ maxSinglePosition: 0.18, maxThemeConcentration: 0.25, maxEffectiveExposure: 0.7, quoteStaleSeconds: 75 });
+  const backup = createRiskBackup(portfolio, journal);
+  assert.equal(backup.riskRules.maxSinglePosition, 0.18);
+  assert.equal(backup.riskRules.quoteStaleSeconds, 75);
 });
 
 test("workspace keeps broker snapshots separate from ledger-derived positions", async () => {

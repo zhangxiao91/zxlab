@@ -1,4 +1,4 @@
-import { instruments } from "./mock";
+import { defaultInstruments } from "./config";
 import type { BrokerPosition, BrokerSnapshot, HoldingParseDraft, HoldingParsePosition, HoldingParseUnresolvedRow } from "./types";
 
 export type HoldingSourceKind = "csv" | "text";
@@ -112,7 +112,7 @@ export function normalizeInstrumentId(value: string | null | undefined): string 
   if (prefixed) return `${prefixed[1] === "SH" ? "SSE" : "SZSE"}:${prefixed[2]}`;
   const digits = upper.match(/\d{6}/)?.[0];
   if (!digits) return null;
-  const known = instruments.find((item) => item.symbol === digits || item.id.endsWith(`:${digits}`));
+  const known = defaultInstruments.find((item) => item.symbol === digits || item.id.endsWith(`:${digits}`));
   if (known) return known.id;
   return /^(5|6|9)/.test(digits) ? `SSE:${digits}` : `SZSE:${digits}`;
 }

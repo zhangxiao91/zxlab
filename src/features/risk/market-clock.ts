@@ -21,13 +21,14 @@ export function marketSnapshotStatus(quotes: Quote[], now: string): MarketSnapsh
   return "live";
 }
 
-export function marketFreshnessText(status: MarketSnapshotStatus, sources: string[], fallbackCount: number): string {
+export function marketFreshnessText(status: MarketSnapshotStatus, sources: string[], fallbackCount: number, pollIntervalMs: number | null = null): string {
   const sourceText = sources.join(" / ") || "无可用源";
   const fallbackText = fallbackCount ? ` · ${fallbackCount} 项降级` : "";
+  const pollText = pollIntervalMs ? ` · ${Math.round(pollIntervalMs / 1000)}秒轮询` : "";
   if (status === "closed-snapshot") return `闭市快照 · ${sourceText}${fallbackText}`;
   if (status === "stale") return `盘中行情过期 · ${sourceText}${fallbackText}`;
   if (status === "unavailable") return "无可用报价";
-  return `盘中实时 · ${sourceText}${fallbackText}`;
+  return `盘中实时 · ${sourceText}${fallbackText}${pollText}`;
 }
 
 function chinaParts(value: string): { weekday: number; hour: number; minute: number } | null {

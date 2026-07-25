@@ -1,11 +1,8 @@
 import { stableFingerprint } from "./ledger";
-import type { Instrument, PortfolioHistoryPoint, Quote, RiskRules, TradePlan, Transaction } from "./types";
+import { defaultInstruments, defaultRiskRules, defaultTradePlans } from "./config";
+import type { PortfolioHistoryPoint, Quote, Transaction } from "./types";
 
-export const instruments: Instrument[] = [
-  { id: "SSE:512480", symbol: "512480", name: "半导体ETF", assetType: "etf", industry: "科技", themes: ["半导体", "硬科技"], leverageMultiplier: 1 },
-  { id: "SZSE:159995", symbol: "159995", name: "芯片ETF", assetType: "etf", industry: "科技", themes: ["半导体", "硬科技"], leverageMultiplier: 1 },
-  { id: "SSE:513100", symbol: "513100", name: "纳指ETF（三倍风险口径）", assetType: "etf", industry: "海外科技", themes: ["AI", "纳斯达克"], leverageMultiplier: 3 },
-];
+export const instruments = defaultInstruments;
 
 function transaction(input: Omit<Transaction, "fingerprint" | "importedAt">): Transaction { return { ...input, fingerprint: stableFingerprint(input), importedAt: "2026-07-18T14:32:11+08:00" }; }
 export const mockTransactions: Transaction[] = [
@@ -23,11 +20,8 @@ export const mockQuotes: Quote[] = [
   { instrumentId: "SSE:513100", price: 1.522, previousClose: 1.571, open: 1.56, high: 1.566, low: 1.516, volume: 226000000, turnover: 347000000, marketTimestamp: "2026-07-18T14:27:41+08:00", receivedAt: "2026-07-18T14:32:11+08:00", source: "mock-market", quality: "stale", stale: true, warnings: ["报价超过 120 秒"] },
 ];
 
-export const mockRiskRules: RiskRules = { maxSinglePosition: 0.35, maxThemeConcentration: 0.45, maxEffectiveExposure: 1.2, quoteStaleSeconds: 120 };
-export const mockTradePlans: TradePlan[] = [
-  { instrumentId: "SSE:512480", maxWeight: 0.32, evidenceId: "trade-plan:SSE:512480:v1" },
-  { instrumentId: "SZSE:159995", maxWeight: 0.24, evidenceId: "trade-plan:SZSE:159995:v1" },
-];
+export const mockRiskRules = defaultRiskRules;
+export const mockTradePlans = defaultTradePlans;
 export const mockPortfolioHistory: PortfolioHistoryPoint[] = [
   { date: "07-01", value: 1200000, drawdown: 0 }, { date: "07-05", value: 1218000, drawdown: 0 }, { date: "07-10", value: 1196000, drawdown: -0.018 },
   { date: "07-15", value: 1229000, drawdown: 0 }, { date: "07-17", value: 1214000, drawdown: -0.012 }, { date: "07-18", value: 1186000, drawdown: -0.035 },

@@ -1,9 +1,13 @@
-import type { BrokerPosition, BrokerSnapshot, BuildPositionsResult, Instrument, Position, ReconciliationResult, Transaction } from "./types";
+import { defaultInstruments, defaultRiskRules, defaultTradePlans } from "./config";
+import type { BrokerPosition, BrokerSnapshot, BuildPositionsResult, Instrument, Position, ReconciliationResult, RiskRules, TradePlan, Transaction } from "./types";
 
 const STORAGE_KEY = "zxlab.risk.ledger.v1";
 const BROKER_KEY = "zxlab.risk.broker-positions.v1";
 const BROKER_SNAPSHOT_KEY = "zxlab.risk.broker-snapshot.v1";
 const MODE_KEY = "zxlab.risk.market-provider.v1";
+const RISK_RULES_KEY = "zxlab.risk.rules.v1";
+const TRADE_PLANS_KEY = "zxlab.risk.trade-plans.v1";
+const INSTRUMENTS_KEY = "zxlab.risk.instruments.v1";
 
 export function stableFingerprint(input: Omit<Transaction, "fingerprint" | "importedAt">): string {
   const canonical = [input.account, input.instrumentId ?? "", input.type, input.side ?? "", input.quantity, input.price, input.fee, new Date(input.executedAt).toISOString()].join("|");
@@ -27,6 +31,12 @@ export interface PortfolioRepository {
   saveBrokerSnapshot(snapshot: BrokerSnapshot | null): void;
   getMarketMode(): "mock" | "api";
   setMarketMode(mode: "mock" | "api"): void;
+  getRiskRules(): RiskRules;
+  saveRiskRules(rules: RiskRules): void;
+  getTradePlans(): TradePlan[];
+  saveTradePlans(plans: TradePlan[]): void;
+  getInstruments(): Instrument[];
+  saveInstruments(instruments: Instrument[]): void;
 }
 
 export class LocalPortfolioRepository implements PortfolioRepository {
@@ -54,6 +64,12 @@ export class LocalPortfolioRepository implements PortfolioRepository {
   saveBrokerSnapshot(snapshot: BrokerSnapshot | null) { if (snapshot) this.storage.setItem(BROKER_SNAPSHOT_KEY, JSON.stringify(snapshot)); else this.storage.removeItem(BROKER_SNAPSHOT_KEY); }
   getMarketMode() { return this.storage.getItem(MODE_KEY) === "mock" ? "mock" : "api"; }
   setMarketMode(mode: "mock" | "api") { this.storage.setItem(MODE_KEY, mode); }
+  getRiskRules() { return this.read<RiskRules>(RISK_RULES_KEY, defaultRiskRules); }
+  saveRiskRules(rules: RiskRules) { this.storage.setItem(RISK_RULES_KEY, JSON.stringify(rules)); }
+  getTradePlans() { return this.read<TradePlan[]>(TRADE_PLANS_KEY, defaultTradePlans); }
+  saveTradePlans(plans: TradePlan[]) { this.storage.setItem(TRADE_PLANS_KEY, JSON.stringify(plans)); }
+  getInstruments() { return this.read<Instrument[]>(INSTRUMENTS_KEY, defaultInstruments); }
+  saveInstruments(instruments: Instrument[]) { this.storage.setItem(INSTRUMENTS_KEY, JSON.stringify(instruments)); }
   private read<T>(key: string, fallback: T): T { try { const value = this.storage.getItem(key); return value ? JSON.parse(value) as T : fallback; } catch { return fallback; } }
 }
 

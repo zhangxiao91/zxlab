@@ -4,12 +4,9 @@ import { previewCsv } from "./csv";
 import { ApiHoldingsParseError, ApiHoldingsParseService, brokerSnapshotFromDraft } from "./holdings-parser";
 import { LocalRiskJournalRepository } from "./journal";
 import { LocalPortfolioRepository } from "./ledger";
-import { instruments, mockRiskRules, mockTradePlans } from "./mock";
 import { ApiReviewError, ApiReviewService, LocalReviewRepository, MockReviewService } from "./review";
 import type { CsvFieldMapping, CsvPreview, HoldingParseDraft, MarketProviderMode, ReviewItemFeedback, ReviewResult, ReviewRun, RiskDashboardData } from "./types";
 import { EVIDENCE_SCHEMA_VERSION, RISK_RULE_VERSION, RiskWorkspaceService } from "./workspace";
-
-const RISK_MARKET_POLL_MS = 30_000;
 
 const serverValues = new Map<string, string>();
 const serverStorage: Storage = {
@@ -71,13 +68,13 @@ export function useRiskWorkspace() {
     const tick = () => {
       if (document.visibilityState === "visible") void reload();
     };
-    const timer = window.setInterval(tick, RISK_MARKET_POLL_MS);
+    const timer = window.setInterval(tick, data.diagnostics.market.pollIntervalMs);
     document.addEventListener("visibilitychange", tick);
     return () => {
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", tick);
     };
-  }, [data?.dataMode, reload]);
+  }, [data?.dataMode, data?.diagnostics.market.pollIntervalMs, reload]);
 
   const generateReview = useCallback(async () => {
     if (!data || reviewLoading) return;
@@ -133,12 +130,14 @@ export function useRiskWorkspace() {
     clear: async () => { service.clear(); reviewRepository.clear(); journal.clear(); await reload(); },
     restoreMock: async () => { service.restoreMock(); reviewRepository.clear(); await reload(); },
     setMode: async (mode: MarketProviderMode) => { service.setMode(mode); await reload(); },
+    saveRiskRules: async (rules: RiskDashboardData["riskRules"]) => { service.saveRiskRules(rules); await reload(); },
+    saveTradePlans: async (plans: RiskDashboardData["tradePlans"]) => { service.saveTradePlans(plans); await reload(); },
     saveBrokerQuantity: async (instrumentId: string, quantity: number, averageCost: number | null) => { service.saveBrokerQuantity(instrumentId, quantity, averageCost); await reload(); },
     saveFeedback: async (runId: string, input: { helpful: boolean | null; hasFactErrors: boolean; missingKeyFactors: boolean; note: string; itemFeedback: ReviewItemFeedback[] }) => { journal.saveFeedback(runId, input); await reload(); },
     setMemoryStatus: async (id: string, status: "accepted" | "rejected") => { journal.setMemoryStatus(id, status); await reload(); },
     completeToday: async () => { if (!data) return; journal.completeDate(data.analysisDate); await reload(); },
     exportBackup: () => {
-      const backup = createRiskBackup(portfolioRepository, journal, { tradePlans: mockTradePlans, riskRules: mockRiskRules, instruments });
+      const backup = createRiskBackup(portfolioRepository, journal);
       return { filename: `zxlab-risk-backup-${backup.exportedAt.slice(0, 10)}.json`, content: JSON.stringify(backup, null, 2) };
     },
     previewBackup: (text: string): BackupPreview => previewRiskBackup(JSON.parse(text) as unknown, portfolioRepository, journal),

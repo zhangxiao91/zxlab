@@ -267,7 +267,20 @@ export interface MemoryCandidate {
 
 export type WorkflowStatus = "pending" | "running" | "success" | "warning" | "error" | "needs-confirmation";
 export interface DailyWorkflowStep { id: "transactions" | "reconciliation" | "market" | "risk" | "review" | "complete"; label: string; status: WorkflowStatus; detail: string }
-export interface MarketDiagnostics { provider: string; lastSuccessAt: string | null; lastFailureAt: string | null; requestDurationMs: number | null; dataTimestamp: string | null; stale: boolean; snapshotStatus: MarketSnapshotStatus; warnings: string[]; errors: string[] }
+export interface MarketDiagnostics {
+  provider: string;
+  lastSuccessAt: string | null;
+  lastFailureAt: string | null;
+  requestDurationMs: number | null;
+  dataTimestamp: string | null;
+  stale: boolean;
+  snapshotStatus: MarketSnapshotStatus;
+  exchangeStatus: Array<{ exchange: string; open: boolean; marketTimestamp: string | null; source: string }>;
+  realtimePolling: boolean;
+  pollIntervalMs: number;
+  warnings: string[];
+  errors: string[];
+}
 export interface PortfolioDiagnostics { lastImportAt: string | null; successRows: number; duplicateRows: number; failedRows: number; unknownInstruments: string[]; reconciliationDifferences: number }
 export interface RiskDiagnostics { executedAt: string; durationMs: number; inputPositionCount: number; ruleCount: number; triggeredEventCount: number; blockedMetricCount: number; errors: string[] }
 export interface LlmDiagnostics { provider: string | null; model: string | null; fallbackPath: string[]; promptVersion: string; requestDurationMs: number | null; inputTokens: number | null; outputTokens: number | null; estimatedCost: number | null; schemaValidation: "not-run" | "valid" | "partial" | "failed"; retryCount: number | null; finalError: string | null }
@@ -283,6 +296,7 @@ export interface RiskDashboardData {
   sourceHealth: Array<{ name: string; status: "healthy" | "degraded" | "offline"; latency: string; freshness: string }>;
   transactions: Transaction[]; positions: Position[]; reconciliation: ReconciliationResult; riskMetrics: RiskMetric[]; riskEvents: RiskEvent[]; activity: ActivityItem[];
   equityCurve: PortfolioHistoryPoint[]; evidence: EvidenceItem[]; evidencePack: EvidencePack; review: ReviewResult; dataWarnings: string[];
+  riskRules: RiskRules; tradePlans: TradePlan[]; instrumentMetadata: Instrument[];
   analysisDate: string; riskCalculatedAt: string; workflow: DailyWorkflowStep[]; diagnostics: RiskDiagnosticsBundle; brokerSnapshot: BrokerSnapshot | null;
   reviewRuns: ReviewRun[]; memoryCandidates: MemoryCandidate[];
 }

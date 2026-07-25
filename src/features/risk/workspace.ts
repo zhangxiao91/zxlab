@@ -3,39 +3,55 @@ import { LocalRiskJournalRepository } from "./journal";
 import { buildPositionsDetailed, reconcilePositions, type PortfolioRepository } from "./ledger";
 import { marketFreshnessText, marketSnapshotStatus } from "./market-clock";
 import { ApiMarketDataProvider, MockMarketDataProvider, type MarketDataProvider } from "./market";
-import { instruments, mockRiskRules, mockTradePlans, mockTransactions } from "./mock";
+import { mockTransactions } from "./mock";
 import { buildPortfolioHistory } from "./portfolio-history";
 import { MockReviewService, type ReviewService } from "./review";
 import type { ActivityItem, BrokerSnapshot, DailyWorkflowStep, MarketDiagnostics, MarketProviderMode, PortfolioDiagnostics, Quote, RiskDashboardData, Transaction } from "./types";
 
 export const RISK_RULE_VERSION = "risk-rules.v1.2";
 export const EVIDENCE_SCHEMA_VERSION = "evidence-pack.v1.2";
+export const REALTIME_MARKET_POLL_MS = 15_000;
+export const SNAPSHOT_MARKET_POLL_MS = 60_000;
 
 export class RiskWorkspaceService {
   constructor(private readonly repository: PortfolioRepository, private readonly journal: LocalRiskJournalRepository, private readonly reviewService: ReviewService = new MockReviewService(), private readonly clock: () => string = () => new Date().toISOString()) {}
-  ensureSeeded() { if (!this.repository.hasLedger()) this.repository.replaceTransactions(mockTransactions); }
+  ensureSeeded() {}
   async load(): Promise<RiskDashboardData> {
     this.ensureSeeded();
     const transactions = this.repository.listTransactions();
     const mode = this.repository.getMarketMode();
+    const instruments = this.repository.getInstruments();
+    const riskRules = this.repository.getRiskRules();
+    const tradePlans = this.repository.getTradePlans();
     const built = buildPositionsDetailed(transactions, instruments);
     const reconciliation = reconcilePositions(built, this.repository.getBrokerPositions());
     let quotes: Quote[] = [], marketError: string | null = null;
     const provider: MarketDataProvider = mode === "api" ? new ApiMarketDataProvider() : new MockMarketDataProvider();
     const instrumentIds = [...new Set(transactions.map((item) => item.instrumentId).filter((item): item is string => Boolean(item)))];
+    const exchanges = exchangeList(built.positions.map((item) => item.instrumentId));
     const marketStarted = Date.now();
     const historyPromise = Promise.allSettled(instrumentIds.map((instrumentId) => provider.getBars(instrumentId, "1d")));
+    const statusPromise = Promise.allSettled(exchanges.map((exchange) => provider.getStatus(exchange)));
     try {
       quotes = await provider.getQuotes(built.positions.map((item) => item.instrumentId));
       if (mode === "api" && quotes.length > 0 && quotes.every((item) => item.quality === "unavailable")) marketError = "全部行情上游不可用";
     }
     catch (error) { marketError = error instanceof Error ? error.message : "行情网关失败"; }
     const historyResults = await historyPromise;
+    const statusResults = await statusPromise;
+    const exchangeStatus = statusResults.flatMap((result, index) => {
+      const exchange = exchanges[index];
+      if (result.status !== "fulfilled" || typeof result.value.open !== "boolean") return [];
+      return [{ exchange, open: result.value.open, marketTimestamp: result.value.marketTimestamp, source: result.value.source }];
+    });
+    const statusWarnings = statusResults.flatMap((result, index) => result.status === "rejected" ? [`${exchanges[index]} 交易状态不可用：${result.reason instanceof Error ? result.reason.message : "unknown"}`] : []);
     const bars = historyResults.flatMap((result) => result.status === "fulfilled" ? result.value : []);
     const marketFinished = this.clock();
     const previousOperations = this.journal.getOperations();
     const quoteWarnings = quotes.flatMap((item) => item.warnings);
     const snapshotStatus = marketError ? "unavailable" : marketSnapshotStatus(quotes, marketFinished);
+    const realtimePolling = exchangeStatus.some((item) => item.open);
+    const pollIntervalMs = realtimePolling ? REALTIME_MARKET_POLL_MS : SNAPSHOT_MARKET_POLL_MS;
     const marketDiagnostics: MarketDiagnostics = {
       provider: provider.name,
       lastSuccessAt: quotes.length ? marketFinished : previousOperations.market.lastSuccessAt,
@@ -44,12 +60,15 @@ export class RiskWorkspaceService {
       dataTimestamp: latest(quotes.map((item) => item.marketTimestamp)),
       stale: snapshotStatus === "stale" || snapshotStatus === "unavailable",
       snapshotStatus,
-      warnings: quoteWarnings,
+      exchangeStatus,
+      realtimePolling,
+      pollIntervalMs,
+      warnings: [...quoteWarnings, ...statusWarnings],
       errors: marketError ? [marketError] : [],
     };
     this.journal.saveMarket(marketDiagnostics);
     const riskStarted = Date.now();
-    const calculated = calculateRisk({ transactions, positions: built.positions, quotes, tradePlans: mockTradePlans, riskRules: mockRiskRules, portfolioHistory: [], reconciliation, now: marketFinished });
+    const calculated = calculateRisk({ transactions, positions: built.positions, quotes, tradePlans, riskRules, portfolioHistory: [], reconciliation, now: marketFinished });
     const riskDurationMs = Date.now() - riskStarted;
     if (marketError) { calculated.warnings.unshift(`ApiMarketDataProvider: ${marketError}`); calculated.evidencePack.warnings.unshift(`ApiMarketDataProvider: ${marketError}`); }
     const reviewExecution = await this.reviewService.review(calculated.evidencePack);
@@ -59,7 +78,7 @@ export class RiskWorkspaceService {
     const marketSources = [...new Set(quotes.map((item) => item.source))];
     const fallbackCount = quotes.filter((item) => item.fallbackUsed).length;
     const unavailableCount = quotes.filter((item) => item.quality === "unavailable").length;
-    const marketFreshness = marketError ?? marketFreshnessText(snapshotStatus, marketSources, fallbackCount);
+    const marketFreshness = marketError ?? marketFreshnessText(snapshotStatus, marketSources, fallbackCount, realtimePolling ? pollIntervalMs : null);
     const history = buildPortfolioHistory({ transactions, bars, quotes, valuationAt: now });
     const activity: ActivityItem[] = [
       ...calculated.events.map((item) => ({ id: `activity:${item.id}`, time: item.triggeredAt.slice(11, 16), type: "rule" as const, title: item.title, detail: item.message, evidenceId: item.id, tone: item.severity === "critical" || item.severity === "high" ? "danger" as const : "warning" as const })),
@@ -79,19 +98,22 @@ export class RiskWorkspaceService {
       asOf: now, receivedAt: now, accountName: "个人交易账户", currency: "CNY", dataMode: mode,
       portfolio: { ...calculated.portfolio, dayReturn: calculated.portfolio.netValue ? calculated.portfolio.dayPnl / calculated.portfolio.netValue : 0, currentDrawdown: history.at(-1)?.drawdown ?? 0, maxDrawdown: history.length ? Math.min(...history.map((item) => item.drawdown)) : 0, riskBudgetUsed: calculated.portfolio.netValue ? Math.abs(Math.min(0, calculated.portfolio.dayPnl)) / (calculated.portfolio.netValue * 0.025) : 0 },
       sourceHealth: [
-        { name: provider.name, status: marketError ? "offline" : unavailableCount || fallbackCount || snapshotStatus === "stale" ? "degraded" : "healthy", latency: mode === "mock" ? "本地" : "三源网关", freshness: marketFreshness },
+        { name: provider.name, status: marketError ? "offline" : unavailableCount || fallbackCount || snapshotStatus === "stale" ? "degraded" : "healthy", latency: mode === "mock" ? "本地" : realtimePolling ? `轮询 ${Math.round(pollIntervalMs / 1000)}s` : "快照刷新", freshness: marketFreshness },
         { name: "本地交易账本", status: built.anomalies.length ? "degraded" : "healthy", latency: "浏览器", freshness: `${transactions.length} 条事件` },
         { name: "持仓对账", status: reconciliation.unresolved ? "degraded" : "healthy", latency: "本地", freshness: reconciliation.unresolved ? "待处理" : "一致" },
         { name: "Review Service", status: "healthy", latency: "本地", freshness: "Mock / Evidence Pack" },
       ],
       transactions, positions: calculated.positions, reconciliation, riskMetrics: calculated.metrics, riskEvents: calculated.events, activity, equityCurve: history, evidence: calculated.evidencePack.evidence, evidencePack: calculated.evidencePack, review, dataWarnings: calculated.warnings,
+      riskRules,
+      tradePlans,
+      instrumentMetadata: instruments,
       analysisDate,
       riskCalculatedAt: now,
       workflow,
       diagnostics: {
         market: marketDiagnostics,
         portfolio: portfolioDiagnostics,
-        risk: { executedAt: now, durationMs: riskDurationMs, inputPositionCount: built.positions.length, ruleCount: 4, triggeredEventCount: calculated.events.length, blockedMetricCount: calculated.metrics.filter((item) => !item.reliable).length, errors: [] },
+        risk: { executedAt: now, durationMs: riskDurationMs, inputPositionCount: built.positions.length, ruleCount: Object.keys(riskRules).length, triggeredEventCount: calculated.events.length, blockedMetricCount: calculated.metrics.filter((item) => !item.reliable).length, errors: [] },
         llm: operations.llm,
       },
       brokerSnapshot: this.repository.getBrokerSnapshot(),
@@ -103,6 +125,8 @@ export class RiskWorkspaceService {
   clear() { this.repository.clearTransactions(); }
   restoreMock() { this.repository.replaceTransactions(mockTransactions); }
   setMode(mode: MarketProviderMode) { this.repository.setMarketMode(mode); }
+  saveRiskRules(rules: RiskDashboardData["riskRules"]) { this.repository.saveRiskRules(rules); }
+  saveTradePlans(plans: RiskDashboardData["tradePlans"]) { this.repository.saveTradePlans(plans); }
   saveBrokerQuantity(instrumentId: string, quantity: number, averageCost: number | null) {
     const current = this.repository.getBrokerPositions().filter((item) => item.instrumentId !== instrumentId);
     this.repository.saveBrokerPositions([...current, { instrumentId, quantity, averageCost }]);
@@ -120,10 +144,16 @@ function localDate(value: string): string {
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
 function marketWorkflowDetail(market: MarketDiagnostics): string {
+  if (market.realtimePolling) return `交易所开市，实时轮询 ${Math.round(market.pollIntervalMs / 1000)} 秒`;
   if (market.snapshotStatus === "closed-snapshot") return "闭市快照可用于复盘";
   if (market.snapshotStatus === "stale") return "盘中行情超过实时阈值";
   if (market.snapshotStatus === "unavailable") return "缺少可用行情";
   return "盘中实时行情通过检查";
+}
+
+function exchangeList(instrumentIds: string[]): Array<"SSE" | "SZSE"> {
+  const exchanges = instrumentIds.map((item) => item.split(":")[0]).filter((item): item is "SSE" | "SZSE" => item === "SSE" || item === "SZSE");
+  return [...new Set(exchanges.length ? exchanges : ["SSE", "SZSE"])];
 }
 function workflowSteps(input: { transactions: Transaction[]; reconciliationUnresolved: boolean; market: MarketDiagnostics; riskWarnings: string[]; currentRunStatus?: "pending" | "success" | "partial" | "failed"; complete: boolean }): DailyWorkflowStep[] {
   return [

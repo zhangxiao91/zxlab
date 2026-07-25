@@ -30,15 +30,18 @@ export interface BackupPreview {
   warnings: string[];
 }
 
-export function createRiskBackup(repository: PortfolioRepository, journal: LocalRiskJournalRepository, config: { tradePlans: TradePlan[]; riskRules: RiskRules; instruments: Instrument[] }): RiskBackup {
+export function createRiskBackup(repository: PortfolioRepository, journal: LocalRiskJournalRepository, config?: { tradePlans: TradePlan[]; riskRules: RiskRules; instruments: Instrument[] }): RiskBackup {
   const snapshot = journal.snapshot();
+  const tradePlans = config?.tradePlans ?? repository.getTradePlans();
+  const riskRules = config?.riskRules ?? repository.getRiskRules();
+  const instruments = config?.instruments ?? repository.getInstruments();
   return {
     schemaVersion: RISK_BACKUP_SCHEMA_VERSION,
     exportedAt: new Date().toISOString(),
     transactions: repository.listTransactions(),
-    tradePlans: config.tradePlans,
-    riskRules: config.riskRules,
-    instrumentMetadata: config.instruments,
+    tradePlans,
+    riskRules,
+    instrumentMetadata: instruments,
     reviews: snapshot.reviews,
     reviewFeedback: snapshot.reviewFeedback,
     memoryCandidates: snapshot.memoryCandidates,
@@ -80,6 +83,15 @@ export function restoreRiskBackup(preview: BackupPreview, mode: "merge" | "overw
   if (mode === "overwrite") repository.saveBrokerSnapshot(backup.settings.brokerSnapshot);
   else if (backup.settings.brokerSnapshot && !repository.getBrokerSnapshot()) repository.saveBrokerSnapshot(backup.settings.brokerSnapshot);
   repository.setMarketMode(backup.settings.marketProviderMode);
+  if (mode === "overwrite") {
+    repository.saveRiskRules(backup.riskRules);
+    repository.saveTradePlans(backup.tradePlans);
+    repository.saveInstruments(backup.instrumentMetadata);
+  } else {
+    repository.saveRiskRules(repository.getRiskRules());
+    repository.saveTradePlans(mergePlans(repository.getTradePlans(), backup.tradePlans));
+    repository.saveInstruments(mergeInstruments(repository.getInstruments(), backup.instrumentMetadata));
+  }
   journal.restore({ reviews: backup.reviews, reviewFeedback: backup.reviewFeedback, memoryCandidates: backup.memoryCandidates, operations: backup.operations }, mode);
 }
 
@@ -119,3 +131,11 @@ function isObject(value: unknown): value is Record<string, unknown> { return Boo
 function isTransaction(value: unknown): value is Transaction { return isObject(value) && typeof value.id === "string" && typeof value.account === "string" && typeof value.type === "string" && typeof value.executedAt === "string" && typeof value.fingerprint === "string"; }
 function isRiskRules(value: unknown): value is RiskRules { return isObject(value) && [value.maxSinglePosition, value.maxThemeConcentration, value.maxEffectiveExposure, value.quoteStaleSeconds].every((item) => typeof item === "number" && Number.isFinite(item)); }
 function countIdConflicts<T extends { id: string }>(current: T[], incoming: T[]): number { const ids = new Set(current.map((item) => item.id)); return incoming.filter((item) => ids.has(item.id)).length; }
+function mergePlans(current: TradePlan[], incoming: TradePlan[]): TradePlan[] {
+  const ids = new Set(current.map((item) => item.instrumentId));
+  return [...current, ...incoming.filter((item) => !ids.has(item.instrumentId))];
+}
+function mergeInstruments(current: Instrument[], incoming: Instrument[]): Instrument[] {
+  const ids = new Set(current.map((item) => item.id));
+  return [...current, ...incoming.filter((item) => !ids.has(item.id))];
+}

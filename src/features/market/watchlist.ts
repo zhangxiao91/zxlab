@@ -1,4 +1,4 @@
-import { instruments } from "../risk/mock";
+import { defaultInstruments } from "../risk/config";
 import type { MarketWatchlistItem } from "./types";
 
 const WATCHLIST_KEY = "zxlab.market.watchlist.v1";
@@ -29,7 +29,7 @@ export function saveMarketWatchlist(storage: Storage, items: MarketWatchlistItem
 export function toWatchlistItem(instrumentId: string, reason = "自选标的", label?: string): MarketWatchlistItem | null {
   const match = /^(SSE|SZSE):(\d{6})$/.exec(instrumentId.trim().toUpperCase());
   if (!match) return null;
-  const instrument = instruments.find((item) => item.id === match[0]);
+  const instrument = defaultInstruments.find((item) => item.id === match[0]);
   return {
     instrumentId: match[0],
     exchange: match[1] as "SSE" | "SZSE",
