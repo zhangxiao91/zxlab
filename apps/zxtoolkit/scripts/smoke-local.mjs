@@ -103,6 +103,35 @@ await request(`/api/transfers/${imageDrop.item.id}/status`, {
 const unavailable = await fetch(`${baseUrl}/api/transfers/${imageDrop.item.id}/download`, { headers: auth(mobile) });
 ensure(unavailable.status === 410, "claimed image remains downloadable");
 
+const phoneText = await request("/api/drops", {
+  method: "POST",
+  headers: jsonAuth(mobile),
+  body: JSON.stringify({ receiverDeviceId: desktop.device.id, payload: { type: "text", text: "phone to mac" } })
+});
+let desktopInbox = await request("/api/inbox", { headers: auth(desktop) });
+ensure(desktopInbox.items.some((item) => item.id === phoneText.item.id), "phone-to-Mac text drop is missing");
+
+const documentBytes = new TextEncoder().encode("zxtoolkit bidirectional file");
+const phoneFile = await request("/api/drops", {
+  method: "POST",
+  headers: jsonAuth(mobile),
+  body: JSON.stringify({ receiverDeviceId: desktop.device.id, payload: { type: "file", fileName: "smoke.txt", mimeType: "text/plain", size: documentBytes.byteLength } })
+});
+await request(`/api/transfers/${phoneFile.item.id}/content`, {
+  method: "POST",
+  headers: { ...auth(mobile), "content-type": "text/plain" },
+  body: documentBytes
+});
+const downloadedFile = await request(`/api/transfers/${phoneFile.item.id}/download`, { headers: auth(desktop) });
+ensure(downloadedFile.byteLength === documentBytes.byteLength, "phone-to-Mac file size does not match");
+await request(`/api/transfers/${phoneFile.item.id}/status`, {
+  method: "PATCH",
+  headers: jsonAuth(desktop),
+  body: JSON.stringify({ status: "claimed" })
+});
+const deletedFile = await fetch(`${baseUrl}/api/transfers/${phoneFile.item.id}/download`, { headers: auth(desktop) });
+ensure(deletedFile.status === 410, "claimed phone-to-Mac file remains downloadable");
+
 const previousDesktop = structuredClone(desktop);
 const rotated = await request("/api/devices/credential/rotate", { method: "POST", headers: auth(desktop) });
 const oldCredential = await fetch(`${baseUrl}/api/devices`, { headers: auth(previousDesktop) });
@@ -144,6 +173,8 @@ console.log(JSON.stringify({
   ok: true,
   paired: true,
   textDelivered: true,
+  bidirectionalText: true,
+  bidirectionalFile: true,
   imageClaimDeleted: true,
   rotatedCredentialPulse: true,
   revokedCredential: true,

@@ -4,7 +4,7 @@ import { hashToken, randomToken } from "./security";
 import { PairingSession } from "./pairing";
 import { DeviceMailbox } from "./device-mailbox";
 import type { DevicePlatform, DropItem } from "../../shared/types";
-import { validateDropPayload } from "../../shared/payload";
+import { isBinaryDropPayload, validateDropPayload } from "../../shared/payload";
 import { validatePulseSnapshot } from "../../shared/pulse";
 import { PulseHub } from "./pulse-hub";
 import { UploadQuota } from "./upload-quota";
@@ -12,12 +12,13 @@ import { BodyTooLargeError, declaredBodySize, hasImageSignature, readBodyWithLim
 import { verifyTurnstile } from "./turnstile";
 import {
   authenticateDevice,
-  completeImageTransfer,
+  completeBinaryTransfer,
   createPairingRecord,
   createTransfer,
   expireTransfers,
   failTransfer,
   getTransfer,
+  hasDeviceRecord,
   inboxPage,
   listPairedDevices,
   migrateLegacyMailbox,
@@ -318,14 +319,14 @@ async function uploadTransferContent(request: Request, env: Env, transferId: str
   if (!(await env.UPLOAD_RATE_LIMITER.limit({ key: `transfer-content:${auth.device.id}` })).success) return problem("RATE_LIMITED", "上传过于频繁，请稍后重试", 429, cors);
 
   const stored = await getTransfer(env.DB, transferId);
-  if (!stored || stored.item.senderDeviceId !== auth.device.id || stored.item.payload.type !== "image") return problem("TRANSFER_UNAVAILABLE", "图片投递不存在或无权上传", 404, cors);
-  if (stored.item.status !== "pending" || Date.parse(stored.item.expiresAt) <= Date.now()) return problem("TRANSFER_UNAVAILABLE", "图片投递已完成或已过期", 409, cors);
+  if (!stored || stored.item.senderDeviceId !== auth.device.id || !isBinaryDropPayload(stored.item.payload)) return problem("TRANSFER_UNAVAILABLE", "文件投递不存在或无权上传", 404, cors);
+  if (stored.item.status !== "pending" || Date.parse(stored.item.expiresAt) <= Date.now()) return problem("TRANSFER_UNAVAILABLE", "文件投递已完成或已过期", 409, cors);
   const mimeType = request.headers.get("content-type")?.split(";")[0] ?? "";
   const declaredSize = declaredBodySize(request.headers.get("content-length"));
   const maxBytes = Math.min(MAX_FILE_BYTES, positiveInteger(env.MAX_FILE_BYTES, MAX_FILE_BYTES));
-  const metadataError = validateUploadMetadata(mimeType, declaredSize, maxBytes);
-  if (metadataError || mimeType !== stored.item.payload.mimeType) return problem("INVALID_FILE", metadataError || "图片类型与投递信息不一致", 400, cors);
-  if (!request.body) return problem("EMPTY_FILE", "没有读取到图片内容", 400, cors);
+  const metadataError = validateBinaryMetadata(mimeType, declaredSize, maxBytes, stored.item.payload.type);
+  if (metadataError || mimeType !== stored.item.payload.mimeType) return problem("INVALID_FILE", metadataError || "文件类型与投递信息不一致", 400, cors);
+  if (!request.body) return problem("EMPTY_FILE", "没有读取到文件内容", 400, cors);
 
   const now = new Date();
   const quotaKey = now.toISOString().slice(0, 10);
@@ -340,7 +341,7 @@ async function uploadTransferContent(request: Request, env: Env, transferId: str
   try {
     body = await readBodyWithLimit(request.body, maxBytes);
     if (!body.byteLength) throw new Error("EMPTY_FILE");
-    if (!hasImageSignature(body, mimeType)) {
+    if (stored.item.payload.type === "image" && !hasImageSignature(body, mimeType)) {
       await quota.rollback(maxBytes);
       await failTransfer(env.DB, transferId, auth.device.id, "INVALID_FILE_SIGNATURE");
       return problem("INVALID_FILE_SIGNATURE", "图片内容与文件类型不匹配", 400, cors);
@@ -349,7 +350,7 @@ async function uploadTransferContent(request: Request, env: Env, transferId: str
       httpMetadata: { contentType: mimeType },
       customMetadata: { transferId, senderDeviceId: auth.device.id, receiverDeviceId: stored.item.receiverDeviceId }
     });
-    const completedItem = await completeImageTransfer(env.DB, transferId, auth.device.id, objectKey, body.byteLength);
+    const completedItem = await completeBinaryTransfer(env.DB, transferId, auth.device.id, objectKey, body.byteLength);
     if (!completedItem) {
       await env.FILES.delete(objectKey);
       await quota.rollback(maxBytes);
@@ -360,8 +361,8 @@ async function uploadTransferContent(request: Request, env: Env, transferId: str
     await env.FILES.delete(objectKey);
     await quota.rollback(maxBytes);
     await failTransfer(env.DB, transferId, auth.device.id, cause instanceof BodyTooLargeError ? "FILE_TOO_LARGE" : "UPLOAD_FAILED");
-    if (cause instanceof BodyTooLargeError) return problem("FILE_TOO_LARGE", "单张图片不能超过 20 MB", 413, cors);
-    if (cause instanceof Error && cause.message === "EMPTY_FILE") return problem("EMPTY_FILE", "图片内容为空", 400, cors);
+    if (cause instanceof BodyTooLargeError) return problem("FILE_TOO_LARGE", "单个文件不能超过 20 MB", 413, cors);
+    if (cause instanceof Error && cause.message === "EMPTY_FILE") return problem("EMPTY_FILE", "文件内容为空", 400, cors);
     throw cause;
   }
   await quota.commit(maxBytes, body.byteLength).catch((error) => {
@@ -378,16 +379,16 @@ async function downloadTransfer(request: Request, env: Env, transferId: string, 
   if (!auth) return problem("DEVICE_UNAUTHORIZED", "设备凭证无效", 401, cors);
   if (!(await env.DOWNLOAD_RATE_LIMITER.limit({ key: `transfer-download:${auth.device.id}` })).success) return problem("RATE_LIMITED", "下载过于频繁，请稍后重试", 429, cors);
   const stored = await getTransfer(env.DB, transferId);
-  if (!stored || stored.item.receiverDeviceId !== auth.device.id || stored.item.payload.type !== "image") return problem("TRANSFER_UNAVAILABLE", "图片不存在或无权访问", 404, cors);
-  if (!stored.objectKey || stored.item.status === "claimed" || stored.item.status === "expired" || Date.parse(stored.item.expiresAt) <= Date.now()) return problem("FILE_UNAVAILABLE", "图片已领取或已过期", 410, cors);
+  if (!stored || stored.item.receiverDeviceId !== auth.device.id || !isBinaryDropPayload(stored.item.payload)) return problem("TRANSFER_UNAVAILABLE", "文件不存在或无权访问", 404, cors);
+  if (!stored.objectKey || stored.item.status === "claimed" || stored.item.status === "expired" || Date.parse(stored.item.expiresAt) <= Date.now()) return problem("FILE_UNAVAILABLE", "文件已领取或已过期", 410, cors);
   const object = await env.FILES.get(stored.objectKey);
-  if (!object?.body) return problem("FILE_MISSING", "临时图片已被清理", 410, cors);
+  if (!object?.body) return problem("FILE_MISSING", "临时文件已被清理", 410, cors);
   const headers = new Headers(cors);
   object.writeHttpMetadata(headers);
   headers.set("content-type", stored.item.payload.mimeType);
   headers.set("content-length", String(object.size));
   headers.set("cache-control", "private, no-store");
-  headers.set("content-disposition", `inline; filename*=UTF-8''${encodeURIComponent(stored.item.payload.fileName)}`);
+  headers.set("content-disposition", `${stored.item.payload.type === "image" ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(stored.item.payload.fileName)}`);
   return new Response(object.body, { headers });
 }
 
@@ -541,6 +542,7 @@ async function authorizeDevice(request: Request, env: Env): Promise<Authenticate
   if (!auth) return null;
   const current = await authenticateDevice(env.DB, auth.deviceId, auth.token).catch(() => null);
   if (current) return current;
+  if (await hasDeviceRecord(env.DB, auth.deviceId).catch(() => true)) return null;
 
   const legacy = await env.DEVICES.getByName(auth.deviceId).listDevices(auth.token).catch(() => null);
   if (!legacy) return null;
@@ -576,6 +578,15 @@ function ttlMs(env: Env): number {
 function positiveInteger(value: string | undefined, fallback: number): number {
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function validateBinaryMetadata(contentType: string, declaredSize: number | null, maxBytes: number, type: "image" | "file"): string | null {
+  if (type === "image") return validateUploadMetadata(contentType, declaredSize, maxBytes);
+  if (!/^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/i.test(contentType)) return "文件类型无效";
+  if (declaredSize === null) return null;
+  if (!Number.isSafeInteger(declaredSize) || declaredSize <= 0) return "文件为空或大小无效";
+  if (declaredSize > maxBytes) return "单个文件不能超过 20 MB";
+  return null;
 }
 
 function corsHeaders(request: Request, env: Env): Headers {

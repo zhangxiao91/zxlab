@@ -91,16 +91,19 @@ export async function markDropStatus(credential: DeviceCredential, dropId: strin
   return result.item;
 }
 
-export function uploadDropImage(credential: DeviceCredential, item: DropItem, file: Blob, onProgress: (value: number) => void): { promise: Promise<DropItem>; abort: () => void } {
+export function uploadDropFile(credential: DeviceCredential, item: DropItem, file: Blob, onProgress: (value: number) => void): { promise: Promise<DropItem>; abort: () => void } {
   const xhr = new XMLHttpRequest();
   const promise = new Promise<DropItem>((resolve, reject) => {
     xhr.open("POST", `${API_BASE_URL}/api/transfers/${item.id}/content`);
     xhr.setRequestHeader("authorization", `Bearer ${credential.token}`);
     xhr.setRequestHeader("x-device-id", credential.device.id);
-    xhr.setRequestHeader("content-type", file.type);
+    const contentType = item.payload.type === "image" || item.payload.type === "file"
+      ? item.payload.mimeType
+      : file.type || "application/octet-stream";
+    xhr.setRequestHeader("content-type", contentType);
     xhr.upload.onprogress = (event) => event.lengthComputable && onProgress(Math.round((event.loaded / event.total) * 100));
-    xhr.onerror = () => reject(new ApiError("图片上传中断，请检查网络后重试", "NETWORK_ERROR", 0));
-    xhr.onabort = () => reject(new ApiError("图片上传已取消", "ABORTED", 0));
+    xhr.onerror = () => reject(new ApiError("文件上传中断，请检查网络后重试", "NETWORK_ERROR", 0));
+    xhr.onabort = () => reject(new ApiError("文件上传已取消", "ABORTED", 0));
     xhr.onload = () => {
       const body = parseBody(xhr.responseText);
       if (xhr.status >= 200 && xhr.status < 300 && body && "item" in body) resolve(body.item as DropItem);
@@ -111,7 +114,7 @@ export function uploadDropImage(credential: DeviceCredential, item: DropItem, fi
   return { promise, abort: () => xhr.abort() };
 }
 
-export async function fetchDropImage(credential: DeviceCredential, dropId: string): Promise<Blob> {
+export async function fetchDropFile(credential: DeviceCredential, dropId: string): Promise<Blob> {
   let response: Response;
   try {
     response = await fetch(`${API_BASE_URL}/api/transfers/${dropId}/download`, { headers: auth(credential) });
@@ -124,6 +127,9 @@ export async function fetchDropImage(credential: DeviceCredential, dropId: strin
   }
   return response.blob();
 }
+
+export const uploadDropImage = uploadDropFile;
+export const fetchDropImage = fetchDropFile;
 
 export async function publishPulse(credential: DeviceCredential, snapshot: PublicPulseSnapshot): Promise<void> {
   await request("/api/pulse/snapshots", { method: "POST", headers: { ...auth(credential), "content-type": "application/json" }, body: JSON.stringify(snapshot) });

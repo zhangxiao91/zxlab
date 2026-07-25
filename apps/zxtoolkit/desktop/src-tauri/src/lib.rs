@@ -1,8 +1,10 @@
 use tauri::{
+    Emitter,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Manager, PhysicalPosition, Position, WindowEvent,
 };
+use std::{fs, path::{Path, PathBuf}, time::{Duration, SystemTime, UNIX_EPOCH}};
 
 const KEYCHAIN_SERVICE: &str = "dev.zxlab.zxtoolkit.device";
 
@@ -48,17 +50,48 @@ fn quit_app(app: tauri::AppHandle) {
     app.exit(0);
 }
 
+#[tauri::command]
+fn show_main_window(app: tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+#[tauri::command]
+fn read_screenshot_file(app: tauri::AppHandle, path: String) -> Result<Vec<u8>, String> {
+    let desktop = app.path().desktop_dir().map_err(|_| "无法定位桌面目录".to_string())?;
+    let candidate = PathBuf::from(path);
+    if !is_screenshot_path(&candidate) || candidate.parent() != Some(desktop.as_path()) {
+        return Err("只能读取刚刚生成的桌面截图".to_string());
+    }
+    fs::read(candidate).map_err(|_| "无法读取截图文件".to_string())
+}
+
+#[tauri::command]
+fn save_received_file(app: tauri::AppHandle, file_name: String, bytes: Vec<u8>) -> Result<String, String> {
+    if bytes.is_empty() || bytes.len() > 20 * 1024 * 1024 {
+        return Err("文件为空或超过 20 MB".to_string());
+    }
+    let downloads = app.path().download_dir().map_err(|_| "无法定位下载目录".to_string())?;
+    let safe_name = safe_file_name(&file_name);
+    let target = unique_download_path(&downloads, &safe_name);
+    fs::write(&target, bytes).map_err(|_| "无法将文件保存到下载目录".to_string())?;
+    Ok(target.to_string_lossy().to_string())
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
-        .invoke_handler(tauri::generate_handler![keychain_set, keychain_get, keychain_delete, quit_app])
+        .invoke_handler(tauri::generate_handler![keychain_set, keychain_get, keychain_delete, quit_app, show_main_window, read_screenshot_file, save_received_file])
         .setup(|app| {
             // One-time migration from the pre-zxtoolkit bundle identifier. This keeps
             // existing device tokens and default targets without exposing them to JS.
@@ -120,6 +153,8 @@ pub fn run() {
                     }
                 })
                 .build(app)?;
+
+            start_screenshot_watcher(app.handle().clone());
             Ok(())
         })
         .on_window_event(|window, event| match event {
@@ -134,4 +169,62 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("failed to run zxtoolkit");
+}
+
+fn start_screenshot_watcher(app: tauri::AppHandle) {
+    std::thread::spawn(move || {
+        let Ok(desktop) = app.path().desktop_dir() else { return };
+        let mut latest = SystemTime::now();
+        loop {
+            std::thread::sleep(Duration::from_millis(1500));
+            let Some((path, modified)) = newest_screenshot(&desktop, latest) else { continue };
+            latest = modified;
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+            let _ = app.emit("screenshot-created", path.to_string_lossy().to_string());
+        }
+    });
+}
+
+fn newest_screenshot(desktop: &Path, after: SystemTime) -> Option<(PathBuf, SystemTime)> {
+    fs::read_dir(desktop).ok()?
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let path = entry.path();
+            if !is_screenshot_path(&path) { return None; }
+            let modified = entry.metadata().ok()?.modified().ok()?;
+            (modified > after).then_some((path, modified))
+        })
+        .max_by_key(|(_, modified)| *modified)
+}
+
+fn is_screenshot_path(path: &Path) -> bool {
+    let Some(name) = path.file_name().and_then(|value| value.to_str()) else { return false };
+    let lower = name.to_lowercase();
+    path.extension().and_then(|value| value.to_str()).is_some_and(|ext| ext.eq_ignore_ascii_case("png"))
+        && (lower.starts_with("screen shot") || lower.starts_with("screenshot") || name.starts_with("截屏"))
+}
+
+fn safe_file_name(value: &str) -> String {
+    let cleaned: String = value.chars()
+        .map(|character| if matches!(character, '/' | '\\' | '\0' | '\r' | '\n') { '_' } else { character })
+        .take(180)
+        .collect();
+    if cleaned.trim_matches('.').is_empty() { "zxtoolkit-file".to_string() } else { cleaned }
+}
+
+fn unique_download_path(downloads: &Path, file_name: &str) -> PathBuf {
+    let direct = downloads.join(file_name);
+    if !direct.exists() { return direct; }
+    let source = Path::new(file_name);
+    let stem = source.file_stem().and_then(|value| value.to_str()).unwrap_or("zxtoolkit-file");
+    let extension = source.extension().and_then(|value| value.to_str());
+    let suffix = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+    let renamed = match extension {
+        Some(ext) => format!("{stem}-{suffix}.{ext}"),
+        None => format!("{stem}-{suffix}")
+    };
+    downloads.join(renamed)
 }

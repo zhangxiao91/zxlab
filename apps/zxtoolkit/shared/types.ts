@@ -17,7 +17,8 @@ export interface Device {
 export type DropPayload =
   | { type: "text"; text: string }
   | { type: "url"; url: string; title?: string }
-  | { type: "image"; fileName: string; mimeType: "image/png" | "image/jpeg" | "image/webp" | "image/gif"; size: number; width?: number; height?: number };
+  | { type: "image"; fileName: string; mimeType: "image/png" | "image/jpeg" | "image/webp" | "image/gif"; size: number; width?: number; height?: number }
+  | { type: "file"; fileName: string; mimeType: string; size: number };
 
 export type DropStatus = "pending" | "sent" | "delivered" | "opened" | "claimed" | "expired" | "failed";
 

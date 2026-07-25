@@ -27,7 +27,7 @@ interface TransferRow {
   sender_device_id: string;
   sender_name: string;
   receiver_device_id: string;
-  type: "text" | "url" | "image";
+  type: "text" | "url" | "image" | "file";
   text_content: string | null;
   url: string | null;
   title: string | null;
@@ -50,6 +50,10 @@ export interface AuthenticatedDevice {
 export interface StoredTransfer {
   item: DropItem;
   objectKey: string | null;
+}
+
+export async function hasDeviceRecord(db: D1Database, deviceId: string): Promise<boolean> {
+  return Boolean(await db.prepare("SELECT 1 AS ok FROM devices WHERE id = ?1").bind(deviceId).first<{ ok: number }>());
 }
 
 export async function authenticateDevice(db: D1Database, deviceId: string, token: string): Promise<AuthenticatedDevice | null> {
@@ -197,7 +201,7 @@ export async function createTransfer(
   const createdAt = new Date(nowMs).toISOString();
   const expiresAt = new Date(nowMs + ttlMs).toISOString();
   const id = crypto.randomUUID();
-  const status: DropStatus = payload.type === "image" ? "pending" : "delivered";
+  const status: DropStatus = payload.type === "image" || payload.type === "file" ? "pending" : "delivered";
   await db.batch([
     db.prepare(`
       INSERT INTO transfers (
@@ -209,9 +213,9 @@ export async function createTransfer(
       payload.type === "text" ? payload.text : null,
       payload.type === "url" ? payload.url : null,
       payload.type === "url" ? payload.title ?? null : null,
-      payload.type === "image" ? payload.fileName : null,
-      payload.type === "image" ? payload.mimeType : null,
-      payload.type === "image" ? payload.size : 0,
+      payload.type === "image" || payload.type === "file" ? payload.fileName : null,
+      payload.type === "image" || payload.type === "file" ? payload.mimeType : null,
+      payload.type === "image" || payload.type === "file" ? payload.size : 0,
       status, createdAt, expiresAt
     ),
     db.prepare("INSERT INTO transfer_events (transfer_id, actor_device_id, status, created_at) VALUES (?1, ?2, ?3, ?4)").bind(id, sender.id, status, createdAt)
@@ -224,11 +228,11 @@ export async function getTransfer(db: D1Database, transferId: string): Promise<S
   return row ? transferFromRow(row) : null;
 }
 
-export async function completeImageTransfer(db: D1Database, transferId: string, senderDeviceId: string, objectKey: string, size: number): Promise<DropItem | null> {
+export async function completeBinaryTransfer(db: D1Database, transferId: string, senderDeviceId: string, objectKey: string, size: number): Promise<DropItem | null> {
   const now = new Date().toISOString();
   const result = await db.prepare(`
     UPDATE transfers SET object_key = ?1, size = ?2, status = 'delivered', status_updated_at = ?3
-    WHERE id = ?4 AND sender_device_id = ?5 AND type = 'image' AND status = 'pending' AND expires_at > ?3
+    WHERE id = ?4 AND sender_device_id = ?5 AND type IN ('image', 'file') AND status = 'pending' AND expires_at > ?3
   `).bind(objectKey, size, now, transferId, senderDeviceId).run();
   if (result.meta.changes !== 1) return null;
   await db.prepare("INSERT INTO transfer_events (transfer_id, actor_device_id, status, created_at) VALUES (?1, ?2, 'delivered', ?3)").bind(transferId, senderDeviceId, now).run();
@@ -340,7 +344,9 @@ function transferFromRow(row: TransferRow): StoredTransfer {
     ? { type: "text", text: row.text_content ?? "" }
     : row.type === "url"
       ? { type: "url", url: row.url ?? "", title: row.title ?? undefined }
-      : { type: "image", fileName: row.file_name ?? "image", mimeType: imageMime(row.mime_type), size: row.size };
+      : row.type === "image"
+        ? { type: "image", fileName: row.file_name ?? "image", mimeType: imageMime(row.mime_type), size: row.size }
+        : { type: "file", fileName: row.file_name ?? "file", mimeType: row.mime_type ?? "application/octet-stream", size: row.size };
   return {
     item: {
       id: row.id,

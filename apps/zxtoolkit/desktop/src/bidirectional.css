@@ -1,0 +1,103 @@
+.desktop-shell {
+  height: 100vh;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.screenshot-prompt {
+  margin-top: 12px;
+  padding: 11px;
+  border: 1px solid #b9cc82;
+  border-radius: 12px;
+  background: #edf5d7;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+
+.screenshot-prompt span {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.screenshot-prompt strong { font-size: 11px; }
+.screenshot-prompt small {
+  font-size: 9px;
+  color: #657044;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.screenshot-prompt button {
+  border: 0;
+  border-radius: 8px;
+  background: #171714;
+  color: #fff;
+  padding: 0 9px;
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.screenshot-prompt .dismiss {
+  grid-column: 2;
+  background: transparent;
+  color: #68704f;
+  text-decoration: underline;
+}
+
+.desktop-inbox { margin-top: 18px; }
+.desktop-inbox .panel-title > span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.desktop-inbox .panel-title label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.desktop-inbox-item {
+  min-height: 51px;
+  border-top: 1px solid #d3d0c7;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.desktop-inbox-item > span {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.desktop-inbox-item strong {
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desktop-inbox-item small {
+  font-size: 9px;
+  color: #77746c;
+}
+
+.desktop-inbox-item > button {
+  min-height: 30px;
+  border: 1px solid #cbc8bf;
+  border-radius: 8px;
+  background: #fff;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 9px;
+  cursor: pointer;
+}

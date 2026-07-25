@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canAdvanceDropStatus, classifyClipboard, validateDropPayload } from "../../shared/payload";
+import { canAdvanceDropStatus, classifyClipboard, isBinaryDropPayload, payloadForFile, validateDropPayload } from "../../shared/payload";
 import { credentialMetadata, resolveDefaultDeviceId } from "../../desktop/src/platform";
 import type { Device } from "../../shared/types";
 
@@ -25,6 +25,17 @@ describe("desktop clipboard payloads", () => {
     });
     expect(validateDropPayload({ type: "image", fileName: "shot.png", mimeType: "image/png", size: 20 * 1024 * 1024 + 1 })).toBeNull();
     expect(validateDropPayload({ type: "image", fileName: "shot.svg", mimeType: "image/svg+xml", size: 1024 })).toBeNull();
+  });
+
+  it("accepts ordinary files, sanitizes names, and preserves image classification", () => {
+    expect(validateDropPayload({ type: "file", fileName: "../report.pdf", mimeType: "application/pdf", size: 4096 })).toEqual({
+      type: "file", fileName: ".._report.pdf", mimeType: "application/pdf", size: 4096
+    });
+    expect(payloadForFile({ name: "photo.webp", type: "image/webp", size: 1024 })?.type).toBe("image");
+    expect(payloadForFile({ name: "notes.txt", type: "text/plain", size: 1024 })?.type).toBe("file");
+    expect(payloadForFile({ name: "huge.zip", type: "application/zip", size: 20 * 1024 * 1024 + 1 })).toBeNull();
+    const payload = validateDropPayload({ type: "file", fileName: "archive.zip", mimeType: "application/zip", size: 1024 });
+    expect(payload && isBinaryDropPayload(payload)).toBe(true);
   });
 
   it("only advances delivery states in order", () => {

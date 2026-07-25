@@ -99,12 +99,69 @@ export async function readClipboardDrop(): Promise<ClipboardDrop> {
   return { payload: classifyClipboard(text) };
 }
 
-export async function notifyDelivery(message: string): Promise<void> {
+export async function notifyDelivery(message: string, dropId?: string): Promise<void> {
   if (!isTauri()) return;
   const { isPermissionGranted, requestPermission, sendNotification } = await import("@tauri-apps/plugin-notification");
   let allowed = await isPermissionGranted();
   if (!allowed) allowed = await requestPermission() === "granted";
-  if (allowed) sendNotification({ title: "zxtoolkit", body: message });
+  if (allowed) sendNotification({ title: "zxtoolkit", body: message, extra: dropId ? { dropId } : undefined, autoCancel: true });
+}
+
+export async function listenForNotificationActions(handler: (dropId?: string) => void): Promise<() => void> {
+  if (!isTauri()) return () => undefined;
+  const { onAction } = await import("@tauri-apps/plugin-notification");
+  const listener = await onAction((notification) => {
+    const dropId = typeof notification.extra?.dropId === "string" ? notification.extra.dropId : undefined;
+    handler(dropId);
+    void import("@tauri-apps/api/core").then(({ invoke }) => invoke("show_main_window"));
+  });
+  return () => listener.unregister();
+}
+
+export async function writeClipboardText(value: string): Promise<void> {
+  if (isTauri()) {
+    const { writeText } = await import("@tauri-apps/plugin-clipboard-manager");
+    await writeText(value);
+    return;
+  }
+  await navigator.clipboard.writeText(value);
+}
+
+export async function registerSendShortcut(handler: () => void): Promise<() => Promise<void>> {
+  if (!isTauri()) return async () => undefined;
+  const { register, unregister } = await import("@tauri-apps/plugin-global-shortcut");
+  const shortcut = "CommandOrControl+Shift+D";
+  await register(shortcut, (event) => { if (event.state === "Pressed") handler(); });
+  return () => unregister(shortcut);
+}
+
+export async function listenForScreenshots(handler: (path: string) => void): Promise<() => void> {
+  if (!isTauri()) return () => undefined;
+  const { listen } = await import("@tauri-apps/api/event");
+  return listen<string>("screenshot-created", (event) => handler(event.payload));
+}
+
+export async function screenshotDrop(path: string): Promise<ClipboardDrop> {
+  if (!isTauri()) throw new Error("截图检测仅支持 macOS 应用");
+  const { invoke } = await import("@tauri-apps/api/core");
+  const bytes = await invoke<number[]>("read_screenshot_file", { path });
+  const blob = new Blob([new Uint8Array(bytes)], { type: "image/png" });
+  const fileName = path.split("/").pop() || `截图-${timestamp()}.png`;
+  return { payload: { type: "image", fileName, mimeType: "image/png", size: blob.size }, blob };
+}
+
+export async function saveReceivedFile(blob: Blob, fileName: string): Promise<string> {
+  if (!isTauri()) {
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = fileName;
+    anchor.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    return fileName;
+  }
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<string>("save_received_file", { fileName, bytes: Array.from(new Uint8Array(await blob.arrayBuffer())) });
 }
 
 export async function openExternal(url: string): Promise<void> {
