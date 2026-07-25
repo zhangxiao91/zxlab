@@ -32,12 +32,27 @@ export function filterStatusByVisibility(response: StatusResponse, accessLevel: 
           memory: {
             ...module.details.memory,
             sources: module.details.memory.sources.map((source) => ({ ...source, name: "Connected source" })),
-            lastError: undefined,
+            lastError: module.status === "operational" ? undefined : "Live source unavailable.",
           },
         },
       };
     }
-    return { ...module, metrics, details: { kind: "runtime" as const, runtime: { ...module.details.runtime, services: [] } } };
+    return {
+      ...module,
+      metrics,
+      details: {
+        kind: "runtime" as const,
+        runtime: {
+          ...module.details.runtime,
+          services: module.details.runtime.services.map((service, index) => ({
+            ...service,
+            id: `public-service-${index + 1}`,
+            name: "Public service",
+            summary: "Public health signal",
+          })),
+        },
+      },
+    };
   });
   return { ...response, modules, activities: response.activities.filter((activity) => allowed(activity.visibility, accessLevel)) };
 }
