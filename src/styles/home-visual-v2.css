@@ -162,6 +162,13 @@
   fill: currentColor;
 }
 
+/* The fixed exit clone must keep the settled word's light tone while scattering. */
+.home-yuragi-loop__text[data-yuragi-exit="true"] {
+  color: #efefe5 !important;
+  fill: #efefe5 !important;
+  stroke: transparent !important;
+}
+
 .home-v2-hero__footer a {
   transition: color var(--motion-medium) var(--motion-ease-out);
 }

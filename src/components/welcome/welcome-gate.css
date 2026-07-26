@@ -247,6 +247,12 @@ body.welcome-locked {
   fill: currentColor;
 }
 
+.welcome-yuragi-message__text[data-yuragi-exit="true"] {
+  color: #f4f7ff !important;
+  fill: #f4f7ff !important;
+  stroke: transparent !important;
+}
+
 .welcome-message::before,
 .welcome-message::after {
   position: absolute;
