@@ -167,6 +167,13 @@ export function parseTencentQuote(instrumentId: string, body: string, receivedAt
   return { instrumentId, price, previousClose: finite(fields[4]), open: finite(fields[5]), high: finite(fields[33]), low: finite(fields[34]), volume: multiplied(fields[6], 100), turnover: multiplied(fields[37], 10_000), marketTimestamp, receivedAt, source: "tencent-qt", quality: freshness.stale ? "stale" : "live", stale: freshness.stale, warnings: quoteWarnings(price, marketTimestamp, freshness.ageSeconds), fallbackUsed: false, providerAttempts: [] };
 }
 
+export function parseTencentSecurityName(body: string): string {
+  const quoted = body.match(/="([^"]*)"/s)?.[1];
+  const name = compactText(quoted?.split("~")[1], 80);
+  if (!name) throw new GatewayError("EMPTY_RESPONSE", "腾讯未返回证券简称", 502);
+  return name;
+}
+
 export function parseSinaQuote(instrumentId: string, body: string, receivedAt = new Date().toISOString()): StandardQuote {
   const quoted = body.match(/="([^"]*)"/s)?.[1];
   if (!quoted) throw new GatewayError("EMPTY_RESPONSE", `新浪未返回 ${instrumentId} 报价`, 502);
@@ -452,7 +459,12 @@ function stockNewsProviders(instrumentId: string, limit: number): Provider<Stand
     {
       name: "eastmoney-stock-news",
       load: async (fetcher) => {
-        const name = parseEastmoneySecurityName(await (await upstream(fetcher, `https://push2.eastmoney.com/api/qt/stock/get?secid=${code.secid}&fields=f58`)).json());
+        let name: string;
+        try {
+          name = parseTencentSecurityName(await (await upstream(fetcher, `https://qt.gtimg.cn/q=${code.prefixed}`)).text());
+        } catch {
+          name = parseEastmoneySecurityName(await (await upstream(fetcher, `https://push2.eastmoney.com/api/qt/stock/get?secid=${code.secid}&fields=f58`)).json());
+        }
         const param = JSON.stringify({
           uid: "",
           keyword: name,

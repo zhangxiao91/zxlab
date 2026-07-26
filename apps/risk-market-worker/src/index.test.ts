@@ -17,6 +17,7 @@ import {
   parseTencentDailyBars,
   parseTencentMinuteBars,
   parseTencentQuote,
+  parseTencentSecurityName,
   parseTonghuashunDailyBars,
   runWithFallback,
 } from "./index.ts";
@@ -34,6 +35,7 @@ test("parses Tencent quote without coercing empty values to zero", () => {
   assert.equal(quote.volume, 81200);
   assert.equal(quote.turnover, null);
   assert.equal(quote.stale, false);
+  assert.equal(parseTencentSecurityName('v_sh512480="1~半导体ETF~512480";'), "半导体ETF");
 });
 
 test("normalizes Sina and Eastmoney backup quotes", () => {
