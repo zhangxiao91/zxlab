@@ -3,6 +3,11 @@ export const briefingDraftJsonSchema = {
   additionalProperties: false,
   properties: {
     title: { type: "string" }, summary: { type: "string" },
+    longTermThreads: { type: "array", maxItems: 4, items: { type: "object", additionalProperties: false, properties: {
+      title: { type: "string" }, description: { type: "string" },
+      category: { type: "string", enum: ["ai-engineering", "markets", "zxlab"] },
+      dossierIds: { type: "array", minItems: 1, maxItems: 3, items: { type: "string" } },
+    }, required: ["title", "description", "category", "dossierIds"] } },
     items: { type: "array", minItems: 1, maxItems: 6, items: { type: "object", additionalProperties: false, properties: {
       itemType: { type: "string", enum: ["lead", "brief"] },
       category: { type: "string", enum: ["ai-engineering", "markets", "zxlab"] }, title: { type: "string" },
@@ -12,7 +17,7 @@ export const briefingDraftJsonSchema = {
       importance: { type: "number", minimum: 0, maximum: 100 }, confidence: { type: "number", minimum: 0, maximum: 100 },
       sourceIds: { type: "array", minItems: 1, items: { type: "string" } },
     }, required: ["itemType", "category", "title", "lede", "nutGraf", "keyFacts", "implications", "importance", "confidence", "sourceIds"] } },
-  }, required: ["title", "summary", "items"],
+  }, required: ["title", "summary", "longTermThreads", "items"],
 } as const;
 
 export const annotationReplyJsonSchema = { type: "object", additionalProperties: false, properties: { reply: { type: "string" } }, required: ["reply"] } as const;

@@ -18,6 +18,7 @@ const baseBriefing: DailyBriefing = {
   promptVersion: "editorial-v0.3",
   dataOrigin: "mock",
   stats: { fetched: 186, deduplicated: 72, selected: 6 },
+  longTermThreads: [],
   items: [
     {
       id: "agent-durable-state",

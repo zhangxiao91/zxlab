@@ -1,11 +1,11 @@
-import type { BriefingItem, CandidateSignal, DailyBriefing, GeneratedBriefingDraft } from "@zxlab/signal-schema";
+import type { BriefingItem, CandidateSignal, DailyBriefing, GeneratedBriefingDraft, LongTermThread } from "@zxlab/signal-schema";
 import { SignalError } from "../lib/errors";
 import type { PriorBriefingContext } from "../services/story-context";
 
 interface BriefingRow {
   id: string; run_id: string; briefing_date: string; title: string; summary: string; status: string;
   data_origin: "fixture" | "real"; generated_at: string; prompt_version: string; model: string;
-  candidate_count: number; selected_count: number;
+  long_term_threads_json: string | null; candidate_count: number; selected_count: number;
 }
 interface ItemRow {
   id: string; briefing_id: string; category: BriefingItem["category"]; title: string; summary: string;
@@ -85,9 +85,10 @@ export class BriefingRepository {
     const statements: D1PreparedStatement[] = [];
     if (previous) statements.push(this.db.prepare("UPDATE briefings SET is_active = 0, status = 'superseded' WHERE id = ?").bind(previous.id));
     statements.push(this.db.prepare(`INSERT INTO briefings
-      (id, run_id, briefing_date, title, summary, status, is_active, data_origin, generated_at, prompt_version, model, supersedes_id)
-      VALUES (?, ?, ?, ?, ?, 'ready', 1, ?, ?, ?, ?, ?)`)
-      .bind(input.briefingId, input.runId, input.date, input.draft.title, input.draft.summary, input.dataOrigin, input.generatedAt, input.promptVersion, input.model, previous?.id ?? null));
+      (id, run_id, briefing_date, title, summary, status, is_active, data_origin, generated_at, prompt_version, model, supersedes_id, long_term_threads_json)
+      VALUES (?, ?, ?, ?, ?, 'ready', 1, ?, ?, ?, ?, ?, ?)`)
+      .bind(input.briefingId, input.runId, input.date, input.draft.title, input.draft.summary, input.dataOrigin, input.generatedAt,
+        input.promptVersion, input.model, previous?.id ?? null, JSON.stringify(input.draft.longTermThreads)));
     input.draft.items.forEach((item, index) => {
       const itemId = crypto.randomUUID();
       statements.push(this.db.prepare(`INSERT INTO briefing_items
@@ -149,7 +150,8 @@ export class BriefingRepository {
 
   private selectBriefing(): string {
     return `SELECT b.id, b.run_id, b.briefing_date, b.title, b.summary, b.status, b.data_origin, b.generated_at,
-      b.prompt_version, b.model, r.candidate_count, r.selected_count FROM briefings b JOIN briefing_runs r ON r.id = b.run_id`;
+      b.prompt_version, b.model, b.long_term_threads_json, r.candidate_count, r.selected_count
+      FROM briefings b JOIN briefing_runs r ON r.id = b.run_id`;
   }
 
   private async hydrate(row: BriefingRow): Promise<DailyBriefing> {
@@ -161,6 +163,7 @@ export class BriefingRepository {
       id: row.id, date: row.briefing_date, status: row.status === "partial" ? "partial" : "ready", title: row.title, summary: row.summary,
       generatedAt: row.generated_at, promptVersion: row.prompt_version, model: row.model, dataOrigin: row.data_origin,
       stats: { fetched: row.candidate_count, deduplicated: row.candidate_count, selected: row.selected_count },
+      longTermThreads: parseJson<LongTermThread[]>(row.long_term_threads_json, []),
       items: items.map((item) => ({
         id: item.id,
         itemType: item.lede ? item.item_type : item.sort_order === 0 ? "lead" as const : "brief" as const,

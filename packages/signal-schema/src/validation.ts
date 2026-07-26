@@ -168,7 +168,45 @@ export function parseResolveMemoryRequest(value: unknown): ResolveMemoryCandidat
   };
 }
 
-export function parseGeneratedBriefingDraft(value: unknown, allowedSourceIds: ReadonlySet<string>): GeneratedBriefingDraft {
+function longTermThreadId(category: string, title: string, dossierIds: string[]): string {
+  let hash = 0x811c9dc5;
+  const identity = `${category}|${dossierIds.slice().sort().join("|")}|${title.normalize("NFKC").toLowerCase()}`;
+  for (const character of identity) {
+    hash ^= character.charCodeAt(0);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `thread_${(hash >>> 0).toString(16).padStart(8, "0")}`;
+}
+
+function parseLongTermThreads(value: unknown, allowedDossierIds: ReadonlySet<string>): GeneratedBriefingDraft["longTermThreads"] {
+  if (!Array.isArray(value)) return [];
+  const threads = value.slice(0, 4).flatMap((raw, index) => {
+    try {
+      const thread = record(raw, `longTermThreads[${index}]`);
+      if (!Array.isArray(thread.dossierIds) || thread.dossierIds.length === 0 || thread.dossierIds.length > 3) return [];
+      const dossierIds = [...new Set(thread.dossierIds.map((id, dossierIndex) => string(id, `longTermThreads[${index}].dossierIds[${dossierIndex}]`, 120)))];
+      if (dossierIds.some((id) => !allowedDossierIds.has(id))) return [];
+      const category = oneOf(thread.category, categories, `longTermThreads[${index}].category`);
+      const title = string(thread.title, `longTermThreads[${index}].title`, 120);
+      return [{
+        id: longTermThreadId(category, title, dossierIds),
+        title,
+        description: string(thread.description, `longTermThreads[${index}].description`, 500),
+        category,
+        dossierIds,
+      }];
+    } catch {
+      return [];
+    }
+  });
+  return threads.length >= 2 ? threads : [];
+}
+
+export function parseGeneratedBriefingDraft(
+  value: unknown,
+  allowedSourceIds: ReadonlySet<string>,
+  allowedDossierIds: ReadonlySet<string> = new Set(),
+): GeneratedBriefingDraft {
   const input = record(value, "briefing");
   if (!Array.isArray(input.items) || input.items.length === 0 || input.items.length > 6) throw new SignalValidationError("briefing.items must contain 1 to 6 items");
   const items = input.items.map((raw, index) => {
@@ -207,7 +245,12 @@ export function parseGeneratedBriefingDraft(value: unknown, allowedSourceIds: Re
   if (items[0]?.itemType !== "lead" || items.filter((item) => item.itemType === "lead").length !== 1) {
     throw new SignalValidationError("briefing.items must start with exactly one lead item");
   }
-  return { title: string(input.title, "briefing.title", 240), summary: string(input.summary, "briefing.summary", 4_000), items };
+  return {
+    title: string(input.title, "briefing.title", 240),
+    summary: string(input.summary, "briefing.summary", 4_000),
+    longTermThreads: parseLongTermThreads(input.longTermThreads, allowedDossierIds),
+    items,
+  };
 }
 
 export function parseEditorialDecisionDraft(

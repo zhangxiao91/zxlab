@@ -132,10 +132,13 @@ export class ProjectApiSignalLLM implements SignalLLM {
 
   async generateBriefing(input: GenerateBriefingInput): Promise<GeneratedBriefingDraft> {
     const allowedSources = new Set(input.candidates.map((candidate) => candidate.id));
+    const allowedThreadDossiers = new Set(input.storyDossiers
+      .filter((dossier) => dossier.historicalSignals.length > 0 || dossier.priorCoverage.length > 0)
+      .map((dossier) => dossier.id));
     const options = {
       task: "briefing" as const, gatewayTask: "signal-briefing" as const, promptVersion: BRIEFING_PROMPT_VERSION,
       prompt: buildBriefingPrompt(input), schema: briefingDraftJsonSchema,
-      validate: (value: unknown) => parseGeneratedBriefingDraft(value, allowedSources), runId: input.runId, repair: true,
+      validate: (value: unknown) => parseGeneratedBriefingDraft(value, allowedSources, allowedThreadDossiers), runId: input.runId, repair: true,
     };
     return this.runJson(options);
   }

@@ -26,6 +26,10 @@ class MemoryAwareFixtureLLM implements SignalLLM {
     return {
       title: hasWorkersMemory ? "运行约束改变了工具判断" : "工具能力需要进一步验证",
       summary: hasWorkersMemory ? "已确认的 zxlab 项目约束被用于重新评估同一候选。" : "这是未注入项目记忆时的基线日报。",
+      longTermThreads: [
+        { id: "thread-runtime-fit", title: "Agent 运行边界", description: "持续验证 Agent 框架的运行时与恢复约束。", category: "ai-engineering", dossierIds: ["fixture-runtime"] },
+        { id: "thread-evaluation", title: "真实任务评测", description: "跟踪工具变化是否改善真实任务轨迹。", category: "zxlab", dossierIds: ["fixture-evaluation"] },
+      ],
       items: [{
         itemType: "lead",
         category: "ai-engineering",
@@ -84,6 +88,7 @@ describe("ZX Signal intelligence loop", () => {
 
     const first = await generator.generate({ date, candidates, dataOrigin: "fixture" });
     expect(first.briefing.items[0]?.whyItMatters).toBe("需要先验证这个工具是否适合 zxlab。");
+    expect(first.briefing.longTermThreads.map((thread) => thread.id)).toEqual(["thread-runtime-fit", "thread-evaluation"]);
 
     const annotationId = crypto.randomUUID();
     const candidateId = crypto.randomUUID();
@@ -142,6 +147,34 @@ describe("ZX Signal intelligence loop", () => {
     expect(() => parseGeneratedBriefingDraft({
       title: "Shallow lead", summary: "The lead lacks required depth.", items: [{ ...base, itemType: "lead" }],
     }, sourceIds)).toThrow(/broaderContext/);
+  });
+
+  it("keeps two to four evidenced long-term threads without failing the briefing", () => {
+    const sourceIds = new Set(["fixture-node-framework"]);
+    const dossierIds = new Set(["dossier-1", "dossier-2", "dossier-3", "dossier-4", "dossier-5"]);
+    const lead = {
+      itemType: "lead", category: "zxlab", title: "A durable lead", lede: "A durable lead lede.",
+      nutGraf: "The lead establishes significance.", keyFacts: ["One supported fact."], broaderContext: "Historical context.",
+      implications: "The implications are material.", counterpoint: "The evidence remains incomplete.", watchNext: "Track the next confirmed event.",
+      importance: 90, confidence: 85, sourceIds: ["fixture-node-framework"],
+    };
+    const thread = (index: number, dossierId = `dossier-${index}`) => ({
+      title: `Recurring theme ${index}`, description: `Track the confirmed condition for theme ${index}.`,
+      category: "zxlab", dossierIds: [dossierId],
+    });
+    const parsed = parseGeneratedBriefingDraft({
+      title: "Threaded briefing", summary: "Recurring themes are separated from today's stories.",
+      longTermThreads: [thread(1), thread(2, "unknown-dossier"), thread(3), thread(4), thread(5)], items: [lead],
+    }, sourceIds, dossierIds);
+    expect(parsed.longTermThreads).toHaveLength(3);
+    expect(parsed.longTermThreads.map((item) => item.dossierIds[0])).toEqual(["dossier-1", "dossier-3", "dossier-4"]);
+    expect(new Set(parsed.longTermThreads.map((item) => item.id)).size).toBe(3);
+
+    const fallback = parseGeneratedBriefingDraft({
+      title: "Fallback briefing", summary: "Only one thread survived validation.",
+      longTermThreads: [thread(1), thread(2, "unknown-dossier")], items: [lead],
+    }, sourceIds, dossierIds);
+    expect(fallback.longTermThreads).toEqual([]);
   });
 
   it("streams annotation replies before the final memory candidate", async () => {

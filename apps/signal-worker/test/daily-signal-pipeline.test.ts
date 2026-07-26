@@ -76,6 +76,7 @@ class PipelineLLM implements SignalLLM {
     return {
       title: "每日自动 Signal",
       summary: "定时采集与生成链路已完成。",
+      longTermThreads: [],
       items: [{
         itemType: "lead",
         category: "zxlab",

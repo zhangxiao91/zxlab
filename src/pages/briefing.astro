@@ -6,6 +6,7 @@ import BriefingItemCard from "../features/briefing/components/BriefingItemCard.a
 import BriefingStateView from "../features/briefing/components/BriefingStateView.astro";
 import BriefingStats from "../features/briefing/components/BriefingStats.astro";
 import { getLatestBriefing } from "../features/briefing/client";
+import { resolveLongTermThreads } from "../features/briefing/long-term-threads";
 import type { DailyBriefing } from "../features/briefing/types";
 import "../styles/briefing.css";
 
@@ -23,15 +24,11 @@ try {
     promptVersion: "unavailable",
     dataOrigin: "real" as const,
     stats: { fetched: 0, deduplicated: 0, selected: 0 },
+    longTermThreads: [],
     items: [],
   };
 }
-const longTermThreads = [
-  ["Agent 工作流", "观察持久化状态、幂等重试与人工恢复边界。"],
-  ["存储芯片周期", "交叉验证库存、资本开支与产能迁移。"],
-  ["zxlab 基础设施", "追踪边缘运行适配、数据边界与成本上限。"],
-  ["低成本 Benchmark", "用真实开发轨迹检验 prompt、memory 与工具变化。"],
-];
+const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
 ---
 
 <Layout
@@ -78,15 +75,15 @@ const longTermThreads = [
           </div>
         </section>
 
-        <section class="signal-threads" aria-labelledby="threads-title">
+        <section class="signal-threads" aria-labelledby="threads-title" data-long-term-threads data-thread-origin={resolvedThreads.usingDefault ? "default" : "generated"}>
           <div class="signal-threads__heading">
-            <p>长期线索</p>
+            <p>长期线索 <span data-default-thread-label hidden={!resolvedThreads.usingDefault}>默认线索</span></p>
             <h2 id="threads-title">今天的变化，之后会连成线。</h2>
           </div>
-          <div class="signal-accordion">
-            {longTermThreads.map(([title, description]) => (
-              <article tabindex="0">
-                <div><h3>{title}</h3><p>{description}</p></div>
+          <div class="signal-accordion" data-thread-list style={`--thread-count: ${resolvedThreads.threads.length}`}>
+            {resolvedThreads.threads.map((thread) => (
+              <article tabindex="0" data-thread-id={thread.id} data-thread-category={thread.category}>
+                <div><h3>{thread.title}</h3><p>{thread.description}</p></div>
                 <i aria-hidden="true"></i>
               </article>
             ))}
@@ -112,6 +109,7 @@ const longTermThreads = [
       getMemories,
       updateMemoryCandidate,
     } from "../features/briefing/client";
+    import { resolveLongTermThreads } from "../features/briefing/long-term-threads";
     import { briefingSessionStore } from "../features/briefing/store";
     import type {
       AnnotationAction,
@@ -420,6 +418,18 @@ const longTermThreads = [
       </article>`;
     };
 
+    const renderLongTermThreads = (briefing: DailyBriefing) => {
+      const resolved = resolveLongTermThreads(briefing.longTermThreads);
+      const section = document.querySelector<HTMLElement>("[data-long-term-threads]");
+      const label = section?.querySelector<HTMLElement>("[data-default-thread-label]");
+      const list = section?.querySelector<HTMLElement>("[data-thread-list]");
+      if (!section || !label || !list) return;
+      section.dataset.threadOrigin = resolved.usingDefault ? "default" : "generated";
+      label.hidden = !resolved.usingDefault;
+      list.style.setProperty("--thread-count", String(resolved.threads.length));
+      list.innerHTML = resolved.threads.map((thread) => `<article tabindex="0" data-thread-id="${escapeHtml(thread.id)}" data-thread-category="${thread.category}"><div><h3>${escapeHtml(thread.title)}</h3><p>${escapeHtml(thread.description)}</p></div><i aria-hidden="true"></i></article>`).join("");
+    };
+
     const renderBriefing = (briefing: DailyBriefing) => {
       briefingId = briefing.id;
       if (briefingPage) {
@@ -453,6 +463,7 @@ const longTermThreads = [
         const empty = stream.querySelector<HTMLElement>("[data-filter-empty]");
         empty?.insertAdjacentHTML("beforebegin", briefing.items.map(itemCard).join(""));
       }
+      renderLongTermThreads(briefing);
       setPreviewState(briefing.status);
       applyReadingFilters();
     };

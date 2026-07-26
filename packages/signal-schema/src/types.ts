@@ -23,6 +23,14 @@ export interface BriefingSource {
   publishedAt?: string;
 }
 
+export interface LongTermThread {
+  id: string;
+  title: string;
+  description: string;
+  category: BriefingCategory;
+  dossierIds: string[];
+}
+
 export interface BriefingItem {
   id: string;
   itemType?: BriefingItemType;
@@ -61,6 +69,7 @@ export interface DailyBriefing {
     deduplicated: number;
     selected: number;
   };
+  longTermThreads: LongTermThread[];
   items: BriefingItem[];
 }
 
@@ -285,6 +294,7 @@ export interface SignalErrorResponse {
 export interface GeneratedBriefingDraft {
   title: string;
   summary: string;
+  longTermThreads: LongTermThread[];
   items: Array<{
     itemType: BriefingItemType;
     category: BriefingCategory;
