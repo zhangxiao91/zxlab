@@ -65,7 +65,9 @@ const runtimeApiBase = String(import.meta.env.PUBLIC_RUNTIME_API_BASE ?? (import
       if (module.id === "memory") body.innerHTML = `${indicator(module.status)}<dl><div><dt>Active</dt><dd>${escapeHtml(data.activeCount)}</dd></div><div><dt>Review queue</dt><dd>${escapeHtml(data.proposedCount)}</dd></div></dl><p>${escapeHtml(module.summary)}</p>`;
       if (module.id === "agents") {
         const agents = Array.isArray(data.agents) ? data.agents : [];
-        body.innerHTML = `<ul class="device-list">${agents.map((agent: any) => `<li class="device-item" data-device-state="${escapeHtml(agent.state ?? "unknown")}"><div><h3>${escapeHtml(agent.name ?? "Remote agent")}</h3><p>${escapeHtml(agent.platform ?? agent.type ?? "managed device")}</p></div>${indicator(agent.state ?? "online")}<div><p>${escapeHtml(agent.activity?.label ?? "Heartbeat reported")}</p></div></li>`).join("")}</ul>`;
+        body.innerHTML = agents.length
+          ? `<ul class="device-list">${agents.map((agent: any) => `<li class="device-item" data-device-state="${escapeHtml(agent.state ?? "unknown")}"><div><h3>${escapeHtml(agent.name ?? "Remote agent")}</h3><p>${escapeHtml(agent.platform ?? agent.type ?? "managed device")}</p></div>${indicator(agent.state ?? "online")}<div><p>${escapeHtml(agent.activity?.label ?? "Heartbeat reported")}</p></div></li>`).join("")}</ul>`
+          : `<h3>No agents have reported yet.</h3><p>The source is connected and currently reports zero public agents.</p>`;
       }
       if (module.id === "usage") {
         const limits = Array.isArray(data.limits) ? data.limits : [];
