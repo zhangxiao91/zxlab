@@ -133,6 +133,18 @@
   color: #151611;
 }
 
+.strudel-embed__feedback {
+  width: 100%;
+  margin: .55rem 0 0;
+  color: #696a62;
+  font-size: .68rem;
+  text-align: right;
+}
+
+.strudel-embed__feedback[data-kind="pending"] { color: #795e00; }
+.strudel-embed__feedback[data-kind="live"] { color: #456f30; }
+.strudel-embed__feedback[data-kind="error"] { color: #9c332b; }
+
 .strudel-embed__play-icon {
   width: 0;
   height: 0;

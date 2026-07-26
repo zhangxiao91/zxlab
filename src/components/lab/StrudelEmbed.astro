@@ -31,6 +31,7 @@ const defaultUrl = createStrudelUrl(defaultPreset.source);
       <button type="button" data-strudel-fullscreen aria-pressed="false">Fullscreen</button>
       <a href={defaultUrl} data-strudel-open target="_blank" rel="noreferrer">Open on Strudel<span aria-hidden="true">↗</span></a>
     </div>
+    <p class="strudel-embed__feedback" data-strudel-feedback role="status" aria-live="polite">Ready to play</p>
   </header>
 
   <nav class="strudel-embed__presets" aria-label="Strudel presets">
@@ -122,6 +123,7 @@ const defaultUrl = createStrudelUrl(defaultPreset.source);
     const editorElement = root.querySelector<StrudelEditorElement>("[data-strudel-editor]");
     const play = root.querySelector<HTMLButtonElement>("[data-strudel-play]");
     const stop = root.querySelector<HTMLButtonElement>("[data-strudel-stop]");
+    const feedback = root.querySelector<HTMLElement>("[data-strudel-feedback]");
     const reset = root.querySelector<HTMLButtonElement>("[data-strudel-reset]");
     const fullscreen = root.querySelector<HTMLButtonElement>("[data-strudel-fullscreen]");
     const stateText = root.querySelector<HTMLElement>("[data-strudel-state-text]");
@@ -144,6 +146,7 @@ const defaultUrl = createStrudelUrl(defaultPreset.source);
     let getAudioController: (() => StrudelAudioController) | null = null;
     let initializeAudio: (() => Promise<void>) | null = null;
     let editorReady = false;
+    let lastEvaluationError: string | null = null;
     let lastSignalLabel = "";
     let lastReducedFrame = 0;
     let activePresetId = root.dataset.defaultPreset ?? "";
@@ -180,6 +183,12 @@ const defaultUrl = createStrudelUrl(defaultPreset.source);
         play.setAttribute("aria-pressed", String(started));
       }
       if (stop) stop.disabled = !editorReady || !started;
+    };
+
+    const setPlaybackFeedback = (message: string, kind: "idle" | "pending" | "live" | "error" = "idle") => {
+      if (!feedback) return;
+      feedback.textContent = message;
+      feedback.dataset.kind = kind;
     };
 
     const connectAnalyser = () => {
@@ -276,6 +285,7 @@ const defaultUrl = createStrudelUrl(defaultPreset.source);
       editorElement.editor?.stop?.();
       editorElement.editor?.setCode(presetMap.get(activePresetId) ?? presets[0].source);
       setPlaybackState(false);
+      setPlaybackFeedback("Ready to play");
       stateText?.focus({ preventScroll: true });
     };
 
@@ -316,10 +326,21 @@ const defaultUrl = createStrudelUrl(defaultPreset.source);
     reset?.addEventListener("click", resetEditor, { signal: controller.signal });
     play?.addEventListener("click", async () => {
       if (!editorElement.editor?.evaluate || !initializeAudio) return;
+      lastEvaluationError = null;
       setPlaybackState(false, true);
+      setPlaybackFeedback("Starting audio...", "pending");
       try {
-        await initializeAudio();
-        await editorElement.editor.evaluate();
+        const resumeAudio = audioContext?.state === "suspended" ? audioContext.resume() : Promise.resolve();
+        await Promise.all([initializeAudio(), resumeAudio]);
+        await editorElement.editor.evaluate(true);
+        if (root.dataset.playing !== "true" && !lastEvaluationError) {
+          await new Promise((resolve) => window.setTimeout(resolve, 120));
+          await editorElement.editor.evaluate(true);
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Audio could not start.";
+        lastEvaluationError = message;
+        setPlaybackFeedback(message, "error");
       } finally {
         setPlaybackState(root.dataset.playing === "true");
       }
@@ -327,10 +348,19 @@ const defaultUrl = createStrudelUrl(defaultPreset.source);
     stop?.addEventListener("click", async () => {
       await editorElement.editor?.stop?.();
       setPlaybackState(false);
+      setPlaybackFeedback("Stopped");
     }, { signal: controller.signal });
     editorElement.addEventListener("update", (event) => {
-      const detail = (event as CustomEvent<{ started?: boolean; pending?: boolean }>).detail;
+      const detail = (event as CustomEvent<{ started?: boolean; pending?: boolean; error?: Error }>).detail;
       setPlaybackState(Boolean(detail?.started), Boolean(detail?.pending));
+      if (detail?.error) {
+        lastEvaluationError = detail.error.message || "The pattern could not be evaluated.";
+        setPlaybackFeedback(lastEvaluationError, "error");
+      } else if (detail?.pending) {
+        setPlaybackFeedback("Evaluating pattern...", "pending");
+      } else if (detail?.started) {
+        setPlaybackFeedback("Playing", "live");
+      }
     }, { signal: controller.signal });
     presetButtons.forEach((button) => {
       button.addEventListener("click", () => setActivePreset(button.dataset.strudelPreset ?? ""), { signal: controller.signal });
