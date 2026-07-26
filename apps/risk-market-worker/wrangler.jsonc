@@ -9,5 +9,6 @@
     "logs": { "enabled": true, "head_sampling_rate": 1 },
     "traces": { "enabled": true, "head_sampling_rate": 0.05 }
   },
-  "workers_dev": true
+  "workers_dev": true,
+  "secrets": { "required": ["ZX_RUNTIME_SERVICE_TOKEN"] }
 }

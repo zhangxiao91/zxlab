@@ -1,93 +1,39 @@
----
-import type { StatusSnapshot } from "../../status/types";
-import CodexUsagePanel from "./CodexUsagePanel.astro";
-import StatusIndicator from "./StatusIndicator.astro";
-import StatusState from "./StatusState.astro";
-import LLMGatewayPanel from "./LLMGatewayPanel.astro";
-
-interface Props { snapshot: StatusSnapshot; }
-const { snapshot } = Astro.props;
-const usage = snapshot.usage.data;
-const devices = snapshot.devices.data ?? [];
-const activity = snapshot.activity.data ?? [];
-const dateFormatter = new Intl.DateTimeFormat("en", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
----
-
-<div class="status-dashboard" data-status-dashboard data-overall-state={snapshot.overall.state} data-stale={String(snapshot.overall.stale)}>
+<div class="status-dashboard" data-status-dashboard data-overall-state="unknown" data-stale="true">
   <section class="status-overall" aria-labelledby="overall-title" aria-live="polite">
     <div>
-      <StatusIndicator state={snapshot.overall.state} label={snapshot.overall.label} role="overall" />
-      <h2 id="overall-title" data-overall-label>{snapshot.overall.label}</h2>
-      <p data-overall-message>{snapshot.overall.message}</p>
+      <span class="status-indicator" data-status-indicator="overall" data-state="unknown"><span aria-hidden="true"></span><span data-indicator-label>Connecting</span></span>
+      <h2 id="overall-title" data-overall-label>Connecting to Runtime.</h2>
+      <p data-overall-message>Retrieving the latest privacy-filtered service snapshot.</p>
     </div>
     <dl>
-      <div><dt>Source</dt><dd data-source-label>{snapshot.source}</dd></div>
-      <div><dt>Freshness</dt><dd data-freshness>{snapshot.overall.stale ? "Stale demo snapshot" : "Fresh demo snapshot"}</dd></div>
-      <div>
-        <dt>Updated</dt>
-        <dd><time data-updated-at data-relative-time datetime={snapshot.updatedAt}>{dateFormatter.format(new Date(snapshot.updatedAt))}</time></dd>
-      </div>
+      <div><dt>Source</dt><dd data-source-label>Runtime control plane</dd></div>
+      <div><dt>Freshness</dt><dd data-freshness>Waiting for first snapshot</dd></div>
+      <div><dt>Updated</dt><dd><time data-updated-at>Unavailable</time></dd></div>
     </dl>
-    <button class="status-refresh" type="button" data-status-refresh>
-      <span>Refresh demo</span><span aria-hidden="true">↻</span>
-    </button>
+    <button class="status-refresh" type="button" data-status-refresh><span>Refresh status</span><span aria-hidden="true">↻</span></button>
   </section>
 
-  <div class="status-module-grid">
-    <section class="status-module status-usage" data-status-module="usage" data-module-state={snapshot.usage.state} aria-labelledby="usage-title">
-      <header><div><p>Codex account telemetry</p><h2 id="usage-title">Usage</h2></div><span data-usage-provider>{snapshot.usage.source}</span></header>
-      <div data-module-ready hidden={snapshot.usage.state !== "ready"}>
-        {usage && <CodexUsagePanel usage={usage} isMock={snapshot.isMock} />}
-      </div>
-      <StatusState hidden={snapshot.usage.state === "ready"} title="Usage unavailable" message={snapshot.usage.message} />
+  <div class="status-module-grid" data-module-list>
+    <section class="status-module status-runtime" data-status-module="runtime" data-module-state="loading">
+      <header><div><p>Core service plane</p><h2>Runtime</h2></div><span data-module-source>Live probes</span></header>
+      <div class="runtime-module-body" data-module-body><p>Waiting for Runtime telemetry.</p></div>
     </section>
-
-    <section class="status-module status-devices" data-status-module="devices" data-module-state={snapshot.devices.state} aria-labelledby="devices-title">
-      <header><div><p>Public, filtered fields</p><h2 id="devices-title">Devices</h2></div><span data-device-provider>Demo nodes</span></header>
-      <div data-module-ready hidden={snapshot.devices.state !== "ready"}>
-        <ul class="device-list" data-device-list>
-          {devices.map((device) => (
-            <li class="device-item" data-device-state={device.state}>
-              <div><h3>{device.name}</h3><p>{device.type}</p></div>
-              <StatusIndicator state={device.state} label={device.state} />
-              <div>
-                {device.lastSeen ? (
-                  <time data-relative-time data-prefix="Last seen " datetime={device.lastSeen}>Last seen {dateFormatter.format(new Date(device.lastSeen))}</time>
-                ) : <p>Last seen unavailable</p>}
-                {device.publicTask && <p>{device.publicTask}</p>}
-                {device.latencyMs !== undefined && <p>{device.latencyMs} ms demo latency</p>}
-              </div>
-            </li>
-          ))}
-        </ul>
-      </div>
-      <StatusState hidden={snapshot.devices.state === "ready"} title="Devices unavailable" message={snapshot.devices.message} />
+    <section class="status-module status-memory" data-status-module="memory" data-module-state="loading">
+      <header><div><p>Canonical context</p><h2>Memory</h2></div><span data-module-source>Signal D1</span></header>
+      <div class="runtime-module-body" data-module-body><p>Waiting for Memory telemetry.</p></div>
+    </section>
+    <section class="status-module status-agents" data-status-module="agents" data-module-state="loading">
+      <header><div><p>Privacy-filtered pulse</p><h2>Agents</h2></div><span data-module-source>zxtoolkit</span></header>
+      <div class="runtime-module-body" data-module-body><p>Waiting for agent presence.</p></div>
+    </section>
+    <section class="status-module status-usage" data-status-module="usage" data-module-state="loading">
+      <header><div><p>Codex account telemetry</p><h2>Usage</h2></div><span data-module-source>Private collector</span></header>
+      <div class="runtime-module-body" data-module-body><p>Waiting for usage telemetry.</p></div>
     </section>
   </div>
 
-  <LLMGatewayPanel />
-
-  <section class="status-module status-activity" data-status-module="activity" data-module-state={snapshot.activity.state} aria-labelledby="activity-title">
-    <header><div><p>Public development trail</p><h2 id="activity-title">Latest activity</h2></div><span data-activity-provider>Demo feed</span></header>
-    <div data-module-ready hidden={snapshot.activity.state !== "ready"}>
-      <ol class="activity-list" data-activity-list>
-        {activity.map((item) => (
-          <li>
-            {item.href ? (
-              <a href={item.href}>
-                <div><span>{item.type}</span><time data-relative-time datetime={item.timestamp}>{dateFormatter.format(new Date(item.timestamp))}</time></div>
-                <h3>{item.title}</h3>{item.description && <p>{item.description}</p>}
-              </a>
-            ) : (
-              <div>
-                <div><span>{item.type}</span><time data-relative-time datetime={item.timestamp}>{dateFormatter.format(new Date(item.timestamp))}</time></div>
-                <h3>{item.title}</h3>{item.description && <p>{item.description}</p>}
-              </div>
-            )}
-          </li>
-        ))}
-      </ol>
-    </div>
-    <StatusState hidden={snapshot.activity.state === "ready"} title="Activity unavailable" message={snapshot.activity.message} />
+  <section class="status-module status-activity" data-status-module="activity">
+    <header><div><p>Observed transitions</p><h2>Latest activity</h2></div><span>Runtime history</span></header>
+    <ol class="activity-list" data-activity-list><li><div><span>Connecting</span><time>Now</time></div><h3>Waiting for the first recorded transition.</h3></li></ol>
   </section>
 </div>

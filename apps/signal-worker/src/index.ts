@@ -9,6 +9,51 @@ import { handleMemories } from "./routes/memories";
 import { handleMemoryApi } from "./memory/api/routes";
 import { DailySignalPipeline } from "./services/daily-signal-pipeline";
 
+async function internalTokenValid(request: Request, env: Env): Promise<boolean> {
+  const provided = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
+  const expected = String(env.ZX_RUNTIME_SERVICE_TOKEN ?? "");
+  if (!provided || !expected) return false;
+  const encoder = new TextEncoder();
+  const [left, right] = await Promise.all([
+    crypto.subtle.digest("SHA-256", encoder.encode(provided)),
+    crypto.subtle.digest("SHA-256", encoder.encode(expected)),
+  ]);
+  return new Uint8Array(left).every((value, index) => value === new Uint8Array(right)[index]);
+}
+
+async function runtimeHealth(request: Request, env: Env): Promise<Response> {
+  if (!await internalTokenValid(request, env)) throw new SignalError("UNAUTHORIZED", "Runtime service token is required", 401);
+  const startedAt = Date.now();
+  await env.DB.prepare("SELECT 1 ok").first();
+  const [active, proposed, lastWrite, lastConsolidation] = await Promise.all([
+    env.DB.prepare("SELECT COUNT(*) count FROM memory_items WHERE status = 'active' AND (expires_at IS NULL OR expires_at > ?)").bind(new Date().toISOString()).first<{ count: number }>(),
+    env.DB.prepare("SELECT COUNT(*) count FROM memory_consolidation_candidates WHERE status = 'proposed'").first<{ count: number }>(),
+    env.DB.prepare("SELECT MAX(updated_at) value FROM memory_items").first<{ value: string | null }>(),
+    env.DB.prepare("SELECT MAX(created_at) value FROM memory_consolidation_candidates").first<{ value: string | null }>(),
+  ]);
+  const generatedAt = new Date().toISOString();
+  return json({
+    schemaVersion: "1",
+    serviceId: "signal",
+    status: "operational",
+    version: "signal-worker",
+    generatedAt,
+    checks: [
+      { id: "worker", status: "operational" },
+      { id: "d1", status: "operational", latencyMs: Date.now() - startedAt, lastSuccessAt: generatedAt },
+      { id: "memory", status: "operational", lastSuccessAt: lastWrite?.value ?? generatedAt },
+    ],
+    public: {
+      memory: {
+        activeCount: active?.count ?? 0,
+        proposedCount: proposed?.count ?? 0,
+        lastWriteAt: lastWrite?.value ?? null,
+        lastConsolidationAt: lastConsolidation?.value ?? null,
+      },
+    },
+  });
+}
+
 async function refreshStaticBriefing(env: Env): Promise<"triggered" | "not-configured"> {
   if (!env.PAGES_DEPLOY_HOOK_URL) return "not-configured";
   const response = await fetch(env.PAGES_DEPLOY_HOOK_URL, { method: "POST" });
@@ -35,6 +80,7 @@ export default {
     try {
       if (request.method === "OPTIONS") return withCors(new Response(null, { status: 204 }), request, env);
       if (request.method === "GET" && url.pathname === "/health") return withCors(json({ ok: true, service: "zx-signal" }), request, env);
+      if (request.method === "GET" && url.pathname === "/internal/runtime/health") return runtimeHealth(request, env);
       if (isProtected(request, url.pathname)) await requireWriteAccess(request, env, url.pathname);
       const response = await handleBriefingRead(url.pathname, env)
         ?? await handleCollection(request, url, env)

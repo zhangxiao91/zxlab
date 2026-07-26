@@ -1,7 +1,7 @@
 import type { AnnotationInput, AnnotationResponse, MemoryCandidate } from "@zxlab/signal-schema";
 import { AnnotationRepository } from "../repositories/annotation-repository";
 import type { SignalLLM } from "./llm";
-import { MemoryRepository } from "./memory-repository";
+import { MemoryService } from "../memory/service/memory-service";
 
 export interface AnnotationResponseObserver {
   replyDelta?(text: string): void;
@@ -11,16 +11,34 @@ export interface AnnotationResponseObserver {
 
 export class AnnotationResponder {
   private readonly annotations: AnnotationRepository;
-  private readonly memories: MemoryRepository;
+  private readonly memories: MemoryService;
 
   constructor(private readonly env: Env, private readonly llm: SignalLLM) {
     this.annotations = new AnnotationRepository(env.DB);
-    this.memories = new MemoryRepository(env.DB);
+    this.memories = new MemoryService(env.DB);
   }
 
   async respond(input: AnnotationInput, observer: AnnotationResponseObserver = {}): Promise<AnnotationResponse> {
     const item = await this.annotations.getItemContext(input.briefingId, input.briefingItemId);
-    const relevantMemories = await this.memories.relevantTo(`${item.title}\n${item.summary}\n${input.selectedText}\n${input.comment}`);
+    const retrieved = await this.memories.retrieve({
+      task: "signal-annotation-reply",
+      namespaces: ["briefing", "zxlab", "global"],
+      query: `${item.title}\n${item.summary}\n${input.selectedText}\n${input.comment}`,
+      limit: 8,
+      tokenBudget: 1_200,
+    });
+    const relevantMemories = retrieved.memories.map((memory) => ({
+      id: memory.id,
+      scope: memory.kind === "preference" ? "preference" as const : "project" as const,
+      scopeKey: memory.namespace,
+      content: memory.content,
+      confidence: memory.confidence,
+      status: "active" as const,
+      createdAt: memory.createdAt,
+      updatedAt: memory.updatedAt,
+      lastConfirmedAt: memory.updatedAt,
+      expiresAt: memory.expiresAt,
+    }));
     const annotationId = crypto.randomUUID();
     const createdAt = new Date().toISOString();
     const replyDraft = await this.llm.replyToAnnotation(

@@ -1,14 +1,118 @@
 ---
 import Layout from "../layouts/Layout.astro";
-import SystemStatusDashboard from "../components/status/SystemStatusDashboard.astro";
+import StatusDashboard from "../components/status/StatusDashboard.astro";
+import "../styles/lab-status-shell.css";
 import "../styles/status.css";
+
+const runtimeApiBase = String(import.meta.env.PUBLIC_RUNTIME_API_BASE ?? (import.meta.env.DEV ? "http://localhost:8790" : "https://runtime-api.zx-dx.xyz")).replace(/\/$/, "");
 ---
-<Layout title="Status | zxlab" description="Current health for zxlab systems and services.">
-  <main class="status-page">
+
+<Layout title="Status | zxlab" description="A public, privacy-filtered control room for ZXLab runtime, Memory, agents, and tool usage.">
+  <main class="status-page overflow-x-hidden" data-runtime-api={runtimeApiBase}>
     <section class="status-hero" aria-labelledby="status-title">
-      <div class="status-hero__copy"><p class="status-kicker">System control room</p><h1 id="status-title">A clear view of what is running.</h1><p class="status-hero__intro">Remote agents, memory, and the zxlab runtime in one privacy-aware status surface.</p></div>
+      <div class="status-hero__copy">
+        <p class="status-kicker">ZX control room</p>
+        <h1 id="status-title">Public signals, <span class="status-title-image" role="img" aria-label="Abstract control surface"></span> private boundaries.</h1>
+        <p class="status-hero__intro">A live view of runtime health, canonical Memory, safe device presence, and account usage. Unavailable data stays explicitly unavailable.</p>
+      </div>
+      <aside class="status-source-panel" aria-label="Status source" data-status-source-notice>
+        <span aria-hidden="true"></span>
+        <p>Runtime control plane</p>
+        <h2 data-status-notice-title>Connecting to verified sources.</h2>
+        <p data-status-notice-message>Only normalized health, allowlisted aliases, and coarse telemetry reach this public surface.</p>
+      </aside>
     </section>
-    <section class="status-dashboard-section" aria-label="zxlab system status"><SystemStatusDashboard /></section>
-    <section class="status-cta" aria-labelledby="status-cta-title"><p>System signal, with boundaries intact.</p><h2 id="status-cta-title">Move from the control room into the experiments.</h2><a class="status-button" href="/lab">Open Lab <span aria-hidden="true">↗</span></a></section>
+
+    <section class="status-dashboard-section" aria-label="ZXLab public status dashboard"><StatusDashboard /></section>
+
+    <section class="status-privacy" aria-labelledby="privacy-title">
+      <p>Public by design</p>
+      <div><h2 id="privacy-title">Enough signal to be useful. No private network details.</h2><p>Credentials, addresses, prompts, Memory content, private topology, and raw provider responses remain inside their owning services.</p></div>
+    </section>
+
+    <section class="status-cta" aria-labelledby="status-cta-title"><p>Status explains the surface. Lab holds what comes next.</p><h2 id="status-cta-title">Move from the control room into the experiments.</h2><a class="status-button" href="/lab"><span>Open Lab</span><span aria-hidden="true">↗</span></a></section>
   </main>
+
+  <script>
+    import gsap from "gsap";
+    import { ScrollTrigger } from "gsap/ScrollTrigger";
+    import type { PublicModule, RuntimePublicSnapshot } from "@zxlab/runtime-schema";
+    gsap.registerPlugin(ScrollTrigger);
+
+    const page = document.querySelector<HTMLElement>("[data-runtime-api]");
+    const dashboard = document.querySelector<HTMLElement>("[data-status-dashboard]");
+    const refresh = document.querySelector<HTMLButtonElement>("[data-status-refresh]");
+    const apiBase = page?.dataset.runtimeApi ?? "";
+    const escapeHtml = (value: unknown) => String(value ?? "").replace(/[&<>\"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" })[character]!);
+    const relative = (value: string) => {
+      const seconds = Math.round((Date.parse(value) - Date.now()) / 1000);
+      const formatter = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
+      if (Math.abs(seconds) < 60) return formatter.format(seconds, "second");
+      const minutes = Math.round(seconds / 60);
+      if (Math.abs(minutes) < 60) return formatter.format(minutes, "minute");
+      return formatter.format(Math.round(minutes / 60), "hour");
+    };
+    const indicator = (state: string) => `<span class="status-indicator" data-state="${escapeHtml(state)}"><span aria-hidden="true"></span><span>${escapeHtml(state)}</span></span>`;
+
+    function renderModule(module: PublicModule) {
+      const root = document.querySelector<HTMLElement>(`[data-status-module="${module.id}"]`);
+      const body = root?.querySelector<HTMLElement>("[data-module-body]");
+      if (!root || !body) return;
+      root.dataset.moduleState = module.data ? "ready" : "unavailable";
+      if (!module.data) { body.innerHTML = `${indicator(module.status)}<h3>${escapeHtml(module.summary)}</h3><p>No substitute data is shown.</p>`; return; }
+      const data = module.data as Record<string, any>;
+      if (module.id === "runtime") body.innerHTML = `${indicator(module.status)}<strong>${escapeHtml(data.operational)} / ${escapeHtml(data.total)}</strong><p>${escapeHtml(module.summary)}</p>`;
+      if (module.id === "memory") body.innerHTML = `${indicator(module.status)}<dl><div><dt>Active</dt><dd>${escapeHtml(data.activeCount)}</dd></div><div><dt>Review queue</dt><dd>${escapeHtml(data.proposedCount)}</dd></div></dl><p>${escapeHtml(module.summary)}</p>`;
+      if (module.id === "agents") {
+        const agents = Array.isArray(data.agents) ? data.agents : [];
+        body.innerHTML = `<ul class="device-list">${agents.map((agent: any) => `<li class="device-item" data-device-state="${escapeHtml(agent.state ?? "unknown")}"><div><h3>${escapeHtml(agent.name ?? "Remote agent")}</h3><p>${escapeHtml(agent.platform ?? agent.type ?? "managed device")}</p></div>${indicator(agent.state ?? "online")}<div><p>${escapeHtml(agent.activity?.label ?? "Heartbeat reported")}</p></div></li>`).join("")}</ul>`;
+      }
+      if (module.id === "usage") {
+        const limits = Array.isArray(data.limits) ? data.limits : [];
+        body.innerHTML = `<div class="usage-source-line"><span>Live collector data</span><time>${module.updatedAt ? relative(module.updatedAt) : "Unavailable"}</time></div><div class="usage-limits">${limits.map((limit: any) => `<article class="usage-limit-card"><div class="usage-limit-card__top"><p>${escapeHtml(limit.label)}</p><strong>${limit.usedPercent == null ? "--" : `${Math.round(limit.usedPercent)}%`}</strong></div><div class="usage-limit-track"><span style="--usage-progress:${Math.max(0, Math.min(100, Number(limit.usedPercent ?? 0)))}%"></span></div><div class="usage-limit-card__meta"><span>${escapeHtml(limit.windowMinutes ? `${limit.windowMinutes} min window` : "Current window")}</span><span>${escapeHtml(limit.resetsAt ? `Resets ${relative(limit.resetsAt)}` : "Reset unavailable")}</span></div></article>`).join("") || "<p>No current limit windows.</p>"}</div>`;
+      }
+    }
+
+    function render(data: RuntimePublicSnapshot) {
+      if (!dashboard) return;
+      dashboard.dataset.overallState = data.overall.status;
+      dashboard.dataset.stale = String(data.overall.stale);
+      const overall = dashboard.querySelector<HTMLElement>("[data-status-indicator='overall']");
+      if (overall) overall.dataset.state = data.overall.status;
+      const label = dashboard.querySelector<HTMLElement>("[data-indicator-label]"); if (label) label.textContent = data.overall.status;
+      const title = dashboard.querySelector<HTMLElement>("[data-overall-label]"); if (title) title.textContent = data.overall.status === "operational" ? "All public systems are operational." : "Some systems need attention.";
+      const message = dashboard.querySelector<HTMLElement>("[data-overall-message]"); if (message) message.textContent = data.overall.summary;
+      const freshness = dashboard.querySelector<HTMLElement>("[data-freshness]"); if (freshness) freshness.textContent = data.overall.stale ? "Stale live snapshot" : "Fresh live snapshot";
+      const updated = dashboard.querySelector<HTMLTimeElement>("[data-updated-at]"); if (updated) { updated.dateTime = data.generatedAt; updated.textContent = relative(data.generatedAt); }
+      data.modules.forEach(renderModule);
+      const activity = dashboard.querySelector<HTMLOListElement>("[data-activity-list]");
+      if (activity) activity.innerHTML = data.activities.length ? data.activities.map((item) => `<li><div><span>${escapeHtml(item.type.replaceAll("-", " "))}</span><time datetime="${escapeHtml(item.createdAt)}">${escapeHtml(relative(item.createdAt))}</time></div><h3>${escapeHtml(item.title)}</h3></li>`).join("") : "<li><div><span>Stable</span><time>Now</time></div><h3>No recent status transitions.</h3></li>";
+      const noticeTitle = document.querySelector<HTMLElement>("[data-status-notice-title]"); if (noticeTitle) noticeTitle.textContent = data.overall.stale ? "Live sources are stale." : "Verified live sources are connected.";
+    }
+
+    async function load() {
+      if (!apiBase || !dashboard) return;
+      refresh?.setAttribute("disabled", "");
+      try {
+        const response = await fetch(`${apiBase}/api/v1/public/status`, { headers: { Accept: "application/json" }, cache: "no-store" });
+        if (!response.ok) throw new Error(`Runtime API returned ${response.status}`);
+        render(await response.json() as RuntimePublicSnapshot);
+      } catch {
+        dashboard.dataset.overallState = "unknown";
+        const title = dashboard.querySelector<HTMLElement>("[data-overall-label]"); if (title) title.textContent = "Live status is unavailable.";
+        const message = dashboard.querySelector<HTMLElement>("[data-overall-message]"); if (message) message.textContent = "The Runtime control plane could not be reached. This source remains unavailable.";
+      } finally { refresh?.removeAttribute("disabled"); }
+    }
+
+    refresh?.addEventListener("click", () => void load());
+    void load();
+    const timer = window.setInterval(() => { if (!document.hidden) void load(); }, 60_000);
+    const motion = gsap.matchMedia();
+    motion.add("(prefers-reduced-motion: no-preference)", () => {
+      gsap.from(".status-hero__copy > *, .status-source-panel", { y: 48, opacity: 0, duration: 1.05, stagger: 0.08, ease: "power3.out" });
+      gsap.to(".status-hero__intro", { opacity: 1, scrollTrigger: { trigger: ".status-hero", start: "top top", end: "bottom 35%", scrub: 0.8 } });
+      ScrollTrigger.create({ trigger: ".status-privacy", start: "top 28%", end: "bottom 65%", pin: ".status-privacy > p", pinSpacing: false });
+    });
+    window.addEventListener("pagehide", () => { window.clearInterval(timer); motion.revert(); }, { once: true });
+  </script>
 </Layout>

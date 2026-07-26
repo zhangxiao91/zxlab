@@ -13,6 +13,7 @@ Astro static site
        -> AI provider gateway
        -> status and risk proxy APIs
   -> Cloudflare Workers
+       -> Runtime status control plane and incident history
        -> Signal briefing and Memory backend
        -> zxtoolkit device, Drop, and Pulse APIs
        -> risk market data worker
@@ -34,6 +35,7 @@ server boundary.
 src/                  Astro pages, components, content, styles, and browser clients
 functions/            Cloudflare Pages Functions for same-origin server APIs
 apps/stonks/          Isolated Vite market-simulation game embedded under /lab/stonks
+apps/runtime-worker/  Runtime probes, public Status aggregation, and private Ops API
 apps/signal-worker/   Cloudflare Worker for briefing generation, annotations, and Memory
 apps/zxtoolkit/       Device toolkit: Web/PWA, Worker, shared protocol, Tauri desktop
 apps/risk-api/        Private FastAPI prototype for portfolio risk domains
@@ -41,6 +43,8 @@ apps/risk-market-worker/
                       Cloudflare Worker market data gateway for risk features
 packages/signal-schema/
                       Shared Signal contracts and runtime validation
+packages/runtime-schema/
+                      Browser-safe Runtime and Status contracts
 services/             Private services deployed outside Cloudflare Pages
 scripts/              Publishing, cover-generation, verification, and maintenance tools
 docs/                 Focused subsystem design notes
@@ -65,11 +69,30 @@ The most important public routes are `/`, `/projects`, `/notes`, `/lab`,
 - AI generation and streaming via `/api/ai/generate` and `/api/ai/stream`.
 - Risk review proxying through `/api/risk/review`.
 - Market quotes and bars for browser-facing risk features.
-- Public Status APIs that sanitize Tailscale, Codex usage, and LLM telemetry.
+- Compatibility Status routes and protected Pages health/usage adapters.
 
 Provider URLs, API keys, fallback order, retry decisions, access-token checks,
 and structured-output parsing stay here. Browser features receive only validated
-results and coarse provider metadata.
+results and coarse provider metadata. Pages does not aggregate Status state;
+that responsibility belongs to Runtime.
+
+### Runtime
+
+`apps/runtime-worker/` is the control plane for public Status and private
+operations. A scheduled probe run calls protected health endpoints on Pages,
+Signal, zxtoolkit, and the risk market Worker through service bindings where
+possible. It stores normalized samples, probe runs, activities, and incidents
+in its own `zx-runtime` D1 database.
+
+Runtime exposes two API surfaces:
+
+- `/api/v1/public/status` returns only coarse Runtime, Memory, Agents, and Usage
+  modules. A missing or stale source remains unavailable.
+- `/api/v1/private/*` requires Cloudflare Access and powers `/admin/ops`, manual
+  probes, incident inspection, and the Memory management proxy.
+
+Runtime never owns Memory content. Private Memory calls are authenticated at
+Runtime and forwarded to Signal, which remains the source of truth.
 
 ### Signal
 
@@ -85,6 +108,11 @@ The Worker persists state in D1 and shares contracts through
 `packages/signal-schema`. It does not hold model-provider credentials directly;
 it calls the project AI gateway server-to-server with its own encrypted access
 token.
+
+`memory_items` is the canonical Memory table. Annotation responses, briefing
+generation, consolidation, and Ops all read or write through the unified Memory
+repository. Legacy Memory tables are retained read-only for rollback and audit;
+normal application paths must not write to them.
 
 ### Risk
 
@@ -130,6 +158,8 @@ tuning tools, and React inspection UI. The root build compiles it into
   local app storage depending on the subsystem.
 - Generated telemetry must avoid prompts, model responses, credentials, and raw
   identity data unless a subsystem document explicitly permits a sanitized field.
+- `ZX_RUNTIME_SERVICE_TOKEN` is shared only between Runtime and protected health
+  adapters. Cloudflare Access credentials protect the separate private Ops API.
 
 ## Build And Runtime Model
 
@@ -145,6 +175,7 @@ runtimes:
 ```bash
 npm run test:ai
 npm run test:risk
+npm test --workspace runtime-worker
 npm test --workspace signal-worker
 npm run typecheck --workspace zxtoolkit
 npm test --workspace stonks-wip
@@ -157,7 +188,7 @@ Functions, Workers, or private services.
 
 Most features follow the same path:
 
-1. Build a static or mocked UI inside the Astro site or a Lab route.
+1. Define the user-facing surface and its unavailable state inside Astro.
 2. Define explicit TypeScript domain types and browser-safe client contracts.
 3. Move secrets, provider calls, state mutation, and access checks behind a
    server boundary.

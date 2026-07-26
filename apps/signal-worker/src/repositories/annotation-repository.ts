@@ -37,15 +37,17 @@ export class AnnotationRepository {
         .bind(input.reply.id, input.annotation.id, input.reply.content, input.reply.model ?? null, input.reply.createdAt),
     ];
     if (input.memoryCandidate) {
-      statements.push(this.db.prepare(`INSERT INTO memory_candidates
-        (id, annotation_id, proposed_scope, scope_key, content, confidence, reason, status, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'proposed', ?)`)
-        .bind(input.memoryCandidate.id, input.annotation.id, input.memoryCandidate.scope, input.memoryCandidate.scopeKey ?? null,
-          input.memoryCandidate.content, input.memoryCandidate.confidence, input.memoryCandidate.reason, input.memoryCandidate.createdAt));
-      statements.push(this.db.prepare(`INSERT INTO memory_events
-        (id, memory_entry_id, event_type, source_annotation_id, previous_content, new_content, created_at)
-        VALUES (?, NULL, 'proposed', ?, NULL, ?, ?)`)
-        .bind(crypto.randomUUID(), input.annotation.id, input.memoryCandidate.content, input.memoryCandidate.createdAt));
+      const namespace = input.memoryCandidate.scope === "project"
+        ? input.memoryCandidate.scopeKey === "markets" ? "markets" : "zxlab"
+        : input.memoryCandidate.scope === "preference" ? "global" : "briefing";
+      const kind = input.memoryCandidate.scope === "preference" ? "preference"
+        : input.memoryCandidate.scope === "belief" ? "fact"
+          : input.memoryCandidate.scope === "project" ? "decision" : "summary";
+      statements.push(this.db.prepare(`INSERT INTO memory_consolidation_candidates
+        (id, action, reason, namespace, kind, content, importance, confidence, source_event_ids_json, status, created_at)
+        VALUES (?, 'create', ?, ?, ?, ?, ?, ?, ?, 'proposed', ?)`)
+        .bind(input.memoryCandidate.id, input.memoryCandidate.reason, namespace, kind, input.memoryCandidate.content,
+          input.memoryCandidate.confidence, input.memoryCandidate.confidence, JSON.stringify([input.annotation.id]), input.memoryCandidate.createdAt));
     }
     try { await this.db.batch(statements); }
     catch (cause) { throw new SignalError("DATABASE_WRITE_FAILED", "The annotation could not be persisted", 500, cause); }

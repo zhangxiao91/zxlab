@@ -6,20 +6,17 @@ import { BriefingRepository } from "../repositories/briefing-repository";
 import { BRIEFING_PROMPT_VERSION } from "./prompts";
 import type { SignalLLM } from "./llm";
 import { MemoryService } from "../memory/service/memory-service";
-import { MemoryRepository } from "./memory-repository";
 import { CollectionRepository } from "../repositories/collection-repository";
 import { fixtureCandidate } from "./candidate-normalizer";
 
 export class BriefingGenerator {
   private readonly briefings: BriefingRepository;
   private readonly unifiedMemories: MemoryService;
-  private readonly legacyMemories: MemoryRepository;
   private readonly candidates: CollectionRepository;
 
   constructor(private readonly env: Env, private readonly llm: SignalLLM) {
     this.briefings = new BriefingRepository(env.DB);
     this.unifiedMemories = new MemoryService(env.DB);
-    this.legacyMemories = new MemoryRepository(env.DB);
     this.candidates = new CollectionRepository(env.DB);
   }
 
@@ -54,9 +51,7 @@ export class BriefingGenerator {
         lastConfirmedAt: item.updatedAt,
         expiresAt: item.expiresAt,
       }));
-      const migratedIds = new Set(canonicalMemories.map((item) => item.id));
-      const legacyMemories = (await this.legacyMemories.active()).filter((item) => !migratedIds.has(item.id));
-      const memories = [...canonicalMemories, ...legacyMemories].slice(0, 20);
+      const memories = canonicalMemories.slice(0, 20);
       let synthesisCandidates = input.candidates;
       if (input.dataOrigin === "real") {
         const decisions = await this.llm.filterCandidates({ candidates: input.candidates, memories, runId });

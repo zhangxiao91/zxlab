@@ -86,14 +86,14 @@ describe("ZX Signal intelligence loop", () => {
       env.DB.prepare(`INSERT INTO annotations (id, briefing_id, briefing_item_id, selected_text, comment, action_type, created_at)
         VALUES (?, ?, ?, ?, ?, 'remember', ?)`)
         .bind(annotationId, first.briefing.id, first.briefing.items[0]?.id, "runtime fit", "我更关心它能否在 Cloudflare Workers 限制下运行。", now),
-      env.DB.prepare(`INSERT INTO memory_candidates
-        (id, annotation_id, proposed_scope, scope_key, content, confidence, reason, status, created_at, resolved_at)
-        VALUES (?, ?, 'project', 'zxlab', ?, 0.95, ?, 'accepted', ?, ?)`)
-        .bind(candidateId, annotationId, "评估 zxlab 可采用的新工具时，优先检查 Cloudflare Workers 兼容性。", "用户明确提出项目运行约束", now, now),
-      env.DB.prepare(`INSERT INTO memory_entries
-        (id, scope, scope_key, content, confidence, status, created_at, updated_at, last_confirmed_at)
-        VALUES (?, 'project', 'zxlab', ?, 0.95, 'active', ?, ?, ?)`)
-        .bind(crypto.randomUUID(), "评估 zxlab 可采用的新工具时，优先检查 Cloudflare Workers 兼容性。", now, now, now),
+      env.DB.prepare(`INSERT INTO memory_consolidation_candidates
+        (id, action, reason, namespace, kind, content, importance, confidence, source_event_ids_json, status, created_at, resolved_at)
+        VALUES (?, 'create', ?, 'zxlab', 'decision', ?, 0.95, 0.95, ?, 'accepted', ?, ?)`)
+        .bind(candidateId, "用户明确提出项目运行约束", "评估 zxlab 可采用的新工具时，优先检查 Cloudflare Workers 兼容性。", JSON.stringify([annotationId]), now, now),
+      env.DB.prepare(`INSERT INTO memory_items
+        (id, namespace, kind, content, importance, confidence, source_type, source_id, status, created_at, updated_at)
+        VALUES (?, 'zxlab', 'decision', ?, 0.95, 0.95, 'annotation', ?, 'active', ?, ?)`)
+        .bind(crypto.randomUUID(), "评估 zxlab 可采用的新工具时，优先检查 Cloudflare Workers 兼容性。", annotationId, now, now),
     ]);
 
     const second = await generator.generate({ date, candidates, dataOrigin: "fixture" });

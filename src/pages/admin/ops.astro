@@ -1,0 +1,72 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import "../../styles/ops.css";
+const runtimeApiBase = String(import.meta.env.PUBLIC_RUNTIME_API_BASE ?? (import.meta.env.DEV ? "http://localhost:8790" : "https://runtime-api.zx-dx.xyz")).replace(/\/$/, "");
+---
+<Layout title="Ops Console | zxlab" description="Private runtime and Memory operations." lang="zh-CN">
+  <main class="ops-page" data-ops data-api-base={runtimeApiBase}>
+    <div class="ops-shell">
+      <header class="ops-header"><div><p class="ops-eyebrow">ZX Operations</p><h1>运行状态与长期上下文，在同一个可审计界面里。</h1></div><p>Runtime 只保存探针和事故历史；Memory 内容始终由 Signal D1 持有。所有操作通过 Cloudflare Access 验证。</p></header>
+      <div class="ops-toolbar"><div class="ops-tabs" role="tablist"><button role="tab" aria-selected="true" data-tab="overview">Overview</button><button role="tab" aria-selected="false" data-tab="services">Services</button><button role="tab" aria-selected="false" data-tab="incidents">Incidents</button><button role="tab" aria-selected="false" data-tab="memory">Memory</button></div><button class="ops-action" type="button" data-probe aria-label="Run probes">Run probes</button></div>
+      <p class="ops-empty" data-ops-state>正在连接受保护的 Runtime API…</p>
+      <section class="ops-view" data-view="overview" hidden><dl class="ops-metrics" data-overview-metrics></dl></section>
+      <section class="ops-view" data-view="services" hidden><div class="ops-table-wrap"><table class="ops-table"><thead><tr><th>Service</th><th>Status</th><th>Version</th><th>Latency</th><th>Observed</th><th>Error</th></tr></thead><tbody data-service-rows></tbody></table></div></section>
+      <section class="ops-view" data-view="incidents" hidden><div class="ops-table-wrap"><table class="ops-table"><thead><tr><th>Service</th><th>Severity</th><th>Opened</th><th>Resolved</th></tr></thead><tbody data-incident-rows></tbody></table></div></section>
+      <section class="ops-view" data-view="memory" hidden>
+        <form class="ops-memory-form" data-memory-form>
+          <input type="hidden" data-memory-id />
+          <label><span>Content</span><textarea data-memory-content maxlength="4000" required></textarea></label>
+          <label><span>Namespace</span><select data-memory-namespace><option>global</option><option>briefing</option><option>markets</option><option>coding</option><option>zxlab</option></select></label>
+          <label><span>Kind</span><select data-memory-kind><option>preference</option><option>fact</option><option>decision</option><option>summary</option></select></label>
+          <label><span>Importance</span><input data-memory-importance type="number" min="0" max="1" step="0.05" value="0.7" /></label>
+          <label><span>Confidence</span><input data-memory-confidence type="number" min="0" max="1" step="0.05" value="0.8" /></label>
+          <div class="ops-memory-actions"><button class="ops-action" type="submit">Save Memory</button><button type="button" data-memory-cancel>Cancel</button><button type="button" data-consolidate>Run consolidation</button></div>
+        </form>
+        <div class="ops-table-wrap"><table class="ops-table"><thead><tr><th>Content</th><th>Namespace</th><th>Kind</th><th>Status</th><th>Updated</th><th>Actions</th></tr></thead><tbody data-memory-rows></tbody></table></div>
+        <h2>Review queue</h2><div class="ops-table-wrap"><table class="ops-table"><tbody data-candidate-rows></tbody></table></div>
+        <h2>Revision history</h2><div class="ops-table-wrap"><table class="ops-table"><tbody data-revision-rows></tbody></table></div>
+      </section>
+    </div>
+  </main>
+  <script>
+    import gsap from "gsap";
+    const root = document.querySelector<HTMLElement>("[data-ops]");
+    const base = root?.dataset.apiBase ?? "";
+    const state = document.querySelector<HTMLElement>("[data-ops-state]");
+    const escapeHtml = (value: unknown) => String(value ?? "").replace(/[&<>\"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" })[character]!);
+    const date = (value?: string | null) => value ? new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "—";
+    async function request<T>(path: string, init?: RequestInit): Promise<T> {
+      const response = await fetch(`${base}${path}`, { ...init, credentials: "include", redirect: "manual", headers: { "content-type": "application/json", ...init?.headers } });
+      if (response.type === "opaqueredirect" || response.status === 401) throw new Error("需要先通过 Cloudflare Access 登录。");
+      if (!response.ok) throw new Error(`Runtime API 返回 ${response.status}`);
+      return response.json() as Promise<T>;
+    }
+    function setView(name: string) { document.querySelectorAll<HTMLElement>("[data-view]").forEach((view) => view.hidden = view.dataset.view !== name); document.querySelectorAll<HTMLButtonElement>("[data-tab]").forEach((button) => button.setAttribute("aria-selected", String(button.dataset.tab === name))); }
+    let memoryItems: any[] = [];
+    async function load() {
+      if (state) { state.hidden = false; state.textContent = "正在读取运行状态…"; }
+      try {
+        const [ops, memory] = await Promise.all([request<any>("/api/v1/private/overview"), request<any>("/api/v1/private/memory/items")]);
+        const metrics = document.querySelector<HTMLElement>("[data-overview-metrics]"); if (metrics) metrics.innerHTML = [["Overall", ops.snapshot.overall.status], ["Services", ops.services.length], ["Open incidents", ops.incidents.filter((item: any) => !item.resolvedAt).length], ["Memory", memory.memories.filter((item: any) => item.status === "active").length]].map(([label,value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join("");
+        const services = document.querySelector<HTMLElement>("[data-service-rows]"); if (services) services.innerHTML = ops.services.map((item: any) => `<tr><td><strong>${escapeHtml(item.serviceId)}</strong></td><td><span class="ops-state" data-state="${escapeHtml(item.status)}">${escapeHtml(item.status)}</span></td><td>${escapeHtml(item.version)}</td><td>${escapeHtml(item.latencyMs)} ms</td><td>${escapeHtml(date(item.observedAt))}</td><td>${escapeHtml(item.errorCode ?? "—")}</td></tr>`).join("");
+        const incidents = document.querySelector<HTMLElement>("[data-incident-rows]"); if (incidents) incidents.innerHTML = ops.incidents.map((item: any) => `<tr><td>${escapeHtml(item.serviceId)}</td><td><span class="ops-state" data-state="${escapeHtml(item.severity)}">${escapeHtml(item.severity)}</span></td><td>${escapeHtml(date(item.openedAt))}</td><td>${escapeHtml(date(item.resolvedAt))}</td></tr>`).join("") || '<tr><td colspan="4">No recorded incidents.</td></tr>';
+        memoryItems = memory.memories;
+        const memories = document.querySelector<HTMLElement>("[data-memory-rows]"); if (memories) memories.innerHTML = memory.memories.map((item: any) => `<tr><td><strong>${escapeHtml(item.content)}</strong></td><td>${escapeHtml(item.namespace)}</td><td>${escapeHtml(item.kind)}</td><td><span class="ops-state" data-state="${escapeHtml(item.status)}">${escapeHtml(item.status)}</span></td><td>${escapeHtml(date(item.updatedAt))}</td><td><div class="ops-memory-actions">${item.status === "active" ? `<button data-edit="${escapeHtml(item.id)}">Edit</button><button data-forget="${escapeHtml(item.id)}">Forget</button>` : "—"}</div></td></tr>`).join("");
+        const candidates = document.querySelector<HTMLElement>("[data-candidate-rows]"); if (candidates) candidates.innerHTML = memory.candidates.filter((item: any) => item.status === "proposed").map((item: any) => `<tr><td><strong>${escapeHtml(item.memory?.content ?? item.reason)}</strong><p>${escapeHtml(item.reason)}</p></td><td><div class="ops-memory-actions"><button data-candidate="${escapeHtml(item.id)}" data-action="accept">Accept</button><button data-candidate="${escapeHtml(item.id)}" data-action="reject">Reject</button></div></td></tr>`).join("") || "<tr><td>No proposed candidates.</td></tr>";
+        const revisions = document.querySelector<HTMLElement>("[data-revision-rows]"); if (revisions) revisions.innerHTML = memory.revisions.map((item: any) => `<tr><td>${escapeHtml(date(item.createdAt))}</td><td><strong>${escapeHtml(item.reason)}</strong><p>${escapeHtml(item.oldContent)} → ${escapeHtml(item.newContent)}</p></td></tr>`).join("") || "<tr><td>No revisions recorded.</td></tr>";
+        if (state) state.hidden = true; setView(location.hash === "#memory" ? "memory" : document.querySelector<HTMLButtonElement>("[data-tab][aria-selected='true']")?.dataset.tab ?? "overview");
+      } catch (error) { if (state) state.textContent = error instanceof TypeError ? "无法连接 Runtime API。" : error instanceof Error ? error.message : "Ops Console 暂时不可用。"; }
+    }
+    document.querySelectorAll<HTMLButtonElement>("[data-tab]").forEach((button) => button.addEventListener("click", () => setView(button.dataset.tab ?? "overview")));
+    document.querySelector("[data-probe]")?.addEventListener("click", async () => { await request("/api/v1/private/probes/run", { method: "POST", body: "{}" }); await load(); });
+    document.querySelector("[data-consolidate]")?.addEventListener("click", async () => { await request("/api/v1/private/memory/consolidate", { method: "POST", body: JSON.stringify({ limit: 50 }) }); await load(); });
+    const form = document.querySelector<HTMLFormElement>("[data-memory-form]");
+    const field = (name: string) => form?.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(`[data-memory-${name}]`);
+    const clearForm = () => { form?.reset(); if (field("id")) field("id")!.value = ""; };
+    document.querySelector("[data-memory-cancel]")?.addEventListener("click", clearForm);
+    form?.addEventListener("submit", async (event) => { event.preventDefault(); const id = field("id")?.value; const payload = { namespace: field("namespace")?.value, kind: field("kind")?.value, content: field("content")?.value, importance: Number(field("importance")?.value), confidence: Number(field("confidence")?.value), sourceType: "ops-console", reason: "Updated from Ops Console" }; await request(`/api/v1/private/memory/items${id ? `/${encodeURIComponent(id)}` : ""}`, { method: id ? "PATCH" : "POST", body: JSON.stringify(payload) }); clearForm(); await load(); });
+    document.querySelector("[data-view='memory']")?.addEventListener("click", async (event) => { const button = (event.target as Element).closest<HTMLButtonElement>("button"); if (!button) return; if (button.dataset.edit) { const item = memoryItems.find((entry) => entry.id === button.dataset.edit); if (item) { field("id")!.value = item.id; field("content")!.value = item.content; field("namespace")!.value = item.namespace; field("kind")!.value = item.kind; field("importance")!.value = String(item.importance); field("confidence")!.value = String(item.confidence); } return; } if (button.dataset.forget) await request(`/api/v1/private/memory/items/${encodeURIComponent(button.dataset.forget)}/forget`, { method: "POST", body: JSON.stringify({ reason: "Forgotten from Ops Console" }) }); if (button.dataset.candidate && button.dataset.action) await request(`/api/v1/private/memory/consolidation/candidates/${encodeURIComponent(button.dataset.candidate)}/${button.dataset.action}`, { method: "POST", body: "{}" }); await load(); });
+    gsap.from(".ops-header > *", { y: 32, opacity: 0, duration: .8, stagger: .1, ease: "power3.out" });
+    void load();
+  </script>
+</Layout>

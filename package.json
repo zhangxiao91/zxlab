@@ -6,7 +6,9 @@
     "apps/stonks",
     "apps/zxtoolkit",
     "apps/signal-worker",
-    "packages/signal-schema"
+    "apps/runtime-worker",
+    "packages/signal-schema",
+    "packages/runtime-schema"
   ],
   "engines": {
     "node": ">=22.12.0"

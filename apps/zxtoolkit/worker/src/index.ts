@@ -47,6 +47,36 @@ const TRANSFER_CONTENT_PATH = /^\/api\/transfers\/([a-f0-9-]+)\/content$/;
 const TRANSFER_STATUS_PATH = /^\/api\/transfers\/([a-f0-9-]+)\/status$/;
 const TRANSFER_DOWNLOAD_PATH = /^\/api\/transfers\/([a-f0-9-]+)\/download$/;
 
+async function runtimeTokenValid(request: Request, env: Env): Promise<boolean> {
+  const provided = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
+  const expected = String((env as Env & { ZX_RUNTIME_SERVICE_TOKEN?: string }).ZX_RUNTIME_SERVICE_TOKEN ?? "");
+  if (!provided || !expected) return false;
+  const encoder = new TextEncoder();
+  const [left, right] = await Promise.all([crypto.subtle.digest("SHA-256", encoder.encode(provided)), crypto.subtle.digest("SHA-256", encoder.encode(expected))]);
+  return new Uint8Array(left).every((value, index) => value === new Uint8Array(right)[index]);
+}
+
+async function runtimeHealth(request: Request, env: Env, cors: Headers): Promise<Response> {
+  if (!await runtimeTokenValid(request, env)) return problem("DEVICE_UNAUTHORIZED", "Runtime service token is required", 401, cors);
+  const startedAt = Date.now();
+  await env.DB.prepare("SELECT 1 ok").first();
+  const pulse = await env.PULSE.getByName("public-status-v1").publicStatus();
+  const generatedAt = new Date().toISOString();
+  return json({
+    schemaVersion: "1",
+    serviceId: "zxtoolkit",
+    status: "operational",
+    version: "zxdrop-api",
+    generatedAt,
+    checks: [
+      { id: "worker", status: "operational" },
+      { id: "d1", status: "operational", latencyMs: Date.now() - startedAt, lastSuccessAt: generatedAt },
+      { id: "pulse", status: pulse.stale ? "degraded" : "operational", lastSuccessAt: pulse.updatedAt ?? undefined },
+    ],
+    public: { agents: pulse.devices },
+  }, 200, cors);
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -54,6 +84,7 @@ export default {
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
     try {
       if (request.method === "GET" && url.pathname === "/api/health") return json({ ok: true }, 200, cors);
+      if (request.method === "GET" && url.pathname === "/internal/runtime/health") return runtimeHealth(request, env, cors);
       if (request.method === "POST" && url.pathname === "/api/sessions") return createSession(request, env, cors);
       if (request.method === "POST" && url.pathname === "/api/pairing/sessions") return createPairing(request, env, cors);
       if (request.method === "GET" && url.pathname === "/api/devices") return listDevices(request, env, cors);

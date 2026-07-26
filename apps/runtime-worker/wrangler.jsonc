@@ -1,0 +1,30 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "zx-runtime",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-25",
+  "compatibility_flags": ["nodejs_compat"],
+  "routes": [{ "pattern": "runtime-api.zx-dx.xyz", "custom_domain": true }],
+  "d1_databases": [{
+    "binding": "DB",
+    "database_name": "zx-runtime",
+    "database_id": "1674532e-a516-4534-aa19-2e4cb8e57ade",
+    "migrations_dir": "migrations"
+  }],
+  "services": [
+    { "binding": "SIGNAL", "service": "zx-signal" },
+    { "binding": "ZXTOOLKIT", "service": "zxdrop-api" },
+    { "binding": "MARKET", "service": "zxlab-risk-market" }
+  ],
+  "triggers": { "crons": ["* * * * *", "17 3 * * *"] },
+  "vars": {
+    "ENVIRONMENT": "production",
+    "PAGES_HEALTH_URL": "https://zx-dx.xyz/api/runtime/health",
+    "PAGES_USAGE_URL": "https://zx-dx.xyz/api/runtime/usage",
+    "RUNTIME_ALLOWED_ORIGINS": "https://zx-dx.xyz,https://zxlab.pages.dev,https://*.zxlab.pages.dev,http://localhost:4321",
+    "CF_ACCESS_TEAM_DOMAIN": "https://zxdx1.cloudflareaccess.com",
+    "CF_ACCESS_AUD": "7559429b1da91fe218c27db2cdee8c70cec97195d9b86a0effea1b1916f84e64"
+  },
+  "secrets": { "required": ["ZX_RUNTIME_SERVICE_TOKEN"] },
+  "observability": { "enabled": true, "head_sampling_rate": 1 }
+}

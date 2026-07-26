@@ -625,9 +625,15 @@ async function route(request: Request, ctx: ExecutionContext): Promise<Response>
 }
 
 export default {
-  async fetch(request: Request, _env: Env, ctx: ExecutionContext): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
     if (request.method !== "GET") return json({ error: { code: "METHOD_NOT_ALLOWED", message: "仅支持 GET" } }, 405);
+    if (new URL(request.url).pathname === "/internal/runtime/health") {
+      const provided = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
+      if (!env.ZX_RUNTIME_SERVICE_TOKEN || provided !== env.ZX_RUNTIME_SERVICE_TOKEN) return json({ error: { code: "UNAUTHORIZED", message: "Runtime service token is required" } }, 401);
+      const generatedAt = new Date().toISOString();
+      return json({ schemaVersion: "1", serviceId: "market", status: "operational", version: "risk-market-worker", generatedAt, checks: [{ id: "worker", status: "operational", lastSuccessAt: generatedAt }] });
+    }
     try { return await route(request, ctx); }
     catch (error) {
       const known = error instanceof GatewayError ? error : new GatewayError("INTERNAL_ERROR", "行情网关内部错误", 500);

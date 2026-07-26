@@ -63,5 +63,6 @@
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1
-  }
+  },
+  "secrets": { "required": ["TURNSTILE_SECRET_KEY", "ZX_RUNTIME_SERVICE_TOKEN"] }
 }
