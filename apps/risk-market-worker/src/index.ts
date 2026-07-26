@@ -129,7 +129,7 @@ function toIso(value: unknown): string | null {
 
 function compactText(value: unknown, max = 2_000): string | null {
   if (value == null) return null;
-  const text = String(value).replace(/<\s*br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  const text = String(value).replace(/<\/?em\b[^>]*>/gi, "").replace(/<\s*br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
   return text ? text.slice(0, max) : null;
 }
 
@@ -191,6 +191,13 @@ export function parseEastmoneyQuote(instrumentId: string, payload: unknown, rece
   if (price == null) throw new GatewayError("EMPTY_PRICE", `东财 ${instrumentId} 现价为空`, 502);
   const freshness = quoteFreshness(marketTimestamp, receivedAt);
   return { instrumentId, price, previousClose: scaled(data.f60), open: scaled(data.f46), high: scaled(data.f44), low: scaled(data.f45), volume: multiplied(data.f47, 100), turnover: finite(data.f48), marketTimestamp, receivedAt, source: "eastmoney-push2", quality: freshness.stale ? "stale" : "live", stale: freshness.stale, warnings: quoteWarnings(price, marketTimestamp, freshness.ageSeconds), fallbackUsed: true, providerAttempts: [] };
+}
+
+export function parseEastmoneySecurityName(payload: unknown): string {
+  const data = (payload as { data?: Record<string, unknown> | null }).data;
+  const name = compactText(data?.f58 ?? data?.f14, 80);
+  if (!name) throw new GatewayError("EMPTY_RESPONSE", "东财未返回证券简称", 502);
+  return name;
 }
 
 export function parseTencentDailyBars(instrumentId: string, code: string, payload: unknown): StandardBar[] {
@@ -279,11 +286,13 @@ function newsItem(input: {
 function eastmoneyRows(payload: unknown): Record<string, unknown>[] {
   const root = payload as Record<string, unknown>;
   const data = root.data as Record<string, unknown> | undefined;
+  const result = root.result as Record<string, unknown> | undefined;
   const candidates = [
     data?.list,
     data?.news,
     data?.fastNewsList,
     data?.cmsArticleWebOld,
+    result?.cmsArticleWebOld,
     root.list,
     root.news,
     root.fastNewsList,
@@ -301,7 +310,7 @@ export function parseEastmoneyStockNews(instrumentId: string, payload: unknown):
     const title = compactText(row.title ?? row.name, 240);
     const url = compactText(row.url ?? row.artUrl ?? row.link, 2_048);
     if (!id || !title || !url) return [];
-    return [newsItem({ id: `eastmoney-stock:${id}`, type: "stock-news", title, url, summary: row.digest ?? row.summary, content: row.content, source: "eastmoney-stock-news", publishedAt: row.showTime ?? row.publishTime ?? row.date, instrumentId, symbol })];
+    return [newsItem({ id: `eastmoney-stock:${id}`, type: "stock-news", title, url, summary: row.digest ?? row.summary ?? row.content, content: row.content, source: "eastmoney-stock-news", publishedAt: row.showTime ?? row.publishTime ?? row.date, instrumentId, symbol })];
   });
   if (!items.length) throw new GatewayError("UPSTREAM_SCHEMA_CHANGED", "东财个股新闻字段发生变化", 502);
   return items;
@@ -335,6 +344,33 @@ export function parseCninfoAnnouncements(instrumentId: string, payload: unknown)
     return [newsItem({ id: `cninfo:${id}`, type: "announcement", title, url, summary: row.announcementContent, source: "cninfo-announcement", publishedAt: row.announcementTime ?? row.publishTime, instrumentId, symbol })];
   });
   if (!items.length) throw new GatewayError("UPSTREAM_SCHEMA_CHANGED", "巨潮公告字段发生变化", 502);
+  return items;
+}
+
+export function parseEastmoneyAnnouncements(instrumentId: string, payload: unknown): StandardNewsItem[] {
+  const { symbol } = instrumentToCode(instrumentId);
+  const rows = (payload as { data?: { list?: unknown[] } }).data?.list;
+  if (!Array.isArray(rows)) throw new GatewayError("EMPTY_RESPONSE", "东财公告返回空", 502);
+  const items = rows.flatMap((raw): StandardNewsItem[] => {
+    const row = raw as Record<string, unknown>;
+    const id = compactText(row.art_code ?? row.id, 120);
+    const title = compactText(row.title_ch ?? row.title, 240);
+    if (!id || !title) return [];
+    const columns = Array.isArray(row.columns)
+      ? row.columns.map((item) => compactText((item as Record<string, unknown>).column_name, 80)).filter(Boolean).join(" / ")
+      : null;
+    return [newsItem({
+      id: `eastmoney-announcement:${id}`,
+      type: "announcement",
+      title,
+      url: `https://data.eastmoney.com/notices/detail/${symbol}/${id}.html`,
+      summary: columns,
+      source: "eastmoney-announcement",
+      publishedAt: row.notice_date ?? row.display_time,
+      instrumentId,
+      symbol,
+    })];
+  });
   return items;
 }
 
@@ -412,28 +448,32 @@ function minuteProviders(instrumentId: string): Provider<StandardBar[]>[] {
 
 function stockNewsProviders(instrumentId: string, limit: number): Provider<StandardNewsItem[]>[] {
   const code = instrumentToCode(instrumentId);
-  const param = JSON.stringify({
-    uid: "",
-    keyword: code.symbol,
-    type: ["cmsArticleWebOld"],
-    client: "web",
-    clientType: "web",
-    clientVersion: "curr",
-    param: { cmsArticleWebOld: { searchScope: "default", sort: "default", pageIndex: 1, pageSize: Math.min(limit, 50) } },
-  });
   return [
     {
       name: "eastmoney-stock-news",
-      load: async (fetcher) => parseEastmoneyStockNews(instrumentId, await upstreamJsonp(fetcher, `https://search-api-web.eastmoney.com/search/jsonp?cb=jQuery1124&param=${encodeURIComponent(param)}`, { referer: "https://so.eastmoney.com/" })),
+      load: async (fetcher) => {
+        const name = parseEastmoneySecurityName(await (await upstream(fetcher, `https://push2.eastmoney.com/api/qt/stock/get?secid=${code.secid}&fields=f58`)).json());
+        const param = JSON.stringify({
+          uid: "",
+          keyword: name,
+          type: ["cmsArticleWebOld"],
+          client: "web",
+          clientType: "web",
+          clientVersion: "curr",
+          param: { cmsArticleWebOld: { searchScope: "default", sort: "default", pageIndex: 1, pageSize: Math.min(limit, 50) } },
+        });
+        return parseEastmoneyStockNews(instrumentId, await upstreamJsonp(fetcher, `https://search-api-web.eastmoney.com/search/jsonp?cb=jQuery1124&param=${encodeURIComponent(param)}`, { referer: "https://so.eastmoney.com/" }));
+      },
     },
   ];
 }
 
 function fastNewsProviders(limit: number): Provider<StandardNewsItem[]>[] {
+  const trace = crypto.randomUUID();
   return [
     {
       name: "eastmoney-724",
-      load: async (fetcher) => parseEastmoneyFastNews(await (await upstream(fetcher, `https://np-listapi.eastmoney.com/comm/web/getFastNewsList?client=web&biz=web_724&fastColumn=102&pageSize=${Math.min(limit, 80)}&pageNo=1`, { referer: "https://finance.eastmoney.com/" })).json()),
+      load: async (fetcher) => parseEastmoneyFastNews(await (await upstream(fetcher, `https://np-listapi.eastmoney.com/comm/web/getFastNewsList?client=web&biz=web_724&fastColumn=102&sortEnd=0&pageSize=${Math.min(limit, 80)}&pageNo=1&req_trace=${encodeURIComponent(trace)}`, { referer: "https://finance.eastmoney.com/" })).json()),
     },
   ];
 }
@@ -471,6 +511,10 @@ function announcementProviders(instrumentId: string, limit: number): Provider<St
         if (!response.ok) throw new GatewayError("UPSTREAM_HTTP_ERROR", `巨潮返回 HTTP ${response.status}`, 502);
         return parseCninfoAnnouncements(instrumentId, await response.json());
       },
+    },
+    {
+      name: "eastmoney-announcement",
+      load: async (fetcher) => parseEastmoneyAnnouncements(instrumentId, await (await upstream(fetcher, `https://np-anotice-stock.eastmoney.com/api/security/ann?sr=-1&page_size=${Math.min(limit, 50)}&page_index=1&ann_type=A&client_source=web&stock_list=${code.symbol}`, { referer: "https://data.eastmoney.com/" })).json()),
     },
   ];
 }
@@ -530,27 +574,40 @@ async function loadBars(instrumentId: string, interval: "1d" | "1m"): Promise<Lo
   return { data: result.data, meta: { capability, source: result.source, fallbackUsed: result.fallbackUsed, providerChain: providers.map((item) => item.name), attempts: result.attempts } };
 }
 
-function dedupNews(items: StandardNewsItem[], limit: number): StandardNewsItem[] {
+export function dedupNews(items: StandardNewsItem[], limit: number): StandardNewsItem[] {
   const seen = new Set<string>();
-  return items.filter((item) => {
+  const sorted = items.filter((item) => {
     const key = item.url || item.id;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
-  }).sort((left, right) => Date.parse(right.publishedAt ?? right.receivedAt) - Date.parse(left.publishedAt ?? left.receivedAt)).slice(0, limit);
+  }).sort((left, right) => Date.parse(right.publishedAt ?? right.receivedAt) - Date.parse(left.publishedAt ?? left.receivedAt));
+  const market = sorted.filter((item) => item.type === "market-news");
+  const stock = sorted.filter((item) => item.type === "stock-news");
+  if (!market.length || !stock.length) return sorted.slice(0, limit);
+  const balanced: StandardNewsItem[] = [];
+  const perType = Math.ceil(limit / 2);
+  for (let index = 0; index < perType; index += 1) {
+    if (market[index]) balanced.push(market[index]);
+    if (stock[index]) balanced.push(stock[index]);
+  }
+  return balanced.slice(0, limit);
 }
 
 async function loadAnnouncements(instrumentId: string, limit: number): Promise<LoadResult<StandardNewsItem[]>> {
-  const result = await runWithFallback("announcement", announcementProviders(instrumentId, limit));
-  return { data: result.data, meta: { capability: "announcement", source: result.source, fallbackUsed: result.fallbackUsed, providerChain: ["cninfo-announcement"], attempts: result.attempts } };
+  const providers = announcementProviders(instrumentId, limit);
+  const result = await runWithFallback("announcement", providers);
+  return { data: result.data, meta: { capability: "announcement", source: result.source, fallbackUsed: result.fallbackUsed, providerChain: providers.map((item) => item.name), attempts: result.attempts } };
 }
 
 async function loadMarketNews(ids: string[], limit: number): Promise<LoadResult<StandardNewsItem[]>> {
   const attempts: ProviderAttempt[] = [];
   const warnings: string[] = [];
   const batches: StandardNewsItem[][] = [];
+  const fastLimit = ids.length ? Math.max(1, Math.ceil(limit / 2)) : limit;
+  const stockLimit = ids.length ? Math.max(4, Math.floor((limit - fastLimit) / ids.length)) : 0;
   try {
-    const result = await runWithFallback("market-news", fastNewsProviders(limit));
+    const result = await runWithFallback("market-news", fastNewsProviders(fastLimit));
     attempts.push(...result.attempts);
     batches.push(result.data);
   } catch (error) {
@@ -560,7 +617,7 @@ async function loadMarketNews(ids: string[], limit: number): Promise<LoadResult<
   }
   for (const id of ids) {
     try {
-      const stock = await runWithFallback("stock-news", stockNewsProviders(id, Math.max(4, Math.ceil(limit / Math.max(ids.length, 1)))));
+      const stock = await runWithFallback("stock-news", stockNewsProviders(id, stockLimit));
       attempts.push(...stock.attempts);
       batches.push(stock.data);
     } catch (error) {
@@ -568,23 +625,14 @@ async function loadMarketNews(ids: string[], limit: number): Promise<LoadResult<
       if (known) attempts.push(...known.attempts);
       warnings.push(`${id} stock news unavailable`);
     }
-    try {
-      const announcements = await runWithFallback("announcement", announcementProviders(id, Math.max(4, Math.ceil(limit / Math.max(ids.length, 1)))));
-      attempts.push(...announcements.attempts);
-      batches.push(announcements.data);
-    } catch (error) {
-      const known = error instanceof AllProvidersFailedError ? error : null;
-      if (known) attempts.push(...known.attempts);
-      warnings.push(`${id} announcements unavailable`);
-    }
   }
-  return { data: dedupNews(batches.flat(), limit), meta: { capability: "market-news", providerChain: ["eastmoney-724", "eastmoney-stock-news", "cninfo-announcement"], attempts, warnings } };
+  return { data: dedupNews(batches.flat(), limit), meta: { capability: "market-news", providerChain: ["eastmoney-724", "eastmoney-stock-news"], attempts, warnings } };
 }
 
 async function route(request: Request, ctx: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
   const segments = url.pathname.split("/").filter(Boolean);
-  if (url.pathname === "/api/market/providers") return json({ data: { quote: ["tencent-qt", "sina-hq", "eastmoney-push2"], dailyBars: ["tencent-kline", "baidu-gushitong", "tonghuashun-kline"], minuteBars: ["tencent-minute", "sina-minute", "eastmoney-trends"], news: ["eastmoney-724", "eastmoney-stock-news", "cninfo-announcement"], strategy: "sequential-fallback", timeoutMsPerProvider: UPSTREAM_TIMEOUT_MS } }, 200, "public, max-age=300");
+  if (url.pathname === "/api/market/providers") return json({ data: { quote: ["tencent-qt", "sina-hq", "eastmoney-push2"], dailyBars: ["tencent-kline", "baidu-gushitong", "tonghuashun-kline"], minuteBars: ["tencent-minute", "sina-minute", "eastmoney-trends"], news: ["eastmoney-724", "eastmoney-stock-news", "cninfo-announcement", "eastmoney-announcement"], strategy: "sequential-fallback", timeoutMsPerProvider: UPSTREAM_TIMEOUT_MS } }, 200, "public, max-age=300");
   if (url.pathname === "/api/market/quotes") {
     const ids = (url.searchParams.get("instruments") ?? "").split(",").filter(Boolean);
     if (!ids.length || ids.length > 30) throw new GatewayError("INVALID_ARGUMENT", "instruments 需要包含 1 至 30 个证券代码", 400);

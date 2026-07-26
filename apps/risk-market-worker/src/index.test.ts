@@ -1,14 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  dedupNews,
   instrumentToCode,
   instrumentToTencent,
   parseBaiduDailyBars,
   parseEastmoneyMinuteBars,
+  parseEastmoneyAnnouncements,
   parseEastmoneyFastNews,
   parseEastmoneyStockNews,
   parseCninfoAnnouncements,
   parseEastmoneyQuote,
+  parseEastmoneySecurityName,
   parseSinaBars,
   parseSinaQuote,
   parseTencentDailyBars,
@@ -42,6 +45,7 @@ test("normalizes Sina and Eastmoney backup quotes", () => {
   assert.equal(eastmoney.price, .899);
   assert.equal(eastmoney.previousClose, .906);
   assert.equal(eastmoney.volume, 81200);
+  assert.equal(parseEastmoneySecurityName({ data: { f58: "浦发银行" } }), "浦发银行");
 });
 
 test("normalizes three daily and minute K schemas", () => {
@@ -66,14 +70,16 @@ test("falls back sequentially and preserves attempt diagnostics", async () => {
 });
 
 test("normalizes Eastmoney stock news and 7x24 market news", () => {
-  const stock = parseEastmoneyStockNews("SSE:600000", { data: { list: [{ code: "art-1", title: "浦发银行发布业绩快报", url: "https://finance.eastmoney.com/a/1.html", digest: "<p>净利润增长</p>", showTime: "2026-07-18 14:20:00" }] } });
+  const stock = parseEastmoneyStockNews("SSE:600000", { result: { cmsArticleWebOld: [{ code: "art-1", title: "<em>浦发银行发</em>布业绩快报", url: "https://finance.eastmoney.com/a/1.html", content: "<p>净利润增长</p>", date: "2026-07-18 14:20:00" }, { code: "art-2", title: "浦发银行经营更新", url: "https://finance.eastmoney.com/a/2.html", date: "2026-07-18 14:18:00" }] } });
   assert.equal(stock[0].id, "eastmoney-stock:art-1");
   assert.equal(stock[0].instrumentId, "SSE:600000");
+  assert.equal(stock[0].title, "浦发银行发布业绩快报");
   assert.equal(stock[0].summary, "净利润增长");
 
-  const fast = parseEastmoneyFastNews({ data: { fastNewsList: [{ code: "f1", title: "市场午后回暖", digest: "ETF 成交放大", showTime: "2026-07-18 14:21:00" }] } });
+  const fast = parseEastmoneyFastNews({ data: { fastNewsList: [{ code: "f1", title: "市场午后回暖", digest: "ETF 成交放大", showTime: "2026-07-18 14:21:00" }, { code: "f2", title: "市场成交更新", showTime: "2026-07-18 14:19:00" }] } });
   assert.equal(fast[0].type, "market-news");
   assert.equal(fast[0].source, "eastmoney-724");
+  assert.deepEqual(dedupNews([...fast, ...stock], 4).map((item) => item.type), ["market-news", "stock-news", "market-news", "stock-news"]);
 });
 
 test("normalizes Cninfo announcements", () => {
@@ -82,4 +88,13 @@ test("normalizes Cninfo announcements", () => {
   assert.equal(items[0].type, "announcement");
   assert.equal(items[0].url, "https://static.cninfo.com.cn/finalpage/2026-07-18/120.PDF");
   assert.equal(items[0].symbol, "159995");
+});
+
+test("normalizes Eastmoney announcement fallback", () => {
+  const items = parseEastmoneyAnnouncements("SSE:600000", { data: { list: [{ art_code: "AN202607241827324178", title: "浦发银行公告", display_time: "2026-07-24 19:16:45", columns: [{ column_name: "借贷" }] }] } });
+  assert.equal(items[0].id, "eastmoney-announcement:AN202607241827324178");
+  assert.equal(items[0].source, "eastmoney-announcement");
+  assert.equal(items[0].summary, "借贷");
+  assert.equal(items[0].url, "https://data.eastmoney.com/notices/detail/600000/AN202607241827324178.html");
+  assert.deepEqual(parseEastmoneyAnnouncements("SSE:512480", { data: { list: [] } }), []);
 });
