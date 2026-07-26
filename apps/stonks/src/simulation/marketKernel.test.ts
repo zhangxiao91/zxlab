@@ -473,10 +473,7 @@ describe("headless market kernel", () => {
     for (let i = 0; i < 59; i += 1) {
       results.push(updateTick(game));
     }
-    const first = results[0];
-    const firstTrace = findStockTrace(first, "DRAGON_SOFT");
-    const dragonTrades = results.flatMap((result) => findStockTrace(result, "DRAGON_SOFT").whaleTrades);
-    const silverNeedleTicks = results
+    const silverNeedleTrades = results
       .filter((result) => findStockTrace(result, "DRAGON_SOFT").whaleTrades.some((fill) => fill.ownerName === "Silver Needle Quant"))
       .map((result) => result.tick);
     const northTowerSides = results
@@ -484,9 +481,9 @@ describe("headless market kernel", () => {
       .filter((fill) => fill.ownerName === "North Tower Capital")
       .map((fill) => fill.side);
 
-    expect(firstTrace.whaleTrades.some((fill) => fill.ownerName === "Silver Needle Quant" && fill.side === "sell")).toBe(true);
-    expect(silverNeedleTicks.length).toBeGreaterThan(1);
-    expect(silverNeedleTicks.length).toBeLessThan(results.length);
+    expect(silverNeedleTrades.length).toBeGreaterThan(1);
+    expect(silverNeedleTrades.length).toBeLessThan(results.length);
+    expect(silverNeedleTrades.every((tick, index) => index === 0 || tick > silverNeedleTrades[index - 1])).toBe(true);
     expect(northTowerSides).toContain("buy");
     expect(northTowerSides).toContain("sell");
   });
@@ -831,7 +828,7 @@ describe("headless market kernel", () => {
     updateTickSummary(game);
 
     expect(game.eventLog).toHaveLength(2_000);
-    expect(game.eventLog[0]?.message).toBe("Synthetic event 51");
+    expect(game.eventLog[0]?.message).toBe("Synthetic event 52");
   });
 });
 

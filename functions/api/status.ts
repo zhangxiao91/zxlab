@@ -1,4 +1,4 @@
-import { fetchRuntimeStatus, runtimeHeaders, type RuntimeClientEnv } from "../_lib/runtime-client";
+import { fetchRuntimeStatus, runtimeHeaders, type RuntimeClientEnv } from "../_lib/runtime-client.ts";
 
 interface FunctionContext { request: Request; env: RuntimeClientEnv }
 
