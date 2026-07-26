@@ -172,8 +172,18 @@ const runtimeApiBase = String(import.meta.env.PUBLIC_RUNTIME_API_BASE ?? (import
       }
       if (module.id === "agents") {
         const agents = Array.isArray(data.agents) ? data.agents : [];
+        const mobile = agents.find((agent: any) => agent.batteryLevel || agent.type === "managed device");
+        const infrastructure = agents.filter((agent: any) => agent !== mobile);
+        const serverCards = infrastructure.map((agent: any) => `<li class="device-server-item" data-device-state="${escapeHtml(agent.state ?? "unknown")}"><div><span>${escapeHtml(agent.type ?? "server")}</span><h3>${escapeHtml(agent.name ?? "Managed server")}</h3></div>${indicator(agent.state ?? "unknown")}<p>${escapeHtml(agent.publicTask ?? (agent.lastSeen ? `Last seen ${relative(agent.lastSeen)}` : "Public presence"))}</p></li>`).join("");
+        const batteryLevel = ["high", "medium", "low"].includes(mobile?.batteryLevel) ? mobile.batteryLevel : "unknown";
+        const mobileCard = mobile ? `<article class="mobile-device-card" data-battery-level="${escapeHtml(batteryLevel)}" data-device-state="${escapeHtml(mobile.state ?? "unknown")}">
+          <header><div><span>zxtoolkit mobile pulse</span><h3>${escapeHtml(mobile.name ?? "Mobile device")}</h3></div>${indicator(mobile.state ?? "unknown")}</header>
+          <div class="mobile-device-card__battery"><div class="battery-gauge" role="img" aria-label="Battery level ${escapeHtml(batteryLevel)}"><i></i><i></i><i></i><span aria-hidden="true"></span></div><div><strong>${escapeHtml(batteryLevel === "unknown" ? "Unavailable" : batteryLevel)}</strong><span>Battery level</span></div></div>
+          <dl><div><dt>Presence</dt><dd>${escapeHtml(mobile.state ?? "unknown")}</dd></div><div><dt>Power</dt><dd>${typeof mobile.charging === "boolean" ? (mobile.charging ? "Charging" : "On battery") : "Unavailable"}</dd></div><div><dt>Source</dt><dd>zxtoolkit Pulse</dd></div><div><dt>Updated</dt><dd>${module.updatedAt ? escapeHtml(relative(module.updatedAt)) : "Unavailable"}</dd></div></dl>
+          <p>Live Android reading, published as a privacy-preserving battery range.</p>
+        </article>` : `<article class="mobile-device-card" data-battery-level="unknown" data-device-state="unknown"><header><div><span>zxtoolkit mobile pulse</span><h3>Mobile telemetry unavailable</h3></div></header><p>No current mobile Pulse snapshot has been reported.</p></article>`;
         body.innerHTML = agents.length
-          ? `<ul class="device-list">${agents.map((agent: any) => `<li class="device-item" data-device-state="${escapeHtml(agent.state ?? "unknown")}"><div><h3>${escapeHtml(agent.name ?? "Managed device")}</h3><p>${escapeHtml(agent.platform ?? agent.type ?? "managed device")}</p></div>${indicator(agent.state ?? "unknown")}<div><p>${escapeHtml(agent.publicTask ?? agent.activity?.label ?? (agent.lastSeen ? `Last seen ${relative(agent.lastSeen)}` : "Presence only; private details withheld"))}</p></div></li>`).join("")}</ul>`
+          ? `<div class="device-layout"><ul class="device-server-list">${serverCards}</ul>${mobileCard}</div>`
           : `<h3>No devices have reported yet.</h3><p>The source is connected and currently reports zero allowlisted devices.</p>`;
       }
       if (module.id === "usage") {
