@@ -5,8 +5,16 @@ import { ProjectApiSignalLLM } from "../src/services/llm";
 
 const item: BriefingItem = {
   id: "item-1",
+  itemType: "lead",
   category: "zxlab",
   title: "Gateway migration",
+  lede: "ZX Signal now uses the project gateway.",
+  nutGraf: "The gateway centralizes provider policy.",
+  keyFacts: ["Signal calls one project-owned endpoint."],
+  broaderContext: "Provider configuration previously lived in multiple services.",
+  implications: "One server-side model exit is easier to operate.",
+  counterpoint: "The gateway remains a shared dependency.",
+  watchNext: "Track fallback reliability.",
   summary: "ZX Signal now uses the project gateway.",
   whyItMatters: "One server-side model exit is easier to operate.",
   importance: 80,

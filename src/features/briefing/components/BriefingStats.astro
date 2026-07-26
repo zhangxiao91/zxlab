@@ -22,10 +22,10 @@ const { briefing } = Astro.props;
     </div>
   </div>
   <div class="signal-filter__steps">
-    <div><span>01</span><strong>{briefing.stats.fetched}</strong><p>原始扫描</p></div>
-    <div><span>02</span><strong>{briefing.stats.deduplicated}</strong><p>语义去重</p></div>
-    <div><span>03</span><strong>18</strong><p>模型初筛</p></div>
-    <div><span>04</span><strong>{briefing.stats.selected}</strong><p>总编收录</p></div>
+    <div><strong>{briefing.stats.fetched}</strong><p>原始扫描</p></div>
+    <div><strong>{briefing.stats.deduplicated}</strong><p>语义去重</p></div>
+    <div><strong>18</strong><p>模型初筛</p></div>
+    <div><strong>{briefing.stats.selected}</strong><p>总编收录</p></div>
   </div>
-  <p class="signal-filter__rejection"><span>过滤样本</span> 只有发布宣传，没有新增工程信息。</p>
+  <p class="signal-filter__rejection"><span>过滤原则</span> 缺乏独立证据、公共影响或真实变化的消息不会进入日报。</p>
 </section>

@@ -3,12 +3,15 @@ export const briefingDraftJsonSchema = {
   additionalProperties: false,
   properties: {
     title: { type: "string" }, summary: { type: "string" },
-    items: { type: "array", maxItems: 12, items: { type: "object", additionalProperties: false, properties: {
-      category: { type: "string", enum: ["ai-engineering", "markets", "zxlab"] }, title: { type: "string" }, summary: { type: "string" },
-      whatChanged: { type: "string" }, whyItMatters: { type: "string" }, suggestedAction: { type: "string" },
+    items: { type: "array", minItems: 1, maxItems: 6, items: { type: "object", additionalProperties: false, properties: {
+      itemType: { type: "string", enum: ["lead", "brief"] },
+      category: { type: "string", enum: ["ai-engineering", "markets", "zxlab"] }, title: { type: "string" },
+      lede: { type: "string" }, nutGraf: { type: "string" }, keyFacts: { type: "array", minItems: 1, maxItems: 5, items: { type: "string" } },
+      broaderContext: { type: "string" }, implications: { type: "string" }, counterpoint: { type: "string" },
+      watchNext: { type: "string" }, zxlabRelevance: { type: "string" },
       importance: { type: "number", minimum: 0, maximum: 100 }, confidence: { type: "number", minimum: 0, maximum: 100 },
       sourceIds: { type: "array", minItems: 1, items: { type: "string" } },
-    }, required: ["category", "title", "summary", "whyItMatters", "importance", "confidence", "sourceIds"] } },
+    }, required: ["itemType", "category", "title", "lede", "nutGraf", "keyFacts", "implications", "importance", "confidence", "sourceIds"] } },
   }, required: ["title", "summary", "items"],
 } as const;
 

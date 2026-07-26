@@ -13,6 +13,7 @@ export type SignalSourceType =
 export type CandidateStatus = "new" | "duplicate" | "eligible" | "filtered" | "selected" | "archived";
 export type BriefingStatus = "generating" | "ready" | "partial" | "failed";
 export type BriefingDataOrigin = "mock" | "fixture" | "real";
+export type BriefingItemType = "lead" | "brief";
 
 export interface BriefingSource {
   id: string;
@@ -24,8 +25,18 @@ export interface BriefingSource {
 
 export interface BriefingItem {
   id: string;
+  itemType?: BriefingItemType;
   category: BriefingCategory;
   title: string;
+  lede?: string;
+  nutGraf?: string;
+  keyFacts?: string[];
+  broaderContext?: string;
+  implications?: string;
+  counterpoint?: string;
+  watchNext?: string;
+  zxlabRelevance?: string;
+  // Compatibility aliases for briefings generated before signal-editor-v0.6.
   summary: string;
   whatChanged?: string;
   whyItMatters: string;
@@ -275,12 +286,17 @@ export interface GeneratedBriefingDraft {
   title: string;
   summary: string;
   items: Array<{
+    itemType: BriefingItemType;
     category: BriefingCategory;
     title: string;
-    summary: string;
-    whatChanged?: string;
-    whyItMatters: string;
-    suggestedAction?: string;
+    lede: string;
+    nutGraf: string;
+    keyFacts: string[];
+    broaderContext?: string;
+    implications: string;
+    counterpoint?: string;
+    watchNext?: string;
+    zxlabRelevance?: string;
     importance: number;
     confidence: number;
     sourceIds: string[];

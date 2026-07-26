@@ -8,6 +8,9 @@ export interface AnnotationItemContext extends BriefingItem {
 interface ItemContextRow {
   id: string; briefing_id: string; category: BriefingItem["category"]; title: string; summary: string;
   what_changed: string | null; why_it_matters: string; suggested_action: string | null; importance: number; confidence: number;
+  item_type: BriefingItem["itemType"]; lede: string | null; nut_graf: string | null; key_facts_json: string;
+  broader_context: string | null; implications: string | null; counterpoint: string | null;
+  watch_next: string | null; zxlab_relevance: string | null; sort_order: number;
 }
 interface SourceRow { id: string; title: string; url: string; publisher: string | null; published_at: string | null; }
 
@@ -20,7 +23,14 @@ export class AnnotationRepository {
     if (!item) throw new SignalError("ITEM_NOT_FOUND", "The briefing item was not found", 404);
     const sourceResult = await this.db.prepare("SELECT * FROM briefing_sources WHERE item_id = ? ORDER BY published_at DESC").bind(itemId).all<SourceRow>();
     return {
-      id: item.id, briefingId: item.briefing_id, category: item.category, title: item.title, summary: item.summary,
+      id: item.id, briefingId: item.briefing_id,
+      itemType: item.lede ? item.item_type : item.sort_order === 0 ? "lead" : "brief",
+      category: item.category, title: item.title,
+      lede: item.lede ?? item.summary, nutGraf: item.nut_graf ?? item.what_changed ?? item.why_it_matters,
+      keyFacts: (() => { try { return JSON.parse(item.key_facts_json) as string[]; } catch { return []; } })(),
+      broaderContext: item.broader_context ?? undefined, implications: item.implications ?? item.why_it_matters,
+      counterpoint: item.counterpoint ?? undefined, watchNext: item.watch_next ?? undefined, zxlabRelevance: item.zxlab_relevance ?? undefined,
+      summary: item.summary,
       whatChanged: item.what_changed ?? undefined, whyItMatters: item.why_it_matters, suggestedAction: item.suggested_action ?? undefined,
       importance: item.importance, confidence: item.confidence,
       sources: sourceResult.results.map((source) => ({ id: source.id, title: source.title, url: source.url, publisher: source.publisher ?? undefined, publishedAt: source.published_at ?? undefined })),

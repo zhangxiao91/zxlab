@@ -170,24 +170,43 @@ export function parseResolveMemoryRequest(value: unknown): ResolveMemoryCandidat
 
 export function parseGeneratedBriefingDraft(value: unknown, allowedSourceIds: ReadonlySet<string>): GeneratedBriefingDraft {
   const input = record(value, "briefing");
-  if (!Array.isArray(input.items) || input.items.length > 12) throw new SignalValidationError("briefing.items must be an array of at most 12 items");
+  if (!Array.isArray(input.items) || input.items.length === 0 || input.items.length > 6) throw new SignalValidationError("briefing.items must contain 1 to 6 items");
   const items = input.items.map((raw, index) => {
     const item = record(raw, `items[${index}]`);
     if (!Array.isArray(item.sourceIds) || item.sourceIds.length === 0 || item.sourceIds.length > 8) throw new SignalValidationError(`items[${index}].sourceIds is invalid`);
     const sourceIds = item.sourceIds.map((sourceId, sourceIndex) => string(sourceId, `items[${index}].sourceIds[${sourceIndex}]`, 120));
     if (sourceIds.some((sourceId) => !allowedSourceIds.has(sourceId))) throw new SignalValidationError(`items[${index}] references an unknown source`);
+    if (!Array.isArray(item.keyFacts) || item.keyFacts.length === 0 || item.keyFacts.length > 5) throw new SignalValidationError(`items[${index}].keyFacts is invalid`);
+    const itemType = oneOf(item.itemType, ["lead", "brief"] as const, `items[${index}].itemType`);
+    const broaderContext = itemType === "lead"
+      ? string(item.broaderContext, `items[${index}].broaderContext`, 3_000)
+      : optionalString(item.broaderContext, `items[${index}].broaderContext`, 3_000);
+    const counterpoint = itemType === "lead"
+      ? string(item.counterpoint, `items[${index}].counterpoint`, 2_000)
+      : optionalString(item.counterpoint, `items[${index}].counterpoint`, 2_000);
+    const watchNext = itemType === "lead"
+      ? string(item.watchNext, `items[${index}].watchNext`, 2_000)
+      : optionalString(item.watchNext, `items[${index}].watchNext`, 2_000);
     return {
+      itemType,
       category: oneOf(item.category, categories, `items[${index}].category`),
       title: string(item.title, `items[${index}].title`, 240),
-      summary: string(item.summary, `items[${index}].summary`, 3_000),
-      whatChanged: optionalString(item.whatChanged, `items[${index}].whatChanged`, 2_000),
-      whyItMatters: string(item.whyItMatters, `items[${index}].whyItMatters`, 3_000),
-      suggestedAction: optionalString(item.suggestedAction, `items[${index}].suggestedAction`, 2_000),
+      lede: string(item.lede, `items[${index}].lede`, 3_000),
+      nutGraf: string(item.nutGraf, `items[${index}].nutGraf`, 3_000),
+      keyFacts: item.keyFacts.map((fact, factIndex) => string(fact, `items[${index}].keyFacts[${factIndex}]`, 1_000)),
+      broaderContext,
+      implications: string(item.implications, `items[${index}].implications`, 3_000),
+      counterpoint,
+      watchNext,
+      zxlabRelevance: optionalString(item.zxlabRelevance, `items[${index}].zxlabRelevance`, 2_000),
       importance: number(item.importance, `items[${index}].importance`, 0, 100),
       confidence: number(item.confidence, `items[${index}].confidence`, 0, 100),
       sourceIds: [...new Set(sourceIds)],
     };
   });
+  if (items[0]?.itemType !== "lead" || items.filter((item) => item.itemType === "lead").length !== 1) {
+    throw new SignalValidationError("briefing.items must start with exactly one lead item");
+  }
   return { title: string(input.title, "briefing.title", 240), summary: string(input.summary, "briefing.summary", 4_000), items };
 }
 

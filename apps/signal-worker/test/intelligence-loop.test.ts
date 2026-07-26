@@ -27,12 +27,18 @@ class MemoryAwareFixtureLLM implements SignalLLM {
       title: hasWorkersMemory ? "运行约束改变了工具判断" : "工具能力需要进一步验证",
       summary: hasWorkersMemory ? "已确认的 zxlab 项目约束被用于重新评估同一候选。" : "这是未注入项目记忆时的基线日报。",
       items: [{
+        itemType: "lead",
         category: "ai-engineering",
         title: "Agent toolkit runtime fit",
-        summary: "TEST MATERIAL. Candidate framework comparison.",
-        whyItMatters: hasWorkersMemory
+        lede: "TEST MATERIAL. Candidate framework comparison.",
+        nutGraf: "The fixture checks whether confirmed memory changes analysis.",
+        keyFacts: ["The candidate assumes a full Node.js runtime."],
+        broaderContext: "Runtime constraints determine whether orchestration code is portable.",
+        implications: hasWorkersMemory
           ? "Cloudflare Worker runtime 仅能迁移可移植的编排逻辑；child_process 等 Node.js API、常驻进程和本地文件系统假设不兼容，需要把 checkpoint 迁移到 D1 或 Durable Objects。"
           : "需要先验证这个工具是否适合 zxlab。",
+        counterpoint: "Some orchestration logic may remain portable behind an adapter.",
+        watchNext: "Test the runtime adapter before adoption.",
         importance: 90,
         confidence: 85,
         sourceIds: ["fixture-node-framework"],
@@ -111,9 +117,31 @@ describe("ZX Signal intelligence loop", () => {
 
   it("rejects model output that references a source outside the candidate set", () => {
     expect(() => parseGeneratedBriefingDraft({
-      title: "Invalid", summary: "Invalid source", items: [{ category: "zxlab", title: "Bad", summary: "Bad",
-        whyItMatters: "Bad", importance: 50, confidence: 50, sourceIds: ["invented-source"] }],
+      title: "Invalid", summary: "Invalid source", items: [{ itemType: "lead", category: "zxlab", title: "Bad", lede: "Bad",
+        nutGraf: "Bad", keyFacts: ["Bad"], broaderContext: "Bad", implications: "Bad", counterpoint: "Bad", watchNext: "Bad",
+        importance: 50, confidence: 50, sourceIds: ["invented-source"] }],
     }, new Set(["fixture-node-framework"]))).toThrow(/unknown source/);
+  });
+
+  it("requires exactly one fully developed lead story at the start", () => {
+    const sourceIds = new Set(["fixture-node-framework"]);
+    const base = {
+      category: "zxlab",
+      title: "Signal becomes a newsroom",
+      lede: "The briefing now separates one lead story from concise briefs.",
+      nutGraf: "The hierarchy makes significance visible before implementation detail.",
+      keyFacts: ["One story leads the edition."],
+      implications: "Readers receive context before project-specific advice.",
+      importance: 90,
+      confidence: 85,
+      sourceIds: ["fixture-node-framework"],
+    };
+    expect(() => parseGeneratedBriefingDraft({
+      title: "Invalid order", summary: "A brief cannot lead.", items: [{ ...base, itemType: "brief" }],
+    }, sourceIds)).toThrow(/exactly one lead/);
+    expect(() => parseGeneratedBriefingDraft({
+      title: "Shallow lead", summary: "The lead lacks required depth.", items: [{ ...base, itemType: "lead" }],
+    }, sourceIds)).toThrow(/broaderContext/);
   });
 
   it("streams annotation replies before the final memory candidate", async () => {

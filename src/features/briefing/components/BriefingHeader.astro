@@ -23,10 +23,16 @@ const statusLabel = { generating: "生成中", ready: "已就绪", partial: "部
 <section class="signal-hero" aria-labelledby="signal-title">
   <div class="signal-hero__copy">
     <p class="signal-kicker"><span aria-hidden="true"></span> ZX Signal · {date}</p>
-    <h1 id="signal-title">每天真正值得<br />我关注的变化</h1>
+    <h1 id="signal-title">每天真正值得我关注的变化</h1>
     <p class="signal-deck">{briefing.title}</p>
+    <div class="signal-hero__actions">
+      <a href="#lead-story">阅读主报道 <span aria-hidden="true">↓</span></a>
+      <a href="#briefs-start">浏览今日短讯 <span aria-hidden="true">↘</span></a>
+    </div>
   </div>
+</section>
 
+<section class="signal-editorial-band" aria-label="今日总编辑摘要">
   <div class="signal-editorial" aria-label="今日总编辑摘要">
     <div class="signal-editorial__visual" aria-hidden="true">
       <div class="signal-orbit signal-orbit--outer"></div>

@@ -10,9 +10,17 @@ interface BriefingRow {
 interface ItemRow {
   id: string; briefing_id: string; category: BriefingItem["category"]; title: string; summary: string;
   what_changed: string | null; why_it_matters: string; suggested_action: string | null;
+  item_type: BriefingItem["itemType"]; lede: string | null; nut_graf: string | null; key_facts_json: string;
+  broader_context: string | null; implications: string | null; counterpoint: string | null;
+  watch_next: string | null; zxlab_relevance: string | null;
   importance: number; confidence: number; sort_order: number;
 }
 interface SourceRow { id: string; item_id: string; title: string; url: string; publisher: string | null; published_at: string | null; }
+
+function parseJson<T>(value: string | null, fallback: T): T {
+  if (!value) return fallback;
+  try { return JSON.parse(value) as T; } catch { return fallback; }
+}
 
 interface BriefingRunDiagnosticRow {
   id: string; briefing_date: string; status: "running" | "succeeded" | "failed"; trigger_type: string;
@@ -83,9 +91,12 @@ export class BriefingRepository {
     input.draft.items.forEach((item, index) => {
       const itemId = crypto.randomUUID();
       statements.push(this.db.prepare(`INSERT INTO briefing_items
-        (id, briefing_id, category, title, summary, what_changed, why_it_matters, suggested_action, importance, confidence, sort_order)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-        .bind(itemId, input.briefingId, item.category, item.title, item.summary, item.whatChanged ?? null, item.whyItMatters, item.suggestedAction ?? null, item.importance, item.confidence, index));
+        (id, briefing_id, category, title, summary, what_changed, why_it_matters, suggested_action, importance, confidence, sort_order,
+         item_type, lede, nut_graf, key_facts_json, broader_context, implications, counterpoint, watch_next, zxlab_relevance)
+        VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .bind(itemId, input.briefingId, item.category, item.title, item.lede, item.nutGraf, item.implications,
+          item.importance, item.confidence, index, item.itemType, item.lede, item.nutGraf, JSON.stringify(item.keyFacts),
+          item.broaderContext ?? null, item.implications, item.counterpoint ?? null, item.watchNext ?? null, item.zxlabRelevance ?? null));
       item.sourceIds.forEach((sourceId) => {
         const source = candidates.get(sourceId);
         if (!source) throw new SignalError("INVALID_MODEL_OUTPUT", "Generated briefing referenced an unknown source", 400);
@@ -151,7 +162,19 @@ export class BriefingRepository {
       generatedAt: row.generated_at, promptVersion: row.prompt_version, model: row.model, dataOrigin: row.data_origin,
       stats: { fetched: row.candidate_count, deduplicated: row.candidate_count, selected: row.selected_count },
       items: items.map((item) => ({
-        id: item.id, category: item.category, title: item.title, summary: item.summary, whatChanged: item.what_changed ?? undefined,
+        id: item.id,
+        itemType: item.lede ? item.item_type : item.sort_order === 0 ? "lead" as const : "brief" as const,
+        category: item.category,
+        title: item.title,
+        lede: item.lede ?? item.summary,
+        nutGraf: item.nut_graf ?? item.what_changed ?? item.why_it_matters,
+        keyFacts: parseJson<string[]>(item.key_facts_json, []),
+        broaderContext: item.broader_context ?? undefined,
+        implications: item.implications ?? item.why_it_matters,
+        counterpoint: item.counterpoint ?? undefined,
+        watchNext: item.watch_next ?? undefined,
+        zxlabRelevance: item.zxlab_relevance ?? undefined,
+        summary: item.summary, whatChanged: item.what_changed ?? undefined,
         whyItMatters: item.why_it_matters, suggestedAction: item.suggested_action ?? undefined, importance: item.importance, confidence: item.confidence,
         sources: sources.filter((source) => source.item_id === item.id).map((source) => ({ id: source.id, title: source.title, url: source.url, publisher: source.publisher ?? undefined, publishedAt: source.published_at ?? undefined })),
       })),

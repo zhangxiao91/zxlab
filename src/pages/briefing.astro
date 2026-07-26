@@ -73,7 +73,7 @@ const longTermThreads = [
             </div>
           </div>
           <div class="signal-stream__items">
-            {briefing.items.map((item, index) => <BriefingItemCard item={item} index={index} />)}
+            {briefing.items.map((item, index) => <BriefingItemCard item={{ ...item, itemType: item.itemType ?? (index === 0 ? "lead" : "brief") }} index={index} />)}
             <p class="signal-filter-empty" data-filter-empty hidden>当前筛选没有条目。关闭“只看重要”或切换分类即可继续浏览。</p>
           </div>
         </section>
@@ -84,9 +84,8 @@ const longTermThreads = [
             <h2 id="threads-title">今天的变化，之后会连成线。</h2>
           </div>
           <div class="signal-accordion">
-            {longTermThreads.map(([title, description], index) => (
+            {longTermThreads.map(([title, description]) => (
               <article tabindex="0">
-                <span>{String(index + 1).padStart(2, "0")}</span>
                 <div><h3>{title}</h3><p>{description}</p></div>
                 <i aria-hidden="true"></i>
               </article>
@@ -400,17 +399,24 @@ const longTermThreads = [
 
     const itemCard = (item: BriefingItem, index: number) => {
       const categoryLabels = { "ai-engineering": "AI Engineering", markets: "Markets", zxlab: "zxlab" } as const;
-      const analysisHidden = index > 1 ? " hidden" : "";
-      const analysisExpanded = index <= 1 ? "true" : "false";
+      const itemType = item.itemType ?? (index === 0 ? "lead" : "brief");
+      const isLead = itemType === "lead";
+      const lede = item.lede ?? item.summary;
+      const nutGraf = item.nutGraf ?? item.whatChanged ?? item.whyItMatters;
+      const implications = item.implications ?? item.whyItMatters;
+      const imageSeed = { "ai-engineering": "ai-industry-news", markets: "global-markets-news", zxlab: "digital-infrastructure-news" }[item.category];
+      const facts = (item.keyFacts ?? []).map((fact) => `<li data-selectable-segment>${escapeHtml(fact)}</li>`).join("");
       const sources = item.sources.map((source) => {
         const href = escapeHtml(source.url);
         const external = source.url.startsWith("http");
         return `<a href="${href}"${external ? ' target="_blank" rel="noreferrer"' : ""}>${escapeHtml(source.publisher ?? source.title)}<span aria-hidden="true">↗</span></a>`;
       }).join("");
-      return `<article class="signal-item" data-briefing-item="${escapeHtml(item.id)}" data-item-category="${item.category}" data-item-importance="${item.importance}" data-item-title="${escapeHtml(item.title)}" aria-labelledby="item-${escapeHtml(item.id)}">
-        <header class="signal-item__header"><div><p><span>${String(index + 1).padStart(2, "0")}</span> ${categoryLabels[item.category]}</p><h3 id="item-${escapeHtml(item.id)}">${escapeHtml(item.title)}</h3></div><div class="signal-item__score" aria-label="重要性 ${item.importance}，置信度 ${item.confidence}"><span>重要 ${item.importance}</span><span>置信 ${item.confidence}</span></div></header>
-        <div class="signal-item__body" data-selectable-copy><p class="signal-item__summary" data-selectable-segment>${escapeHtml(item.summary)}</p><div class="signal-item__analysis" data-item-analysis${analysisHidden}>${item.whatChanged ? `<div data-selectable-segment><h4>变化</h4><p>${escapeHtml(item.whatChanged)}</p></div>` : ""}<div data-selectable-segment><h4>与你有关</h4><p>${escapeHtml(item.whyItMatters)}</p></div>${item.suggestedAction ? `<div class="signal-item__action" data-selectable-segment><h4>可行动</h4><p>${escapeHtml(item.suggestedAction)}</p></div>` : ""}</div></div>
-        <footer class="signal-item__footer"><div class="signal-sources"><span>来源</span>${sources}</div><div class="signal-item__controls"><button class="signal-analysis-toggle" type="button" data-analysis-toggle aria-expanded="${analysisExpanded}"><span>${index <= 1 ? "收起分析" : "展开分析"}</span><span aria-hidden="true">⌄</span></button><button class="signal-comment-trigger" type="button" data-mobile-comment><span>回应这条</span><span aria-hidden="true">＋</span></button></div></footer>
+      const sourceNav = isLead && item.sources.length > 1 ? `<div class="signal-source-nav"><button type="button" data-source-direction="prev" aria-label="查看上一来源" title="上一来源">←</button><button type="button" data-source-direction="next" aria-label="查看下一来源" title="下一来源">→</button></div>` : "";
+      const analysisToggle = isLead ? "" : `<button class="signal-analysis-toggle" type="button" data-analysis-toggle aria-expanded="false"><span>展开分析</span><span aria-hidden="true">⌄</span></button>`;
+      return `<article class="signal-item signal-item--${itemType}"${isLead ? ' id="lead-story"' : index === 1 ? ' id="briefs-start"' : ""} data-item-type="${itemType}" data-briefing-item="${escapeHtml(item.id)}" data-item-category="${item.category}" data-item-importance="${item.importance}" data-item-title="${escapeHtml(item.title)}" aria-labelledby="item-${escapeHtml(item.id)}">
+        <header class="signal-item__header"><div><p>${isLead ? "主报道" : "短讯"} · ${categoryLabels[item.category]}</p><h3 id="item-${escapeHtml(item.id)}">${escapeHtml(item.title)}${isLead ? `<span class="signal-lead__micro-image" style="--story-image:url(https://picsum.photos/seed/${imageSeed}/480/240)" role="img" aria-label="今日主报道配图"></span>` : ""}</h3></div><div class="signal-item__score" aria-label="重要性 ${item.importance}，置信度 ${item.confidence}"><span>重要 ${item.importance}</span><span>置信 ${item.confidence}</span></div></header>
+        <div class="signal-item__body" data-selectable-copy><p class="signal-item__summary" data-selectable-segment>${escapeHtml(lede)}</p><p class="signal-item__nutgraf" data-selectable-segment>${escapeHtml(nutGraf)}</p>${facts ? `<ul class="signal-item__facts" aria-label="关键事实">${facts}</ul>` : ""}<div class="signal-item__analysis" data-item-analysis${isLead ? "" : " hidden"}>${item.broaderContext ? `<div data-selectable-segment><h4>背景</h4><p>${escapeHtml(item.broaderContext)}</p></div>` : ""}<div data-selectable-segment><h4>影响</h4><p>${escapeHtml(implications)}</p></div>${item.counterpoint ? `<div data-selectable-segment><h4>另一面</h4><p>${escapeHtml(item.counterpoint)}</p></div>` : ""}${item.watchNext ? `<div class="signal-item__watch" data-selectable-segment><h4>接下来</h4><p>${escapeHtml(item.watchNext)}</p></div>` : ""}${item.zxlabRelevance ? `<div data-selectable-segment><h4>对 zxlab</h4><p>${escapeHtml(item.zxlabRelevance)}</p></div>` : ""}</div></div>
+        <footer class="signal-item__footer"><div class="signal-sources" data-source-carousel><span>来源</span><div data-source-track>${sources}</div>${sourceNav}</div><div class="signal-item__controls">${analysisToggle}<button class="signal-comment-trigger" type="button" data-mobile-comment><span>回应这条</span><span aria-hidden="true">＋</span></button></div></footer>
       </article>`;
     };
 
@@ -450,6 +456,15 @@ const longTermThreads = [
       setPreviewState(briefing.status);
       applyReadingFilters();
     };
+
+    document.addEventListener("click", (event) => {
+      const button = (event.target as Element).closest<HTMLButtonElement>("[data-source-direction]");
+      if (!button) return;
+      const track = button.closest<HTMLElement>("[data-source-carousel]")?.querySelector<HTMLElement>("[data-source-track]");
+      if (!track) return;
+      const direction = button.dataset.sourceDirection === "prev" ? -1 : 1;
+      track.scrollBy({ left: direction * Math.max(220, track.clientWidth * 0.72), behavior: "smooth" });
+    });
 
     if (!previewParam && briefingId === "signal-unavailable") {
       getLatestBriefing("ready").then(renderBriefing).catch(() => {
@@ -624,6 +639,22 @@ const longTermThreads = [
           ease: "power3.out",
           scrollTrigger: { trigger: element, start: "top 88%" },
         });
+      });
+    });
+    motion.add("(min-width: 64.01rem) and (prefers-reduced-motion: no-preference)", () => {
+      const lead = document.querySelector<HTMLElement>(".signal-item--lead");
+      const leadHeader = lead?.querySelector<HTMLElement>(".signal-item__header");
+      if (lead && leadHeader) {
+        ScrollTrigger.create({ trigger: lead, start: "top 5rem", end: "bottom 52%", pin: leadHeader, pinSpacing: false });
+      }
+      gsap.utils.toArray<HTMLElement>(".signal-item--brief").forEach((item, index) => {
+        gsap.fromTo(item, { y: 72, scale: 0.96 }, {
+          y: 0,
+          scale: 1,
+          ease: "none",
+          scrollTrigger: { trigger: item, start: "top 92%", end: "top 64%", scrub: 0.7 },
+        });
+        item.style.setProperty("--brief-stack-index", String(index));
       });
     });
 

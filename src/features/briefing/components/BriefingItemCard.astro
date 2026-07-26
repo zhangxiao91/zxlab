@@ -3,6 +3,13 @@ import type { BriefingItem } from "../types";
 
 interface Props { item: BriefingItem; index: number; }
 const { item, index } = Astro.props;
+const itemType = item.itemType ?? (index === 0 ? "lead" : "brief");
+const isLead = itemType === "lead";
+const lede = item.lede ?? item.summary;
+const nutGraf = item.nutGraf ?? item.whatChanged ?? item.whyItMatters;
+const implications = item.implications ?? item.whyItMatters;
+const keyFacts = item.keyFacts ?? [];
+const imageSeed = { "ai-engineering": "ai-industry-news", markets: "global-markets-news", zxlab: "digital-infrastructure-news" }[item.category];
 const categoryLabels = {
   "ai-engineering": "AI Engineering",
   markets: "Markets",
@@ -11,7 +18,9 @@ const categoryLabels = {
 ---
 
 <article
-  class="signal-item"
+  class:list={["signal-item", isLead ? "signal-item--lead" : "signal-item--brief"]}
+  id={isLead ? "lead-story" : index === 1 ? "briefs-start" : undefined}
+  data-item-type={itemType}
   data-briefing-item={item.id}
   data-item-category={item.category}
   data-item-importance={item.importance}
@@ -20,8 +29,8 @@ const categoryLabels = {
 >
   <header class="signal-item__header">
     <div>
-      <p><span>{String(index + 1).padStart(2, "0")}</span> {categoryLabels[item.category]}</p>
-      <h3 id={`item-${item.id}`}>{item.title}</h3>
+      <p>{isLead ? "主报道" : "短讯"} · {categoryLabels[item.category]}</p>
+      <h3 id={`item-${item.id}`}>{item.title}{isLead && <span class="signal-lead__micro-image" style={`--story-image: url(https://picsum.photos/seed/${imageSeed}/480/240)`} role="img" aria-label="今日主报道配图"></span>}</h3>
     </div>
     <div class="signal-item__score" aria-label={`重要性 ${item.importance}，置信度 ${item.confidence}`}>
       <span>重要 {item.importance}</span>
@@ -30,27 +39,35 @@ const categoryLabels = {
   </header>
 
   <div class="signal-item__body" data-selectable-copy>
-    <p class="signal-item__summary" data-selectable-segment>{item.summary}</p>
-    <div class="signal-item__analysis" data-item-analysis hidden={index > 1}>
-      {item.whatChanged && <div data-selectable-segment><h4>变化</h4><p>{item.whatChanged}</p></div>}
-      <div data-selectable-segment><h4>与你有关</h4><p>{item.whyItMatters}</p></div>
-      {item.suggestedAction && <div class="signal-item__action" data-selectable-segment><h4>可行动</h4><p>{item.suggestedAction}</p></div>}
+    <p class="signal-item__summary" data-selectable-segment>{lede}</p>
+    <p class="signal-item__nutgraf" data-selectable-segment>{nutGraf}</p>
+    {keyFacts.length > 0 && <ul class="signal-item__facts" aria-label="关键事实">{keyFacts.map((fact) => <li data-selectable-segment>{fact}</li>)}</ul>}
+    <div class="signal-item__analysis" data-item-analysis hidden={!isLead}>
+      {item.broaderContext && <div data-selectable-segment><h4>背景</h4><p>{item.broaderContext}</p></div>}
+      <div data-selectable-segment><h4>影响</h4><p>{implications}</p></div>
+      {item.counterpoint && <div data-selectable-segment><h4>另一面</h4><p>{item.counterpoint}</p></div>}
+      {item.watchNext && <div class="signal-item__watch" data-selectable-segment><h4>接下来</h4><p>{item.watchNext}</p></div>}
+      {item.zxlabRelevance && <div data-selectable-segment><h4>对 zxlab</h4><p>{item.zxlabRelevance}</p></div>}
     </div>
   </div>
 
   <footer class="signal-item__footer">
-    <div class="signal-sources">
+    <div class="signal-sources" data-source-carousel>
       <span>来源</span>
-      {item.sources.map((source) => (
-        <a href={source.url} target={source.url.startsWith("http") ? "_blank" : undefined} rel={source.url.startsWith("http") ? "noreferrer" : undefined}>
-          {source.publisher ?? source.title}<span aria-hidden="true">↗</span>
-        </a>
-      ))}
+      <div data-source-track>{item.sources.map((source) => (
+          <a href={source.url} target={source.url.startsWith("http") ? "_blank" : undefined} rel={source.url.startsWith("http") ? "noreferrer" : undefined}>
+            {source.publisher ?? source.title}<span aria-hidden="true">↗</span>
+          </a>
+        ))}</div>
+      {isLead && item.sources.length > 1 && <div class="signal-source-nav">
+        <button type="button" data-source-direction="prev" aria-label="查看上一来源" title="上一来源">←</button>
+        <button type="button" data-source-direction="next" aria-label="查看下一来源" title="下一来源">→</button>
+      </div>}
     </div>
     <div class="signal-item__controls">
-      <button class="signal-analysis-toggle" type="button" data-analysis-toggle aria-expanded={index <= 1 ? "true" : "false"}>
-        <span>{index <= 1 ? "收起分析" : "展开分析"}</span><span aria-hidden="true">⌄</span>
-      </button>
+      {!isLead && <button class="signal-analysis-toggle" type="button" data-analysis-toggle aria-expanded="false">
+        <span>展开分析</span><span aria-hidden="true">⌄</span>
+      </button>}
       <button class="signal-comment-trigger" type="button" data-mobile-comment>
         <span>回应这条</span><span aria-hidden="true">＋</span>
       </button>
