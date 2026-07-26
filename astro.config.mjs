@@ -9,5 +9,13 @@ export default defineConfig({
 		resolve: {
 			dedupe: ["react", "react-dom"],
 		},
+		build: {
+			rollupOptions: {
+				output: {
+					// Strudel merges module exports into its evaluation scope at runtime.
+					minifyInternalExports: false,
+				},
+			},
+		},
 	},
 });
