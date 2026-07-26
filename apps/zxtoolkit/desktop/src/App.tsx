@@ -117,6 +117,14 @@ export default function DesktopApp() {
   }, [autoCopy, credential, refreshInbox]);
 
   useEffect(() => {
+    if (!credential) return;
+    const refreshPulse = () => void getPublicStatus().then(setPulse).catch(() => undefined);
+    refreshPulse();
+    const timer = window.setInterval(refreshPulse, 30_000);
+    return () => window.clearInterval(timer);
+  }, [credential]);
+
+  useEffect(() => {
     let dispose: () => void = () => undefined;
     void listenForScreenshots((path) => setScreenshotPath(path)).then((stop) => { dispose = stop; });
     return () => dispose();
@@ -301,6 +309,10 @@ export default function DesktopApp() {
   }
 
   const selectedDevice = useMemo(() => devices.find((device) => device.id === targetId), [devices, targetId]);
+  const selectedPulse = useMemo(
+    () => pulse?.devices.find((device) => device.name === selectedDevice?.name) ?? pulse?.devices[0],
+    [pulse, selectedDevice]
+  );
 
   return <main className="desktop-shell">
     <header className="desktop-header"><div className="desktop-brand"><span>z</span><strong>zxtoolkit</strong></div><i className={`online-dot ${connected ? "" : "is-offline"}`} title={connected ? "服务已连接" : "等待连接"} /></header>
@@ -331,7 +343,7 @@ export default function DesktopApp() {
       {message && <p className={`desktop-message ${status === "error" ? "error" : "success"}`}>{message}{status === "error" && lastAttempt && <button onClick={() => void retryLast()}>重试</button>}</p>}
       <section className="desktop-inbox"><div className="panel-title"><span><Inbox size={13} /> 收到的内容</span><label><input type="checkbox" checked={autoCopy} onChange={(event) => { setAutoCopy(event.target.checked); localStorage.setItem("zxtoolkit.auto-copy", event.target.checked ? "1" : "0"); }} /> 自动复制文字</label></div>{inbox.length ? inbox.slice(0,3).map((item) => <div className="desktop-inbox-item" id={`desktop-drop-${item.id}`} key={item.id}><span><strong>{summary(item)}</strong><small>{item.senderDeviceName} · {formatTime(item.createdAt)}</small></span>{item.status === "claimed" ? <small>已领取</small> : item.payload.type === "text" ? <button onClick={() => void claimText(item)}><Copy size={14} /> 复制</button> : item.payload.type === "url" ? <button onClick={() => void claimUrl(item)}><ExternalLink size={14} /> 打开</button> : <button onClick={() => void claimFile(item)}><Download size={14} /> 保存</button>}</div>) : <div className="recent-empty">手机发送的内容会出现在这里</div>}</section>
       <section className="recent-panel"><div className="panel-title"><span>最近投递</span><button onClick={() => credential && void refresh(credential)}><RefreshCw size={14} /></button></div>{recent.length ? <div className="recent-list">{recent.slice(0,4).map((item) => <div className="recent-item" key={item.id}><time>{formatTime(item.createdAt)}</time><span>{summary(item)}</span><small>{statusText(item.status)}</small></div>)}</div> : <div className="recent-empty">发送后的内容会出现在这里</div>}</section>
-      <section className="pulse-summary"><div className="panel-title"><span>设备状态</span><button onClick={() => void openExternal(`${publicAppUrl.replace(/\/$/, "")}/pulse/preview`)}>Pulse</button></div><div><span>{pulse?.devices[0]?.name ?? selectedDevice?.name}</span><small>{pulse?.devices[0]?.presence === "online" ? "在线" : "等待状态"}</small></div></section>
+      <section className="pulse-summary"><div className="panel-title"><span>设备状态</span><button onClick={() => void openExternal(`${publicAppUrl.replace(/\/$/, "")}/pulse/preview`)}>Pulse</button></div><div><span>{selectedPulse?.name ?? selectedDevice?.name}</span><small>{selectedPulse ? `${presenceText(selectedPulse.presence)} · 电量${batteryText(selectedPulse.batteryLevel)} · ${selectedPulse.charging ? "充电中" : "未充电"}` : "等待状态"}</small></div></section>
       <footer className="desktop-footer"><button onClick={() => { setMessage(null); setSettingsOpen(true); }}><Settings size={14} /> 设备管理</button><button onClick={() => void openExternal(`${publicAppUrl.replace(/\/$/, "")}/inbox`)}><ExternalLink size={14} /> Web 收件箱</button></footer>
       <p className="target-footnote">当前目标：{selectedDevice?.name}</p>
     </>}
@@ -342,3 +354,5 @@ function summary(item: DropItem): string { return item.payload.type === "url" ? 
 function kindLabel(item: DropItem): string { return item.payload.type === "text" ? "一段文字" : item.payload.type === "url" ? "一个链接" : item.payload.type === "image" ? "一张图片" : "一个文件"; }
 function formatTime(value: string): string { return new Date(value).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }); }
 function statusText(value: DropItem["status"]): string { return value === "claimed" ? "已领取" : value === "opened" ? "已打开" : value === "delivered" ? "已送达" : value === "expired" ? "已过期" : value === "failed" ? "失败" : "发送中"; }
+function presenceText(value: "online" | "recently_online" | "offline"): string { return value === "online" ? "在线" : value === "recently_online" ? "最近在线" : "离线"; }
+function batteryText(value: "high" | "medium" | "low" | undefined): string { return value === "high" ? "高" : value === "medium" ? "中" : value === "low" ? "低" : "未知"; }
