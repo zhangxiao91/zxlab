@@ -17,6 +17,7 @@ export const TASK_POLICIES: Record<string, Partial<AITaskPolicy>> = {
   "signal-annotation-reply": { timeoutMs: 20_000, totalBudgetMs: 40_000, maxOutputTokens: 1_200, temperature: 0.1 },
   "signal-memory-extraction": { timeoutMs: 20_000, totalBudgetMs: 40_000, maxOutputTokens: 800, temperature: 0 },
   "signal-memory-consolidation": { timeoutMs: 30_000, totalBudgetMs: 60_000, maxOutputTokens: 1_600, temperature: 0 },
+  "yuzhi-turn": { timeoutMs: 25_000, totalBudgetMs: 55_000, maxOutputTokens: 700, temperature: 0.72 },
 };
 
 export function resolveTaskPolicy(input: GenerateAIInput): AITaskPolicy {

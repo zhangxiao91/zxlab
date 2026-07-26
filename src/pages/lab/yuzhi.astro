@@ -1,0 +1,131 @@
+---
+import "../../styles/yuzhi.css";
+
+const repositoryUrl = "https://github.com/zhangxiao91/yuzhi";
+const gameUrl = "/lab/yuzhi/game/index.html";
+---
+
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="余字是一款五回合生成式文字构筑游戏：剪下世界里的意群，让她在天亮前读懂那封信。"
+    />
+    <link rel="canonical" href={new URL(Astro.url.pathname, Astro.site).toString()} />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>余字 | Lab | zxlab</title>
+  </head>
+  <body>
+    <main class="yuzhi-shell">
+      <header class="yuzhi-bar">
+        <a class="yuzhi-back" href="/lab/" aria-label="返回 zxlab Lab">
+          <span aria-hidden="true">←</span>
+          <span>zxlab / Lab</span>
+        </a>
+
+        <div class="yuzhi-identity" aria-label="当前项目">
+          <strong>余字</strong>
+          <span>未寄出的信 · beta</span>
+        </div>
+
+        <div class="yuzhi-actions">
+          <a
+            class="yuzhi-icon-command"
+            href={repositoryUrl}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="打开余字 GitHub 仓库"
+            title="GitHub repository"
+          >
+            <span aria-hidden="true">↗</span>
+          </a>
+          <button
+            class="yuzhi-icon-command"
+            type="button"
+            data-yuzhi-fullscreen
+            aria-label="切换游戏全屏"
+            title="切换全屏"
+          >
+            <span aria-hidden="true">⛶</span>
+          </button>
+        </div>
+      </header>
+
+      <section class="yuzhi-stage" data-yuzhi-stage aria-label="余字游戏区域">
+        <div class="yuzhi-loading" data-yuzhi-loading role="status">
+          <span aria-hidden="true"></span>
+          <p>正在展开未寄出的手稿</p>
+        </div>
+        <div class="yuzhi-error" data-yuzhi-error hidden>
+          <strong>手稿没有展开</strong>
+          <p>游戏资源暂时无法载入。</p>
+          <button type="button" data-yuzhi-retry>重试</button>
+        </div>
+        <iframe
+          title="余字·未寄出的信生成式文字构筑游戏"
+          data-yuzhi-frame
+          src={gameUrl}
+          referrerpolicy="same-origin"
+          allow="fullscreen"
+          allowfullscreen
+        ></iframe>
+      </section>
+    </main>
+
+    <script is:inline>
+      const frame = document.querySelector("[data-yuzhi-frame]");
+      const stage = document.querySelector("[data-yuzhi-stage]");
+      const loading = document.querySelector("[data-yuzhi-loading]");
+      const error = document.querySelector("[data-yuzhi-error]");
+      const retry = document.querySelector("[data-yuzhi-retry]");
+      const fullscreen = document.querySelector("[data-yuzhi-fullscreen]");
+      let settled = false;
+
+      const showReady = () => {
+        settled = true;
+        loading?.setAttribute("hidden", "");
+        error?.setAttribute("hidden", "");
+        frame?.setAttribute("data-ready", "true");
+      };
+
+      const showError = () => {
+        if (settled) return;
+        loading?.setAttribute("hidden", "");
+        error?.removeAttribute("hidden");
+      };
+
+      if (frame instanceof HTMLIFrameElement) {
+        frame.addEventListener("load", showReady);
+        frame.addEventListener("error", showError);
+        window.setTimeout(showError, 12_000);
+      }
+
+      retry?.addEventListener("click", () => {
+        if (!(frame instanceof HTMLIFrameElement)) return;
+        settled = false;
+        error?.setAttribute("hidden", "");
+        loading?.removeAttribute("hidden");
+        frame.removeAttribute("data-ready");
+        frame.src = frame.src;
+        window.setTimeout(showError, 12_000);
+      });
+
+      fullscreen?.addEventListener("click", async () => {
+        if (document.fullscreenElement === stage) {
+          await document.exitFullscreen();
+          return;
+        }
+        if (stage instanceof HTMLElement) {
+          try {
+            await stage.requestFullscreen();
+          } catch {
+            if (frame instanceof HTMLIFrameElement) window.location.assign(frame.src);
+          }
+        }
+      });
+    </script>
+  </body>
+</html>

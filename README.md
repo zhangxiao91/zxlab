@@ -35,10 +35,10 @@ Create a production build:
 npm run build
 ```
 
-The production build first compiles the vendored STONKS Vite app from
-`apps/stonks/` into `public/lab/stonks/game/`, then builds the Astro site. The
-game remains an isolated package and is rendered by the Astro shell at
-`/lab/stonks/`.
+The production build first compiles the embedded Vite games, then builds the
+Astro site. STONKS is vendored under `apps/stonks/`; Yuzhi is pinned as a git
+submodule under `apps/yuzhi/`. Their static snapshots are written to
+`public/lab/<game>/game/` and rendered by same-origin Astro shells.
 
 To refresh the STONKS snapshot, copy the desired upstream revision into
 `apps/stonks/` while preserving zxlab's deployment changes in
@@ -56,6 +56,22 @@ Preview the production build locally:
 
 ```bash
 npm run preview
+```
+
+Clone with submodules, or initialize them before installing workspaces:
+
+```bash
+git submodule update --init --recursive
+```
+
+To refresh Yuzhi, update and verify the independent repository first, then pin
+the reviewed upstream commit and rebuild the snapshot:
+
+```bash
+git -C apps/yuzhi fetch origin main
+git -C apps/yuzhi checkout <reviewed-commit>
+npm install
+npm run build:yuzhi
 ```
 
 ## Project structure
@@ -114,6 +130,7 @@ documented in [`docs/ai-gateway.md`](docs/ai-gateway.md).
 * `/lab/risk` — Local portfolio risk workbench
 * `/lab/strudel` — Embedded Strudel live coding playground
 * `/lab/stonks` — Desktop-only fictional market simulation
+* `/lab/yuzhi` — Five-turn generative narrative construction game
 * `/status` — Public, privacy-filtered status dashboard
 * `/about` — About page
 

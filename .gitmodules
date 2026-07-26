@@ -1,0 +1,3 @@
+[submodule "apps/yuzhi"]
+	path = apps/yuzhi
+	url = https://github.com/zhangxiao91/yuzhi.git

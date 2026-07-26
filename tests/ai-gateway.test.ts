@@ -10,6 +10,7 @@ import type { AIProviderAdapter, ProviderGenerateResult } from "../functions/_li
 import { generateAI, streamAI } from "../functions/_lib/ai/router.ts";
 import { validateGenerateAIInput } from "../functions/_lib/ai/validation.ts";
 import { estimateLLMCost, normalizeUsage, type LLMUsageDatabase } from "../functions/_lib/ai/telemetry.ts";
+import { resolveTaskPolicy } from "../functions/_lib/ai/task-policies.ts";
 
 const candidates: ModelCandidate[] = [
   { id: "provider1-gpt-5.6", provider: "provider1", adapter: "openai-compatible", model: "p1-56", baseUrl: "https://p1.example/v1", apiKey: "p1-secret" },
@@ -62,6 +63,16 @@ test("first candidate succeeds without fallback", async () => {
   const result = await generateAI(input, { candidates, adapters: adapters(adapter), jitterMs: () => 0 });
   assert.equal(result.fallbackIndex, 0);
   assert.deepEqual(adapter.calls, ["provider1-gpt-5.6"]);
+});
+
+test("Yuzhi uses its bounded generation policy", () => {
+  assert.deepEqual(resolveTaskPolicy({ ...input, task: "yuzhi-turn" }), {
+    timeoutMs: 25_000,
+    totalBudgetMs: 55_000,
+    maxOutputTokens: 700,
+    temperature: 0.72,
+  });
+  assert.equal(resolveTaskPolicy({ ...input, task: "yuzhi-turn", maxOutputTokens: 2_000 }).maxOutputTokens, 700);
 });
 
 test("429 retries once, then falls back to Provider 1 GPT-5.5", async () => {

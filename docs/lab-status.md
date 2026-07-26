@@ -16,6 +16,21 @@ Layout, navigation, footer, typography, colors, and motion conventions.
 Optional source, documentation, or related-project links belong in the
 project's `links` array and render beside its instructions only when present.
 
+## Yuzhi narrative game
+
+`/lab/yuzhi` is a custom shell around the same-origin static snapshot generated
+from the public `zhangxiao91/yuzhi` repository. ZXLab pins that repository as
+the `apps/yuzhi` git submodule; `npm run build:yuzhi` writes its Vite output to
+`public/lab/yuzhi/game/`.
+
+The embedded browser app calls only `yuzhi-api.zx-dx.xyz`. The game Worker owns
+Turnstile, rate limits, 30-minute Durable Object sessions, phase/version checks,
+and deterministic validation. Narrative generation reaches the ZXLab Pages AI
+Gateway through the server-only `yuzhi-turn` task. Browser bundles contain no
+model or gateway secret. Refresh an upstream version by fetching the submodule,
+checking out a reviewed commit, running Yuzhi tests and builds, and committing
+only the new gitlink plus regenerated snapshot.
+
 Experiment modules implement the `ExperimentModule` contract from
 `src/lab/types.ts`:
 
