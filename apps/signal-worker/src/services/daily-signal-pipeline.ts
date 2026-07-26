@@ -8,6 +8,13 @@ const DAILY_CANDIDATE_POOL = 200;
 const DAILY_MAX_CANDIDATES = 12;
 const BALANCE_ORDER: SignalCategory[] = ["ai-engineering", "markets", "zxlab", "uncategorized"];
 const MAX_CANDIDATES_PER_SOURCE = 3;
+const RELEASE_NOTE_SHARE = 0.25;
+
+export function isReleaseNoteCandidate(candidate: CandidateSignal): boolean {
+  return candidate.source.sourceType === "github-release"
+    || candidate.source.sourceType === "web-changelog"
+    || candidate.source.sourceId === "cloudflare-developer-platform";
+}
 
 export function selectBalancedDailyCandidates(candidates: CandidateSignal[], maxCandidates = DAILY_MAX_CANDIDATES): CandidateSignal[] {
   const buckets = new Map<SignalCategory, Map<string, CandidateSignal[]>>();
@@ -23,11 +30,18 @@ export function selectBalancedDailyCandidates(candidates: CandidateSignal[], max
   const selected: CandidateSignal[] = [];
   const seen = new Set<string>();
   const sourceCounts = new Map<string, number>();
+  const releaseNoteLimit = Math.max(1, Math.floor(maxCandidates * RELEASE_NOTE_SHARE));
+  let releaseNoteCount = 0;
   const takeFromCategory = (category: SignalCategory, enforceSourceCap: boolean): boolean => {
     const sources = buckets.get(category);
     if (!sources) return false;
     const choice = [...sources.entries()]
-      .filter(([sourceId, items]) => items.length > 0 && (!enforceSourceCap || (sourceCounts.get(sourceId) ?? 0) < MAX_CANDIDATES_PER_SOURCE))
+      .filter(([sourceId, items]) => {
+        const next = items[0];
+        return next
+          && (!enforceSourceCap || (sourceCounts.get(sourceId) ?? 0) < MAX_CANDIDATES_PER_SOURCE)
+          && (!isReleaseNoteCandidate(next) || releaseNoteCount < releaseNoteLimit);
+      })
       .sort(([leftId], [rightId]) => (sourceCounts.get(leftId) ?? 0) - (sourceCounts.get(rightId) ?? 0) || leftId.localeCompare(rightId))[0];
     if (!choice) return false;
     const [sourceId, items] = choice;
@@ -36,6 +50,7 @@ export function selectBalancedDailyCandidates(candidates: CandidateSignal[], max
     selected.push(candidate);
     seen.add(candidate.id);
     sourceCounts.set(sourceId, (sourceCounts.get(sourceId) ?? 0) + 1);
+    if (isReleaseNoteCandidate(candidate)) releaseNoteCount += 1;
     return true;
   };
 

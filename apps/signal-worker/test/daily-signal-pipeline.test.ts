@@ -33,10 +33,15 @@ const collector: SignalCollector = {
   },
 };
 
-function candidate(id: string, categoryHint: SignalCategory, sourceId = `source-${id}`): CandidateSignal {
+function candidate(
+  id: string,
+  categoryHint: SignalCategory,
+  sourceId = `source-${id}`,
+  sourceType: SignalSourceType = "rss",
+): CandidateSignal {
   return {
     id,
-    source: { sourceId, sourceName: `Source ${sourceId}`, sourceType: "rss", externalId: id },
+    source: { sourceId, sourceName: `Source ${sourceId}`, sourceType, externalId: id },
     categoryHint,
     title: `Candidate ${id}`,
     url: `https://example.com/${id}`,
@@ -109,6 +114,24 @@ describe("Daily Signal pipeline", () => {
     ], 12);
     expect(selected.filter((item) => item.source.sourceId === "cloudflare")).toHaveLength(3);
     expect(new Set(selected.map((item) => item.source.sourceId))).toEqual(new Set(["cloudflare", "openai", "market", "research"]));
+  });
+
+  it("caps release notes and changelogs at one quarter of the candidate pool", () => {
+    const selected = selectBalancedDailyCandidates([
+      ...Array.from({ length: 8 }, (_, index) => candidate(`release-${index}`, "ai-engineering", `a-release-source-${index}`, "github-release")),
+      ...Array.from({ length: 9 }, (_, index) => candidate(`news-${index}`, "ai-engineering", `z-news-source-${index}`)),
+      ...Array.from({ length: 4 }, (_, index) => candidate(`market-${index}`, "markets", `market-source-${index}`)),
+    ], 12);
+    expect(selected).toHaveLength(12);
+    expect(selected.filter((item) => item.source.sourceType === "github-release")).toHaveLength(3);
+  });
+
+  it("does not pad a narrow day with additional release notes", () => {
+    const selected = selectBalancedDailyCandidates(
+      Array.from({ length: 12 }, (_, index) => candidate(`release-${index}`, "ai-engineering", `release-source-${index}`, "web-changelog")),
+      12,
+    );
+    expect(selected).toHaveLength(3);
   });
 
   it("exposes failed briefing and model invocation diagnostics", async () => {

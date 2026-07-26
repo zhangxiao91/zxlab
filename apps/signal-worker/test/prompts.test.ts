@@ -33,4 +33,34 @@ describe("Signal prompts", () => {
       expect(prompt.user.length).toBeLessThan(25_000);
     }
   });
+
+  it("keeps project memory subordinate to the news agenda", () => {
+    const prompt = buildBriefingPrompt({
+      date: "2026-07-25",
+      candidates: [candidate("workers")],
+      memories: [{
+        id: "workers-memory",
+        scope: "project",
+        scopeKey: "zxlab",
+        content: "zxlab 的新后端能力应优先兼容 Cloudflare Workers 运行时。",
+        confidence: 0.9,
+        status: "active",
+        createdAt: "2026-07-01T00:00:00.000Z",
+        updatedAt: "2026-07-01T00:00:00.000Z",
+        lastConfirmedAt: "2026-07-01T00:00:00.000Z",
+      }],
+    });
+    expect(prompt.system).toContain("Write as a news editor");
+    expect(prompt.system).toContain("must not determine the news agenda");
+    expect(prompt.system).not.toContain("Node.js API dependencies");
+    expect(prompt.system).not.toContain("persistent-process assumptions");
+  });
+
+  it("sets explicit editorial limits for release notes and vendor concentration", () => {
+    const briefing = buildBriefingPrompt({ date: "2026-07-25", candidates: [candidate("release")], memories: [] });
+    const editorial = buildEditorialPrompt({ candidates: [candidate("release")], memories: [] });
+    expect(briefing.system).toContain("never more than one third of the briefing");
+    expect(editorial.system).toContain("no more than one third of keep decisions");
+    expect(editorial.system).toContain("public significance");
+  });
 });
