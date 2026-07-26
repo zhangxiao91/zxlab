@@ -20,15 +20,15 @@ const statement =
     <section class="lab-hero" aria-labelledby="lab-title">
       <div class="lab-hero__copy">
         <p class="lab-kicker">A place for unfinished interaction</p>
-        <div class="lab-yuragi-title" aria-hidden="true">
+        <div class="section-yuragi-title" aria-hidden="true">
           <YuragiStaticTitle
             client:load
             text="LAB"
             size={120}
             maxWidth={720}
             hover="outline"
-            transition={{ enter: "settle", exit: "scatter", speed: 1.04 }}
-            className="lab-yuragi-title__text"
+            motionPreset="section-reveal"
+            className="section-yuragi-title__text"
           />
         </div>
         <h1 id="lab-title">

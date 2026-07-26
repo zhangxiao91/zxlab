@@ -18,7 +18,7 @@
     linear-gradient(rgba(4, 7, 17, 0.18), rgba(4, 7, 17, 0.56)),
     var(--welcome-surface);
   color: var(--welcome-ink);
-  font-family: "Geist", "Outfit", ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-sans);
   isolation: isolate;
 }
 

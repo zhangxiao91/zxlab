@@ -4,7 +4,7 @@
   overflow-x: hidden;
   background: #11120f;
   color: #eeeDE5;
-  font-family: "Geist", ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-sans);
 }
 
 .site-shell:has(.risk-page) > .site-header,
@@ -45,9 +45,11 @@
   min-height: 5.25rem;
   padding: 0 2.25rem;
   align-items: center;
-  border-bottom: 1px solid var(--risk-line);
-  background: rgba(17, 18, 15, 0.84);
-  backdrop-filter: blur(20px);
+  border: 1px solid var(--nav-glass-border);
+  background: var(--nav-glass-background);
+  box-shadow: var(--nav-glass-shadow);
+  backdrop-filter: var(--nav-glass-filter);
+  -webkit-backdrop-filter: var(--nav-glass-filter);
 }
 
 .risk-brand { display: inline-flex; width: fit-content; align-items: center; gap: 0.75rem; color: inherit; text-decoration: none; }
@@ -121,7 +123,7 @@
 .alert-card h3 { max-width: 24rem; margin-top: 4.2rem; font-size: clamp(1.7rem, 3vw, 3.1rem); font-weight: 460; line-height: 1.02; letter-spacing: -.045em; }
 .alert-card > p { max-width: 35rem; margin-top: 1rem; color: rgba(239,237,228,.55); font-size: .8rem; line-height: 1.7; }
 .alert-card__evidence, .review-columns article > div { display: flex; margin-top: 1.5rem; flex-wrap: wrap; gap: .45rem; }
-.alert-card__evidence button, .review-columns article > div button { padding: .4rem .55rem; border: 1px solid var(--risk-line); border-radius: .4rem; background: rgba(0,0,0,.12); color: rgba(239,237,228,.5); cursor: pointer; font-family: ui-monospace, monospace; font-size: .58rem; transition: color 250ms, border 250ms; }
+.alert-card__evidence button, .review-columns article > div button { padding: .4rem .55rem; border: 1px solid var(--risk-line); border-radius: .4rem; background: rgba(0,0,0,.12); color: rgba(239,237,228,.5); cursor: pointer; font-family: var(--font-mono); font-size: .58rem; transition: color 250ms, border 250ms; }
 .alert-card__evidence button:hover, .review-columns article > div button:hover { border-color: var(--risk-lime); color: var(--risk-lime); }
 
 .position-table-wrap { overflow-x: auto; border: 1px solid var(--risk-line); border-radius: 1rem; background: rgba(255,255,255,.018); }
@@ -568,7 +570,7 @@
 .evidence-close { float: right; padding: .6rem .8rem; border: 1px solid rgba(24,25,21,.18); border-radius: 999px; background: transparent; cursor: pointer; font-size: .67rem; }
 .evidence-drawer > span { display: block; margin-top: 7rem; font-size: .62rem; letter-spacing: .1em; text-transform: uppercase; }
 .evidence-drawer h2 { max-width: 24rem; margin-top: 1rem; font-size: 2.8rem; font-weight: 500; line-height: 1; letter-spacing: -.05em; }
-.evidence-drawer > p { margin-top: 1rem; color: rgba(24,25,21,.5); font-family: ui-monospace, monospace; font-size: .65rem; }
+.evidence-drawer > p { margin-top: 1rem; color: rgba(24,25,21,.5); font-family: var(--font-mono); font-size: .65rem; }
 .evidence-drawer dl { margin-top: 4rem; border-top: 1px solid rgba(24,25,21,.15); }
 .evidence-drawer dl div { display: grid; grid-template-columns: 8rem 1fr; padding: 1rem 0; border-bottom: 1px solid rgba(24,25,21,.12); font-size: .7rem; }
 .evidence-drawer dt { color: rgba(24,25,21,.45); }
@@ -716,11 +718,11 @@
 .backup-panel .file-picker { margin-top: .8rem; }
 .backup-preview { margin-top: .8rem; padding: .8rem; border-radius: .5rem; background: rgba(0,0,0,.15); }
 .backup-preview > div { display: flex; margin-top: .7rem; gap: .5rem; }
-.risk-loading { display: grid; min-height: 100vh; place-items: center; background: #11120f; color: rgba(239,237,228,.7); font: .8rem "Geist", sans-serif; }
+.risk-loading { display: grid; min-height: 100vh; place-items: center; background: #11120f; color: rgba(239,237,228,.7); font: .8rem var(--font-sans); }
 
 @media (max-width: 62rem) {
   .risk-appbar { grid-template-columns: 1fr auto; padding: 0 1rem; }
-  .risk-appbar nav { position: fixed; right: 1rem; bottom: 1rem; left: 1rem; z-index: 30; justify-content: center; background: rgba(17,18,15,.92); box-shadow: 0 12px 40px rgba(0,0,0,.4); backdrop-filter: blur(20px); }
+  .risk-appbar nav { position: fixed; right: 1rem; bottom: 1rem; left: 1rem; z-index: 30; justify-content: center; background: rgba(15,16,14,.96); box-shadow: 0 12px 40px rgba(0,0,0,.4); backdrop-filter: blur(20px) saturate(140%); -webkit-backdrop-filter: blur(20px) saturate(140%); }
   .risk-appbar__status { display: none; }
   .risk-appbar__actions > button { display: none; }
   .risk-main { width: min(calc(100% - 2rem), 86rem); }
@@ -737,6 +739,15 @@
   .market-grid { display: flex; flex-direction: column; }
   .market-attempts { grid-template-columns: repeat(3, 1fr); }
   .position-fact-grid { grid-template-columns: 1fr; }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .risk-appbar,
+  .risk-appbar nav {
+    background: #151611;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
 }
 
 @media (max-width: 42rem) {

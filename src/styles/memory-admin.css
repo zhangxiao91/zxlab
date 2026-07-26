@@ -1,4 +1,4 @@
-.memory-admin { width: 100%; max-width: 100%; overflow-x: hidden; color: #15211b; background: radial-gradient(circle at 82% 5%, rgba(176, 202, 188, .38), transparent 30rem), #f3f0e8; font-family: Geist, "Helvetica Neue", sans-serif; }
+.memory-admin { width: 100%; max-width: 100%; overflow-x: hidden; color: #15211b; background: radial-gradient(circle at 82% 5%, rgba(176, 202, 188, .38), transparent 30rem), #f3f0e8; font-family: var(--font-sans); }
 .memory-admin__hero { max-width: 92rem; min-height: 74vh; margin: 0 auto; padding: 10rem 3rem 8rem; display: grid; grid-template-columns: 1.7fr .8fr; gap: 8vw; align-items: end; }
 .memory-admin__hero > div > p { margin: 0 0 2rem; letter-spacing: .13em; text-transform: uppercase; font-size: .78rem; }
 .memory-admin__hero h1 { max-width: 72rem; margin: 0; font-size: clamp(3rem, 7vw, 7rem); line-height: .9; letter-spacing: -.065em; font-weight: 550; }

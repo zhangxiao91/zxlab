@@ -502,7 +502,7 @@
 .digital-starter-home-v2,
 .digital-starter-computer-v2,
 .digital-starter-toolbox-v2 {
-  font-family: Outfit, Geist, ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-sans);
 }
 
 .digital-starter-home-v2 :is(a, button):focus-visible,
@@ -1553,7 +1553,7 @@
   max-width: 100%;
   overflow-x: hidden;
   color: #181914;
-  font-family: Geist, Outfit, ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-sans);
   background: #eeede5;
 }
 
@@ -2191,7 +2191,7 @@
   max-width: 100%;
   overflow-x: hidden;
   color: #181914;
-  font-family: Geist, Outfit, ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-sans);
   background: #eeede5;
 }
 
@@ -2634,7 +2634,7 @@
   max-width: 100%;
   overflow-x: hidden;
   color: #181914;
-  font-family: Geist, Outfit, ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-sans);
   background: #f0efe8;
 }
 
@@ -2811,7 +2811,7 @@
   border-radius: 0.42rem;
   background: rgba(24, 25, 20, 0.08);
   color: #181914;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 0.88em;
 }
 
@@ -2862,7 +2862,7 @@
   max-width: 100%;
   overflow-x: hidden;
   color: #181914;
-  font-family: Geist, Outfit, ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-sans);
   background: #f0efe8;
 }
 

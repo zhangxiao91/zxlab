@@ -54,7 +54,7 @@
   align-items: center;
   justify-content: space-between;
   color: rgba(240, 240, 230, 0.56);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 0.66rem;
 }
 
@@ -103,7 +103,7 @@
 
 .hero-glyph text {
   fill: #efefe5;
-  font-family: "Geist", "Outfit", sans-serif;
+  font-family: var(--font-sans);
   font-size: 70px;
   font-weight: 500;
   letter-spacing: 0;
@@ -231,7 +231,7 @@
 .home-v2-section__heading > p,
 .home-v2-section__heading > a {
   color: #686960;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 0.68rem;
   text-decoration: none;
 }
@@ -290,7 +290,7 @@
 
 .home-v2-project-row__index {
   color: #77786f;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 0.68rem;
 }
 
@@ -388,7 +388,7 @@
 
 .home-v2-note-row time {
   color: #77786f;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 0.68rem;
 }
 
@@ -450,7 +450,7 @@
 
 .home-v2-action > p {
   color: rgba(240, 240, 230, 0.48);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 0.66rem;
 }
 

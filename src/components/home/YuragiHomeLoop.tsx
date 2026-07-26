@@ -14,6 +14,7 @@ export default function YuragiHomeLoop() {
   const [reducedMotion, setReducedMotion] = useState(false);
   const [wordIndex, setWordIndex] = useState(0);
   const [motionKey, setMotionKey] = useState(0);
+  const [wordVisible, setWordVisible] = useState(true);
 
   useEffect(() => {
     const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -72,7 +73,12 @@ export default function YuragiHomeLoop() {
     if (reducedMotion || !activeRef.current) return;
     timerRef.current = window.setTimeout(() => {
       if (!activeRef.current) return;
-      setWordIndex((current) => (current + 1) % HOME_HERO_WORDS.length);
+      setWordVisible(false);
+      timerRef.current = window.setTimeout(() => {
+        if (!activeRef.current) return;
+        setWordIndex((current) => (current + 1) % HOME_HERO_WORDS.length);
+        setWordVisible(true);
+      }, 110);
     }, HOLD_DURATION);
   };
 
@@ -80,14 +86,15 @@ export default function YuragiHomeLoop() {
 
   return (
     <div ref={rootRef} className="home-yuragi-loop" aria-hidden="true">
-      {ready ? (
+      {ready && wordVisible ? (
         <YuragiStaticTitle
           key={`${word}-${motionKey}`}
           text={word}
           size={240}
           maxWidth={2100}
           hover="outline"
-          transition={reducedMotion || !active ? { enter: "none", exit: "none" } : { enter: "settle", exit: "scatter", speed: 1.08 }}
+          motionPreset="hero-loop"
+          motionDisabled={reducedMotion || !active}
           className="home-yuragi-loop__text"
           onEnterComplete={scheduleNextWord}
         />

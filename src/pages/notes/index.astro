@@ -1,6 +1,7 @@
 ---
 import { getCollection } from "astro:content";
 import Layout from "../../layouts/Layout.astro";
+import { YuragiStaticTitle } from "../../components/yuragi/YuragiStaticTitle";
 
 const notes = (await getCollection("notes", ({ data }) => !data.draft)).sort(
   (a, b) => (b.data.updatedAt ?? b.data.publishedAt).valueOf() - (a.data.updatedAt ?? a.data.publishedAt).valueOf(),
@@ -45,6 +46,9 @@ const dateFormatter = new Intl.DateTimeFormat("en-US", {
     <section class="notes-hero" aria-labelledby="notes-title">
       <div class="notes-hero__glow" aria-hidden="true"></div>
       <p class="notes-kicker">A notebook for unfinished thinking</p>
+      <div class="section-yuragi-title" aria-hidden="true">
+        <YuragiStaticTitle client:load text="NOTES" size={120} maxWidth={720} hover="outline" motionPreset="section-reveal" className="section-yuragi-title__text" />
+      </div>
       <h1 id="notes-title">
         Ideas become clearer
         <span

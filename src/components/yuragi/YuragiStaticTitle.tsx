@@ -1,17 +1,31 @@
 import { useEffect, useRef, useState } from "react";
 import { YuragiStyles, YuragiText } from "@yuragi-labs/react/static";
 import type { StaticYuragiTextProps } from "@yuragi-labs/react/static";
-import outlines from "../../generated/yuragi-home-outlines.json";
+import outlines from "../../generated/yuragi-outlines.json";
 
 export const yuragiStaticOutlines = outlines.outlines;
 export type YuragiStaticTitleText = keyof typeof yuragiStaticOutlines;
 
 export type YuragiStaticTitleProps = Omit<StaticYuragiTextProps, "outline" | "text"> & {
-  text: string;
+  text: YuragiStaticTitleText;
   revealOnView?: boolean;
+  motionPreset?: "intro" | "hero-loop" | "section-reveal";
+  motionDisabled?: boolean;
 };
 
-export function YuragiStaticTitle({ text, revealOnView = false, ...props }: YuragiStaticTitleProps) {
+const motionPresets = {
+  intro: { enter: "settle", exit: "scatter", speed: 1.05 },
+  "hero-loop": { enter: "settle", exit: "scatter", speed: 1.08 },
+  "section-reveal": { enter: "settle", exit: "none", speed: 0.92 },
+} as const;
+
+export function YuragiStaticTitle({
+  text,
+  revealOnView = false,
+  motionPreset = "section-reveal",
+  motionDisabled = false,
+  ...props
+}: YuragiStaticTitleProps) {
   const rootRef = useRef<HTMLSpanElement>(null);
   const [isVisible, setIsVisible] = useState(!revealOnView);
   const outline = yuragiStaticOutlines[text as YuragiStaticTitleText];
@@ -36,12 +50,23 @@ export function YuragiStaticTitle({ text, revealOnView = false, ...props }: Yura
     return () => observer.disconnect();
   }, [revealOnView]);
 
+  if (!outline) {
+    if (import.meta.env.DEV) throw new Error(`Yuragi outline was not generated for: ${text}`);
+    return <span className={props.className}>{text}</span>;
+  }
+
   return (
     <>
       <YuragiStyles />
       <span ref={rootRef} className="yuragi-static-title">
         {isVisible ? (
-          <YuragiText {...props} text={text} outline={outline} fallback={props.fallback ?? "text"} />
+          <YuragiText
+            {...props}
+            text={text}
+            outline={outline}
+            fallback={props.fallback ?? "text"}
+            transition={motionDisabled ? { enter: "none", exit: "none" } : motionPresets[motionPreset]}
+          />
         ) : (
           <span className={props.className}>{text}</span>
         )}

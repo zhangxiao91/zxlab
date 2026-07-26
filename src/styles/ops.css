@@ -1,7 +1,7 @@
 .ops-page { width: 100%; min-height: 100vh; overflow-x: hidden; background: #edede7; color: #171814; }
 .ops-shell { width: min(92rem, calc(100% - 2rem)); margin: 0 auto; padding: 8rem 0 6rem; }
 .ops-header { display: grid; padding-bottom: 3rem; border-bottom: 1px solid rgba(23,24,20,.16); grid-template-columns: minmax(0,1.4fr) minmax(18rem,.6fr); gap: 3rem; align-items: end; }
-.ops-header h1 { max-width: 20ch; margin: .7rem 0 0; font-family: "Cabinet Grotesk", "Avenir Next", sans-serif; font-size: clamp(2.65rem,5vw,5.2rem); font-weight: 500; line-height: .96; letter-spacing: 0; }
+.ops-header h1 { max-width: 20ch; margin: .7rem 0 0; font-family: var(--font-sans); font-size: clamp(2.65rem,5vw,5.2rem); font-weight: 500; line-height: .96; letter-spacing: 0; }
 .ops-header p { color: #686960; line-height: 1.6; }
 .ops-eyebrow { font-size: .7rem; text-transform: uppercase; }
 .ops-toolbar { display: flex; margin: 2rem 0; justify-content: space-between; gap: 1rem; }

@@ -7,7 +7,7 @@
     radial-gradient(circle at 8% 34%, rgba(230, 225, 205, 0.38), transparent 30rem),
     #f3f1e9;
   color: #191a16;
-  font-family: "Outfit", "Geist", ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-sans);
 }
 
 .signal-page {
@@ -213,7 +213,7 @@
 
 .signal-editorial dd {
   margin: 0.3rem 0 0;
-  font-family: "Geist", ui-monospace, monospace;
+  font-family: var(--font-mono);
   font-size: 0.78rem;
 }
 
@@ -309,14 +309,14 @@
 .signal-filter__steps span,
 .signal-item__header > div > p span {
   color: #8a897f;
-  font-family: "Geist", ui-monospace, monospace;
+  font-family: var(--font-mono);
   font-size: 0.7rem;
 }
 
 .signal-filter__steps strong {
   display: block;
   margin-top: 1.15rem;
-  font-family: "Geist", ui-monospace, monospace;
+  font-family: var(--font-mono);
   font-size: clamp(1.6rem, 2.5vw, 2.35rem);
   font-weight: 500;
   letter-spacing: 0;
@@ -422,7 +422,7 @@
   grid-column: 1 / -1;
   margin: 0;
   color: #85847a;
-  font-family: "Geist", ui-monospace, monospace;
+  font-family: var(--font-mono);
   font-size: 0.68rem;
 }
 
@@ -460,7 +460,7 @@
 }
 
 .signal-item__score { display: flex; align-items: flex-start; gap: 0.4rem; }
-.signal-item__score span { padding: 0.42rem 0.62rem; border-radius: 999px; background: rgba(25, 26, 22, 0.06); color: #67675f; font-family: "Geist", ui-monospace, monospace; font-size: 0.66rem; }
+.signal-item__score span { padding: 0.42rem 0.62rem; border-radius: 999px; background: rgba(25, 26, 22, 0.06); color: #67675f; font-family: var(--font-mono); font-size: 0.66rem; }
 
 .signal-item__body { max-width: 48rem; margin-top: 1.5rem; }
 .signal-item__body ::selection { background: #bedb5a; color: #191a16; }
@@ -611,12 +611,12 @@
 }
 
 .annotation-menu[hidden] { display: none; }
-.annotation-menu button { min-height: 2.65rem; padding: 0.65rem 0.85rem; border: 0; border-radius: 999px; background: transparent; color: inherit; cursor: pointer; font-family: "Cabinet Grotesk", sans-serif; font-size: 0.75rem; white-space: nowrap; transition: background-color 500ms cubic-bezier(0.32, 0.72, 0, 1), color 500ms cubic-bezier(0.32, 0.72, 0, 1); }
+.annotation-menu button { min-height: 2.65rem; padding: 0.65rem 0.85rem; border: 0; border-radius: 999px; background: transparent; color: inherit; cursor: pointer; font-family: var(--font-sans); font-size: 0.75rem; white-space: nowrap; transition: background-color 500ms cubic-bezier(0.32, 0.72, 0, 1), color 500ms cubic-bezier(0.32, 0.72, 0, 1); }
 .annotation-menu button:hover { background: #b9d657; color: #1d1f19; }
 .annotation-menu button:active { transform: scale(0.96); }
 
 .annotation-scrim { position: fixed; inset: 0; z-index: 40; background: rgba(22, 23, 19, 0.42); backdrop-filter: blur(6px); }
-.annotation-panel { position: fixed; top: 0; right: 0; z-index: 50; width: min(100%, 38rem); height: 100dvh; overflow-y: auto; background: #f4f2e9; color: #1d1f19; font-family: "Cabinet Grotesk", "Outfit", sans-serif; box-shadow: -30px 0 90px rgba(22, 23, 19, 0.2); will-change: transform; }
+.annotation-panel { position: fixed; top: 0; right: 0; z-index: 50; width: min(100%, 38rem); height: 100dvh; overflow-y: auto; background: #f4f2e9; color: #1d1f19; font-family: var(--font-sans); box-shadow: -30px 0 90px rgba(22, 23, 19, 0.2); will-change: transform; }
 .annotation-panel[aria-hidden="true"] { visibility: hidden; }
 .annotation-panel > header { position: sticky; top: 0; z-index: 1; display: flex; padding: 1.5rem clamp(1.25rem, 5vw, 2.5rem); align-items: center; justify-content: space-between; background: rgba(244, 242, 233, 0.88); box-shadow: inset 0 -1px rgba(25, 26, 22, 0.1); backdrop-filter: blur(16px); }
 .annotation-panel > header p,
@@ -645,7 +645,7 @@
 .annotation-reply > div { margin-top: 0.8rem; color: #4e4f48; font-size: 1.02rem; line-height: 1.75; }
 .memory-candidate { margin-top: 2.5rem; padding: 1.5rem; border-radius: 1.6rem; background: #1d1f19; color: #f3f1e8; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1); }
 .memory-candidate header { display: flex; justify-content: space-between; gap: 1rem; }
-.memory-candidate header span { color: #b9d657; font-family: "Geist", ui-monospace, monospace; font-size: 0.7rem; }
+.memory-candidate header span { color: #b9d657; font-family: var(--font-mono); font-size: 0.7rem; }
 .memory-candidate blockquote { margin: 1.5rem 0; font-size: 1.15rem; line-height: 1.6; }
 .memory-candidate__source { color: rgba(243, 241, 232, 0.5); font-size: 0.75rem; line-height: 1.55; }
 .memory-candidate label { margin-top: 1.6rem; color: rgba(243, 241, 232, 0.58); }

@@ -38,7 +38,8 @@ export default function YuragiWelcomeMessage() {
           size={52}
           maxWidth={760}
           hover={reducedMotion ? "none" : "outline"}
-          transition={reducedMotion ? { enter: "none", exit: "none" } : { enter: "settle", exit: "scatter", speed: 1.05 }}
+          motionPreset="intro"
+          motionDisabled={reducedMotion}
           className="welcome-yuragi-message__text"
         />
       ) : null}

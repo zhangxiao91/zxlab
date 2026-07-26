@@ -1,5 +1,6 @@
 ---
 import Layout from "../../layouts/Layout.astro";
+import { YuragiStaticTitle } from "../../components/yuragi/YuragiStaticTitle";
 import { projects } from "../../data/projects";
 
 const statement =
@@ -14,6 +15,9 @@ const statement =
     <section class="projects-hero" aria-labelledby="projects-title">
       <div class="projects-hero__copy">
         <p class="projects-kicker">Experiments made concrete</p>
+        <div class="section-yuragi-title" aria-hidden="true">
+          <YuragiStaticTitle client:load text="PROJECTS" size={120} maxWidth={900} hover="outline" motionPreset="section-reveal" className="section-yuragi-title__text" />
+        </div>
         <h1 id="projects-title">
           Work shaped by
           <span

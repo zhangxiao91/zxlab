@@ -264,7 +264,7 @@
     radial-gradient(circle at 50% 20%,rgba(216,255,115,.13),transparent 38%),
     #11120f;
   color: #f5f5ed;
-  font-family: "Satoshi", "Cabinet Grotesk", "Outfit", ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-sans);
 }
 
 .strudel-visualizer::after {

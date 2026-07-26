@@ -1,5 +1,6 @@
 ---
 import type { DailyBriefing } from "../types";
+import { YuragiStaticTitle } from "../../../components/yuragi/YuragiStaticTitle";
 
 interface Props { briefing: DailyBriefing; }
 const { briefing } = Astro.props;
@@ -23,6 +24,9 @@ const statusLabel = { generating: "生成中", ready: "已就绪", partial: "部
 <section class="signal-hero" aria-labelledby="signal-title">
   <div class="signal-hero__copy">
     <p class="signal-kicker"><span aria-hidden="true"></span> ZX Signal · {date}</p>
+    <div class="section-yuragi-title section-yuragi-title--signal" aria-hidden="true">
+      <YuragiStaticTitle client:load text="SIGNAL" size={120} maxWidth={720} hover="outline" motionPreset="section-reveal" className="section-yuragi-title__text" />
+    </div>
     <h1 id="signal-title">每天真正值得我关注的变化</h1>
     <p class="signal-deck">{briefing.title}</p>
     <div class="signal-hero__actions">
