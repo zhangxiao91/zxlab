@@ -1,3 +1,16 @@
+---
+import CodexUsagePanel from "./CodexUsagePanel.astro";
+import LLMGatewayPanel from "./LLMGatewayPanel.astro";
+import StatusState from "./StatusState.astro";
+
+const emptyUsage = {
+  status: "offline" as const,
+  updatedAt: new Date(0).toISOString(),
+  limits: [],
+  tokenSummary: { lifetimeTokens: null, todayTokens: null, peakDailyTokens: null, currentStreakDays: null, longestStreakDays: null },
+  dailyUsage: [],
+};
+---
 <div class="status-dashboard" data-status-dashboard data-overall-state="unknown" data-stale="true">
   <section class="status-overall" aria-labelledby="overall-title" aria-live="polite">
     <div>
@@ -16,21 +29,33 @@
   <div class="status-module-grid" data-module-list>
     <section class="status-module status-runtime" data-status-module="runtime" data-module-state="loading">
       <header><div><p>Core service plane</p><h2>Runtime</h2></div><span data-module-source>Live probes</span></header>
-      <div class="runtime-module-body" data-module-body><p>Waiting for Runtime telemetry.</p></div>
+      <div class="runtime-module-body" data-module-body><StatusState hidden={false} title="Connecting to Runtime" message="Collecting verified service probes." /></div>
     </section>
     <section class="status-module status-memory" data-status-module="memory" data-module-state="loading">
       <header><div><p>Canonical context</p><h2>Memory</h2></div><span data-module-source>Signal D1</span></header>
-      <div class="runtime-module-body" data-module-body><p>Waiting for Memory telemetry.</p></div>
+      <div class="runtime-module-body" data-module-body>
+        <StatusState hidden={false} title="Connecting to Memory" message="Reading the public Memory counters." />
+        <div class="memory-ready" data-memory-ready hidden>
+          <div data-memory-summary></div>
+          <button class="memory-access-button" type="button" data-memory-access>View Memory</button>
+          <div class="memory-private" data-memory-private hidden aria-live="polite"></div>
+        </div>
+      </div>
     </section>
     <section class="status-module status-agents" data-status-module="agents" data-module-state="loading">
-      <header><div><p>Privacy-filtered pulse</p><h2>Agents</h2></div><span data-module-source>zxtoolkit</span></header>
-      <div class="runtime-module-body" data-module-body><p>Waiting for agent presence.</p></div>
+      <header><div><p>Privacy-filtered pulse</p><h2>Device</h2></div><span data-module-source>Runtime + Tailscale</span></header>
+      <div class="runtime-module-body" data-module-body><StatusState hidden={false} title="Locating devices" message="Reading allowlisted server and client presence." /></div>
     </section>
     <section class="status-module status-usage" data-status-module="usage" data-module-state="loading">
       <header><div><p>Codex account telemetry</p><h2>Usage</h2></div><span data-module-source>Private collector</span></header>
-      <div class="runtime-module-body" data-module-body><p>Waiting for usage telemetry.</p></div>
+      <div class="runtime-module-body status-usage-body" data-module-body>
+        <StatusState hidden={false} title="Loading usage" message="Collecting live limits and Token history." />
+        <div data-usage-ready hidden><CodexUsagePanel usage={emptyUsage} /></div>
+      </div>
     </section>
   </div>
+
+  <LLMGatewayPanel />
 
   <section class="status-module status-activity" data-status-module="activity">
     <header><div><p>Observed transitions</p><h2>Latest activity</h2></div><span>Runtime history</span></header>

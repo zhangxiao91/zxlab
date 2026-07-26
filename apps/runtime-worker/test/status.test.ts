@@ -31,14 +31,25 @@ describe("public runtime snapshot", () => {
 
   it("projects real service payloads into four privacy-filtered modules", async () => {
     const snapshot = await publicSnapshot(repository([
-      row("pages"), row("market"),
+      row("pages", { devicesAvailable: true, devices: [{ id: "server-a", name: "Server A", type: "server", state: "online" }] }), row("market"),
       row("signal", { memory: { activeCount: 4, proposedCount: 1 } }),
-      row("zxtoolkit", { agents: [{ name: "Studio", state: "online" }] }),
+      row("zxtoolkit", { agents: [{ name: "Studio", presence: "online", batteryLevel: "medium" }] }),
       row("codex-usage", { usage: { status: "online", limits: [] } }),
     ]));
     expect(snapshot.overall.status).toBe("operational");
     expect(snapshot.modules.map((module) => module.id)).toEqual(["runtime", "memory", "agents", "usage"]);
     expect(snapshot.modules.find((module) => module.id === "memory")?.data).toMatchObject({ activeCount: 4 });
-    expect(snapshot.modules.find((module) => module.id === "agents")?.data).toMatchObject({ agents: [{ name: "Studio" }] });
+    expect(snapshot.modules.find((module) => module.id === "agents")?.name).toBe("Device");
+    expect(snapshot.modules.find((module) => module.id === "agents")?.data).toMatchObject({ agents: [{ name: "Server A" }, { name: "Studio" }] });
+    expect((snapshot.modules.find((module) => module.id === "agents")?.data as { agents: Array<Record<string, unknown>> }).agents[1]).toEqual({ name: "Studio", type: "managed device", state: "online" });
+  });
+
+  it("deduplicates devices without exposing a substitute when both sources are absent", async () => {
+    const duplicate = { id: "server-a", name: "Server A", type: "server", state: "online" };
+    const snapshot = await publicSnapshot(repository([
+      row("pages", { devicesAvailable: true, devices: [duplicate] }), row("market"), row("signal"),
+      row("zxtoolkit", { agents: [duplicate] }), row("codex-usage"),
+    ]));
+    expect((snapshot.modules.find((module) => module.id === "agents")?.data as { agents: unknown[] }).agents).toHaveLength(1);
   });
 });

@@ -37,6 +37,7 @@ const runtimeApiBase = String(import.meta.env.PUBLIC_RUNTIME_API_BASE ?? (import
     import gsap from "gsap";
     import { ScrollTrigger } from "gsap/ScrollTrigger";
     import type { PublicModule, RuntimePublicSnapshot } from "@zxlab/runtime-schema";
+    import type { UsageStatus } from "../status/types";
     gsap.registerPlugin(ScrollTrigger);
 
     const page = document.querySelector<HTMLElement>("[data-runtime-api]");
@@ -53,25 +54,133 @@ const runtimeApiBase = String(import.meta.env.PUBLIC_RUNTIME_API_BASE ?? (import
       return formatter.format(Math.round(minutes / 60), "hour");
     };
     const indicator = (state: string) => `<span class="status-indicator" data-state="${escapeHtml(state)}"><span aria-hidden="true"></span><span>${escapeHtml(state)}</span></span>`;
+    const dateTime = (value?: string | null) => value ? new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "Unavailable";
+
+    const formatTokens = (value: number | null | undefined) => value == null ? "N/A" : value >= 1_000_000 ? `${(value / 1_000_000).toFixed(2)}M` : value >= 1_000 ? `${(value / 1_000).toFixed(1)}K` : String(value);
+    const formatCost = (value: number | null | undefined) => value == null ? "N/A" : `$${value < .01 ? value.toFixed(4) : value.toFixed(2)}`;
+    const formatLatency = (value: number | null | undefined) => value == null ? "N/A" : value >= 1000 ? `${(value / 1000).toFixed(1)}s` : `${Math.round(value)}ms`;
+    const setRows = (selector: string, rows: string[]) => { const root = document.querySelector<HTMLElement>(selector); if (root) root.innerHTML = rows.length ? rows.map((row) => `<li>${row}</li>`).join("") : "<li>No data in this range.</li>"; };
+    const setMetrics = (selector: string, rows: Array<[string, string]>) => { const root = document.querySelector<HTMLElement>(selector); if (root) root.innerHTML = rows.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join(""); };
+
+    function renderLLM(data: any) {
+      const module = document.querySelector<HTMLElement>("[data-status-module='llm']");
+      const ready = module?.querySelector<HTMLElement>("[data-llm-ready]");
+      const fallback = module?.querySelector<HTMLElement>("[data-llm-fallback]");
+      if (!module || !ready || !fallback || !data?.summary) return;
+      module.dataset.moduleState = "ready";
+      ready.hidden = false;
+      fallback.hidden = true;
+      const summary = data.summary;
+      const rate = summary.successRate == null ? "N/A" : `${(summary.successRate * 100).toFixed(2)}%`;
+      const state = summary.logicalRequests === 0 ? "No Data" : summary.successRate >= .98 ? "Operational" : summary.successRate >= .9 ? "Degraded" : summary.successRate >= .5 ? "Partial Outage" : "Major Outage";
+      const stateRoot = module.querySelector<HTMLElement>("[data-llm-state]"); if (stateRoot) stateRoot.textContent = state;
+      setMetrics("[data-llm-summary]", [["Logical requests", String(summary.logicalRequests)], ["Provider attempts", String(summary.providerAttempts)], ["Total tokens", formatTokens(summary.totalTokens)], ["Estimated cost", formatCost(summary.estimatedCostUsd)], ["Success rate", rate], ["Average latency", formatLatency(summary.averageLatencyMs)], ["Fallbacks", String(summary.fallbackRequests)], ["Recovered", String(summary.fallbackRecoveredRequests)]]);
+      setMetrics("[data-llm-tokens]", [["Input", formatTokens(summary.inputTokens)], ["Output", formatTokens(summary.outputTokens)], ["Cached", formatTokens(summary.cachedInputTokens)], ["Reasoning", formatTokens(summary.reasoningTokens)], ["Estimated cost", formatCost(summary.estimatedCostUsd)]]);
+      setRows("[data-llm-trend]", (data.trend ?? []).map((item: any) => `<span>${escapeHtml(new Date(item.bucket).toLocaleDateString(undefined, { month: "short", day: "numeric", hour: data.range === "24h" ? "numeric" : undefined }))}</span><strong>${escapeHtml(item.logical_requests)} / ${escapeHtml(item.attempts)}</strong>`));
+      setRows("[data-llm-models]", (data.models ?? []).map((item: any) => `<strong>${escapeHtml(item.provider)} / ${escapeHtml(item.model)}</strong><span>${escapeHtml(item.attempts)} attempts · ${escapeHtml(item.successes)}/${escapeHtml(item.attempts)} success · ${formatTokens(item.total_tokens)} · ${formatLatency(item.average_latency_ms)} · ${formatCost(item.estimated_cost_usd)}</span>`));
+      setRows("[data-llm-sources]", (data.sources ?? []).map((item: any) => `<strong>${escapeHtml(item.source)}</strong><span>${escapeHtml(item.attempts)} attempts · ${formatTokens(item.total_tokens)} · ${formatCost(item.estimated_cost_usd)}</span>`));
+      setRows("[data-llm-fallbacks]", (data.fallbacks ?? []).map((item: any) => `<strong>${escapeHtml(item.fallback_from_provider)}/${escapeHtml(item.fallback_from_model)} &rarr; ${escapeHtml(item.provider)}/${escapeHtml(item.model)}</strong><span>${escapeHtml(item.attempts)} attempts · ${escapeHtml(item.successes)} recovered · depth ${escapeHtml(item.fallback_depth)}</span>`));
+      setRows("[data-llm-errors]", (data.recentErrors ?? []).map((item: any) => `<strong>${escapeHtml(item.error_type ?? "unknown")}</strong><span>${escapeHtml(item.source)} · ${escapeHtml(item.provider)}/${escapeHtml(item.model)} · ${escapeHtml(dateTime(item.created_at))}</span>`));
+    }
+
+    async function loadLLM(range = "24h") {
+      const module = document.querySelector<HTMLElement>("[data-status-module='llm']");
+      const fallback = module?.querySelector<HTMLElement>("[data-llm-fallback]");
+      const ready = module?.querySelector<HTMLElement>("[data-llm-ready]");
+      if (!module || !fallback || !ready) return;
+      module.dataset.moduleState = "loading";
+      fallback.hidden = false;
+      ready.hidden = true;
+      try {
+        const response = await fetch(`/api/status/llm?range=${encodeURIComponent(range)}`, { credentials: "same-origin", cache: "no-store" });
+        if (!response.ok) throw new Error(response.status === 401 || response.status === 403 ? "access-required" : "unavailable");
+        renderLLM(await response.json());
+      } catch (error) {
+        const accessRequired = error instanceof Error && error.message === "access-required";
+        module.dataset.moduleState = "error";
+        const title = module.querySelector<HTMLElement>("[data-llm-state-title]");
+        const message = module.querySelector<HTMLElement>("[data-llm-state-message]");
+        if (title) title.textContent = accessRequired ? "Cloudflare Access required" : "LLM usage temporarily unavailable";
+        if (message) message.textContent = accessRequired ? "Sign in through Cloudflare Access to view private telemetry." : "The protected telemetry source could not be reached.";
+      }
+    }
+
+    function renderPrivateMemory(data: any) {
+      const root = document.querySelector<HTMLElement>("[data-memory-private]");
+      if (!root) return;
+      const memories = Array.isArray(data.memories) ? data.memories : [];
+      const candidates = Array.isArray(data.candidates) ? data.candidates.filter((item: any) => item.status === "proposed") : [];
+      const revisions = Array.isArray(data.revisions) ? data.revisions : [];
+      root.innerHTML = `<div class="memory-private__toolbar"><label><span>Filter Memory</span><input type="search" placeholder="Search content, namespace, or kind" data-memory-filter></label><div><button type="button" data-memory-reload>Refresh</button><a href="/admin/ops#memory">Open Ops</a></div></div>
+        <dl class="memory-private__stats"><div><dt>Visible items</dt><dd>${escapeHtml(memories.length)}</dd></div><div><dt>Review queue</dt><dd>${escapeHtml(candidates.length)}</dd></div><div><dt>Revisions</dt><dd>${escapeHtml(revisions.length)}</dd></div></dl>
+        <div class="memory-private__section"><h3>Active content</h3><ol class="memory-content-list" data-memory-content-list>${memories.map((item: any) => `<li data-memory-search="${escapeHtml(`${item.content} ${item.namespace} ${item.kind}`.toLowerCase())}"><p>${escapeHtml(item.content)}</p><div><span>${escapeHtml(item.namespace)} / ${escapeHtml(item.kind)}</span><time datetime="${escapeHtml(item.updatedAt)}">${escapeHtml(dateTime(item.updatedAt))}</time></div></li>`).join("") || "<li><p>No Memory items are available.</p></li>"}</ol></div>
+        <div class="memory-private__columns"><section><h3>Review queue</h3><ol>${candidates.slice(0, 5).map((item: any) => `<li><strong>${escapeHtml(item.memory?.content ?? item.reason)}</strong><span>${escapeHtml(item.reason)}</span></li>`).join("") || "<li>No proposed candidates.</li>"}</ol></section><section><h3>Recent revisions</h3><ol>${revisions.slice(0, 5).map((item: any) => `<li><strong>${escapeHtml(item.reason)}</strong><span>${escapeHtml(dateTime(item.createdAt))}</span></li>`).join("") || "<li>No revisions recorded.</li>"}</ol></section></div>`;
+      root.hidden = false;
+      root.querySelector<HTMLInputElement>("[data-memory-filter]")?.addEventListener("input", (event) => {
+        const query = (event.currentTarget as HTMLInputElement).value.trim().toLowerCase();
+        root.querySelectorAll<HTMLElement>("[data-memory-search]").forEach((item) => item.hidden = Boolean(query) && !item.dataset.memorySearch?.includes(query));
+      });
+      root.querySelector("[data-memory-reload]")?.addEventListener("click", () => void loadPrivateMemory());
+    }
+
+    async function loadPrivateMemory() {
+      const root = document.querySelector<HTMLElement>("[data-memory-private]");
+      const button = document.querySelector<HTMLButtonElement>("[data-memory-access]");
+      if (!root || !button) return;
+      button.disabled = true;
+      button.textContent = "Loading Memory";
+      root.hidden = false;
+      root.innerHTML = '<div class="memory-private__loading"><i></i><i></i><i></i><p>Reading protected Memory content.</p></div>';
+      try {
+        const response = await fetch(`${apiBase}/api/v1/private/memory/items`, { credentials: "include", redirect: "manual", cache: "no-store", headers: { Accept: "application/json" } });
+        if (response.type === "opaqueredirect" || response.status === 0 || response.status === 401 || response.status === 403) throw new Error("access-required");
+        if (!response.ok) throw new Error("unavailable");
+        renderPrivateMemory(await response.json());
+        button.textContent = "Memory unlocked";
+      } catch (error) {
+        const accessRequired = error instanceof Error && (error.message === "access-required" || error instanceof TypeError);
+        root.innerHTML = `<div class="memory-private__notice"><h3>${accessRequired ? "Cloudflare Access required" : "Memory details unavailable"}</h3><p>${accessRequired ? "Authenticate for the Runtime domain, then try again. Public counters remain visible." : "The private Memory source could not be reached."}</p><a href="${escapeHtml(apiBase)}/api/v1/private/memory/items" target="_blank" rel="noreferrer">${accessRequired ? "Open Access login" : "Check protected endpoint"}</a></div>`;
+        button.textContent = "Try Memory again";
+      } finally { button.disabled = false; }
+    }
 
     function renderModule(module: PublicModule) {
       const root = document.querySelector<HTMLElement>(`[data-status-module="${module.id}"]`);
       const body = root?.querySelector<HTMLElement>("[data-module-body]");
       if (!root || !body) return;
       root.dataset.moduleState = module.data ? "ready" : "unavailable";
-      if (!module.data) { body.innerHTML = `${indicator(module.status)}<h3>${escapeHtml(module.summary)}</h3><p>No substitute data is shown.</p>`; return; }
+      if (!module.data) {
+        if (module.id === "memory" || module.id === "usage") {
+          const fallback = body.querySelector<HTMLElement>("[data-module-fallback]");
+          if (fallback) {
+            fallback.hidden = false;
+            const title = fallback.querySelector<HTMLElement>("[data-state-title]"); if (title) title.textContent = module.summary;
+            const message = fallback.querySelector<HTMLElement>("[data-state-message]"); if (message) message.textContent = "No substitute data is shown.";
+          }
+          body.querySelector<HTMLElement>(module.id === "memory" ? "[data-memory-ready]" : "[data-usage-ready]")?.setAttribute("hidden", "");
+        } else body.innerHTML = `${indicator(module.status)}<h3>${escapeHtml(module.summary)}</h3><p>No substitute data is shown.</p>`;
+        return;
+      }
       const data = module.data as Record<string, any>;
       if (module.id === "runtime") body.innerHTML = `${indicator(module.status)}<strong>${escapeHtml(data.operational)} / ${escapeHtml(data.total)}</strong><p>${escapeHtml(module.summary)}</p>`;
-      if (module.id === "memory") body.innerHTML = `${indicator(module.status)}<dl><div><dt>Active</dt><dd>${escapeHtml(data.activeCount)}</dd></div><div><dt>Review queue</dt><dd>${escapeHtml(data.proposedCount)}</dd></div></dl><p>${escapeHtml(module.summary)}</p>`;
+      if (module.id === "memory") {
+        body.querySelector<HTMLElement>("[data-module-fallback]")?.setAttribute("hidden", "");
+        const ready = body.querySelector<HTMLElement>("[data-memory-ready]");
+        const summary = body.querySelector<HTMLElement>("[data-memory-summary]");
+        if (ready) ready.hidden = false;
+        if (summary) summary.innerHTML = `${indicator(module.status)}<dl><div><dt>Active</dt><dd>${escapeHtml(data.activeCount)}</dd></div><div><dt>Review queue</dt><dd>${escapeHtml(data.proposedCount)}</dd></div></dl><p>${escapeHtml(module.summary)}</p>`;
+      }
       if (module.id === "agents") {
         const agents = Array.isArray(data.agents) ? data.agents : [];
         body.innerHTML = agents.length
-          ? `<ul class="device-list">${agents.map((agent: any) => `<li class="device-item" data-device-state="${escapeHtml(agent.state ?? "unknown")}"><div><h3>${escapeHtml(agent.name ?? "Remote agent")}</h3><p>${escapeHtml(agent.platform ?? agent.type ?? "managed device")}</p></div>${indicator(agent.state ?? "online")}<div><p>${escapeHtml(agent.activity?.label ?? "Heartbeat reported")}</p></div></li>`).join("")}</ul>`
-          : `<h3>No agents have reported yet.</h3><p>The source is connected and currently reports zero public agents.</p>`;
+          ? `<ul class="device-list">${agents.map((agent: any) => `<li class="device-item" data-device-state="${escapeHtml(agent.state ?? "unknown")}"><div><h3>${escapeHtml(agent.name ?? "Managed device")}</h3><p>${escapeHtml(agent.platform ?? agent.type ?? "managed device")}</p></div>${indicator(agent.state ?? "unknown")}<div><p>${escapeHtml(agent.publicTask ?? agent.activity?.label ?? (agent.lastSeen ? `Last seen ${relative(agent.lastSeen)}` : "Presence only; private details withheld"))}</p></div></li>`).join("")}</ul>`
+          : `<h3>No devices have reported yet.</h3><p>The source is connected and currently reports zero allowlisted devices.</p>`;
       }
       if (module.id === "usage") {
-        const limits = Array.isArray(data.limits) ? data.limits : [];
-        body.innerHTML = `<div class="usage-source-line"><span>Live collector data</span><time>${module.updatedAt ? relative(module.updatedAt) : "Unavailable"}</time></div><div class="usage-limits">${limits.map((limit: any) => `<article class="usage-limit-card"><div class="usage-limit-card__top"><p>${escapeHtml(limit.label)}</p><strong>${limit.usedPercent == null ? "--" : `${Math.round(limit.usedPercent)}%`}</strong></div><div class="usage-limit-track"><span style="--usage-progress:${Math.max(0, Math.min(100, Number(limit.usedPercent ?? 0)))}%"></span></div><div class="usage-limit-card__meta"><span>${escapeHtml(limit.windowMinutes ? `${limit.windowMinutes} min window` : "Current window")}</span><span>${escapeHtml(limit.resetsAt ? `Resets ${relative(limit.resetsAt)}` : "Reset unavailable")}</span></div></article>`).join("") || "<p>No current limit windows.</p>"}</div>`;
+        body.querySelector<HTMLElement>("[data-module-fallback]")?.setAttribute("hidden", "");
+        const ready = body.querySelector<HTMLElement>("[data-usage-ready]");
+        if (ready) ready.hidden = false;
+        body.querySelector<HTMLElement>("[data-codex-usage-panel]")?.dispatchEvent(new CustomEvent("zxlab:usage-update", { detail: { usage: data as UsageStatus, isMock: false } }));
       }
     }
 
@@ -103,11 +212,30 @@ const runtimeApiBase = String(import.meta.env.PUBLIC_RUNTIME_API_BASE ?? (import
         dashboard.dataset.overallState = "unknown";
         const title = dashboard.querySelector<HTMLElement>("[data-overall-label]"); if (title) title.textContent = "Live status is unavailable.";
         const message = dashboard.querySelector<HTMLElement>("[data-overall-message]"); if (message) message.textContent = "The Runtime control plane could not be reached. This source remains unavailable.";
+        dashboard.querySelectorAll<HTMLElement>("[data-status-module][data-module-state='loading']").forEach((module) => {
+          if (module.dataset.statusModule === "llm") return;
+          module.dataset.moduleState = "unavailable";
+          const fallback = module.querySelector<HTMLElement>("[data-module-fallback]");
+          if (fallback) {
+            fallback.hidden = false;
+            const stateTitle = fallback.querySelector<HTMLElement>("[data-state-title]"); if (stateTitle) stateTitle.textContent = "Live source unavailable";
+            const stateMessage = fallback.querySelector<HTMLElement>("[data-state-message]"); if (stateMessage) stateMessage.textContent = "Runtime could not be reached. No substitute data is shown.";
+          } else {
+            const body = module.querySelector<HTMLElement>("[data-module-body]");
+            if (body) body.innerHTML = `${indicator("unknown")}<h3>Live source unavailable</h3><p>No substitute data is shown.</p>`;
+          }
+        });
       } finally { refresh?.removeAttribute("disabled"); }
     }
 
     refresh?.addEventListener("click", () => void load());
+    document.querySelector("[data-memory-access]")?.addEventListener("click", () => void loadPrivateMemory());
+    document.querySelectorAll<HTMLButtonElement>("[data-llm-range]").forEach((button) => button.addEventListener("click", () => {
+      document.querySelectorAll<HTMLButtonElement>("[data-llm-range]").forEach((item) => item.setAttribute("aria-pressed", String(item === button)));
+      void loadLLM(button.dataset.llmRange ?? "24h");
+    }));
     void load();
+    void loadLLM();
     const timer = window.setInterval(() => { if (!document.hidden) void load(); }, 60_000);
     const motion = gsap.matchMedia();
     motion.add("(prefers-reduced-motion: no-preference)", () => {

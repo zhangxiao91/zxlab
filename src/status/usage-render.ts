@@ -88,6 +88,42 @@ function heatmap(usage: UsageStatus) {
   <div class="usage-heatmap-footer"><span>${first} — ${last}</span><div aria-label="Intensity legend"><span>Less</span>${[0,1,2,3,4].map((level) => `<i data-level="${level}"></i>`).join("")}<span>More</span></div></div>`;
 }
 
+function radar(usage: UsageStatus, points: ReturnType<typeof usageForRange>, days: 7 | 30 | 90) {
+  const total = points.reduce((sum, point) => sum + point.tokens, 0);
+  const peak = points.reduce((value, point) => Math.max(value, point.tokens), 0);
+  const activeDays = points.filter((point) => point.tokens > 0).length;
+  const limitValues = usage.limits.map((limit) => limit.usedPercent).filter((value): value is number => value !== null);
+  const maximumLimit = limitValues.length ? Math.max(...limitValues) : null;
+  const metrics = [
+    { label: "Range share", ratio: usage.tokenSummary.lifetimeTokens ? total / usage.tokenSummary.lifetimeTokens : null, display: usage.tokenSummary.lifetimeTokens ? `${(total / usage.tokenSummary.lifetimeTokens * 100).toFixed(1)}%` : "Unavailable" },
+    { label: "Peak concentration", ratio: total ? peak / total : null, display: total ? `${(peak / total * 100).toFixed(1)}%` : "Unavailable" },
+    { label: "Streak continuity", ratio: usage.tokenSummary.currentStreakDays !== null && usage.tokenSummary.longestStreakDays ? usage.tokenSummary.currentStreakDays / usage.tokenSummary.longestStreakDays : null, display: usage.tokenSummary.currentStreakDays === null ? "Unavailable" : `${usage.tokenSummary.currentStreakDays} / ${usage.tokenSummary.longestStreakDays ?? "?"} days` },
+    { label: "Active-day density", ratio: activeDays / days, display: `${activeDays} / ${days} days` },
+    { label: "Capacity remaining", ratio: maximumLimit === null ? null : 1 - maximumLimit / 100, display: maximumLimit === null ? "Unavailable" : `${Math.max(0, 100 - maximumLimit).toFixed(0)}%` },
+  ];
+  const center = 120;
+  const radius = 82;
+  const frame = metrics.map((_, index) => {
+    const angle = -Math.PI / 2 + index * Math.PI * 2 / metrics.length;
+    return [center + Math.cos(angle) * radius, center + Math.sin(angle) * radius];
+  });
+  const innerFrame = metrics.map((_, index) => {
+    const angle = -Math.PI / 2 + index * Math.PI * 2 / metrics.length;
+    return [center + Math.cos(angle) * radius * .5, center + Math.sin(angle) * radius * .5];
+  });
+  const vertices = metrics.map((metric, index) => {
+    const angle = -Math.PI / 2 + index * Math.PI * 2 / metrics.length;
+    const ratio = Math.max(0, Math.min(1, metric.ratio ?? 0));
+    return [center + Math.cos(angle) * radius * ratio, center + Math.sin(angle) * radius * ratio];
+  });
+  const pointsString = (input: number[][]) => input.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
+  const polygon = vertices.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
+  return `<div class="usage-radar-layout"><svg class="usage-radar" viewBox="0 0 240 240" role="img" aria-label="Normalized usage profile for the selected range">
+    <g aria-hidden="true"><polygon points="${pointsString(frame)}"/><polygon points="${pointsString(innerFrame)}"/>${frame.map(([x, y]) => `<line x1="120" y1="120" x2="${x}" y2="${y}"/>`).join("")}</g>
+    <polygon class="usage-radar__value" points="${polygon}" />${vertices.map(([x, y]) => `<circle cx="${x}" cy="${y}" r="4"/>`).join("")}
+  </svg><dl>${metrics.map((metric) => `<div><dt>${metric.label}</dt><dd>${escape(metric.display)}</dd></div>`).join("")}</dl></div>`;
+}
+
 export function renderUsageContent(usage: UsageStatus, days: 7 | 30 | 90 = 30, isMock = false) {
   const points = usageForRange(usage.dailyUsage, days, new Date(usage.updatedAt));
   return `<div class="usage-live-state" data-usage-status="${usage.status}">
@@ -96,6 +132,7 @@ export function renderUsageContent(usage: UsageStatus, days: 7 | 30 | 90 = 30, i
     <section class="usage-trend" aria-labelledby="token-trend-title">
       <div class="usage-subhead"><div><p>Daily totals</p><h3 id="token-trend-title">Token usage</h3></div><div class="usage-range" role="group" aria-label="Token chart date range">${[7,30,90].map((range) => `<button type="button" data-usage-range="${range}" aria-pressed="${range === days}">${range}D</button>`).join("")}</div></div>
       <div class="usage-summary">${summaryCards(usage, points)}</div>${chart(usage, days)}
+      <div class="usage-radar-panel"><div class="usage-subhead"><div><p>Normalized profile</p><h3>Usage radar</h3></div><span>Calculated only from live collector metrics</span></div>${radar(usage, points, days)}</div>
     </section>
     <section class="usage-calendar" aria-labelledby="usage-calendar-title"><div class="usage-subhead"><div><p>Daily intensity</p><h3 id="usage-calendar-title">Activity field</h3></div><output class="usage-calendar__reading" data-usage-reading aria-live="polite">Hover or focus a day to inspect tokens</output></div>${heatmap(usage)}</section>
     <output class="usage-tooltip" role="tooltip" data-usage-tooltip hidden></output>
