@@ -304,7 +304,7 @@ function eastmoneyRows(payload: unknown): Record<string, unknown>[] {
     root.news,
     root.fastNewsList,
   ];
-  const rows = candidates.find(Array.isArray);
+  const rows = candidates.find((candidate) => Array.isArray(candidate) && candidate.length > 0);
   if (!Array.isArray(rows)) throw new GatewayError("EMPTY_RESPONSE", "东财消息返回空", 502);
   return rows as Record<string, unknown>[];
 }
@@ -313,13 +313,32 @@ export function parseEastmoneyStockNews(instrumentId: string, payload: unknown):
   const { symbol } = instrumentToCode(instrumentId);
   const rows = eastmoneyRows(payload);
   const items = rows.flatMap((row): StandardNewsItem[] => {
-    const id = compactText(row.code ?? row.infoCode ?? row.artCode ?? row.id, 120);
+    const id = compactText(row.code ?? row.infoCode ?? row.info_code ?? row.artCode ?? row.art_code ?? row.id, 120);
     const title = compactText(row.title ?? row.name, 240);
-    const url = compactText(row.url ?? row.artUrl ?? row.link, 2_048);
+    const url = compactText(row.url ?? row.artUrl ?? row.art_url ?? row.link, 2_048)
+      ?? (id ? `https://finance.eastmoney.com/a/${encodeURIComponent(id)}.html` : null);
     if (!id || !title || !url) return [];
-    return [newsItem({ id: `eastmoney-stock:${id}`, type: "stock-news", title, url, summary: row.digest ?? row.summary ?? row.content, content: row.content, source: "eastmoney-stock-news", publishedAt: row.showTime ?? row.publishTime ?? row.date, instrumentId, symbol })];
+    return [newsItem({ id: `eastmoney-stock:${id}`, type: "stock-news", title, url, summary: row.digest ?? row.summary ?? row.content, content: row.content, source: "eastmoney-stock-news", publishedAt: row.showTime ?? row.show_time ?? row.publishTime ?? row.publish_time ?? row.date, instrumentId, symbol })];
   });
   if (!items.length) throw new GatewayError("UPSTREAM_SCHEMA_CHANGED", "东财个股新闻字段发生变化", 502);
+  return items;
+}
+
+export function parseTencentStockNews(instrumentId: string, payload: unknown): StandardNewsItem[] {
+  const { symbol } = instrumentToCode(instrumentId);
+  const rows = (payload as { data?: { data?: unknown[] } }).data?.data;
+  if (!Array.isArray(rows) || !rows.length) throw new GatewayError("EMPTY_RESPONSE", "腾讯个股新闻返回空", 502);
+  const items = rows.flatMap((raw): StandardNewsItem[] => {
+    const row = raw as Record<string, unknown>;
+    const id = compactText(row.id, 120);
+    const title = compactText(row.title, 240);
+    const url = compactText(row.url, 2_048);
+    if (!id || !title || !url) return [];
+    const publisher = compactText(row.src, 120);
+    const summary = compactText(row.summary) ?? (publisher ? `来源：${publisher}` : null);
+    return [newsItem({ id: `tencent-stock:${id}`, type: "stock-news", title, url, summary, source: "tencent-stock-news", publishedAt: row.time ?? row.predictTimestamp, instrumentId, symbol })];
+  });
+  if (!items.length) throw new GatewayError("UPSTREAM_SCHEMA_CHANGED", "腾讯个股新闻字段发生变化", 502);
   return items;
 }
 
@@ -456,6 +475,10 @@ function minuteProviders(instrumentId: string): Provider<StandardBar[]>[] {
 function stockNewsProviders(instrumentId: string, limit: number): Provider<StandardNewsItem[]>[] {
   const code = instrumentToCode(instrumentId);
   return [
+    {
+      name: "tencent-stock-news",
+      load: async (fetcher) => parseTencentStockNews(instrumentId, await (await upstream(fetcher, `https://proxy.finance.qq.com/ifzqgtimg/appstock/news/info/search?page=1&symbol=${code.prefixed}&n=${Math.max(10, Math.min(limit, 50))}&type=2`, { referer: `https://gu.qq.com/${code.prefixed}/gp` })).json()),
+    },
     {
       name: "eastmoney-stock-news",
       load: async (fetcher) => {
@@ -638,13 +661,13 @@ async function loadMarketNews(ids: string[], limit: number): Promise<LoadResult<
       warnings.push(`${id} stock news unavailable`);
     }
   }
-  return { data: dedupNews(batches.flat(), limit), meta: { capability: "market-news", providerChain: ["eastmoney-724", "eastmoney-stock-news"], attempts, warnings } };
+  return { data: dedupNews(batches.flat(), limit), meta: { capability: "market-news", providerChain: ["eastmoney-724", "tencent-stock-news", "eastmoney-stock-news"], attempts, warnings } };
 }
 
 async function route(request: Request, ctx: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
   const segments = url.pathname.split("/").filter(Boolean);
-  if (url.pathname === "/api/market/providers") return json({ data: { quote: ["tencent-qt", "sina-hq", "eastmoney-push2"], dailyBars: ["tencent-kline", "baidu-gushitong", "tonghuashun-kline"], minuteBars: ["tencent-minute", "sina-minute", "eastmoney-trends"], news: ["eastmoney-724", "eastmoney-stock-news", "cninfo-announcement", "eastmoney-announcement"], strategy: "sequential-fallback", timeoutMsPerProvider: UPSTREAM_TIMEOUT_MS } }, 200, "public, max-age=300");
+  if (url.pathname === "/api/market/providers") return json({ data: { quote: ["tencent-qt", "sina-hq", "eastmoney-push2"], dailyBars: ["tencent-kline", "baidu-gushitong", "tonghuashun-kline"], minuteBars: ["tencent-minute", "sina-minute", "eastmoney-trends"], news: ["eastmoney-724", "tencent-stock-news", "eastmoney-stock-news", "cninfo-announcement", "eastmoney-announcement"], strategy: "sequential-fallback", timeoutMsPerProvider: UPSTREAM_TIMEOUT_MS } }, 200, "public, max-age=300");
   if (url.pathname === "/api/market/quotes") {
     const ids = (url.searchParams.get("instruments") ?? "").split(",").filter(Boolean);
     if (!ids.length || ids.length > 30) throw new GatewayError("INVALID_ARGUMENT", "instruments 需要包含 1 至 30 个证券代码", 400);

@@ -17,6 +17,7 @@ import {
   parseTencentDailyBars,
   parseTencentMinuteBars,
   parseTencentQuote,
+  parseTencentStockNews,
   parseTencentSecurityName,
   parseTonghuashunDailyBars,
   runWithFallback,
@@ -72,16 +73,28 @@ test("falls back sequentially and preserves attempt diagnostics", async () => {
 });
 
 test("normalizes Eastmoney stock news and 7x24 market news", () => {
-  const stock = parseEastmoneyStockNews("SSE:600000", { result: { cmsArticleWebOld: [{ code: "art-1", title: "<em>浦发银行发</em>布业绩快报", url: "https://finance.eastmoney.com/a/1.html", content: "<p>净利润增长</p>", date: "2026-07-18 14:20:00" }, { code: "art-2", title: "浦发银行经营更新", url: "https://finance.eastmoney.com/a/2.html", date: "2026-07-18 14:18:00" }] } });
+  const stock = parseEastmoneyStockNews("SSE:600000", { data: { list: [] }, result: { cmsArticleWebOld: [{ code: "art-1", title: "<em>浦发银行发</em>布业绩快报", url: "https://finance.eastmoney.com/a/1.html", content: "<p>净利润增长</p>", date: "2026-07-18 14:20:00" }, { info_code: "202607183459000001", title: "浦发银行经营更新", publish_time: "2026-07-18 14:18:00" }] } });
   assert.equal(stock[0].id, "eastmoney-stock:art-1");
   assert.equal(stock[0].instrumentId, "SSE:600000");
   assert.equal(stock[0].title, "浦发银行发布业绩快报");
   assert.equal(stock[0].summary, "净利润增长");
+  assert.equal(stock[1].url, "https://finance.eastmoney.com/a/202607183459000001.html");
+  assert.equal(stock[1].publishedAt, "2026-07-18T06:18:00.000Z");
 
   const fast = parseEastmoneyFastNews({ data: { fastNewsList: [{ code: "f1", title: "市场午后回暖", digest: "ETF 成交放大", showTime: "2026-07-18 14:21:00" }, { code: "f2", title: "市场成交更新", showTime: "2026-07-18 14:19:00" }] } });
   assert.equal(fast[0].type, "market-news");
   assert.equal(fast[0].source, "eastmoney-724");
   assert.deepEqual(dedupNews([...fast, ...stock], 4).map((item) => item.type), ["market-news", "stock-news", "market-news", "stock-news"]);
+});
+
+test("normalizes Tencent stock news", () => {
+  const items = parseTencentStockNews("SSE:600000", { data: { data: [{ id: "nes-1", title: "浦发银行经营动态", url: "https://gu.qq.com/news/nes-1", time: "2026-07-25 09:58:53", src: "证券时报", summary: "" }] } });
+  assert.equal(items[0].id, "tencent-stock:nes-1");
+  assert.equal(items[0].type, "stock-news");
+  assert.equal(items[0].source, "tencent-stock-news");
+  assert.equal(items[0].instrumentId, "SSE:600000");
+  assert.equal(items[0].summary, "来源：证券时报");
+  assert.equal(items[0].publishedAt, "2026-07-25T01:58:53.000Z");
 });
 
 test("normalizes Cninfo announcements", () => {
