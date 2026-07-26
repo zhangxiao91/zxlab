@@ -9,7 +9,13 @@
     "clipboard-manager:allow-read-image",
     "clipboard-manager:allow-write-text",
     "store:default",
-    "opener:allow-open-url",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        { "url": "http://*" },
+        { "url": "https://*" }
+      ]
+    },
     "autostart:default",
     "notification:default",
     "global-shortcut:allow-register",
