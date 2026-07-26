@@ -9,10 +9,15 @@ class ModelsTest {
     private val json = Json { classDiscriminator = "type" }
 
     @Test fun classifiesOnlyHttpUrls() {
-        assertTrue(classifyText("https://zx-dx.xyz/path") is DropPayload.Url)
+        assertEquals(DropPayload.Url("https://zx-dx.xyz/path"), classifyText("https://zx-dx.xyz/path"))
         assertTrue(classifyText("http://localhost/a") is DropPayload.Url)
         assertTrue(classifyText("ftp://example.com") is DropPayload.Text)
         assertTrue(classifyText("hello.example.com") is DropPayload.Text)
+    }
+
+    @Test fun normalizesInternationalHttpUrls() {
+        assertEquals("https://example.com/%E6%B5%8B%E8%AF%95", normalizeHttpUrl(" https://example.com/测试 "))
+        assertNull(normalizeHttpUrl("javascript:alert(1)"))
     }
 
     @Test fun mapsBatteryBoundaries() {

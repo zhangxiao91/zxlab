@@ -30,6 +30,7 @@ import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
 import dev.zxlab.zxtoolkit.data.InboxEntity
 import dev.zxlab.zxtoolkit.model.DropPayload
+import dev.zxlab.zxtoolkit.model.normalizeHttpUrl
 import dev.zxlab.zxtoolkit.ui.PairingScanner
 import kotlinx.serialization.json.Json
 import java.io.File
@@ -141,13 +142,23 @@ private fun InboxPage(inbox: List<InboxEntity>, viewModel: MainViewModel) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(1.dp)) {
         items(inbox, key = { it.id }) { item ->
             InboxRow(item,
-                onOpen = {
-                    viewModel.claimText(item) { payload ->
-                        when (payload) {
-                            is DropPayload.Text -> context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("zxtoolkit", payload.text))
-                            is DropPayload.Url -> context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(payload.url)))
-                            else -> Unit
+                onOpen = { payload ->
+                    when (payload) {
+                        is DropPayload.Text -> {
+                            context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("zxtoolkit", payload.text))
+                            viewModel.markClaimed(item)
                         }
+                        is DropPayload.Url -> {
+                            val url = normalizeHttpUrl(payload.url)
+                            if (url == null) {
+                                viewModel.showMessage("链接格式无效")
+                            } else {
+                                runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+                                    .onSuccess { viewModel.markClaimed(item) }
+                                    .onFailure { viewModel.showMessage("没有可打开此链接的应用") }
+                            }
+                        }
+                        else -> Unit
                     }
                 },
                 onPreview = { viewModel.previewOrShare(item, false) },
@@ -159,7 +170,7 @@ private fun InboxPage(inbox: List<InboxEntity>, viewModel: MainViewModel) {
 }
 
 @Composable
-private fun InboxRow(item: InboxEntity, onOpen: () -> Unit, onPreview: () -> Unit, onShare: () -> Unit, onSave: () -> Unit) {
+private fun InboxRow(item: InboxEntity, onOpen: (DropPayload) -> Unit, onPreview: () -> Unit, onShare: () -> Unit, onSave: () -> Unit) {
     val payload = remember(item.payloadJson) { Json { ignoreUnknownKeys = true; classDiscriminator = "type" }.decodeFromString<DropPayload>(item.payloadJson) }
     val binary = payload is DropPayload.Image || payload is DropPayload.File
     Row(Modifier.fillMaxWidth().background(Color(0xFFFCFAF5)).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -173,7 +184,7 @@ private fun InboxRow(item: InboxEntity, onOpen: () -> Unit, onPreview: () -> Uni
             IconButton(onClick = onPreview) { Icon(Icons.Outlined.Visibility, "预览") }
             IconButton(onClick = onShare) { Icon(Icons.Outlined.Share, "分享") }
             IconButton(onClick = onSave) { Icon(Icons.Outlined.SaveAlt, "保存") }
-        } else IconButton(onClick = onOpen) { Icon(if (payload is DropPayload.Url) Icons.Outlined.OpenInNew else Icons.Outlined.ContentCopy, "打开") }
+        } else IconButton(onClick = { onOpen(payload) }) { Icon(if (payload is DropPayload.Url) Icons.Outlined.OpenInNew else Icons.Outlined.ContentCopy, "打开") }
     }
 }
 

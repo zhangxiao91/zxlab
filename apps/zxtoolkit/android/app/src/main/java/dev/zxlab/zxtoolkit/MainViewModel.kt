@@ -91,11 +91,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         mutable.update { it.copy(message = "文件已加入发送队列") }
     }
 
-    fun claimText(item: InboxEntity, onReady: (DropPayload) -> Unit) = runTask {
-        val payload = app.container.api.json.decodeFromString<DropPayload>(item.payloadJson)
-        repository.markClaimed(item)
-        onReady(payload)
-    }
+    fun markClaimed(item: InboxEntity) = runTask(showErrors = false) { repository.markClaimed(item) }
 
     fun previewOrShare(item: InboxEntity, share: Boolean, onShare: (Intent) -> Unit = {}) = runTask {
         val (file, mime) = repository.downloadAndClaim(item.id)

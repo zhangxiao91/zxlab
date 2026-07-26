@@ -2,6 +2,7 @@ package dev.zxlab.zxtoolkit.model
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 const val MAX_FILE_BYTES = 20L * 1024 * 1024
 
@@ -78,13 +79,10 @@ data class PulseSnapshot(
 
 fun classifyText(value: String): DropPayload {
     val clean = value.trim()
-    val uri = runCatching { java.net.URI(clean) }.getOrNull()
-    return if (uri?.scheme?.lowercase() in setOf("http", "https") && !uri?.host.isNullOrBlank()) {
-        DropPayload.Url(clean)
-    } else {
-        DropPayload.Text(clean)
-    }
+    return normalizeHttpUrl(clean)?.let { DropPayload.Url(it) } ?: DropPayload.Text(clean)
 }
+
+fun normalizeHttpUrl(value: String): String? = value.trim().toHttpUrlOrNull()?.toString()
 
 fun batteryBucket(percent: Int): String = when {
     percent >= 60 -> "high"
