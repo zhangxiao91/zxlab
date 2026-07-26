@@ -172,4 +172,6 @@ POST /api/memory-candidates/:id/reject
 | `candidate_signals` | 规范化候选、去重关系和 editorial decision |
 | `briefing_item_candidates` | 日报条目与原始候选的 primary/supporting 关系 |
 
+生成真实日报前，Signal 会把同一批次中标题语义高度相近的候选聚合为临时 story dossier，并查询过去 30 天的 `selected` / `eligible` 候选及更早的 active briefing 条目。历史材料只用于判断连续性、升级、矛盾和真正新增的信息，不能作为当天来源引用。editorial filter 标记为 `merge` 且指向已保留主候选的条目，会继续进入 synthesis，最终可记录为 `supporting` 来源。该阶段使用确定性文本相似度，不增加模型调用。
+
 Memory 永远不会由模型直接激活。`discussion` 可设置过期时间，`project` 必须有 `scopeKey`，`belief` 始终保留“用户当前判断”语义。

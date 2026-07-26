@@ -30,9 +30,10 @@ import {
   buildMemoryPrompt,
 } from "./prompts";
 import { GatewayRequestError, requestGatewayJson, responseValue } from "./gateway-client";
+import type { StoryDossier } from "./story-context";
 
-export interface GenerateBriefingInput { date: string; candidates: CandidateSignal[]; memories: MemoryEntry[]; runId: string; }
-export interface EditorialFilterInput { candidates: CandidateSignal[]; memories: MemoryEntry[]; runId: string; }
+export interface GenerateBriefingInput { date: string; candidates: CandidateSignal[]; memories: MemoryEntry[]; storyDossiers: StoryDossier[]; runId: string; }
+export interface EditorialFilterInput { candidates: CandidateSignal[]; memories: MemoryEntry[]; storyDossiers: StoryDossier[]; runId: string; }
 export interface AnnotationReplyInput { item: BriefingItem; selectedText: string; comment: string; action: AnnotationAction; memories: MemoryEntry[]; }
 export interface MemoryExtractionInput { item: BriefingItem; selectedText: string; comment: string; action: AnnotationAction; reply: string; }
 

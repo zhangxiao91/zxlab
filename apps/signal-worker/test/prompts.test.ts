@@ -63,4 +63,30 @@ describe("Signal prompts", () => {
     expect(editorial.system).toContain("no more than one third of keep decisions");
     expect(editorial.system).toContain("public significance");
   });
+
+  it("supplies bounded story history to both editorial stages", () => {
+    const storyDossiers = [{
+      id: "story-1",
+      anchorCandidateId: "current",
+      currentCandidateIds: ["current", "supporting"],
+      historicalSignals: [{
+        candidateId: "history",
+        title: "Earlier event",
+        summary: "h".repeat(2_000),
+        sourceName: "Historical Source",
+        publishedAt: "2026-07-01T00:00:00.000Z",
+      }],
+      priorCoverage: [{ briefingDate: "2026-07-02", title: "Earlier briefing", summary: "p".repeat(2_000) }],
+    }];
+    for (const prompt of [
+      buildEditorialPrompt({ candidates: [candidate("current")], memories: [], storyDossiers }),
+      buildBriefingPrompt({ date: "2026-07-25", candidates: [candidate("current")], memories: [], storyDossiers }),
+    ]) {
+      const payload = JSON.parse(prompt.user) as { storyDossiers: typeof storyDossiers };
+      expect(payload.storyDossiers[0]?.historicalSignals[0]?.summary).toHaveLength(320);
+      expect(payload.storyDossiers[0]?.priorCoverage[0]?.summary).toHaveLength(320);
+      expect(prompt.system).toContain("storyDossiers");
+      expect(prompt.system).toContain("not current sources");
+    }
+  });
 });

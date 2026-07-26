@@ -1,5 +1,6 @@
 import type { BriefingItem, CandidateSignal, DailyBriefing, GeneratedBriefingDraft } from "@zxlab/signal-schema";
 import { SignalError } from "../lib/errors";
+import type { PriorBriefingContext } from "../services/story-context";
 
 interface BriefingRow {
   id: string; run_id: string; briefing_date: string; title: string; summary: string; status: string;
@@ -124,6 +125,15 @@ export class BriefingRepository {
     const row = await this.db.prepare(`${this.selectBriefing()} WHERE b.id = ? LIMIT 1`).bind(id).first<BriefingRow>();
     if (!row) throw new SignalError("BRIEFING_NOT_FOUND", "Briefing not found", 404);
     return this.hydrate(row);
+  }
+
+  async recentItemsBefore(date: string, limit = 60): Promise<PriorBriefingContext[]> {
+    const result = await this.db.prepare(`SELECT b.briefing_date, i.title, i.summary
+      FROM briefing_items i JOIN briefings b ON b.id=i.briefing_id
+      WHERE b.is_active=1 AND b.status IN ('ready','partial') AND b.briefing_date<?
+      ORDER BY b.briefing_date DESC, i.sort_order LIMIT ?`)
+      .bind(date, Math.min(Math.max(limit, 1), 120)).all<{ briefing_date: string; title: string; summary: string }>();
+    return result.results.map((row) => ({ briefingDate: row.briefing_date, title: row.title, summary: row.summary }));
   }
 
   private selectBriefing(): string {

@@ -238,6 +238,20 @@ export class CollectionRepository {
     return result.results.map((row) => candidate(row));
   }
 
+  async historicalCandidatesForContext(input: { excludeCollectionRunId?: string; since: string; until: string; maxCandidates?: number }): Promise<CandidateSignal[]> {
+    const clauses = ["c.status IN ('selected','eligible')", "c.duplicate_of IS NULL", "COALESCE(c.published_at,c.fetched_at)>=?", "COALESCE(c.published_at,c.fetched_at)<?"];
+    const bindings: unknown[] = [input.since, input.until];
+    if (input.excludeCollectionRunId) {
+      clauses.push("c.collection_run_id<>?");
+      bindings.push(input.excludeCollectionRunId);
+    }
+    bindings.push(Math.min(Math.max(input.maxCandidates ?? 240, 1), 400));
+    const result = await this.db.prepare(`${this.candidateSelect()} WHERE ${clauses.join(" AND ")}
+      ORDER BY CASE c.status WHEN 'selected' THEN 0 ELSE 1 END, COALESCE(c.published_at,c.fetched_at) DESC LIMIT ?`)
+      .bind(...bindings).all<CandidateRow>();
+    return result.results.map((row) => candidate(row, false));
+  }
+
   async saveEditorialDecisions(decisions: CandidateEditorialDecision[]): Promise<void> {
     if (!decisions.length) return;
     await this.db.batch(decisions.map((value) => this.db.prepare(`UPDATE candidate_signals SET editorial_decision=?, editorial_category=?,

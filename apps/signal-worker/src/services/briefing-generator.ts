@@ -8,6 +8,18 @@ import type { SignalLLM } from "./llm";
 import { MemoryService } from "../memory/service/memory-service";
 import { CollectionRepository } from "../repositories/collection-repository";
 import { fixtureCandidate } from "./candidate-normalizer";
+import { buildStoryDossiers, selectStoryDossiers } from "./story-context";
+import type { CandidateEditorialDecision } from "@zxlab/signal-schema";
+
+const HISTORY_WINDOW_DAYS = 30;
+
+export function selectSynthesisCandidates(candidates: CandidateSignal[], decisions: CandidateEditorialDecision[]): CandidateSignal[] {
+  const kept = new Set(decisions.filter((decision) => decision.decision === "keep").map((decision) => decision.candidateId));
+  const supporting = new Set(decisions
+    .filter((decision) => decision.decision === "merge" && decision.mergeTargetCandidateId && kept.has(decision.mergeTargetCandidateId))
+    .map((decision) => decision.candidateId));
+  return candidates.filter((candidate) => kept.has(candidate.id) || supporting.has(candidate.id));
+}
 
 export class BriefingGenerator {
   private readonly briefings: BriefingRepository;
@@ -53,14 +65,27 @@ export class BriefingGenerator {
       }));
       const memories = canonicalMemories.slice(0, 20);
       let synthesisCandidates = input.candidates;
+      let storyDossiers = buildStoryDossiers(input.candidates);
       if (input.dataOrigin === "real") {
-        const decisions = await this.llm.filterCandidates({ candidates: input.candidates, memories, runId });
+        const dateStart = Date.parse(`${input.date}T00:00:00.000Z`);
+        const historySince = new Date(dateStart - HISTORY_WINDOW_DAYS * 86_400_000).toISOString();
+        const historyUntil = new Date(dateStart + 86_400_000).toISOString();
+        const [historicalCandidates, priorCoverage] = await Promise.all([
+          this.candidates.historicalCandidatesForContext({
+            excludeCollectionRunId: input.collectionRunId,
+            since: historySince,
+            until: historyUntil,
+          }),
+          this.briefings.recentItemsBefore(input.date),
+        ]);
+        storyDossiers = buildStoryDossiers(input.candidates, historicalCandidates, priorCoverage);
+        const decisions = await this.llm.filterCandidates({ candidates: input.candidates, memories, storyDossiers, runId });
         await this.candidates.saveEditorialDecisions(decisions);
-        const kept = new Set(decisions.filter((decision) => decision.decision === "keep").map((decision) => decision.candidateId));
-        synthesisCandidates = input.candidates.filter((candidate) => kept.has(candidate.id));
+        synthesisCandidates = selectSynthesisCandidates(input.candidates, decisions);
         if (synthesisCandidates.length === 0) throw new SignalError("NO_ELIGIBLE_CANDIDATES", "Editorial filter kept no candidates", 422);
+        storyDossiers = selectStoryDossiers(storyDossiers, new Set(synthesisCandidates.map((candidate) => candidate.id)));
       }
-      const draft = await this.llm.generateBriefing({ date: input.date, candidates: synthesisCandidates, memories, runId });
+      const draft = await this.llm.generateBriefing({ date: input.date, candidates: synthesisCandidates, memories, storyDossiers, runId });
       const generatedAt = new Date().toISOString();
       await this.briefings.saveGenerated({ runId, briefingId, date: input.date, draft, candidates: synthesisCandidates,
         promptVersion: BRIEFING_PROMPT_VERSION, model: this.env.ZX_SIGNAL_LLM_LABEL, dataOrigin: input.dataOrigin,
