@@ -21,7 +21,7 @@ Astro static site
        -> Codex usage collector
   -> bundled or separate apps
        -> STONKS Vite game
-       -> Yuzhi Vite game and Durable Object API
+       -> Yuzi Vite game and Durable Object API
        -> zxtoolkit Web/PWA and Tauri desktop app
        -> private risk-api FastAPI prototype
 ```
@@ -36,7 +36,7 @@ server boundary.
 src/                  Astro pages, components, content, styles, and browser clients
 functions/            Cloudflare Pages Functions for same-origin server APIs
 apps/stonks/          Isolated Vite market-simulation game embedded under /lab/stonks
-apps/yuzhi/           Git submodule pinning the independent Yuzhi game and Worker
+apps/yuzi/           Git submodule pinning the independent Yuzi game and Worker
 apps/runtime-worker/  Runtime probes, public Status aggregation, and private Ops API
 apps/signal-worker/   Cloudflare Worker for briefing generation, annotations, and Memory
 apps/zxtoolkit/       Device toolkit: Web/PWA, Worker, shared protocol, Tauri desktop
@@ -148,17 +148,17 @@ tuning tools, and React inspection UI. The root build compiles it into
 `public/lab/stonks/game/`, and Astro embeds that built snapshot at
 `/lab/stonks`.
 
-### Yuzhi
+### Yuzi
 
-`apps/yuzhi` is a git submodule that pins the public Yuzhi repository. The root
-build writes its Vite snapshot to `public/lab/yuzhi/game/`, and the Astro shell
-at `/lab/yuzhi` embeds that static app from the same origin.
+`apps/yuzi` is a git submodule that pins the public Yuzi repository. The root
+build writes its Vite snapshot to `public/lab/yuzi/game/`, and the Astro shell
+at `/lab/yuzi` embeds that static app from the same origin.
 
 The browser holds only a short bearer session token and local completed
-residuals. `yuzhi-api.zx-dx.xyz` owns Turnstile verification, IP/session rate
+residuals. `yuzi-api.zx-dx.xyz` owns Turnstile verification, IP/session rate
 limits, the five-turn Durable Object state machine, and output validation. It
-calls the Pages AI Gateway with the server-only `yuzhi-turn` task token; model
-credentials and the gateway access token never enter the game bundle. Yuzhi's
+calls the Pages AI Gateway with the server-only `yuzi-turn` task token; model
+credentials and the gateway access token never enter the game bundle. Yuzi's
 model generates bounded narrative text and candidates, while its deterministic
 domain layer owns phrase erasure, state invariants, and final judgment.
 

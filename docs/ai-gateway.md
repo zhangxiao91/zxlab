@@ -174,10 +174,10 @@ The gateway guarantees valid JSON for `responseFormat.type=json`; it does not
 accept a caller-supplied JSON Schema. Signal therefore validates `data.json`
 again with `@zxlab/signal-schema` before any D1 write.
 
-Yuzhi calls the non-streaming endpoint from its Worker with the server-only
-access token and task `yuzhi-turn`. That task is capped at 700 output tokens,
+Yuzi calls the non-streaming endpoint from its Worker with the server-only
+access token and task `yuzi-turn`. That task is capped at 700 output tokens,
 25 seconds per candidate, a 55-second total budget, and temperature 0.72. The
-caller supplies telemetry source `yuzhi`, validates the game schema and banned
+caller supplies telemetry source `yuzi`, validates the game schema and banned
 phrases, and makes at most one repair request. Model failures leave its Durable
 Object turn and version unchanged.
 

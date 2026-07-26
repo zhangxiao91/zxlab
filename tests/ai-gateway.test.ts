@@ -65,14 +65,14 @@ test("first candidate succeeds without fallback", async () => {
   assert.deepEqual(adapter.calls, ["provider1-gpt-5.6"]);
 });
 
-test("Yuzhi uses its bounded generation policy", () => {
-  assert.deepEqual(resolveTaskPolicy({ ...input, task: "yuzhi-turn" }), {
+test("Yuzi uses its bounded generation policy", () => {
+  assert.deepEqual(resolveTaskPolicy({ ...input, task: "yuzi-turn" }), {
     timeoutMs: 25_000,
     totalBudgetMs: 55_000,
     maxOutputTokens: 700,
     temperature: 0.72,
   });
-  assert.equal(resolveTaskPolicy({ ...input, task: "yuzhi-turn", maxOutputTokens: 2_000 }).maxOutputTokens, 700);
+  assert.equal(resolveTaskPolicy({ ...input, task: "yuzi-turn", maxOutputTokens: 2_000 }).maxOutputTokens, 700);
 });
 
 test("429 retries once, then falls back to Provider 1 GPT-5.5", async () => {

@@ -34,7 +34,7 @@ export const labProjects: LabProject[] = [
     deviceSupport: ["desktop", "touch", "keyboard", "pointer"],
   },
   {
-    slug: "yuzhi",
+    slug: "yuzi",
     title: "余字",
     description:
       "五回合生成式文字构筑游戏。从世界回应中剪下完整意群，以全文缺口为代价，把那封未寄出的信带到天亮以前。",
@@ -43,9 +43,9 @@ export const labProjects: LabProject[] = [
     cardLabels: ["Generative Game", "Five Turns"],
     tags: ["Narrative", "LLM", "Word Building"],
     featured: true,
-    thumbnail: "/assets/lab/yuzhi-preview.webp",
+    thumbnail: "/assets/lab/yuzi-preview.webp",
     thumbnailAlt: "黎明前的山谷与云层，用于表示余字的未寄出手稿",
-    href: "/lab/yuzhi",
+    href: "/lab/yuzi",
     customPage: true,
     supportsFullscreen: true,
     minHeight: "46rem",
@@ -53,7 +53,7 @@ export const labProjects: LabProject[] = [
     links: [
       {
         label: "GitHub repository",
-        href: "https://github.com/zhangxiao91/yuzhi",
+        href: "https://github.com/zhangxiao91/yuzi",
         external: true,
       },
     ],

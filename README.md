@@ -36,8 +36,8 @@ npm run build
 ```
 
 The production build first compiles the embedded Vite games, then builds the
-Astro site. STONKS is vendored under `apps/stonks/`; Yuzhi is pinned as a git
-submodule under `apps/yuzhi/`. Their static snapshots are written to
+Astro site. STONKS is vendored under `apps/stonks/`; Yuzi is pinned as a git
+submodule under `apps/yuzi/`. Their static snapshots are written to
 `public/lab/<game>/game/` and rendered by same-origin Astro shells.
 
 To refresh the STONKS snapshot, copy the desired upstream revision into
@@ -64,14 +64,14 @@ Clone with submodules, or initialize them before installing workspaces:
 git submodule update --init --recursive
 ```
 
-To refresh Yuzhi, update and verify the independent repository first, then pin
+To refresh Yuzi, update and verify the independent repository first, then pin
 the reviewed upstream commit and rebuild the snapshot:
 
 ```bash
-git -C apps/yuzhi fetch origin main
-git -C apps/yuzhi checkout <reviewed-commit>
+git -C apps/yuzi fetch origin main
+git -C apps/yuzi checkout <reviewed-commit>
 npm install
-npm run build:yuzhi
+npm run build:yuzi
 ```
 
 ## Project structure
@@ -130,7 +130,7 @@ documented in [`docs/ai-gateway.md`](docs/ai-gateway.md).
 * `/lab/risk` — Local portfolio risk workbench
 * `/lab/strudel` — Embedded Strudel live coding playground
 * `/lab/stonks` — Desktop-only fictional market simulation
-* `/lab/yuzhi` — Five-turn generative narrative construction game
+* `/lab/yuzi` — Five-turn generative narrative construction game
 * `/status` — Public, privacy-filtered status dashboard
 * `/about` — About page
 

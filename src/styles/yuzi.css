@@ -1,0 +1,93 @@
+@font-face {
+  font-family: "Geist";
+  src: url("../assets/fonts/Geist-Variable.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: dark;
+  font-family: "Geist", "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
+  color: #f3f1e9;
+  background: #10110e;
+  letter-spacing: 0;
+}
+
+* { box-sizing: border-box; }
+html, body { min-width: 320px; min-height: 100%; margin: 0; overflow: hidden; background: #10110e; }
+button, a { font: inherit; letter-spacing: 0; }
+a { color: inherit; text-decoration: none; }
+
+.yuzi-shell { width: 100%; min-height: 100dvh; overflow: hidden; }
+.yuzi-bar {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  min-height: 4rem;
+  padding: 0 1rem;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.13);
+  background: rgba(16, 17, 14, 0.94);
+  backdrop-filter: blur(16px);
+}
+
+.yuzi-back { display: inline-flex; width: max-content; align-items: center; gap: 0.55rem; color: #bbbcb5; font-size: 0.76rem; }
+.yuzi-back:hover { color: #fff; }
+.yuzi-identity { display: flex; align-items: baseline; gap: 0.7rem; }
+.yuzi-identity strong { font-size: 0.9rem; font-weight: 650; }
+.yuzi-identity span { color: #93968e; font-size: 0.68rem; }
+.yuzi-actions { display: flex; justify-self: end; gap: 0.45rem; }
+.yuzi-icon-command {
+  display: grid;
+  width: 2.35rem;
+  height: 2.35rem;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  place-items: center;
+  background: transparent;
+  color: #deddd6;
+  cursor: pointer;
+  transition: background 300ms ease, border-color 300ms ease;
+}
+.yuzi-icon-command:hover { border-color: rgba(255, 255, 255, 0.38); background: rgba(255, 255, 255, 0.08); }
+
+.yuzi-stage { position: relative; height: calc(100dvh - 4rem); min-height: 32rem; background: #10110e; }
+.yuzi-stage:fullscreen { width: 100vw; height: 100dvh; min-height: 0; }
+.yuzi-stage iframe { width: 100%; height: 100%; border: 0; opacity: 0; background: #10110e; transition: opacity 500ms ease; }
+.yuzi-stage iframe[data-ready="true"] { opacity: 1; }
+.yuzi-loading, .yuzi-error {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  z-index: 1;
+  place-content: center;
+  justify-items: center;
+  gap: 0.8rem;
+  background: #10110e;
+  color: #a7aaa1;
+  font-size: 0.78rem;
+}
+.yuzi-loading[hidden], .yuzi-error[hidden] { display: none; }
+.yuzi-loading span { width: 1.8rem; height: 1.8rem; border: 1px solid #4e5049; border-top-color: #eceae2; border-radius: 50%; animation: yuzi-spin 900ms linear infinite; }
+.yuzi-error strong { color: #f1efe7; font-size: 1rem; }
+.yuzi-error p { margin: 0; }
+.yuzi-error button { min-height: 2.6rem; padding: 0 1rem; border: 0; border-radius: 4px; background: #f1efe7; color: #161713; cursor: pointer; }
+
+@keyframes yuzi-spin { to { transform: rotate(360deg); } }
+
+@media (max-width: 40rem) {
+  .yuzi-bar { grid-template-columns: 1fr auto; }
+  .yuzi-identity { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .yuzi-bar { background: #10110e; backdrop-filter: none; }
+}

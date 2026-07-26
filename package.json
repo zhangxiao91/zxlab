@@ -4,7 +4,7 @@
   "version": "0.0.1",
   "workspaces": [
     "apps/stonks",
-    "apps/yuzhi",
+    "apps/yuzi",
     "apps/zxtoolkit",
     "apps/signal-worker",
     "apps/runtime-worker",
@@ -16,11 +16,11 @@
   },
   "scripts": {
     "dev": "astro dev",
-    "build": "npm run build:stonks && npm run build:yuzhi && npm run verify:pages-routes && astro build && node scripts/check-internal-links.mjs",
+    "build": "npm run build:stonks && npm run build:yuzi && npm run verify:pages-routes && astro build && node scripts/check-internal-links.mjs",
     "generate:yuragi": "node scripts/generate-yuragi.mjs",
     "build:zxtoolkit": "npm run build --workspace zxtoolkit",
     "build:stonks": "npm run build --workspace stonks-wip",
-    "build:yuzhi": "npm run build --workspace yuzhi -- --outDir ../../public/lab/yuzhi/game --emptyOutDir",
+    "build:yuzi": "npm run build --workspace yuzi -- --outDir ../../public/lab/yuzi/game --emptyOutDir",
     "preview": "astro preview",
     "astro": "astro",
     "typecheck": "astro check --tsconfig tsconfig.digital-starter.json --minimumSeverity error",
