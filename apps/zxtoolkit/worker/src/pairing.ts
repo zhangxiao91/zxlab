@@ -1,12 +1,14 @@
 import { DurableObject } from "cloudflare:workers";
-import type { Device, DeviceCredential, DevicePlatform, PairingStatusResponse } from "../../shared/types";
+import type { Device, DeviceCredential, DevicePlatform, PairingMode, PairingStatusResponse } from "../../shared/types";
 import { constantTimeEqual, hashToken, randomToken } from "./security";
-import { createDevicePair, resetPairingConfirmation, setPairingStatus } from "./device-store";
+import { attachDevicePair, createDevicePair, resetPairingConfirmation, setPairingStatus } from "./device-store";
 
 interface PairingState {
   id: string;
   claimHash: string;
+  mode: PairingMode;
   desktopName: string;
+  desktopDevice?: Device;
   expiresAt: number;
   status: "pending" | "confirming" | "confirmed" | "expired";
   desktopCredential?: DeviceCredential;
@@ -14,9 +16,23 @@ interface PairingState {
 }
 
 export class PairingSession extends DurableObject<Env> {
+  async preview(): Promise<{ desktopName: string; mode: PairingMode; expiresAt: string } | null> {
+    const state = await this.ctx.storage.get<PairingState>("pairing");
+    if (!state || state.status !== "pending" || state.expiresAt <= Date.now()) return null;
+    return { desktopName: state.desktopName, mode: state.mode, expiresAt: new Date(state.expiresAt).toISOString() };
+  }
+
   async initialize(id: string, claimHash: string, desktopName: string, expiresAt: number): Promise<void> {
     if (await this.ctx.storage.get("pairing")) return;
-    await this.ctx.storage.put<PairingState>("pairing", { id, claimHash, desktopName, expiresAt, status: "pending" });
+    await this.ctx.storage.put<PairingState>("pairing", { id, claimHash, mode: "bootstrap", desktopName, expiresAt, status: "pending" });
+    await this.ctx.storage.setAlarm(expiresAt);
+  }
+
+  async initializeAddDevice(id: string, claimHash: string, desktopDevice: Device, expiresAt: number): Promise<void> {
+    if (await this.ctx.storage.get("pairing")) return;
+    await this.ctx.storage.put<PairingState>("pairing", {
+      id, claimHash, mode: "add_device", desktopName: desktopDevice.name, desktopDevice, expiresAt, status: "pending"
+    });
     await this.ctx.storage.setAlarm(expiresAt);
   }
 
@@ -24,10 +40,12 @@ export class PairingSession extends DurableObject<Env> {
     const state = await this.ctx.storage.get<PairingState>("pairing");
     if (!state || !constantTimeEqual(await hashToken(claimToken), state.claimHash)) return null;
     if (state.expiresAt <= Date.now() || state.status === "expired") return { status: "expired" };
-    if (state.status === "pending" || !state.desktopCredential || !state.receiver) {
-      return { status: "pending", expiresAt: new Date(state.expiresAt).toISOString() };
+    if (state.status === "pending" || !state.receiver || (state.mode === "bootstrap" && !state.desktopCredential)) {
+      return { status: "pending", mode: state.mode, expiresAt: new Date(state.expiresAt).toISOString() };
     }
-    return { status: "confirmed", credential: state.desktopCredential, receiver: state.receiver };
+    return state.mode === "add_device"
+      ? { status: "confirmed", mode: "add_device", receiver: state.receiver }
+      : { status: "confirmed", mode: "bootstrap", credential: state.desktopCredential!, receiver: state.receiver };
   }
 
   async confirm(receiverName: string, receiverPlatform: DevicePlatform): Promise<DeviceCredential | null> {
@@ -37,25 +55,23 @@ export class PairingSession extends DurableObject<Env> {
     state.status = "confirming";
     await this.ctx.storage.put("pairing", state);
     const createdAt = new Date().toISOString();
-    const desktop: Device = { id: crypto.randomUUID(), name: state.desktopName, platform: "macos", capabilities: ["drop.send", "drop.receive", "pulse.publish", "pulse.consume"], createdAt, credentialVersion: 1 };
+    const desktop: Device = state.desktopDevice ?? { id: crypto.randomUUID(), name: state.desktopName, platform: "macos", capabilities: ["drop.send", "drop.receive", "pulse.publish", "pulse.consume"], createdAt, credentialVersion: 1 };
     const receiver: Device = { id: crypto.randomUUID(), name: receiverName, platform: receiverPlatform, capabilities: ["drop.send", "drop.receive", "pulse.publish", "pulse.consume"], createdAt, credentialVersion: 1 };
-    const desktopToken = randomToken();
+    const desktopToken = state.mode === "bootstrap" ? randomToken() : null;
     const receiverToken = randomToken();
-
-    const [desktopTokenHash, receiverTokenHash] = await Promise.all([hashToken(desktopToken), hashToken(receiverToken)]);
+    const [desktopTokenHash, receiverTokenHash] = await Promise.all([desktopToken ? hashToken(desktopToken) : Promise.resolve(null), hashToken(receiverToken)]);
 
     try {
-      await createDevicePair(this.env.DB, desktop, desktopTokenHash, receiver, receiverTokenHash, state.id);
+      if (state.mode === "bootstrap") await createDevicePair(this.env.DB, desktop, desktopTokenHash!, receiver, receiverTokenHash, state.id);
+      else await attachDevicePair(this.env.DB, desktop, receiver, receiverTokenHash, state.id);
       const desktopMailbox = this.env.DEVICES.getByName(desktop.id);
       const receiverMailbox = this.env.DEVICES.getByName(receiver.id);
-      await Promise.all([
-        desktopMailbox.initialize(desktop, desktopTokenHash),
-        receiverMailbox.initialize(receiver, receiverTokenHash)
-      ]);
+      if (state.mode === "bootstrap") await desktopMailbox.initialize(desktop, desktopTokenHash!);
+      await receiverMailbox.initialize(receiver, receiverTokenHash);
       await Promise.all([desktopMailbox.addPair(receiver), receiverMailbox.addPair(desktop)]);
 
       state.status = "confirmed";
-      state.desktopCredential = { device: desktop, token: desktopToken };
+      state.desktopCredential = desktopToken ? { device: desktop, token: desktopToken } : undefined;
       state.receiver = receiver;
       await this.ctx.storage.put("pairing", state);
       return { device: receiver, token: receiverToken };

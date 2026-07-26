@@ -95,6 +95,29 @@ export async function createDevicePair(
   ]);
 }
 
+export async function attachDevicePair(
+  db: D1Database,
+  desktop: Device,
+  receiver: Device,
+  receiverTokenHash: string,
+  pairingId: string
+): Promise<void> {
+  const active = await db.prepare(`
+    SELECT 1 AS ok FROM devices d
+    JOIN device_credentials c ON c.device_id = d.id
+    WHERE d.id = ?1 AND d.revoked_at IS NULL AND c.status = 'active'
+  `).bind(desktop.id).first<{ ok: number }>();
+  if (!active) throw new Error("PAIRING_DESKTOP_UNAVAILABLE");
+  const now = new Date().toISOString();
+  await db.batch([
+    insertDevice(db, receiver),
+    insertCredential(db, receiver.id, receiverTokenHash, receiver.credentialVersion, now),
+    db.prepare("INSERT INTO device_links (device_id, paired_device_id, created_at) VALUES (?1, ?2, ?3)").bind(desktop.id, receiver.id, now),
+    db.prepare("INSERT INTO device_links (device_id, paired_device_id, created_at) VALUES (?1, ?2, ?3)").bind(receiver.id, desktop.id, now),
+    db.prepare(`UPDATE pairing_sessions SET status = 'confirmed', desktop_device_id = ?1, receiver_device_id = ?2, completed_at = ?3 WHERE id = ?4 AND status = 'confirming'`).bind(desktop.id, receiver.id, now, pairingId)
+  ]);
+}
+
 export async function migrateLegacyMailbox(db: D1Database, device: Device, tokenHash: string, pairedDevices: Device[]): Promise<void> {
   const now = new Date().toISOString();
   const statements: D1PreparedStatement[] = [
@@ -118,12 +141,12 @@ export async function migrateLegacyMailbox(db: D1Database, device: Device, token
   await db.batch(statements);
 }
 
-export async function createPairingRecord(db: D1Database, input: { id: string; claimHash: string; desktopName: string; expiresAt: number }): Promise<void> {
+export async function createPairingRecord(db: D1Database, input: { id: string; claimHash: string; desktopName: string; expiresAt: number; desktopDeviceId?: string }): Promise<void> {
   const now = new Date().toISOString();
   await db.prepare(`
-    INSERT INTO pairing_sessions (id, claim_hash, desktop_name, status, created_at, expires_at)
-    VALUES (?1, ?2, ?3, 'pending', ?4, ?5)
-  `).bind(input.id, input.claimHash, input.desktopName, now, new Date(input.expiresAt).toISOString()).run();
+    INSERT INTO pairing_sessions (id, claim_hash, desktop_name, status, created_at, expires_at, desktop_device_id)
+    VALUES (?1, ?2, ?3, 'pending', ?4, ?5, ?6)
+  `).bind(input.id, input.claimHash, input.desktopName, now, new Date(input.expiresAt).toISOString(), input.desktopDeviceId ?? null).run();
 }
 
 export async function setPairingStatus(db: D1Database, id: string, status: "confirming" | "expired" | "cancelled"): Promise<boolean> {
@@ -167,6 +190,18 @@ export async function revokePairedDevice(db: D1Database, actorId: string, target
     db.prepare("UPDATE device_credentials SET status = 'revoked', revoked_at = ?1 WHERE device_id = ?2 AND status = 'active'").bind(now, targetId)
   ]);
   return true;
+}
+
+export async function revokeCurrentDevice(db: D1Database, deviceId: string): Promise<string[]> {
+  const links = await db.prepare("SELECT paired_device_id FROM device_links WHERE device_id = ?1 AND revoked_at IS NULL")
+    .bind(deviceId).all<{ paired_device_id: string }>();
+  const now = new Date().toISOString();
+  const [device] = await db.batch([
+    db.prepare("UPDATE devices SET revoked_at = ?1 WHERE id = ?2 AND revoked_at IS NULL").bind(now, deviceId),
+    db.prepare("UPDATE device_credentials SET status = 'revoked', revoked_at = ?1 WHERE device_id = ?2 AND status = 'active'").bind(now, deviceId),
+    db.prepare("UPDATE device_links SET revoked_at = ?1 WHERE device_id = ?2 OR paired_device_id = ?2").bind(now, deviceId)
+  ]);
+  return device.meta.changes === 1 ? links.results.map((row) => row.paired_device_id) : [];
 }
 
 export async function rotateCredential(db: D1Database, deviceId: string, tokenHash: string): Promise<number | null> {

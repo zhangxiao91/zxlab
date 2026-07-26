@@ -67,9 +67,11 @@ export interface PublicStatusResponse {
 }
 
 export interface DeviceCredential { device: Device; token: string; }
-export interface PairingSessionResponse { id: string; claimToken: string; pairUrl: string; expiresAt: string; }
+export type PairingMode = "bootstrap" | "add_device";
+export interface PairingSessionResponse { id: string; claimToken: string; pairUrl: string; expiresAt: string; mode: PairingMode; }
 export type PairingStatusResponse =
-  | { status: "pending"; expiresAt: string }
-  | { status: "confirmed"; credential: DeviceCredential; receiver: Device }
+  | { status: "pending"; mode: PairingMode; expiresAt: string }
+  | { status: "confirmed"; mode: "bootstrap"; credential: DeviceCredential; receiver: Device }
+  | { status: "confirmed"; mode: "add_device"; receiver: Device }
   | { status: "expired" };
 export interface ApiProblem { error: { code: string; message: string }; }

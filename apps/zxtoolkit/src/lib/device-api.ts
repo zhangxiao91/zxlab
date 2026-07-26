@@ -27,6 +27,14 @@ export async function createPairingSession(desktopName: string): Promise<Pairing
   return request("/api/pairing/sessions", { method: "POST", body: JSON.stringify({ desktopName }), headers: { "content-type": "application/json" } });
 }
 
+export async function createAddDevicePairingSession(credential: DeviceCredential): Promise<PairingSessionResponse> {
+  return request("/api/pairing/sessions/add-device", { method: "POST", headers: auth(credential) });
+}
+
+export async function cancelPairingSession(id: string, claimToken: string): Promise<void> {
+  await request(`/api/pairing/sessions/${id}/cancel`, { method: "POST", headers: { authorization: `Bearer ${claimToken}` } });
+}
+
 export async function getPairingStatus(id: string, claimToken: string): Promise<PairingStatusResponse> {
   return request(`/api/pairing/sessions/${id}`, { headers: { authorization: `Bearer ${claimToken}` } });
 }

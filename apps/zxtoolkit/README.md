@@ -1,6 +1,6 @@
 # zxtoolkit
 
-zxtoolkit 是连接 Mac 与其他个人设备的轻量工具集，目前包含两个模块：
+zxtoolkit 是连接 Mac 与其他个人设备的轻量工具集，目前包含两个模块和一个原生 Android 客户端：
 
 - Drop：已绑定设备之间投递文字、链接与剪贴板图片；旧的 10 分钟扫码图片会话继续兼容。
 - Pulse：设备本地生成脱敏公开快照，服务端校验、短期保存并向 zxlab Status 输出稳定公开 API。
@@ -15,6 +15,7 @@ Mac 菜单栏复制文字、URL 或图片 → 点击“发送剪贴板” → �
 
 ```text
 apps/zxtoolkit/
+├── android/        Kotlin + Jetpack Compose Android 应用
 ├── desktop/        Tauri 2 macOS 菜单栏应用
 ├── shared/         设备、Drop、Pulse 共享类型与运行时校验
 ├── src/            Web 收件箱、配对、Pulse 发布与公开预览
@@ -22,7 +23,7 @@ apps/zxtoolkit/
 └── docs/           当前协议、隐私与接入文档
 ```
 
-Android 原生工程尚未创建。当前 Android 入口是移动 Web/PWA，Pulse provider 与 UI/业务层已经分离为公共快照 schema；后续接入 Kotlin/Health Connect 时替换采集层即可。
+Android 原生应用可与现有 Mac 凭证新增配对，支持双向文字、链接、图片和单文件传输。前台使用 WebSocket，后台使用 WorkManager 补拉；Pulse 从系统电池 API 读取真实电量档位和充电状态。
 
 ## 本地开发
 
@@ -89,6 +90,25 @@ npx wrangler deploy --dry-run --config apps/zxtoolkit/worker/wrangler.jsonc
 ```
 
 `smoke:local` 会实际完成配对、文字投递、图片上传与下载、领取删除、凭证轮换及实时连接票据签发。
+
+## Android 构建与安装
+
+需要 Android Studio Stable、JDK 17、Android SDK 35、Build Tools 35.0.0 和 platform-tools。命令行环境可设置为：
+
+```bash
+export JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home
+export ANDROID_HOME=/opt/homebrew/share/android-commandlinetools
+export PATH="$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$PATH"
+cd apps/zxtoolkit/android
+./gradlew lintDebug testDebugUnitTest assembleDebug
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+有已连接的真机或 API 35 模拟器时再执行 `./gradlew connectedDebugAndroidTest`。Debug 包固定连接生产 HTTPS Origin；本地 Worker 联调可在 `app/build.gradle.kts` 中临时覆盖 `API_ORIGIN` 和 `APP_ORIGIN`，不要提交局域网地址。
+
+首次运行需要相机权限以扫描 Mac 二维码；Android 13 及以上会请求通知权限。拒绝通知权限不会停止后台同步。系统 Photo Picker 不需要媒体库权限；相机、文件选择与 SAF 保存均使用系统授权的单个 URI。设备 token 使用 Android Keystore AES-GCM 加密，DataStore 不保存明文 token。
+
+首版只绑定一台 Mac，单文件上限 20 MiB，不支持批量文件、文件夹、分片断点、FCM、Health Connect、端到端加密、Play 商店发布或正式签名。后台 15 分钟是系统调度下限，实际执行时间可能更晚。
 
 ## Cloudflare 配置与部署
 
@@ -173,13 +193,13 @@ Pulse 默认只接收 presence、电量档位、充电状态、步数档位、�
 
 ## 当前限制
 
-- Pulse 使用开发态模拟值；尚未接入 Android 电池 API 或 Health Connect。
+- Web/PWA Pulse 仍使用明确标记的开发态模拟值；Android 使用真实电量档位与充电状态，不接入 Health Connect。
 - 文件/图片生产链路已部署；仍需用真实手机完成一次扫码、图片发送与分享的人工验收。
 - 收件箱使用 WebSocket 实时通知，并保留 30 秒轮询兜底。
 - macOS 包尚未 Developer ID 签名或 notarize。
 
 ## 路线图
 
-1. Android Kotlin 壳、真实电量/充电 Provider 与可选 Health Connect 步数。
-2. 增加完整设备管理与凭证轮换 UI，并验证 Keychain 升级迁移。
+1. 在真实 Android 设备上完成耗电、后台调度和厂商 ROM 兼容性测试。
+2. 增加正式签名、Play 内测轨道与可选 FCM 实时通知。
 3. 增加费用与限流指标面板，并根据真实个人使用数据调整每日 500 次、2 GiB 的默认配额。

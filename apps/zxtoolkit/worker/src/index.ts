@@ -24,6 +24,7 @@ import {
   migrateLegacyMailbox,
   recentTransfers,
   renameDevice,
+  revokeCurrentDevice,
   revokePairedDevice,
   rotateCredential,
   purgeExpiredRecords,
@@ -39,7 +40,9 @@ const SOCKET_PATH = /^\/api\/sessions\/([a-f0-9-]+)\/socket$/;
 const FILE_PATH = /^\/api\/sessions\/([a-f0-9-]+)\/files\/([a-f0-9-]+)$/;
 const CLAIM_PATH = /^\/api\/sessions\/([a-f0-9-]+)\/files\/([a-f0-9-]+)\/claim$/;
 const PAIRING_PATH = /^\/api\/pairing\/sessions\/([a-f0-9-]+)$/;
+const ADD_DEVICE_PAIRING_PATH = "/api/pairing/sessions/add-device";
 const PAIRING_CONFIRM_PATH = /^\/api\/pairing\/sessions\/([a-f0-9-]+)\/confirm$/;
+const PAIRING_PREVIEW_PATH = /^\/api\/pairing\/sessions\/([a-f0-9-]+)\/preview$/;
 const PAIRING_CANCEL_PATH = /^\/api\/pairing\/sessions\/([a-f0-9-]+)\/cancel$/;
 const DEVICE_PATH = /^\/api\/devices\/([a-f0-9-]+)$/;
 const DROP_OPEN_PATH = /^\/api\/drops\/([a-f0-9-]+)\/opened$/;
@@ -87,6 +90,7 @@ export default {
       if (request.method === "GET" && url.pathname === "/internal/runtime/health") return runtimeHealth(request, env, cors);
       if (request.method === "POST" && url.pathname === "/api/sessions") return createSession(request, env, cors);
       if (request.method === "POST" && url.pathname === "/api/pairing/sessions") return createPairing(request, env, cors);
+      if (request.method === "POST" && url.pathname === ADD_DEVICE_PAIRING_PATH) return createAddDevicePairing(request, env, cors);
       if (request.method === "GET" && url.pathname === "/api/devices") return listDevices(request, env, cors);
       if (request.method === "POST" && (url.pathname === "/api/drops" || url.pathname === "/api/transfers")) return createDrop(request, env, cors);
       if (request.method === "GET" && url.pathname === "/api/drops/recent") return recentDrops(request, env, cors);
@@ -104,6 +108,9 @@ export default {
 
       const pairingConfirmMatch = url.pathname.match(PAIRING_CONFIRM_PATH);
       if (pairingConfirmMatch && request.method === "POST") return confirmPairing(request, env, pairingConfirmMatch[1], cors);
+
+      const pairingPreviewMatch = url.pathname.match(PAIRING_PREVIEW_PATH);
+      if (pairingPreviewMatch && request.method === "GET") return pairingPreview(env, pairingPreviewMatch[1], cors);
 
       const pairingMatch = url.pathname.match(PAIRING_PATH);
       if (pairingMatch && request.method === "GET") return pairingStatus(request, env, pairingMatch[1], cors);
@@ -203,7 +210,29 @@ async function createPairing(request: Request, env: Env, cors: Headers): Promise
     id,
     claimToken,
     pairUrl: `${env.APP_ORIGIN.replace(/\/$/, "")}/pair/${id}`,
-    expiresAt: new Date(expiresAt).toISOString()
+    expiresAt: new Date(expiresAt).toISOString(),
+    mode: "bootstrap"
+  }, 201, cors);
+}
+
+async function createAddDevicePairing(request: Request, env: Env, cors: Headers): Promise<Response> {
+  const auth = await authorizeDevice(request, env);
+  if (!auth || auth.device.platform !== "macos") return problem("DEVICE_UNAUTHORIZED", "只有已认证的 Mac 可以添加设备", 401, cors);
+  if (!(await env.SESSION_RATE_LIMITER.limit({ key: `pairing-device:${auth.device.id}` })).success) {
+    return problem("RATE_LIMITED", "创建配对过于频繁，请一分钟后再试", 429, cors);
+  }
+  const id = crypto.randomUUID();
+  const claimToken = randomToken();
+  const expiresAt = Date.now() + Math.min(Math.max(positiveInteger(env.PAIRING_TTL_SECONDS, 600), 60), 600) * 1000;
+  const claimHash = await hashToken(claimToken);
+  await createPairingRecord(env.DB, { id, claimHash, desktopName: auth.device.name, expiresAt, desktopDeviceId: auth.device.id });
+  await env.PAIRINGS.getByName(id).initializeAddDevice(id, claimHash, auth.device, expiresAt);
+  return json({
+    id,
+    claimToken,
+    pairUrl: `${env.APP_ORIGIN.replace(/\/$/, "")}/pair/${id}`,
+    expiresAt: new Date(expiresAt).toISOString(),
+    mode: "add_device"
   }, 201, cors);
 }
 
@@ -220,6 +249,11 @@ async function confirmPairing(request: Request, env: Env, pairingId: string, cor
   return credential ? json({ credential }, 201, cors) : problem("PAIRING_UNAVAILABLE", "配对码已使用或已过期", 409, cors);
 }
 
+async function pairingPreview(env: Env, pairingId: string, cors: Headers): Promise<Response> {
+  const preview = await env.PAIRINGS.getByName(pairingId).preview();
+  return preview ? json(preview, 200, cors) : problem("PAIRING_UNAVAILABLE", "配对码已使用或已过期", 410, cors);
+}
+
 async function cancelPairing(request: Request, env: Env, pairingId: string, cors: Headers): Promise<Response> {
   const cancelled = await env.PAIRINGS.getByName(pairingId).cancel(requestToken(request, new URL(request.url)));
   return cancelled ? json({ cancelled: true }, 200, cors) : problem("PAIRING_UNAVAILABLE", "配对会话无效或已结束", 409, cors);
@@ -234,6 +268,15 @@ async function listDevices(request: Request, env: Env, cors: Headers): Promise<R
 async function removeDevice(request: Request, env: Env, targetId: string, cors: Headers): Promise<Response> {
   const auth = await authorizeDevice(request, env);
   if (!auth) return problem("DEVICE_UNAUTHORIZED", "设备凭证无效", 401, cors);
+  if (targetId === auth.device.id) {
+    const pairedIds = await revokeCurrentDevice(env.DB, auth.device.id);
+    if (!pairedIds.length) return problem("DEVICE_UNAVAILABLE", "当前设备不存在或已被吊销", 404, cors);
+    await Promise.all([
+      env.DEVICES.getByName(auth.device.id).revokeInternal().catch(() => undefined),
+      ...pairedIds.map((id) => env.DEVICES.getByName(id).removePairInternal(auth.device.id).catch(() => undefined))
+    ]);
+    return json({ removed: true }, 200, cors);
+  }
   const removed = await revokePairedDevice(env.DB, auth.device.id, targetId);
   if (!removed) return problem("DEVICE_NOT_PAIRED", "目标设备未与当前设备绑定", 404, cors);
   await env.DEVICES.getByName(auth.device.id).removePairInternal(targetId).catch(() => undefined);

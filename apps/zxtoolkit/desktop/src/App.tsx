@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import QRCode from "qrcode";
-import { ArrowLeft, Check, ChevronDown, Clipboard, Copy, Download, ExternalLink, FileUp, Inbox, LoaderCircle, LogOut, RefreshCw, RotateCw, Settings, Smartphone, Trash2 } from "lucide-react";
+import { ArrowLeft, Check, ChevronDown, Clipboard, Copy, Download, ExternalLink, FileUp, Inbox, LoaderCircle, LogOut, Plus, RefreshCw, RotateCw, Settings, Smartphone, Trash2, X } from "lucide-react";
 import type { Device, DeviceCredential, DropItem, PairingSessionResponse, PublicStatusResponse } from "../../shared/types";
 import { ApiError } from "../../src/lib/api";
 import { payloadForFile } from "../../shared/payload";
-import { createPairingSession, fetchDropFile, getDevices, getInboxPage, getPairingStatus, getPublicStatus, getRecentDrops, inboxSocket, markDropStatus, removeDevice, renameCurrentDevice, rotateDeviceCredential, sendDrop, uploadDropFile } from "../../src/lib/device-api";
+import { cancelPairingSession, createAddDevicePairingSession, createPairingSession, fetchDropFile, getDevices, getInboxPage, getPairingStatus, getPublicStatus, getRecentDrops, inboxSocket, markDropStatus, removeDevice, renameCurrentDevice, rotateDeviceCredential, sendDrop, uploadDropFile } from "../../src/lib/device-api";
 import { createCredentialStore, listenForNotificationActions, listenForScreenshots, notifyDelivery, openExternal, quitApp, readClipboardDrop, registerSendShortcut, resolveDefaultDeviceId, saveReceivedFile, screenshotDrop, writeClipboardText, type ClipboardDrop } from "./platform";
 
 const store = createCredentialStore();
@@ -76,17 +76,24 @@ export default function DesktopApp() {
         const result = await getPairingStatus(pairing.id, pairing.claimToken);
         if (result.status === "confirmed") {
           window.clearInterval(timer);
-          await store.saveCredential(result.credential);
-          await store.saveDefaultDeviceId(result.receiver.id);
-          setCredential(result.credential); setDeviceName(result.credential.device.name); setPairing(null); setQrCode(null);
-          await refresh(result.credential);
+          if (result.mode === "bootstrap") {
+            await store.saveCredential(result.credential);
+            await store.saveDefaultDeviceId(result.receiver.id);
+            setCredential(result.credential); setDeviceName(result.credential.device.name);
+            await refresh(result.credential);
+          } else if (credential) {
+            await refresh(credential);
+            setStatus("success");
+            setMessage(`${result.receiver.name} 已添加`);
+          }
+          setPairing(null); setQrCode(null);
         } else if (result.status === "expired") {
           window.clearInterval(timer); setMessage("配对二维码已过期，请重新生成");
         }
       } catch { /* next poll retries */ }
     }, 2000);
     return () => window.clearInterval(timer);
-  }, [pairing, refresh]);
+  }, [credential, pairing, refresh]);
 
   const refreshInbox = useCallback(async (active: DeviceCredential) => {
     const page = await getInboxPage(active, undefined, 12);
@@ -136,6 +143,20 @@ export default function DesktopApp() {
     setMessage(null); setQrCode(null);
     try { setPairing(await createPairingSession("我的 Mac")); }
     catch (cause) { setMessage(cause instanceof Error ? cause.message : "无法创建配对二维码"); }
+  }
+
+  async function beginAddDevice() {
+    if (!credential) return;
+    setMessage(null); setQrCode(null);
+    try { setPairing(await createAddDevicePairingSession(credential)); }
+    catch (cause) { setStatus("error"); setMessage(cause instanceof Error ? cause.message : "无法创建设备二维码"); }
+  }
+
+  async function cancelActivePairing() {
+    if (!pairing) return;
+    const active = pairing;
+    setPairing(null); setQrCode(null);
+    await cancelPairingSession(active.id, active.claimToken).catch(() => undefined);
   }
 
   async function sendClipboard() {
@@ -288,6 +309,11 @@ export default function DesktopApp() {
       <div className="settings-heading"><h1>设备管理</h1><p>长期凭证保存在 macOS 钥匙串，可随时轮换或吊销。</p></div>
       <label className="settings-field"><span>这台 Mac 的名称</span><div><input value={deviceName} maxLength={48} onChange={(event) => setDeviceName(event.target.value)} /><button onClick={() => void saveDeviceName()} disabled={!deviceName.trim()}>保存</button></div></label>
       <div className="settings-devices"><span>已配对设备</span>{devices.map((device) => <div key={device.id}><Smartphone size={16} /><p><strong>{device.name}</strong><small>{device.platform} · {device.revokedAt ? "已吊销" : "有效"}</small></p><button aria-label={`解除 ${device.name}`} onClick={() => void removePairedDevice(device.id)}><Trash2 size={16} /></button></div>)}</div>
+      {pairing?.mode === "add_device" ? <div className="settings-pairing">
+        <div><strong>扫描二维码添加设备</strong><small>二维码 10 分钟有效，只能确认一次。</small></div>
+        <div className="settings-pairing-qr">{qrCode ? <img src={qrCode} alt="添加设备二维码" /> : <LoaderCircle className="spin" size={22} />}</div>
+        <button onClick={() => void cancelActivePairing()}><X size={15} /> 取消添加</button>
+      </div> : <button className="settings-action" onClick={() => void beginAddDevice()}><Plus size={16} /> 添加 Android 或 Web 设备</button>}
       <button className="settings-action" onClick={() => void rotateCredential()}><RotateCw size={16} /> 轮换这台 Mac 的凭证</button>
       <button className="settings-action danger" onClick={() => void quitApp()}><LogOut size={16} /> 退出 zxtoolkit</button>
       {message && <p className={`desktop-message ${status === "error" ? "error" : "success"}`}>{message}</p>}

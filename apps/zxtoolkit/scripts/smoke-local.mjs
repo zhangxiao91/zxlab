@@ -50,6 +50,34 @@ const mobile = mobileResult.credential;
 const devices = await request("/api/devices", { headers: auth(desktop) });
 ensure(devices.pairedDevices.some((device) => device.id === mobile.device.id), "paired device is missing");
 
+const addDevicePairing = await request("/api/pairing/sessions/add-device", {
+  method: "POST",
+  headers: auth(desktop)
+});
+ensure(addDevicePairing.mode === "add_device", "authenticated pairing mode is invalid");
+const addDevicePreview = await request(`/api/pairing/sessions/${addDevicePairing.id}/preview`);
+ensure(addDevicePreview.desktopName === desktop.device.name && addDevicePreview.mode === "add_device", "Android pairing preview is invalid");
+const androidResult = await request(`/api/pairing/sessions/${addDevicePairing.id}/confirm`, {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ name: "Smoke Android", platform: "android" })
+});
+const addDeviceStatus = await request(`/api/pairing/sessions/${addDevicePairing.id}`, {
+  headers: { authorization: `Bearer ${addDevicePairing.claimToken}` }
+});
+const usedPairingPreview = await fetch(`${baseUrl}/api/pairing/sessions/${addDevicePairing.id}/preview`);
+ensure(usedPairingPreview.status === 410, "confirmed pairing remained previewable");
+ensure(addDeviceStatus.status === "confirmed" && addDeviceStatus.mode === "add_device" && !("credential" in addDeviceStatus), "add-device pairing replaced the Mac credential");
+const android = androidResult.credential;
+const devicesAfterAdd = await request("/api/devices", { headers: auth(desktop) });
+ensure(devicesAfterAdd.pairedDevices.some((device) => device.id === android.device.id), "Android device was not attached to the existing Mac");
+const siblingDrop = await fetch(`${baseUrl}/api/drops`, {
+  method: "POST",
+  headers: jsonAuth(android),
+  body: JSON.stringify({ receiverDeviceId: mobile.device.id, payload: { type: "text", text: "must not cross the star" } })
+});
+ensure(siblingDrop.status === 403, "Android could send directly to a sibling Web device");
+
 const textDrop = await request("/api/drops", {
   method: "POST",
   headers: jsonAuth(desktop),
@@ -110,6 +138,13 @@ const phoneText = await request("/api/drops", {
 });
 let desktopInbox = await request("/api/inbox", { headers: auth(desktop) });
 ensure(desktopInbox.items.some((item) => item.id === phoneText.item.id), "phone-to-Mac text drop is missing");
+const androidText = await request("/api/drops", {
+  method: "POST",
+  headers: jsonAuth(android),
+  body: JSON.stringify({ receiverDeviceId: desktop.device.id, payload: { type: "text", text: "android to mac" } })
+});
+desktopInbox = await request("/api/inbox", { headers: auth(desktop) });
+ensure(desktopInbox.items.some((item) => item.id === androidText.item.id), "Android-to-Mac text drop is missing");
 
 const documentBytes = new TextEncoder().encode("zxtoolkit bidirectional file");
 const phoneFile = await request("/api/drops", {
@@ -165,6 +200,12 @@ ensure(firstPage.items.length === 2 && firstPage.nextCursor, "inbox first page o
 const secondPage = await request(`/api/inbox?limit=2&cursor=${encodeURIComponent(firstPage.nextCursor)}`, { headers: auth(mobile) });
 ensure(secondPage.items.length > 0 && !secondPage.items.some((item) => firstPage.items.some((first) => first.id === item.id)), "inbox cursor returned duplicate items");
 
+await request(`/api/devices/${android.device.id}`, { method: "DELETE", headers: auth(android) });
+const selfRevokedAndroid = await fetch(`${baseUrl}/api/devices`, { headers: auth(android) });
+ensure(selfRevokedAndroid.status === 401, "self-unlinked Android credential remained active");
+const desktopAfterAndroidUnlink = await request("/api/devices", { headers: auth(rotated.credential) });
+ensure(!desktopAfterAndroidUnlink.pairedDevices.some((device) => device.id === android.device.id), "self-unlinked Android remained attached to the Mac");
+
 inbox = await request("/api/inbox", { headers: auth(mobile) });
 await request(`/api/devices/${mobile.device.id}`, { method: "DELETE", headers: auth(rotated.credential) });
 const revokedInbox = await fetch(`${baseUrl}/api/inbox`, { headers: auth(mobile) });
@@ -172,12 +213,15 @@ ensure(revokedInbox.status === 401, "revoked device could still read inbox");
 console.log(JSON.stringify({
   ok: true,
   paired: true,
+  addDevicePairing: true,
+  starTopology: true,
   textDelivered: true,
   bidirectionalText: true,
   bidirectionalFile: true,
   imageClaimDeleted: true,
   rotatedCredentialPulse: true,
   revokedCredential: true,
+  selfUnlink: true,
   pagination: true,
   realtimeTicket: true,
   inboxItems: inbox.items.length
