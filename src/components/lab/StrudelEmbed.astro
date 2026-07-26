@@ -21,6 +21,12 @@ const defaultUrl = createStrudelUrl(defaultPreset.source);
       <p>Strudel editor</p>
     </div>
     <div class="strudel-embed__actions" aria-label="Strudel editor actions">
+      <button type="button" class="strudel-embed__action--play" data-strudel-play disabled aria-pressed="false">
+        <span class="strudel-embed__play-icon" aria-hidden="true"></span><span>Play</span>
+      </button>
+      <button type="button" data-strudel-stop disabled>
+        <span class="strudel-embed__stop-icon" aria-hidden="true"></span><span>Stop</span>
+      </button>
       <button type="button" data-strudel-reset>Reset template</button>
       <button type="button" data-strudel-fullscreen aria-pressed="false">Fullscreen</button>
       <a href={defaultUrl} data-strudel-open target="_blank" rel="noreferrer">Open on Strudel<span aria-hidden="true">↗</span></a>
@@ -94,8 +100,9 @@ const defaultUrl = createStrudelUrl(defaultPreset.source);
   import { createStrudelUrl } from "../../lab/strudel/embed";
 
   type StrudelEditorApi = {
+    evaluate?: (autostart?: boolean) => Promise<void>;
     setCode: (source: string) => void;
-    stop?: () => void;
+    stop?: () => Promise<void>;
   };
 
   type StrudelEditorElement = HTMLElement & {
@@ -113,6 +120,8 @@ const defaultUrl = createStrudelUrl(defaultPreset.source);
     const shell = root.querySelector<HTMLElement>("[data-strudel-shell]");
     const stage = root.querySelector<HTMLElement>("[data-strudel-stage]");
     const editorElement = root.querySelector<StrudelEditorElement>("[data-strudel-editor]");
+    const play = root.querySelector<HTMLButtonElement>("[data-strudel-play]");
+    const stop = root.querySelector<HTMLButtonElement>("[data-strudel-stop]");
     const reset = root.querySelector<HTMLButtonElement>("[data-strudel-reset]");
     const fullscreen = root.querySelector<HTMLButtonElement>("[data-strudel-fullscreen]");
     const stateText = root.querySelector<HTMLElement>("[data-strudel-state-text]");
@@ -133,6 +142,8 @@ const defaultUrl = createStrudelUrl(defaultPreset.source);
     let timeData: Float32Array<ArrayBuffer> | null = null;
     let audioContext: AudioContext | null = null;
     let getAudioController: (() => StrudelAudioController) | null = null;
+    let initializeAudio: (() => Promise<void>) | null = null;
+    let editorReady = false;
     let lastSignalLabel = "";
     let lastReducedFrame = 0;
     let activePresetId = root.dataset.defaultPreset ?? "";
@@ -160,6 +171,15 @@ const defaultUrl = createStrudelUrl(defaultPreset.source);
       lastSignalLabel = label;
       visualizerState.textContent = label;
       visualizerState.dataset.signal = label === "Live output" ? "live" : "idle";
+    };
+
+    const setPlaybackState = (started: boolean, pending = false) => {
+      root.dataset.playing = String(started);
+      if (play) {
+        play.disabled = !editorReady || pending;
+        play.setAttribute("aria-pressed", String(started));
+      }
+      if (stop) stop.disabled = !editorReady || !started;
     };
 
     const connectAnalyser = () => {
@@ -255,6 +275,7 @@ const defaultUrl = createStrudelUrl(defaultPreset.source);
     const resetEditor = () => {
       editorElement.editor?.stop?.();
       editorElement.editor?.setCode(presetMap.get(activePresetId) ?? presets[0].source);
+      setPlaybackState(false);
       stateText?.focus({ preventScroll: true });
     };
 
@@ -293,6 +314,24 @@ const defaultUrl = createStrudelUrl(defaultPreset.source);
     };
 
     reset?.addEventListener("click", resetEditor, { signal: controller.signal });
+    play?.addEventListener("click", async () => {
+      if (!editorElement.editor?.evaluate || !initializeAudio) return;
+      setPlaybackState(false, true);
+      try {
+        await initializeAudio();
+        await editorElement.editor.evaluate();
+      } finally {
+        setPlaybackState(root.dataset.playing === "true");
+      }
+    }, { signal: controller.signal });
+    stop?.addEventListener("click", async () => {
+      await editorElement.editor?.stop?.();
+      setPlaybackState(false);
+    }, { signal: controller.signal });
+    editorElement.addEventListener("update", (event) => {
+      const detail = (event as CustomEvent<{ started?: boolean; pending?: boolean }>).detail;
+      setPlaybackState(Boolean(detail?.started), Boolean(detail?.pending));
+    }, { signal: controller.signal });
     presetButtons.forEach((button) => {
       button.addEventListener("click", () => setActivePreset(button.dataset.strudelPreset ?? ""), { signal: controller.signal });
     });
@@ -341,11 +380,14 @@ const defaultUrl = createStrudelUrl(defaultPreset.source);
       await customElements.whenDefined("strudel-editor");
       audioContext = audioModule.getAudioContext();
       getAudioController = audioModule.getSuperdoughAudioController as () => StrudelAudioController;
+      initializeAudio = audioModule.initAudio;
       const editorSurface = editorElement.nextElementSibling;
       if (editorSurface && editorSurface !== root.querySelector("[data-strudel-state]")) {
         editorSurface.classList.add("strudel-embed__editor-surface");
       }
       resetEditor();
+      editorReady = true;
+      setPlaybackState(false);
       setState("ready");
     } catch (error) {
       console.error("Failed to initialize the embedded Strudel runtime.", error);

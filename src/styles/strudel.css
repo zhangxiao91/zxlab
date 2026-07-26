@@ -117,6 +117,37 @@
   color: #fff;
 }
 
+.strudel-embed__actions .strudel-embed__action--play {
+  background: #20211d;
+  color: #fff;
+}
+
+.strudel-embed__actions button:disabled {
+  opacity: .42;
+  cursor: default;
+  transform: none;
+}
+
+.strudel-embed__actions .strudel-embed__action--play[aria-pressed="true"] {
+  background: #d8ff73;
+  color: #151611;
+}
+
+.strudel-embed__play-icon {
+  width: 0;
+  height: 0;
+  border-top: .28rem solid transparent;
+  border-bottom: .28rem solid transparent;
+  border-left: .45rem solid currentColor;
+}
+
+.strudel-embed__stop-icon {
+  width: .52rem;
+  height: .52rem;
+  border-radius: .08rem;
+  background: currentColor;
+}
+
 .strudel-embed__actions :is(button,a):is(:hover,:focus-visible) {
   transform: translateY(-2px);
 }
