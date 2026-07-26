@@ -49,11 +49,11 @@ const defaultUrl = createStrudelUrl(defaultPreset.source);
       class="strudel-visualizer"
       data-strudel-visualizer
       data-preset={defaultPreset.id}
-      aria-label="Preset-driven rhythm visualization"
+      aria-label="Live audio spectrum visualization"
     >
       <header class="strudel-visualizer__header">
-        <span>Pattern pulse</span>
-        <strong><span data-strudel-visualizer-bpm>{defaultPreset.bpm}</span> BPM</strong>
+        <span>Live spectrum</span>
+        <strong data-strudel-visualizer-state>Waiting for play</strong>
       </header>
       <canvas
         data-strudel-visualizer-canvas
@@ -63,22 +63,16 @@ const defaultUrl = createStrudelUrl(defaultPreset.source);
       ></canvas>
       <footer class="strudel-visualizer__footer">
         <span data-strudel-visualizer-title>{defaultPreset.title}</span>
-        <span>Tempo driven</span>
+        <span><span data-strudel-visualizer-bpm>{defaultPreset.bpm}</span> BPM / Audio FFT</span>
       </footer>
     </aside>
 
     <div class="strudel-embed__stage" data-strudel-stage>
-      <iframe
-        class="strudel-embed__iframe"
-        data-strudel-iframe
-        src={defaultUrl}
-        title="Strudel Playground editor with the ZXLab trance preset"
-        loading="eager"
-        referrerpolicy="strict-origin-when-cross-origin"
-        sandbox="allow-scripts allow-same-origin allow-downloads"
-        allow="autoplay; clipboard-read; clipboard-write; fullscreen"
-        allowfullscreen
-      ></iframe>
+      <strudel-editor
+        class="strudel-embed__editor"
+        data-strudel-editor
+        code={defaultPreset.source}
+      ></strudel-editor>
       <div class="strudel-embed__state" data-strudel-state aria-live="polite">
         <span aria-hidden="true"></span>
         <p data-strudel-state-text tabindex="-1">Loading the Strudel editor.</p>
@@ -99,10 +93,26 @@ const defaultUrl = createStrudelUrl(defaultPreset.source);
 <script>
   import { createStrudelUrl } from "../../lab/strudel/embed";
 
-  document.querySelectorAll<HTMLElement>("[data-strudel-embed]").forEach((root) => {
+  type StrudelEditorApi = {
+    setCode: (source: string) => void;
+    stop?: () => void;
+  };
+
+  type StrudelEditorElement = HTMLElement & {
+    editor?: StrudelEditorApi;
+  };
+
+  type StrudelAudioController = {
+    output: {
+      destinationGain: AudioNode | null;
+    };
+  };
+
+  document.querySelectorAll<HTMLElement>("[data-strudel-embed]").forEach(async (root) => {
     const defaultUrl = root.dataset.defaultUrl;
     const shell = root.querySelector<HTMLElement>("[data-strudel-shell]");
     const stage = root.querySelector<HTMLElement>("[data-strudel-stage]");
+    const editorElement = root.querySelector<StrudelEditorElement>("[data-strudel-editor]");
     const reset = root.querySelector<HTMLButtonElement>("[data-strudel-reset]");
     const fullscreen = root.querySelector<HTMLButtonElement>("[data-strudel-fullscreen]");
     const stateText = root.querySelector<HTMLElement>("[data-strudel-state-text]");
@@ -112,74 +122,26 @@ const defaultUrl = createStrudelUrl(defaultPreset.source);
     const visualizerCanvas = root.querySelector<HTMLCanvasElement>("[data-strudel-visualizer-canvas]");
     const visualizerBpm = root.querySelector<HTMLElement>("[data-strudel-visualizer-bpm]");
     const visualizerTitle = root.querySelector<HTMLElement>("[data-strudel-visualizer-title]");
+    const visualizerState = root.querySelector<HTMLElement>("[data-strudel-visualizer-state]");
     const presetButtons = Array.from(root.querySelectorAll<HTMLButtonElement>("[data-strudel-preset]"));
     const controller = new AbortController();
-    let activeFrame = root.querySelector<HTMLIFrameElement>("[data-strudel-iframe]");
-    let loadTimer: number | undefined;
     let fallbackFullscreen = false;
     let visualizerFrame: number | undefined;
-    let visualizerStart = performance.now();
+    let analyser: AnalyserNode | null = null;
+    let analyserSource: AudioNode | null = null;
+    let frequencyData: Float32Array<ArrayBuffer> | null = null;
+    let timeData: Float32Array<ArrayBuffer> | null = null;
+    let audioContext: AudioContext | null = null;
+    let getAudioController: (() => StrudelAudioController) | null = null;
+    let lastSignalLabel = "";
+    let lastReducedFrame = 0;
     let activePresetId = root.dataset.defaultPreset ?? "";
     const previousBodyOverflow = document.body.style.overflow;
     const storageKey = "zxlab:strudel:last-preset";
     const presets = JSON.parse(root.dataset.presets ?? "[]") as Array<{ id: string; title: string; bpm: number; source: string }>;
     const presetMap = new Map(presets.map((preset) => [preset.id, preset.source]));
 
-    if (!defaultUrl || !shell || !stage || !activeFrame) return;
-
-    const drawVisualizer = (timestamp: number) => {
-      if (!visualizerCanvas) return;
-      const context = visualizerCanvas.getContext("2d");
-      const preset = presets.find((item) => item.id === activePresetId) ?? presets[0];
-      if (!context || !preset) return;
-
-      const bounds = visualizerCanvas.getBoundingClientRect();
-      const density = Math.min(window.devicePixelRatio || 1, 2);
-      const width = Math.max(1, Math.round(bounds.width * density));
-      const height = Math.max(1, Math.round(bounds.height * density));
-      if (visualizerCanvas.width !== width || visualizerCanvas.height !== height) {
-        visualizerCanvas.width = width;
-        visualizerCanvas.height = height;
-      }
-
-      const elapsed = (timestamp - visualizerStart) / 1000;
-      const beat = elapsed * preset.bpm / 60;
-      const bars = 18;
-      const gap = Math.max(3 * density, width * 0.012);
-      const barWidth = (width - gap * (bars - 1)) / bars;
-
-      context.clearRect(0, 0, width, height);
-      for (let index = 0; index < bars; index += 1) {
-        const spread = index / Math.max(1, bars - 1);
-        const envelope = 0.24 + Math.sin(spread * Math.PI) * 0.7;
-        const motion = 0.5 + Math.sin(beat * Math.PI * 2 + index * 0.72) * 0.22;
-        const secondary = Math.sin(beat * Math.PI + index * 1.83) * 0.11;
-        const barHeight = Math.max(10 * density, height * envelope * (motion + secondary));
-        const x = index * (barWidth + gap);
-        const y = (height - barHeight) / 2;
-        const radius = Math.min(barWidth / 2, 6 * density);
-
-        context.fillStyle = index % 3 === 0 ? "rgba(216,255,115,.96)" : "rgba(216,255,115,.48)";
-        context.beginPath();
-        context.roundRect(x, y, barWidth, barHeight, radius);
-        context.fill();
-      }
-
-      if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-        visualizerFrame = window.requestAnimationFrame(drawVisualizer);
-      }
-    };
-
-    const updateVisualizer = (presetId: string) => {
-      const preset = presets.find((item) => item.id === presetId) ?? presets[0];
-      if (!preset) return;
-      visualizerStart = performance.now();
-      if (visualizer) visualizer.dataset.preset = preset.id;
-      if (visualizerBpm) visualizerBpm.textContent = String(preset.bpm);
-      if (visualizerTitle) visualizerTitle.textContent = preset.title;
-      window.cancelAnimationFrame(visualizerFrame ?? 0);
-      visualizerFrame = window.requestAnimationFrame(drawVisualizer);
-    };
+    if (!defaultUrl || !shell || !stage || !editorElement) return;
 
     const setState = (state: "loading" | "ready" | "error") => {
       root.dataset.state = state;
@@ -193,51 +155,106 @@ const defaultUrl = createStrudelUrl(defaultPreset.source);
       if (fallback) fallback.hidden = state !== "error";
     };
 
-    const armFrame = (frame: HTMLIFrameElement) => {
-      window.clearTimeout(loadTimer);
-      setState("loading");
-      frame.addEventListener("load", () => {
-        if (frame !== activeFrame) return;
-        window.clearTimeout(loadTimer);
-        setState("ready");
-      }, { once: true });
-      frame.addEventListener("error", () => {
-        if (frame !== activeFrame) return;
-        window.clearTimeout(loadTimer);
-        setState("error");
-      }, { once: true });
-      loadTimer = window.setTimeout(() => {
-        if (frame === activeFrame && root.dataset.state === "loading") setState("error");
-      }, 20_000);
+    const setSignalLabel = (label: string) => {
+      if (!visualizerState || label === lastSignalLabel) return;
+      lastSignalLabel = label;
+      visualizerState.textContent = label;
+      visualizerState.dataset.signal = label === "Live output" ? "live" : "idle";
     };
 
-    const createFrame = () => {
-      const frame = document.createElement("iframe");
-      frame.className = "strudel-embed__iframe";
-      frame.dataset.strudelIframe = "";
-      frame.src = createStrudelUrl(presetMap.get(activePresetId) ?? presets[0].source);
-      frame.title = "Strudel Playground editor with the ZXLab trance preset";
-      frame.loading = "eager";
-      frame.referrerPolicy = "strict-origin-when-cross-origin";
-      frame.setAttribute("sandbox", "allow-scripts allow-same-origin allow-downloads");
-      frame.setAttribute("allow", "autoplay; clipboard-read; clipboard-write; fullscreen");
-      frame.allowFullscreen = true;
-      return frame;
+    const connectAnalyser = () => {
+      if (!audioContext || !getAudioController) return false;
+      const source = getAudioController().output.destinationGain;
+      if (!source) return false;
+      if (source === analyserSource && analyser) return true;
+
+      if (analyserSource && analyser) analyserSource.disconnect(analyser);
+      analyser = audioContext.createAnalyser();
+      analyser.fftSize = 2048;
+      analyser.minDecibels = -96;
+      analyser.maxDecibels = -12;
+      analyser.smoothingTimeConstant = 0.74;
+      source.connect(analyser);
+      analyserSource = source;
+      frequencyData = new Float32Array(analyser.frequencyBinCount);
+      timeData = new Float32Array(analyser.fftSize);
+      return true;
     };
 
-    const destroyFrame = (frame: HTMLIFrameElement | null) => {
-      if (!frame) return;
-      frame.src = "about:blank";
-      frame.remove();
+    const drawVisualizer = (timestamp: number) => {
+      if (!visualizerCanvas) return;
+      const context = visualizerCanvas.getContext("2d");
+      if (!context) return;
+
+      const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      if (reducedMotion && timestamp - lastReducedFrame < 100) {
+        visualizerFrame = window.requestAnimationFrame(drawVisualizer);
+        return;
+      }
+      lastReducedFrame = timestamp;
+
+      const bounds = visualizerCanvas.getBoundingClientRect();
+      const density = Math.min(window.devicePixelRatio || 1, 2);
+      const width = Math.max(1, Math.round(bounds.width * density));
+      const height = Math.max(1, Math.round(bounds.height * density));
+      if (visualizerCanvas.width !== width || visualizerCanvas.height !== height) {
+        visualizerCanvas.width = width;
+        visualizerCanvas.height = height;
+      }
+
+      connectAnalyser();
+      const hasAnalyser = Boolean(analyser && frequencyData && timeData && audioContext);
+      if (hasAnalyser) {
+        analyser!.getFloatFrequencyData(frequencyData!);
+        analyser!.getFloatTimeDomainData(timeData!);
+      }
+
+      const rms = hasAnalyser
+        ? Math.sqrt(timeData!.reduce((sum, sample) => sum + sample * sample, 0) / timeData!.length)
+        : 0;
+      const isRunning = audioContext?.state === "running";
+      setSignalLabel(isRunning ? (rms > 0.0025 ? "Live output" : "Listening") : "Waiting for play");
+
+      const bars = 20;
+      const gap = Math.min(3 * density, Math.max(0, width / (bars * 2)));
+      const barWidth = Math.max(0.5, (width - gap * (bars - 1)) / bars);
+
+      context.clearRect(0, 0, width, height);
+      for (let index = 0; index < bars; index += 1) {
+        const ratio = index / Math.max(1, bars - 1);
+        const frequency = 34 * Math.pow(360, ratio);
+        const bin = hasAnalyser
+          ? Math.min(frequencyData!.length - 1, Math.round(frequency * analyser!.fftSize / audioContext!.sampleRate))
+          : 0;
+        const decibels = hasAnalyser ? frequencyData![bin] : -96;
+        const normalized = Math.max(0, Math.min(1, (decibels + 88) / 72));
+        const energy = Math.pow(normalized, 1.45);
+        const barHeight = Math.max(2 * density, height * energy);
+        const x = index * (barWidth + gap);
+        const y = height - barHeight;
+        const radius = Math.min(barWidth / 2, 6 * density);
+
+        const alpha = 0.2 + energy * 0.8;
+        context.fillStyle = `rgba(216,255,115,${alpha})`;
+        context.beginPath();
+        context.roundRect(x, y, barWidth, barHeight, radius);
+        context.fill();
+      }
+
+      visualizerFrame = window.requestAnimationFrame(drawVisualizer);
     };
 
-    const resetFrame = () => {
-      const previous = activeFrame;
-      const next = createFrame();
-      activeFrame = next;
-      stage.prepend(next);
-      destroyFrame(previous);
-      armFrame(next);
+    const updateVisualizer = (presetId: string) => {
+      const preset = presets.find((item) => item.id === presetId) ?? presets[0];
+      if (!preset) return;
+      if (visualizer) visualizer.dataset.preset = preset.id;
+      if (visualizerBpm) visualizerBpm.textContent = String(preset.bpm);
+      if (visualizerTitle) visualizerTitle.textContent = preset.title;
+    };
+
+    const resetEditor = () => {
+      editorElement.editor?.stop?.();
+      editorElement.editor?.setCode(presetMap.get(activePresetId) ?? presets[0].source);
       stateText?.focus({ preventScroll: true });
     };
 
@@ -252,17 +269,17 @@ const defaultUrl = createStrudelUrl(defaultPreset.source);
         button.classList.toggle("is-active", active);
         button.setAttribute("aria-pressed", String(active));
       });
-      if (reset) resetFrame();
+      if (reset) resetEditor();
     };
 
     const dispose = () => {
       controller.abort();
-      window.clearTimeout(loadTimer);
       window.cancelAnimationFrame(visualizerFrame ?? 0);
+      editorElement.editor?.stop?.();
+      if (analyserSource && analyser) analyserSource.disconnect(analyser);
+      analyser?.disconnect();
       root.classList.remove("strudel-embed--fullscreen");
       document.body.style.overflow = previousBodyOverflow;
-      destroyFrame(activeFrame);
-      activeFrame = null;
     };
 
     const setFallbackFullscreen = (active: boolean) => {
@@ -275,7 +292,7 @@ const defaultUrl = createStrudelUrl(defaultPreset.source);
       }
     };
 
-    reset?.addEventListener("click", resetFrame, { signal: controller.signal });
+    reset?.addEventListener("click", resetEditor, { signal: controller.signal });
     presetButtons.forEach((button) => {
       button.addEventListener("click", () => setActivePreset(button.dataset.strudelPreset ?? ""), { signal: controller.signal });
     });
@@ -313,9 +330,30 @@ const defaultUrl = createStrudelUrl(defaultPreset.source);
         button.classList.toggle("is-active", active);
         button.setAttribute("aria-pressed", String(active));
       });
-      activeFrame.src = createStrudelUrl(presetMap.get(activePresetId) ?? presets[0].source);
     }
+
+    setState("loading");
+    try {
+      const [, audioModule] = await Promise.all([
+        import("@strudel/repl/repl-component.mjs"),
+        import("@strudel/webaudio"),
+      ]);
+      await customElements.whenDefined("strudel-editor");
+      audioContext = audioModule.getAudioContext();
+      getAudioController = audioModule.getSuperdoughAudioController as () => StrudelAudioController;
+      const editorSurface = editorElement.nextElementSibling;
+      if (editorSurface && editorSurface !== root.querySelector("[data-strudel-state]")) {
+        editorSurface.classList.add("strudel-embed__editor-surface");
+      }
+      resetEditor();
+      setState("ready");
+    } catch (error) {
+      console.error("Failed to initialize the embedded Strudel runtime.", error);
+      setState("error");
+      return;
+    }
+
     updateVisualizer(activePresetId);
-    armFrame(activeFrame);
+    visualizerFrame = window.requestAnimationFrame(drawVisualizer);
   });
 </script>

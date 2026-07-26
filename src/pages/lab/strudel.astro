@@ -14,7 +14,7 @@ const nextProject = labProjects.find((item) => item.slug !== project.slug) ?? pr
 
 <Layout
   title="Strudel Playground | Lab | zxlab"
-  description="Live-code a 138 BPM trance sketch in an embedded Strudel editor, with a local ZXLab preset and safe audio cleanup."
+  description="Live-code electronic patterns in a local Strudel editor with responsive audio spectrum visualization and safe audio cleanup."
 >
   <main class="lab-detail-page strudel-page">
     <section class="lab-detail-hero strudel-hero" aria-labelledby="experiment-title">
@@ -50,7 +50,7 @@ const nextProject = labProjects.find((item) => item.slug !== project.slug) ?? pr
           {project.tags?.map((tag) => <li>{tag}</li>)}
         </ul>
         <p class="strudel-experiment__note">
-          The editor is hosted by Strudel. ZXLab supplies the local preset and lifecycle boundary.
+          Strudel runs locally in this page, so the spectrum can read the real WebAudio output without microphone access.
         </p>
       </aside>
       <div data-strudel-frame>
@@ -73,7 +73,7 @@ const nextProject = labProjects.find((item) => item.slug !== project.slug) ?? pr
           </details>
           <details>
             <summary><span>Reset or leave</span><span aria-hidden="true">+</span></summary>
-            <p>Reset rebuilds the iframe. Leaving the route removes it entirely, stopping its audio context.</p>
+            <p>Reset stops the current pattern and restores the selected preset. Leaving the route stops the editor before navigation.</p>
           </details>
         </div>
       </div>
