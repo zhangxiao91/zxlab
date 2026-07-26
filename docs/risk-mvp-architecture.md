@@ -21,9 +21,11 @@ Transactions are append-only. Corrections use a new adjustment or correction eve
 
 ## Provider seams
 
-- `MarketDataProvider`: Mock now; mootdx and Tencent adapters are reserved behind the same protocol.
+- `MarketDataProvider` in the private FastAPI prototype remains Mock-first. The production-facing Cloudflare path is `apps/risk-market-worker`: quotes use Tencent, Sina, then Eastmoney fallback; daily and minute bars use independent provider chains. The browser reaches it through same-origin Pages proxies.
 - `PortfolioProvider`: manual and CSV now; Wealthfolio, broker CSV, and read-only broker APIs use the same protocol later.
-- `ReadOnlyToolRegistry`: announcements, news, and industry performance are registered now as typed Mock tools.
+- `ReadOnlyToolRegistry` in FastAPI still exposes typed Mock tools. Separately, `/lab/market` now reads normalized live market news plus per-stock news, and company announcements with CNInfo-first/Eastmoney fallback. Every result retains its source, receive time, warnings, and provider-attempt metadata; partial upstream failure remains visible instead of being replaced with fixture data.
+
+The Cloudflare market gateway is read-only and currently accepts SSE/SZSE six-digit instruments. It exposes `/api/market/quotes`, `/api/market/bars/:instrument`, `/api/market/news`, `/api/market/announcements`, `/api/market/status`, and `/api/market/providers`. Exchange status is a weekday/session approximation and is explicitly marked as lacking a holiday calendar.
 
 ## Explicit non-goals
 

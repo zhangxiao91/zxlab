@@ -61,8 +61,10 @@ npm run preview
 ## Project structure
 
 ```text
-functions/          Cloudflare Pages Functions for server-side APIs and live status data
-services/           Private, separately deployed status collectors
+apps/               Cloudflare Workers, bundled apps, and private backend prototypes
+functions/          Cloudflare Pages Functions for same-origin server APIs
+packages/           Shared Signal and Runtime contracts with runtime validation
+services/           Private collectors, bots, and integration bridges
 src/
 ├── components/     Reusable interface components
 ├── content/        Markdown notes
@@ -105,8 +107,11 @@ documented in [`docs/ai-gateway.md`](docs/ai-gateway.md).
 * `/` — Homepage
 * `/projects` — Project archive
 * `/notes` — Notes archive
+* `/briefing` — Latest ZX Signal lead story and supporting briefs
 * `/lab` — Interactive experiment index
 * `/lab/[slug]` — Isolated experiment container
+* `/lab/market` — Live, read-only quotes, bars, news, and announcements
+* `/lab/risk` — Local portfolio risk workbench
 * `/lab/strudel` — Embedded Strudel live coding playground
 * `/lab/stonks` — Desktop-only fictional market simulation
 * `/status` — Public, privacy-filtered status dashboard

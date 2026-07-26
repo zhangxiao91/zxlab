@@ -20,15 +20,17 @@ RSS / arXiv / Hacker News / GitHub Releases / fixture
 → active Memory 注入下一次生成
 ```
 
-本阶段支持手动触发 RSS、arXiv、Hacker News 与可选 GitHub Releases 采集；尚未加入 Cron、Workflow、Queue、Vectorize、embedding、自动记忆或多用户系统。fixture 全部标记为 `TEST MATERIAL`，不能视为实时事实。
+采集既可由受保护的管理 API 手动触发，也可由生产 Cron 每日执行；支持 RSS、arXiv、Hacker News 与可选 GitHub Releases。当前仍未加入 Workflow、Queue、Vectorize、embedding、自动接受 Memory 或多用户系统。fixture 全部标记为 `TEST MATERIAL`，不能视为实时事实。
+
+日报输出采用编辑部结构：第一条必须是且只能是一个 `lead`，包含导语、核心意义、关键事实、背景、影响、反方观点或不确定性以及后续观察；其后按证据充足度生成 3–5 条 `brief`，材料不足时宁可少发。共享 schema 在写入 D1 前强制验证这一形态。
 
 ## Workspace
 
 ```text
 apps/signal-worker/
   fixtures/candidates.json
-  migrations/0001_signal_intelligence_loop.sql
-  migrations/0002_collection_pipeline.sql
+  migrations/0001_signal_intelligence_loop.sql … 0006_editorial_story_shape.sql
+  src/memory/
   src/collectors/
   src/routes/
   src/services/
@@ -151,7 +153,16 @@ POST /api/annotations
 GET  /api/memories
 POST /api/memory-candidates/:id/accept
 POST /api/memory-candidates/:id/reject
+POST /api/memory/events
+POST /api/memory/retrieve
+GET  /api/memory/items
+POST /api/memory/items
+PATCH /api/memory/items/:id
+POST /api/memory/items/:id/forget
+POST /api/memory/consolidate
 ```
+
+`/api/memories` 与 `/api/memory-candidates/*` 是 briefing UI 的兼容接口。新功能使用 `/api/memory/*` 统一接口；所有 Memory 接口均受 Signal Worker 现有 Access / 本地 Bearer 认证保护。
 
 项目网关请求 JSON 输出，但不会因此被信任。共享 validator 会再次检查字段范围、类别、长度以及 `sourceIds` 是否来自输入候选，任何失败都不会产生半份日报。所有 D1 查询使用 prepared statements；日报版本切换使用 D1 batch transaction。
 
@@ -161,10 +172,12 @@ POST /api/memory-candidates/:id/reject
 | --- | --- |
 | `briefing_runs` | 每次生成状态、模型、版本、计数与错误摘要 |
 | `briefings` | 可重复生成的日报版本与单日 active 指针 |
-| `briefing_items` / `briefing_sources` | 入选判断和输入候选来源 |
+| `briefing_items` / `briefing_sources` | 主报道/短讯正文和输入候选来源 |
 | `annotations` / `annotation_messages` | 用户批注与模型回复 |
 | `memory_candidates` | 待用户确认或拒绝的建议 |
-| `memory_entries` | 仅确认后创建的 active / revoked / expired Memory |
+| `memory_items` / `memory_revisions` | 统一的 active / forgotten Memory 与修订审计历史 |
+| `feedback_events` / `memory_consolidation_candidates` | 交互反馈与必须人工确认的合并建议 |
+| `memory_entries` | 旧 briefing Memory 兼容表；迁移后不再是新代码的主存储 |
 | `memory_events` | 接受、拒绝及后续变更历史 |
 | `model_invocations` | task、模型、prompt version、时延状态与可用 usage；不存正文日志 |
 | `signal_sources` | 可审计的 source 配置快照 |
