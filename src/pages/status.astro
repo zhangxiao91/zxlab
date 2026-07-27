@@ -5,10 +5,11 @@ import "../styles/lab-status-shell.css";
 import "../styles/status.css";
 
 const runtimeApiBase = String(import.meta.env.PUBLIC_RUNTIME_API_BASE ?? (import.meta.env.DEV ? "http://localhost:8790" : "https://runtime-api.zx-dx.xyz")).replace(/\/$/, "");
+const signalApiBase = String(import.meta.env.PUBLIC_SIGNAL_API_BASE ?? (import.meta.env.DEV ? "http://localhost:8788" : "https://signal-api.zx-dx.xyz")).replace(/\/$/, "");
 ---
 
 <Layout title="Status | zxlab" description="A public, privacy-filtered control room for ZXLab runtime, Memory, agents, and tool usage.">
-  <main class="status-page overflow-x-hidden" data-runtime-api={runtimeApiBase}>
+  <main class="status-page overflow-x-hidden" data-runtime-api={runtimeApiBase} data-signal-api={signalApiBase}>
     <section class="status-hero" aria-labelledby="status-title">
       <div class="status-hero__copy">
         <p class="status-kicker">ZX control room</p>
@@ -21,6 +22,30 @@ const runtimeApiBase = String(import.meta.env.PUBLIC_RUNTIME_API_BASE ?? (import
         <h2 data-status-notice-title>Connecting to verified sources.</h2>
         <p data-status-notice-message>Only normalized health, allowlisted aliases, and coarse telemetry reach this public surface.</p>
       </aside>
+    </section>
+
+    <section class="access-section" aria-labelledby="access-title">
+      <article class="access-card" data-access-card data-access-state="checking" aria-live="polite">
+        <header class="access-card__header">
+          <div>
+            <span class="access-card__indicator" aria-hidden="true"></span>
+            <p data-access-label>Checking private access</p>
+            <h2 id="access-title" data-access-title>Verifying protected ZXLab surfaces.</h2>
+          </div>
+          <div class="access-card__actions">
+            <button type="button" data-access-refresh aria-label="Check authentication again" title="Check authentication again"><span aria-hidden="true">&#8635;</span></button>
+            <a data-access-login href={`${runtimeApiBase}/api/v1/private/overview`} target="_blank" rel="noreferrer"><span data-access-login-label>Sign in with Cloudflare</span><span aria-hidden="true">&#8599;</span></a>
+          </div>
+        </header>
+        <p class="access-card__message" data-access-message>Private tools stay closed until their Cloudflare Access sessions are verified.</p>
+        <ul class="access-destinations" aria-label="Protected ZXLab destinations">
+          <li><a href="/admin/ops"><span><small>Runtime Access</small><strong>Operations console</strong></span><span><i data-access-boundary="runtime">Checking</i><b aria-hidden="true">&#8594;</b></span></a></li>
+          <li><a href="/admin/ops#memory"><span><small>Runtime Access</small><strong>Memory workspace</strong></span><span><i data-access-boundary="runtime">Checking</i><b aria-hidden="true">&#8594;</b></span></a></li>
+          <li><a href="/lab/risk"><span><small>Pages Access</small><strong>Risk workbench</strong></span><span><i data-access-boundary="risk">Checking</i><b aria-hidden="true">&#8594;</b></span></a></li>
+          <li><a href="/briefing"><span><small>Signal Access</small><strong>Briefing annotations</strong></span><span><i data-access-boundary="signal">Checking</i><b aria-hidden="true">&#8594;</b></span></a></li>
+          <li><a href="#llm-telemetry"><span><small>Pages Access</small><strong>LLM telemetry</strong></span><span><i data-access-boundary="llm">Checking</i><b aria-hidden="true">&#8595;</b></span></a></li>
+        </ul>
+      </article>
     </section>
 
     <section class="status-dashboard-section" aria-label="ZXLab public status dashboard"><StatusDashboard /></section>
@@ -44,6 +69,7 @@ const runtimeApiBase = String(import.meta.env.PUBLIC_RUNTIME_API_BASE ?? (import
     const dashboard = document.querySelector<HTMLElement>("[data-status-dashboard]");
     const refresh = document.querySelector<HTMLButtonElement>("[data-status-refresh]");
     const apiBase = page?.dataset.runtimeApi ?? "";
+    const signalApiBase = page?.dataset.signalApi ?? "";
     const escapeHtml = (value: unknown) => String(value ?? "").replace(/[&<>\"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" })[character]!);
     const relative = (value: string) => {
       const seconds = Math.round((Date.parse(value) - Date.now()) / 1000);
@@ -61,6 +87,106 @@ const runtimeApiBase = String(import.meta.env.PUBLIC_RUNTIME_API_BASE ?? (import
     const formatLatency = (value: number | null | undefined) => value == null ? "N/A" : value >= 1000 ? `${(value / 1000).toFixed(1)}s` : `${Math.round(value)}ms`;
     const setRows = (selector: string, rows: string[]) => { const root = document.querySelector<HTMLElement>(selector); if (root) root.innerHTML = rows.length ? rows.map((row) => `<li>${row}</li>`).join("") : "<li>No data in this range.</li>"; };
     const setMetrics = (selector: string, rows: Array<[string, string]>) => { const root = document.querySelector<HTMLElement>(selector); if (root) root.innerHTML = rows.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join(""); };
+
+    type AccessState = "checking" | "authenticated" | "required" | "unavailable";
+    type AccessBoundary = "runtime" | "risk" | "signal" | "llm";
+    const accessTargets: Record<AccessBoundary, { probe: string; login: string; init?: RequestInit }> = {
+      runtime: { probe: `${apiBase}/api/v1/private/overview`, login: `${apiBase}/api/v1/private/overview` },
+      risk: { probe: "/lab/risk", login: "/lab/risk", init: { method: "HEAD" } },
+      signal: { probe: `${signalApiBase}/api/memories`, login: `${signalApiBase}/api/memories` },
+      llm: { probe: "/api/status/llm?range=24h", login: "/api/status/llm?range=24h" },
+    };
+    let accessCheckInFlight = false;
+
+    async function probeAccess(target: { probe: string; init?: RequestInit }): Promise<AccessState> {
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 4_500);
+      try {
+        const response = await fetch(target.probe, {
+          ...target.init,
+          credentials: target.probe.startsWith("http") ? "include" : "same-origin",
+          redirect: "manual",
+          cache: "no-store",
+          signal: controller.signal,
+          headers: { Accept: "application/json", ...target.init?.headers },
+        });
+        if (response.type === "opaqueredirect" || response.status === 0 || response.status === 401 || response.status === 403) return "required";
+        return response.ok ? "authenticated" : "unavailable";
+      } catch {
+        return "unavailable";
+      } finally {
+        window.clearTimeout(timeout);
+      }
+    }
+
+    function renderAccess(states: Record<AccessBoundary, AccessState>) {
+      const card = document.querySelector<HTMLElement>("[data-access-card]");
+      const title = document.querySelector<HTMLElement>("[data-access-title]");
+      const label = document.querySelector<HTMLElement>("[data-access-label]");
+      const message = document.querySelector<HTMLElement>("[data-access-message]");
+      const login = document.querySelector<HTMLAnchorElement>("[data-access-login]");
+      const loginLabel = login?.querySelector<HTMLElement>("[data-access-login-label]");
+      if (!card || !title || !label || !message || !login || !loginLabel) return;
+
+      (Object.entries(states) as Array<[AccessBoundary, AccessState]>).forEach(([boundary, state]) => {
+        document.querySelectorAll<HTMLElement>(`[data-access-boundary="${boundary}"]`).forEach((item) => {
+          item.dataset.state = state;
+          item.textContent = state === "authenticated" ? "Ready" : state === "required" ? "Sign in" : state === "unavailable" ? "Unavailable" : "Checking";
+        });
+      });
+
+      const values = Object.values(states);
+      const readyCount = values.filter((state) => state === "authenticated").length;
+      const missing = (Object.entries(states) as Array<[AccessBoundary, AccessState]>).find(([, state]) => state === "required");
+      const unavailableCount = values.filter((state) => state === "unavailable").length;
+      const overall = values.every((state) => state === "authenticated") ? "authenticated" : readyCount > 0 ? "partial" : missing ? "required" : "unavailable";
+      card.dataset.accessState = overall;
+
+      if (overall === "authenticated") {
+        label.textContent = "Cloudflare Access active";
+        title.textContent = "Private ZXLab surfaces are ready.";
+        message.textContent = "This browser has valid sessions for Runtime, Signal, Risk, and protected telemetry.";
+        login.hidden = true;
+      } else if (overall === "partial") {
+        label.textContent = `${readyCount} of ${values.length} boundaries ready`;
+        title.textContent = "Private access is partially active.";
+        message.textContent = unavailableCount ? "Some protected boundaries could not be verified. Sign in where required, then check again." : "Complete the remaining Cloudflare Access session, then return here.";
+        login.hidden = false;
+      } else if (overall === "required") {
+        label.textContent = "Cloudflare Access required";
+        title.textContent = "Sign in once, then return to the control room.";
+        message.textContent = "The first protected boundary is ready to open in a separate tab. This card checks again when you return.";
+        login.hidden = false;
+      } else {
+        label.textContent = "Authentication check unavailable";
+        title.textContent = "Private boundaries could not be verified.";
+        message.textContent = "The public dashboard remains available. Retry when the protected services are reachable.";
+        login.hidden = false;
+      }
+
+      const loginTarget = missing?.[0] ?? (Object.keys(states) as AccessBoundary[]).find((boundary) => states[boundary] !== "authenticated") ?? "runtime";
+      login.href = accessTargets[loginTarget].login;
+      loginLabel.textContent = missing ? "Sign in with Cloudflare" : "Open protected boundary";
+    }
+
+    async function loadAccess() {
+      if (accessCheckInFlight) return;
+      accessCheckInFlight = true;
+      const card = document.querySelector<HTMLElement>("[data-access-card]");
+      const button = document.querySelector<HTMLButtonElement>("[data-access-refresh]");
+      card?.setAttribute("data-access-state", "checking");
+      button?.setAttribute("disabled", "");
+      try {
+        const boundaries = Object.keys(accessTargets) as AccessBoundary[];
+        const results = await Promise.all(boundaries.map(async (boundary) => [boundary, await probeAccess(accessTargets[boundary])] as const));
+        renderAccess(Object.fromEntries(results) as Record<AccessBoundary, AccessState>);
+      } catch {
+        renderAccess({ runtime: "unavailable", risk: "unavailable", signal: "unavailable", llm: "unavailable" });
+      } finally {
+        accessCheckInFlight = false;
+        button?.removeAttribute("disabled");
+      }
+    }
 
     function renderLLM(data: any) {
       const module = document.querySelector<HTMLElement>("[data-status-module='llm']");
@@ -239,12 +365,14 @@ const runtimeApiBase = String(import.meta.env.PUBLIC_RUNTIME_API_BASE ?? (import
     }
 
     refresh?.addEventListener("click", () => void load());
+    document.querySelector("[data-access-refresh]")?.addEventListener("click", () => void loadAccess());
     document.querySelector("[data-memory-access]")?.addEventListener("click", () => void loadPrivateMemory());
     document.querySelectorAll<HTMLButtonElement>("[data-llm-range]").forEach((button) => button.addEventListener("click", () => {
       document.querySelectorAll<HTMLButtonElement>("[data-llm-range]").forEach((item) => item.setAttribute("aria-pressed", String(item === button)));
       void loadLLM(button.dataset.llmRange ?? "24h");
     }));
     void load();
+    void loadAccess();
     void loadLLM();
     const timer = window.setInterval(() => { if (!document.hidden) void load(); }, 60_000);
     const motion = gsap.matchMedia();
@@ -253,6 +381,7 @@ const runtimeApiBase = String(import.meta.env.PUBLIC_RUNTIME_API_BASE ?? (import
       gsap.to(".status-hero__intro", { opacity: 1, scrollTrigger: { trigger: ".status-hero", start: "top top", end: "bottom 35%", scrub: 0.8 } });
       ScrollTrigger.create({ trigger: ".status-privacy", start: "top 28%", end: "bottom 65%", pin: ".status-privacy > p", pinSpacing: false });
     });
+    window.addEventListener("focus", () => window.setTimeout(() => void loadAccess(), 500));
     window.addEventListener("pagehide", () => { window.clearInterval(timer); motion.revert(); }, { once: true });
   </script>
 </Layout>

@@ -212,7 +212,40 @@
 .status-source-panel h2 { max-width: 13ch; margin-top: .8rem; font-size: clamp(2rem, 3.5vw, 3.4rem); font-weight: 500; line-height: 1; letter-spacing: -.05em; }
 .status-source-panel > p:last-child { max-width: 29rem; margin-top: 1.3rem; color: rgba(245,245,237,.52); line-height: 1.6; }
 
-.status-dashboard-section { padding: clamp(2rem, 4vw, 4rem) max(1.25rem, calc((100vw - 76rem) / 2)) clamp(8rem, 14vw, 13rem); background: #e5e4dc; }
+.access-section { padding: clamp(7rem, 12vw, 11rem) max(1.25rem, calc((100vw - 76rem) / 2)) 0; background: #e5e4dc; }
+#access-title,
+#llm-telemetry { scroll-margin-top: 7rem; }
+.access-card { padding: clamp(2rem, 4vw, 3.5rem); border-radius: 2rem; overflow: hidden; background: #f5f4ed; box-shadow: inset 0 0 0 1px rgba(24,25,20,.09); }
+.access-card__header { display: flex; align-items: end; justify-content: space-between; gap: 2rem; }
+.access-card__header > div:first-child { max-width: 48rem; }
+.access-card__header p { display: inline-flex; align-items: center; gap: .65rem; color: #6f7068; font-size: .7rem; }
+.access-card__indicator { display: inline-block; width: .55rem; height: .55rem; margin-right: .25rem; border-radius: 50%; background: #8a8c83; box-shadow: 0 0 0 .3rem rgba(138,140,131,.1); }
+.access-card[data-access-state="authenticated"] .access-card__indicator { background: #62a84c; box-shadow: 0 0 0 .3rem rgba(98,168,76,.12); }
+.access-card[data-access-state="partial"] .access-card__indicator,
+.access-card[data-access-state="required"] .access-card__indicator { background: #d29c42; box-shadow: 0 0 0 .3rem rgba(210,156,66,.13); }
+.access-card[data-access-state="unavailable"] .access-card__indicator { background: #bc6157; box-shadow: 0 0 0 .3rem rgba(188,97,87,.12); }
+.access-card h2 { max-width: 17ch; margin-top: .85rem; font-size: clamp(2.25rem, 5vw, 4.7rem); font-weight: 500; line-height: .98; letter-spacing: 0; }
+.access-card__actions { display: flex; align-items: center; gap: .55rem; }
+.access-card__actions button { display: grid; width: 3.35rem; height: 3.35rem; border: 1px solid rgba(24,25,20,.14); border-radius: 50%; place-items: center; background: transparent; color: #181914; cursor: pointer; font-size: 1.1rem; }
+.access-card__actions button:disabled { cursor: wait; opacity: .45; }
+.access-card__actions a { display: inline-flex; min-height: 3.35rem; padding: .45rem .48rem .45rem 1.25rem; border-radius: 999px; align-items: center; gap: 1rem; background: #181914; color: #fff; text-decoration: none; }
+.access-card__actions a > span:last-child { display: grid; width: 2.4rem; height: 2.4rem; border-radius: 50%; place-items: center; background: rgba(255,255,255,.11); }
+.access-card__message { max-width: 43rem; margin-top: 1.4rem; color: #62635b; line-height: 1.65; }
+.access-destinations { display: grid; margin: clamp(2.5rem, 5vw, 4rem) 0 0; padding: 0; grid-template-columns: repeat(2,minmax(0,1fr)); list-style: none; border-top: 1px solid rgba(24,25,20,.12); border-left: 1px solid rgba(24,25,20,.12); }
+.access-destinations li { min-width: 0; border-right: 1px solid rgba(24,25,20,.12); border-bottom: 1px solid rgba(24,25,20,.12); }
+.access-destinations li:last-child { grid-column: 1 / -1; }
+.access-destinations a { display: flex; min-height: 6.4rem; padding: 1.15rem 1.25rem; align-items: center; justify-content: space-between; gap: 1.5rem; color: #181914; text-decoration: none; transition: background-color .35s ease; }
+.access-destinations a:hover { background: #ebeae2; }
+.access-destinations a > span { display: grid; min-width: 0; gap: .38rem; }
+.access-destinations a > span:last-child { grid-template-columns: auto 1.9rem; align-items: center; justify-content: end; }
+.access-destinations small { color: #797a72; font-size: .63rem; }
+.access-destinations strong { overflow-wrap: anywhere; font-size: clamp(1rem, 2vw, 1.35rem); font-weight: 500; }
+.access-destinations i { color: #7b7c74; font-size: .67rem; font-style: normal; }
+.access-destinations i[data-state="authenticated"] { color: #4f8c3d; }
+.access-destinations i[data-state="required"] { color: #9a6a1c; }
+.access-destinations i[data-state="unavailable"] { color: #a24f48; }
+.access-destinations b { display: grid; width: 1.9rem; height: 1.9rem; border-radius: 50%; place-items: center; background: rgba(24,25,20,.06); font-size: .8rem; font-weight: 400; }
+.status-dashboard-section { padding: 1rem max(1.25rem, calc((100vw - 76rem) / 2)) clamp(8rem, 14vw, 13rem); background: #e5e4dc; }
 .status-dashboard { display: grid; gap: .8rem; }
 
 .status-overall,
@@ -439,12 +472,22 @@
   .status-llm { grid-column: 1; grid-row: auto; }
   .status-devices .device-list { grid-template-columns: 1fr; }
   .status-privacy { grid-template-columns: 1fr; }
+  .access-card__header { align-items: start; flex-direction: column; }
+  .access-card__actions { width: 100%; }
+  .access-card__actions a { flex: 1; justify-content: space-between; }
 }
 
 @media (max-width: 40rem) {
   .status-hero { padding-top: 9.5rem; }
   .status-hero h1 { max-width: 22rem; font-size: clamp(3.1rem,14vw,4.7rem); }
   .status-dashboard-section { padding-top: 2rem; padding-bottom: 7rem; }
+  .access-section { padding-top: 7rem; }
+  .access-card { border-radius: 1.6rem; }
+  .access-card h2 { font-size: clamp(2.35rem, 11vw, 3.8rem); }
+  .access-card__actions { display: grid; grid-template-columns: 3.35rem minmax(0,1fr); }
+  .access-destinations { grid-template-columns: 1fr; }
+  .access-destinations li:last-child { grid-column: 1; }
+  .access-destinations a { min-height: 5.7rem; padding: 1rem; }
   .status-privacy { padding-top: 7rem; padding-bottom: 7rem; }
   .status-overall, .status-module, .status-source-panel { border-radius: 1.6rem; }
   .usage-limits, .activity-list { grid-template-columns: 1fr; }
