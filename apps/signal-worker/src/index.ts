@@ -69,7 +69,7 @@ function isProtected(request: Request, pathname: string): boolean {
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     try {
       if (request.method === "OPTIONS") return withCors(new Response(null, { status: 204 }), request, env);
@@ -78,7 +78,7 @@ export default {
       if (isProtected(request, url.pathname)) await requireWriteAccess(request, env, url.pathname);
       const response = await handleBriefingRead(url.pathname, env)
         ?? await handleCollection(request, url, env)
-        ?? await handleAdmin(request, url.pathname, env)
+        ?? await handleAdmin(request, url.pathname, env, { waitUntil: (task) => ctx.waitUntil(task) })
         ?? await handleAnnotations(request, url.pathname, env)
         ?? await handleMemoryApi(request, url.pathname, env)
         ?? await handleMemories(request, url.pathname, env);

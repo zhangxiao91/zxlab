@@ -1,6 +1,8 @@
 import { SignalValidationError } from "@zxlab/signal-schema";
 
 const MAX_GATEWAY_RESPONSE_BYTES = 512 * 1024;
+const STREAM_TIMEOUT_MS = 45_000;
+const GENERATE_TIMEOUT_MS = 120_000;
 
 export interface GatewaySuccess {
   ok: true;
@@ -104,6 +106,7 @@ async function requestGenerate(params: {
     method: "POST",
     headers: gatewayHeaders(params.token, params.invocationId, "application/json"),
     body: JSON.stringify(params.body),
+    signal: AbortSignal.timeout(GENERATE_TIMEOUT_MS),
   });
   const raw = await readBoundedText(response);
   let payload: unknown;
@@ -131,6 +134,7 @@ async function requestStream(params: {
     method: "POST",
     headers: gatewayHeaders(params.token, params.invocationId, "text/event-stream"),
     body: JSON.stringify(params.body),
+    signal: AbortSignal.timeout(STREAM_TIMEOUT_MS),
   });
   if (!response.ok) {
     if (response.status === 404 || response.status === 405 || response.status === 501) {
@@ -217,7 +221,9 @@ export async function requestGatewayJson(params: {
   try {
     return await requestStream(params);
   } catch (cause) {
-    if (cause instanceof GatewayStreamUnavailableError || (cause instanceof TypeError && streamEndpoint(params.apiUrl) !== generateEndpoint(params.apiUrl))) {
+    const streamTimedOut = cause instanceof DOMException && cause.name === "TimeoutError";
+    if (cause instanceof GatewayStreamUnavailableError || streamTimedOut
+      || (cause instanceof TypeError && streamEndpoint(params.apiUrl) !== generateEndpoint(params.apiUrl))) {
       return requestGenerate(params);
     }
     throw cause;

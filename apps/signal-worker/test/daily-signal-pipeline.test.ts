@@ -103,6 +103,7 @@ class PipelineLLM implements SignalLLM {
 describe("Daily Signal pipeline", () => {
   it("runs the complete pipeline and refreshes Pages through the admin recovery route", async () => {
     const calls: string[] = [];
+    let backgroundTask: Promise<void> | undefined;
     const response = await handleAdmin(
       new Request("https://signal.example/api/admin/pipeline/run", { method: "POST" }),
       "/api/admin/pipeline/run",
@@ -117,16 +118,17 @@ describe("Daily Signal pipeline", () => {
           calls.push("pages");
           return "triggered";
         },
+        waitUntil: (task) => { backgroundTask = task; },
       },
     );
 
-    expect(response?.status).toBe(201);
+    expect(response?.status).toBe(202);
     expect(await response?.json()).toEqual({
-      collectionRunId: "collection-run",
-      briefingId: "briefing",
-      briefingRunId: "briefing-run",
-      pagesRefresh: "triggered",
+      status: "accepted",
+      startedAt: "2026-07-27T00:55:00.000Z",
     });
+    expect(backgroundTask).toBeDefined();
+    await backgroundTask;
     expect(calls).toEqual([`pipeline:${Date.parse("2026-07-27T00:55:00.000Z")}`, "pages"]);
   });
 
