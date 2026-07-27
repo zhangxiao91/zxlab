@@ -8,6 +8,7 @@ import { handleCollection } from "./routes/collection";
 import { handleMemories } from "./routes/memories";
 import { handleMemoryApi } from "./memory/api/routes";
 import { DailySignalPipeline } from "./services/daily-signal-pipeline";
+import { refreshStaticBriefing } from "./services/pages-refresh";
 
 async function internalTokenValid(request: Request, env: Env): Promise<boolean> {
   const provided = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
@@ -52,13 +53,6 @@ async function runtimeHealth(request: Request, env: Env): Promise<Response> {
       },
     },
   });
-}
-
-async function refreshStaticBriefing(env: Env): Promise<"triggered" | "not-configured"> {
-  if (!env.PAGES_DEPLOY_HOOK_URL) return "not-configured";
-  const response = await fetch(env.PAGES_DEPLOY_HOOK_URL, { method: "POST" });
-  if (!response.ok) throw new Error(`Pages deploy hook returned ${response.status}`);
-  return "triggered";
 }
 
 function withCors(response: Response, request: Request, env: Env): Response {

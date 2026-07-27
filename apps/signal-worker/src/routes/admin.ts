@@ -5,14 +5,28 @@ import { CollectionRepository } from "../repositories/collection-repository";
 import { BriefingRepository } from "../repositories/briefing-repository";
 import { BriefingGenerator } from "../services/briefing-generator";
 import { ProjectApiSignalLLM } from "../services/llm";
+import { DailySignalPipeline } from "../services/daily-signal-pipeline";
+import { refreshStaticBriefing } from "../services/pages-refresh";
+
+interface AdminDependencies {
+  runPipeline?: (scheduledTime: number) => Promise<{ collectionRunId: string; briefingId: string; briefingRunId: string }>;
+  refreshPages?: () => Promise<"triggered" | "not-configured">;
+  now?: () => number;
+}
 
 function today(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-export async function handleAdmin(request: Request, pathname: string, env: Env): Promise<Response | null> {
+export async function handleAdmin(request: Request, pathname: string, env: Env, dependencies: AdminDependencies = {}): Promise<Response | null> {
   if (request.method === "GET" && pathname === "/api/admin/briefing-runs/latest") {
     return json({ runs: await new BriefingRepository(env.DB).latestDiagnostics() });
+  }
+  if (request.method === "POST" && pathname === "/api/admin/pipeline/run") {
+    const runPipeline = dependencies.runPipeline ?? ((scheduledTime) => new DailySignalPipeline(env).run(scheduledTime));
+    const refreshPages = dependencies.refreshPages ?? (() => refreshStaticBriefing(env));
+    const result = await runPipeline((dependencies.now ?? Date.now)());
+    return json({ ...result, pagesRefresh: await refreshPages() }, 201);
   }
   if (request.method !== "POST" || pathname !== "/api/admin/briefings/generate") return null;
   const input = parseGenerateBriefingRequest(await readJson(request));

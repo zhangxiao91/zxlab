@@ -11,6 +11,7 @@ import type {
 import type { SignalCollector } from "../src/collectors/types";
 import { CollectionService } from "../src/services/collection-service";
 import { DailySignalPipeline, selectBalancedDailyCandidates } from "../src/services/daily-signal-pipeline";
+import { handleAdmin } from "../src/routes/admin";
 import { BriefingRepository } from "../src/repositories/briefing-repository";
 import type {
   AnnotationReplyInput,
@@ -100,6 +101,35 @@ class PipelineLLM implements SignalLLM {
 }
 
 describe("Daily Signal pipeline", () => {
+  it("runs the complete pipeline and refreshes Pages through the admin recovery route", async () => {
+    const calls: string[] = [];
+    const response = await handleAdmin(
+      new Request("https://signal.example/api/admin/pipeline/run", { method: "POST" }),
+      "/api/admin/pipeline/run",
+      env,
+      {
+        now: () => Date.parse("2026-07-27T00:55:00.000Z"),
+        runPipeline: async (scheduledTime) => {
+          calls.push(`pipeline:${scheduledTime}`);
+          return { collectionRunId: "collection-run", briefingId: "briefing", briefingRunId: "briefing-run" };
+        },
+        refreshPages: async () => {
+          calls.push("pages");
+          return "triggered";
+        },
+      },
+    );
+
+    expect(response?.status).toBe(201);
+    expect(await response?.json()).toEqual({
+      collectionRunId: "collection-run",
+      briefingId: "briefing",
+      briefingRunId: "briefing-run",
+      pagesRefresh: "triggered",
+    });
+    expect(calls).toEqual([`pipeline:${Date.parse("2026-07-27T00:55:00.000Z")}`, "pages"]);
+  });
+
   it("balances daily candidates across categories before the LLM pass", () => {
     const selected = selectBalancedDailyCandidates([
       candidate("ai-1", "ai-engineering"),
