@@ -103,7 +103,6 @@ class PipelineLLM implements SignalLLM {
 describe("Daily Signal pipeline", () => {
   it("runs the complete pipeline and refreshes Pages through the admin recovery route", async () => {
     const calls: string[] = [];
-    let backgroundTask: Promise<void> | undefined;
     const response = await handleAdmin(
       new Request("https://signal.example/api/admin/pipeline/run", { method: "POST" }),
       "/api/admin/pipeline/run",
@@ -118,17 +117,22 @@ describe("Daily Signal pipeline", () => {
           calls.push("pages");
           return "triggered";
         },
-        waitUntil: (task) => { backgroundTask = task; },
       },
     );
 
-    expect(response?.status).toBe(202);
-    expect(await response?.json()).toEqual({
-      status: "accepted",
-      startedAt: "2026-07-27T00:55:00.000Z",
-    });
-    expect(backgroundTask).toBeDefined();
-    await backgroundTask;
+    expect(response?.status).toBe(200);
+    expect(response?.headers.get("content-type")).toBe("application/x-ndjson; charset=utf-8");
+    const responseBody = response ? new TextDecoder().decode(await response.arrayBuffer()) : "";
+    expect(responseBody.trim().split("\n").map((line) => JSON.parse(line))).toEqual([
+      { status: "accepted", startedAt: "2026-07-27T00:55:00.000Z" },
+      {
+        status: "succeeded",
+        collectionRunId: "collection-run",
+        briefingId: "briefing",
+        briefingRunId: "briefing-run",
+        pagesRefresh: "triggered",
+      },
+    ]);
     expect(calls).toEqual([`pipeline:${Date.parse("2026-07-27T00:55:00.000Z")}`, "pages"]);
   });
 

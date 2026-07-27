@@ -11,7 +11,6 @@ import { refreshStaticBriefing } from "../services/pages-refresh";
 interface AdminDependencies {
   runPipeline?: (scheduledTime: number) => Promise<{ collectionRunId: string; briefingId: string; briefingRunId: string }>;
   refreshPages?: () => Promise<"triggered" | "not-configured">;
-  waitUntil?: (task: Promise<void>) => void;
   now?: () => number;
 }
 
@@ -27,17 +26,32 @@ export async function handleAdmin(request: Request, pathname: string, env: Env, 
     const runPipeline = dependencies.runPipeline ?? ((scheduledTime) => new DailySignalPipeline(env).run(scheduledTime));
     const refreshPages = dependencies.refreshPages ?? (() => refreshStaticBriefing(env));
     const startedAt = (dependencies.now ?? Date.now)();
-    const task = (async () => {
-      const result = await runPipeline(startedAt);
-      const pagesRefresh = await refreshPages();
-      console.log(JSON.stringify({ event: "signal.pipeline.recovery.succeeded", pagesRefresh, ...result }));
-    })();
-    if (dependencies.waitUntil) {
-      dependencies.waitUntil(task);
-      return json({ status: "accepted", startedAt: new Date(startedAt).toISOString() }, 202);
-    }
-    await task;
-    return json({ status: "completed", startedAt: new Date(startedAt).toISOString() }, 201);
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode(`${JSON.stringify({ status: "accepted", startedAt: new Date(startedAt).toISOString() })}\n`));
+        const heartbeat = setInterval(() => {
+          controller.enqueue(encoder.encode(`${JSON.stringify({ status: "running" })}\n`));
+        }, 15_000);
+        void (async () => {
+          try {
+            const result = await runPipeline(startedAt);
+            const pagesRefresh = await refreshPages();
+            const completed = { status: "succeeded", pagesRefresh, ...result };
+            console.log(JSON.stringify({ event: "signal.pipeline.recovery.succeeded", ...completed }));
+            controller.enqueue(encoder.encode(`${JSON.stringify(completed)}\n`));
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "Unknown pipeline failure";
+            console.error(JSON.stringify({ event: "signal.pipeline.recovery.failed", message }));
+            controller.enqueue(encoder.encode(`${JSON.stringify({ status: "failed", message })}\n`));
+          } finally {
+            clearInterval(heartbeat);
+            controller.close();
+          }
+        })();
+      },
+    });
+    return new Response(stream, { status: 200, headers: { "content-type": "application/x-ndjson; charset=utf-8" } });
   }
   if (request.method !== "POST" || pathname !== "/api/admin/briefings/generate") return null;
   const input = parseGenerateBriefingRequest(await readJson(request));
