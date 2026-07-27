@@ -24,7 +24,8 @@ const dataMode: "api" | "mock" = configuredMode === "api" || configuredMode === 
   : import.meta.env.DEV ? "mock" : "api";
 const defaultApiBase = import.meta.env.DEV ? "" : "https://signal-api.zx-dx.xyz";
 const apiBase = String(import.meta.env.PUBLIC_SIGNAL_API_BASE ?? defaultApiBase).replace(/\/$/, "");
-const signalAccessUrl = apiBase ? `${apiBase}/api/annotations` : "";
+const privateApiBase = import.meta.env.DEV ? apiBase : "/api/private/signal";
+const privateAccessUrl = "/lab/risk/";
 
 export class SignalApiError extends Error {
   constructor(readonly code: string, message: string, readonly status: number) {
@@ -35,13 +36,14 @@ export class SignalApiError extends Error {
 
 function endpoint(path: string): string {
   if (!apiBase) throw new SignalApiError("SIGNAL_API_NOT_CONFIGURED", "PUBLIC_SIGNAL_API_BASE is not configured", 503);
-  return `${apiBase}${path}`;
+  const privatePath = path === "/api/annotations" || path === "/api/memories" || path.startsWith("/api/memory-candidates/") || path.startsWith("/api/memory/") || path.startsWith("/api/admin/");
+  return `${privatePath ? privateApiBase : apiBase}${path}`;
 }
 
 function networkMessage(cause: unknown): string {
   const message = cause instanceof Error ? cause.message : "Signal API unavailable";
-  if (/failed to fetch|load failed|networkerror|fetch failed/i.test(message) && signalAccessUrl) {
-    return `Signal API 可能需要先完成 Cloudflare Access 授权。请在新标签打开 ${signalAccessUrl} 完成登录后重试`;
+  if (/failed to fetch|load failed|networkerror|fetch failed/i.test(message)) {
+    return `需要先完成统一 Cloudflare Access 授权。请在新标签打开 ${privateAccessUrl} 完成登录后重试`;
   }
   return message;
 }

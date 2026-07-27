@@ -241,8 +241,8 @@ only persisted when the provider returned them. Pricing is deliberately empty
 until provider-confirmed prices are added to `functions/_lib/ai/telemetry.ts`.
 
 `GET /api/status/llm?range=24h|7d|30d|today` returns the aggregated dashboard
-only after Cloudflare Access verifies `STATUS_LLM_ACCESS_TEAM_DOMAIN` and
-`STATUS_LLM_ACCESS_AUD`. The public Status page handles an unavailable or
+only after Cloudflare Access verifies the shared Pages application configured
+by `RISK_ACCESS_TEAM_DOMAIN` and `RISK_ACCESS_AUD`. The public Status page handles an unavailable or
 unauthorized detailed module independently of its public device and Codex cards.
 
 ## Verification

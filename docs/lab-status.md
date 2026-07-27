@@ -112,8 +112,11 @@ modules. Runtime responses contain allowlisted aliases and coarse counts only.
 
 ## Private operations
 
-`/admin/ops` calls `/api/v1/private/*` directly on Runtime with Cloudflare
-Access cookies. It supports service and incident inspection, manual probes,
+`/admin/ops` calls the same-origin Pages route `/api/private/runtime/*`. Pages
+verifies the shared Risk Access session, then calls Runtime with the server-only
+`ZX_RUNTIME_SERVICE_TOKEN`; Runtime reaches Signal through its service binding.
+The browser therefore authenticates once on Pages and never receives a Runtime
+or Signal service credential. Ops supports service and incident inspection, manual probes,
 Memory create/edit/forget, candidate review, consolidation, and revision
 history. Deployment controls are intentionally absent.
 

@@ -20,10 +20,7 @@ AI_GATEWAY_ACCESS_TOKEN=
 AI_GATEWAY_ALLOWED_ORIGINS=http://localhost:4321
 
 # Bind the existing zx-signal D1 database to this Pages Function as LLM_USAGE_DB.
-# Detailed usage endpoint is protected by a separate Cloudflare Access application.
-STATUS_LLM_ACCESS_TEAM_DOMAIN=https://your-team.cloudflareaccess.com
-STATUS_LLM_ACCESS_AUD=
-
-# Cloudflare Access application protecting /lab/risk and /api/risk/review.
+# One Pages Access application protects Risk and supplies the shared browser
+# session used by LLM telemetry and the /api/private/* same-origin proxies.
 RISK_ACCESS_TEAM_DOMAIN=https://your-team.cloudflareaccess.com
 RISK_ACCESS_AUD=

@@ -66,6 +66,13 @@ describe("Cloudflare Access authentication", () => {
     )).rejects.toMatchObject({ code: "UNAUTHORIZED" });
   });
 
+  it("allows the Runtime service token across protected service-binding routes", async () => {
+    const env = accessEnv({ ZX_RUNTIME_SERVICE_TOKEN: "runtime-service-secret" });
+    const headers = { authorization: "Bearer runtime-service-secret" };
+    await expect(requireWriteAccess(new Request("https://signal.example/api/annotations", { method: "POST", headers }), env)).resolves.toBeUndefined();
+    await expect(requireWriteAccess(new Request("https://signal.example/api/memory/consolidate", { method: "POST", headers }), env)).resolves.toBeUndefined();
+  });
+
   it("allows the annotation stream accept header in CORS preflight", () => {
     const request = new Request("https://signal.example/api/annotations", {
       method: "OPTIONS",

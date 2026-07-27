@@ -5,11 +5,10 @@ import "../styles/lab-status-shell.css";
 import "../styles/status.css";
 
 const runtimeApiBase = String(import.meta.env.PUBLIC_RUNTIME_API_BASE ?? (import.meta.env.DEV ? "http://localhost:8790" : "https://runtime-api.zx-dx.xyz")).replace(/\/$/, "");
-const signalApiBase = String(import.meta.env.PUBLIC_SIGNAL_API_BASE ?? (import.meta.env.DEV ? "http://localhost:8788" : "https://signal-api.zx-dx.xyz")).replace(/\/$/, "");
 ---
 
 <Layout title="Status | zxlab" description="A public, privacy-filtered control room for ZXLab runtime, Memory, agents, and tool usage.">
-  <main class="status-page overflow-x-hidden" data-runtime-api={runtimeApiBase} data-signal-api={signalApiBase}>
+  <main class="status-page overflow-x-hidden" data-runtime-api={runtimeApiBase}>
     <section class="status-hero" aria-labelledby="status-title">
       <div class="status-hero__copy">
         <p class="status-kicker">ZX control room</p>
@@ -34,16 +33,16 @@ const signalApiBase = String(import.meta.env.PUBLIC_SIGNAL_API_BASE ?? (import.m
           </div>
           <div class="access-card__actions">
             <button type="button" data-access-refresh aria-label="Check authentication again" title="Check authentication again"><span aria-hidden="true">&#8635;</span></button>
-            <a data-access-login href={`${runtimeApiBase}/api/v1/private/overview`} target="_blank" rel="noreferrer"><span data-access-login-label>Sign in with Cloudflare</span><span aria-hidden="true">&#8599;</span></a>
+            <a data-access-login href="/lab/risk/" target="_blank" rel="noreferrer"><span data-access-login-label>Sign in with Cloudflare</span><span aria-hidden="true">&#8599;</span></a>
           </div>
         </header>
         <p class="access-card__message" data-access-message>Private tools stay closed until their Cloudflare Access sessions are verified.</p>
         <ul class="access-destinations" aria-label="Protected ZXLab destinations">
-          <li><a href="/admin/ops"><span><small>Runtime Access</small><strong>Operations console</strong></span><span><i data-access-boundary="runtime">Checking</i><b aria-hidden="true">&#8594;</b></span></a></li>
-          <li><a href="/admin/ops#memory"><span><small>Runtime Access</small><strong>Memory workspace</strong></span><span><i data-access-boundary="runtime">Checking</i><b aria-hidden="true">&#8594;</b></span></a></li>
-          <li><a href="/lab/risk"><span><small>Pages Access</small><strong>Risk workbench</strong></span><span><i data-access-boundary="risk">Checking</i><b aria-hidden="true">&#8594;</b></span></a></li>
-          <li><a href="/briefing"><span><small>Signal Access</small><strong>Briefing annotations</strong></span><span><i data-access-boundary="signal">Checking</i><b aria-hidden="true">&#8594;</b></span></a></li>
-          <li><a href="#llm-telemetry"><span><small>Pages Access</small><strong>LLM telemetry</strong></span><span><i data-access-boundary="llm">Checking</i><b aria-hidden="true">&#8595;</b></span></a></li>
+          <li><a href="/admin/ops"><span><small>Unified Access</small><strong>Operations console</strong></span><span><i data-access-boundary="pages">Checking</i><b aria-hidden="true">&#8594;</b></span></a></li>
+          <li><a href="/admin/ops#memory"><span><small>Unified Access</small><strong>Memory workspace</strong></span><span><i data-access-boundary="pages">Checking</i><b aria-hidden="true">&#8594;</b></span></a></li>
+          <li><a href="/lab/risk"><span><small>Unified Access</small><strong>Risk workbench</strong></span><span><i data-access-boundary="pages">Checking</i><b aria-hidden="true">&#8594;</b></span></a></li>
+          <li><a href="/briefing"><span><small>Unified Access</small><strong>Briefing annotations</strong></span><span><i data-access-boundary="pages">Checking</i><b aria-hidden="true">&#8594;</b></span></a></li>
+          <li><a href="#llm-telemetry"><span><small>Unified Access</small><strong>LLM telemetry</strong></span><span><i data-access-boundary="pages">Checking</i><b aria-hidden="true">&#8595;</b></span></a></li>
         </ul>
       </article>
     </section>
@@ -69,7 +68,6 @@ const signalApiBase = String(import.meta.env.PUBLIC_SIGNAL_API_BASE ?? (import.m
     const dashboard = document.querySelector<HTMLElement>("[data-status-dashboard]");
     const refresh = document.querySelector<HTMLButtonElement>("[data-status-refresh]");
     const apiBase = page?.dataset.runtimeApi ?? "";
-    const signalApiBase = page?.dataset.signalApi ?? "";
     const escapeHtml = (value: unknown) => String(value ?? "").replace(/[&<>\"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" })[character]!);
     const relative = (value: string) => {
       const seconds = Math.round((Date.parse(value) - Date.now()) / 1000);
@@ -89,12 +87,9 @@ const signalApiBase = String(import.meta.env.PUBLIC_SIGNAL_API_BASE ?? (import.m
     const setMetrics = (selector: string, rows: Array<[string, string]>) => { const root = document.querySelector<HTMLElement>(selector); if (root) root.innerHTML = rows.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join(""); };
 
     type AccessState = "checking" | "authenticated" | "required" | "unavailable";
-    type AccessBoundary = "runtime" | "risk" | "signal" | "llm";
+    type AccessBoundary = "pages";
     const accessTargets: Record<AccessBoundary, { probe: string; login: string; init?: RequestInit }> = {
-      runtime: { probe: `${apiBase}/api/v1/private/overview`, login: `${apiBase}/api/v1/private/overview` },
-      risk: { probe: "/lab/risk", login: "/lab/risk", init: { method: "HEAD" } },
-      signal: { probe: `${signalApiBase}/api/memories`, login: `${signalApiBase}/api/memories` },
-      llm: { probe: "/api/status/llm?range=24h", login: "/api/status/llm?range=24h" },
+      pages: { probe: "/lab/risk/", login: "/lab/risk/", init: { method: "HEAD" } },
     };
     let accessCheckInFlight = false;
 
@@ -145,7 +140,7 @@ const signalApiBase = String(import.meta.env.PUBLIC_SIGNAL_API_BASE ?? (import.m
       if (overall === "authenticated") {
         label.textContent = "Cloudflare Access active";
         title.textContent = "Private ZXLab surfaces are ready.";
-        message.textContent = "This browser has valid sessions for Runtime, Signal, Risk, and protected telemetry.";
+        message.textContent = "This browser has one valid session for every protected ZXLab surface.";
         login.hidden = true;
       } else if (overall === "partial") {
         label.textContent = `${readyCount} of ${values.length} boundaries ready`;
@@ -164,7 +159,7 @@ const signalApiBase = String(import.meta.env.PUBLIC_SIGNAL_API_BASE ?? (import.m
         login.hidden = false;
       }
 
-      const loginTarget = missing?.[0] ?? (Object.keys(states) as AccessBoundary[]).find((boundary) => states[boundary] !== "authenticated") ?? "runtime";
+      const loginTarget = missing?.[0] ?? (Object.keys(states) as AccessBoundary[]).find((boundary) => states[boundary] !== "authenticated") ?? "pages";
       login.href = accessTargets[loginTarget].login;
       loginLabel.textContent = missing ? "Sign in with Cloudflare" : "Open protected boundary";
     }
@@ -181,7 +176,7 @@ const signalApiBase = String(import.meta.env.PUBLIC_SIGNAL_API_BASE ?? (import.m
         const results = await Promise.all(boundaries.map(async (boundary) => [boundary, await probeAccess(accessTargets[boundary])] as const));
         renderAccess(Object.fromEntries(results) as Record<AccessBoundary, AccessState>);
       } catch {
-        renderAccess({ runtime: "unavailable", risk: "unavailable", signal: "unavailable", llm: "unavailable" });
+        renderAccess({ pages: "unavailable" });
       } finally {
         accessCheckInFlight = false;
         button?.removeAttribute("disabled");
@@ -258,14 +253,15 @@ const signalApiBase = String(import.meta.env.PUBLIC_SIGNAL_API_BASE ?? (import.m
       root.hidden = false;
       root.innerHTML = '<div class="memory-private__loading"><i></i><i></i><i></i><p>Reading protected Memory content.</p></div>';
       try {
-        const response = await fetch(`${apiBase}/api/v1/private/memory/items`, { credentials: "include", redirect: "manual", cache: "no-store", headers: { Accept: "application/json" } });
+        const memoryBase = import.meta.env.DEV ? apiBase : "/api/private/runtime";
+        const response = await fetch(`${memoryBase}/api/v1/private/memory/items`, { credentials: "include", redirect: "manual", cache: "no-store", headers: { Accept: "application/json" } });
         if (response.type === "opaqueredirect" || response.status === 0 || response.status === 401 || response.status === 403) throw new Error("access-required");
         if (!response.ok) throw new Error("unavailable");
         renderPrivateMemory(await response.json());
         button.textContent = "Memory unlocked";
       } catch (error) {
         const accessRequired = error instanceof Error && (error.message === "access-required" || error instanceof TypeError);
-        root.innerHTML = `<div class="memory-private__notice"><h3>${accessRequired ? "Cloudflare Access required" : "Memory details unavailable"}</h3><p>${accessRequired ? "Authenticate for the Runtime domain, then try again. Public counters remain visible." : "The private Memory source could not be reached."}</p><a href="${escapeHtml(apiBase)}/api/v1/private/memory/items" target="_blank" rel="noreferrer">${accessRequired ? "Open Access login" : "Check protected endpoint"}</a></div>`;
+        root.innerHTML = `<div class="memory-private__notice"><h3>${accessRequired ? "Cloudflare Access required" : "Memory details unavailable"}</h3><p>${accessRequired ? "Complete the unified Access login, then try again. Public counters remain visible." : "The private Memory source could not be reached."}</p><a href="/lab/risk/" target="_blank" rel="noreferrer">${accessRequired ? "Open unified login" : "Check protected access"}</a></div>`;
         button.textContent = "Try Memory again";
       } finally { button.disabled = false; }
     }

@@ -1,7 +1,7 @@
 ---
 import Layout from "../../layouts/Layout.astro";
 import "../../styles/ops.css";
-const runtimeApiBase = String(import.meta.env.PUBLIC_RUNTIME_API_BASE ?? (import.meta.env.DEV ? "http://localhost:8790" : "https://runtime-api.zx-dx.xyz")).replace(/\/$/, "");
+const runtimeApiBase = import.meta.env.DEV ? "http://localhost:8790" : "/api/private/runtime";
 ---
 <Layout title="Ops Console | zxlab" description="Private runtime and Memory operations." lang="zh-CN">
   <main class="ops-page" data-ops data-api-base={runtimeApiBase}>

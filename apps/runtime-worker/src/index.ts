@@ -16,7 +16,7 @@ function cors(request: Request, env: Env): Record<string, string> {
 async function proxyMemory(request: Request, env: Env, pathname: string) {
   const suffix = pathname.slice("/api/v1/private/memory".length);
   const target = `https://signal.internal/api/memory${suffix}`;
-  const headers = new Headers({ Accept: "application/json", "content-type": request.headers.get("content-type") ?? "application/json" });
+  const headers = new Headers({ Accept: "application/json", Authorization: `Bearer ${env.ZX_RUNTIME_SERVICE_TOKEN}`, "content-type": request.headers.get("content-type") ?? "application/json" });
   for (const name of ["cf-access-jwt-assertion", "cf-access-authenticated-user-email"]) {
     const value = request.headers.get(name); if (value) headers.set(name, value);
   }
@@ -24,6 +24,26 @@ async function proxyMemory(request: Request, env: Env, pathname: string) {
   const responseHeaders = new Headers(response.headers);
   Object.entries(cors(request, env)).forEach(([key, value]) => responseHeaders.set(key, value));
   return new Response(response.body, { status: response.status, headers: responseHeaders });
+}
+
+function signalPathAllowed(path: string): boolean {
+  return path === "/api/annotations"
+    || path === "/api/memories"
+    || path.startsWith("/api/admin/")
+    || path.startsWith("/api/memory/")
+    || path.startsWith("/api/memory-candidates/");
+}
+
+async function proxySignal(request: Request, env: Env, pathname: string) {
+  const suffix = pathname.slice("/api/v1/private/signal".length);
+  if (!signalPathAllowed(suffix)) return json({ error: { code: "NOT_FOUND", message: "Route not found." } }, 404);
+  const target = new URL(`https://signal.internal${suffix}`);
+  target.search = new URL(request.url).search;
+  const headers = new Headers({ Accept: request.headers.get("accept") ?? "application/json", Authorization: `Bearer ${env.ZX_RUNTIME_SERVICE_TOKEN}` });
+  const contentType = request.headers.get("content-type");
+  if (contentType) headers.set("Content-Type", contentType);
+  const response = await env.SIGNAL.fetch(target, { method: request.method, headers, body: request.method === "GET" || request.method === "HEAD" ? undefined : request.body });
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers: response.headers });
 }
 
 async function probe(env: Env, trigger: string) {
@@ -43,6 +63,7 @@ export default {
         return json(await publicSnapshot(repository), 200, { ...cors(request, env), "cache-control": "public, max-age=15, s-maxage=30" });
       }
       if (url.pathname.startsWith("/api/v1/private/")) await requireAccess(request, env);
+      if (url.pathname.startsWith("/api/v1/private/signal/")) return proxySignal(request, env, url.pathname);
       if (url.pathname.startsWith("/api/v1/private/memory")) return proxyMemory(request, env, url.pathname);
       const privateCors = cors(request, env);
       if (request.method === "GET" && url.pathname === "/api/v1/private/overview") return json({ snapshot: await publicSnapshot(repository), services: await repository.services(), incidents: await repository.incidents() }, 200, privateCors);

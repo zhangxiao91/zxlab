@@ -56,6 +56,8 @@ export async function requireWriteAccess(request: Request, env: Env, pathname = 
   const bridgeToken = String(env.ZX_MEMORY_BRIDGE_TOKEN ?? "").trim();
   const authorization = request.headers.get("authorization") ?? "";
   const providedBearer = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
+  const runtimeToken = String(env.ZX_RUNTIME_SERVICE_TOKEN ?? "").trim();
+  if (runtimeToken && providedBearer && await safeEqual(providedBearer, runtimeToken)) return;
   if (bridgeToken && bridgeMemoryRoute(request, pathname) && providedBearer && await safeEqual(providedBearer, bridgeToken)) return;
 
   if (String(env.ENVIRONMENT) === "development") {
