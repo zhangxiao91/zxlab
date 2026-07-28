@@ -3,7 +3,7 @@ title: "安全下载软件指南"
 description: "从找官网到安装后检查，避开假下载按钮、高速下载器和捆绑软件。"
 routeId: "computer"
 status: "open"
-updatedAt: 2026-07-25
+updatedAt: 2026-07-28
 tags:
   - 软件工具
   - 下载安全

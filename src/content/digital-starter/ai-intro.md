@@ -3,7 +3,7 @@ title: "AI 基础"
 description: "从任务描述、上下文、结果核验和隐私边界开始，建立可靠的 AI 使用方法。"
 routeId: "ai"
 status: "open"
-updatedAt: 2026-07-25
+updatedAt: 2026-07-28
 tags:
   - AI
   - 入门

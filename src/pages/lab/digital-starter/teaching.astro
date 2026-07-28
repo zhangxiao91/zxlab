@@ -1,0 +1,133 @@
+---
+import Layout from "../../../layouts/Layout.astro";
+import { digitalStarterRouteModules, digitalStarterRoutes } from "../../../data/digitalStarter";
+import "../../../styles/lab-status-shell.css";
+import "../../../styles/lab.css";
+
+const sessions = [
+  {
+    title: "把电脑用顺手",
+    duration: "90 分钟",
+    routeId: "computer",
+    outcomes: ["整理一套大学资料目录", "完成截图、压缩与解压", "从官方来源安装一个需要的软件", "写出可复现的求助信息"],
+    flow: ["10 分钟：课前安全说明与设备检查", "25 分钟：文件、下载目录与命名", "20 分钟：截图、压缩和解压练习", "20 分钟：官网核验与软件安装", "15 分钟：同步备份与故障求助"],
+  },
+  {
+    title: "把 AI 当作可核验的草稿伙伴",
+    duration: "60 分钟",
+    routeId: "ai",
+    outcomes: ["写清任务、上下文、限制与验收", "区分原文事实和 AI 推断", "完成人工核验后的大纲"],
+    flow: ["10 分钟：能力边界与隐私", "15 分钟：四部分任务描述", "25 分钟：材料到大纲实战", "10 分钟：数字、日期、名称与引用核验"],
+  },
+  {
+    title: "完成第一个可解释的编程闭环",
+    duration: "120 分钟",
+    routeId: "coding",
+    outcomes: ["运行 Hello World", "用命令行找到文件", "写 README 并提交 GitHub", "完成一次有检查和回退方案的 AI Coding 改动"],
+    flow: ["20 分钟：Hello World 与报错", "20 分钟：路径和只读命令", "20 分钟：Markdown README", "25 分钟：GitHub 仓库与提交", "25 分钟：AI Coding 差异检查", "10 分钟：演示、复盘与清理凭证"],
+  },
+] as const;
+
+const preparation = [
+  "确认教室网络、投影、插座和浏览器可用，并准备离线示例文件。",
+  "提醒学员不要展示真实密码、验证码、证件、未公开作业或 API Key。",
+  "每次演示先说目标和完成标准，再操作；故障时保留现场，不用一键优化工具。",
+  "允许学员只观察高风险步骤；任何安装、删除、授权和公开发布都由设备主人确认。",
+];
+---
+
+<Layout
+  title="课程安排与授课模式 | 数字技能启动包 | zxlab"
+  description="Digital Starter 三次课课程安排、讲师准备清单、课堂节奏与完成标准。"
+  lang="zh-CN"
+>
+  <main class="digital-starter-detail-page digital-starter-computer-v2 digital-starter-teaching-page">
+    <section class="digital-starter-detail-hero digital-starter-computer-hero" aria-labelledby="teaching-title">
+      <div class="digital-starter-detail-hero__copy">
+        <a class="digital-starter-back" href="/lab/digital-starter">← 返回数字技能启动包</a>
+        <p class="digital-starter-kicker">课程安排与授课模式</p>
+        <h1 id="teaching-title">三次课，完成三个可验证的数字技能闭环。</h1>
+        <p class="digital-starter-subtitle">适合课堂、分享会或一对一带学；每节都可以独立使用。</p>
+        <div class="digital-starter-actions">
+          <a class="digital-starter-button" href="#course-plan"><span>查看课程安排</span><span aria-hidden="true">↓</span></a>
+          <button class="digital-starter-button digital-starter-button--ghost" type="button" data-teaching-print>
+            <span>打印讲师手册</span><span aria-hidden="true">↗</span>
+          </button>
+        </div>
+      </div>
+      <aside class="digital-starter-computer-hero__map" aria-label="课程概览">
+        <p>3 次课 · 270 分钟</p>
+        <ol>
+          {sessions.map((session, index) => (
+            <li>
+              <span>{String(index + 1).padStart(2, "0")}</span>
+              <strong>{session.title}</strong>
+              <small>{session.duration}</small>
+            </li>
+          ))}
+        </ol>
+      </aside>
+    </section>
+
+    <section class="digital-starter-computer-learning" id="course-plan" aria-labelledby="course-plan-title">
+      <div class="digital-starter-section-heading">
+        <p>完整课程安排</p>
+        <h2 id="course-plan-title">每次课都有产出、验收和安全边界。</h2>
+      </div>
+      <div class="digital-starter-computer-timeline">
+        {sessions.map((session, index) => {
+          const route = digitalStarterRoutes.find((item) => item.id === session.routeId);
+          const moduleCount = digitalStarterRouteModules.filter((item) => item.routeId === session.routeId).length;
+          return (
+            <article class="digital-starter-computer-module">
+              <div class="digital-starter-computer-module__rail" aria-hidden="true">
+                <span>{String(index + 1).padStart(2, "0")}</span>
+              </div>
+              <div class="digital-starter-computer-module__content">
+                <div class="digital-starter-computer-module__heading">
+                  <div>
+                    <p>{session.duration} · {moduleCount} 个模块可选</p>
+                    <h3>{session.title}</h3>
+                  </div>
+                  <span class="digital-starter-module-status">可直接授课</span>
+                </div>
+                <dl>
+                  <div>
+                    <dt>课堂流程</dt>
+                    <dd><ol>{session.flow.map((item) => <li>{item}</li>)}</ol></dd>
+                  </div>
+                  <div>
+                    <dt>完成标准</dt>
+                    <dd><ul>{session.outcomes.map((item) => <li>{item}</li>)}</ul></dd>
+                  </div>
+                </dl>
+                <div class="digital-starter-computer-module__actions">
+                  <a href={route?.detailHref}>打开{route?.title}路线<span aria-hidden="true">↗</span></a>
+                </div>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+
+    <section class="digital-starter-safety-note" id="facilitator-mode" aria-labelledby="facilitator-title">
+      <div>
+        <p>讲师准备清单</p>
+        <h2 id="facilitator-title">先保护学员的数据，再追求课堂进度。</h2>
+      </div>
+      <div>
+        <ol>{preparation.map((item) => <li>{item}</li>)}</ol>
+        <p>
+          配套材料：<a href="/assets/digital-starter/slides/facilitator-outline.md">授课提纲</a>、
+          <a href="/assets/digital-starter/examples/hello.html">Hello World 示例</a>、
+          <a href="/assets/digital-starter/ai-ppt/example-source.md">AI 实战材料</a>。
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    document.querySelector<HTMLButtonElement>("[data-teaching-print]")?.addEventListener("click", () => window.print());
+  </script>
+</Layout>

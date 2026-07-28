@@ -3,7 +3,7 @@ title: "Markdown 入门"
 description: "从写一份清晰文档开始，体验文本、预览和版本管理。"
 routeId: "coding"
 status: "open"
-updatedAt: 2026-07-25
+updatedAt: 2026-07-28
 tags:
   - Markdown
   - 编程入门
@@ -40,6 +40,8 @@ console.log("Hello, World!");
 ## 写一份最小 README
 
 在一个练习文件夹中新建 `README.md`：
+
+也可以下载[课程 README 模板](/assets/digital-starter/examples/README.md)，另存一份后填写自己的目标与验证记录。
 
 ```md
 # 我的第一个项目

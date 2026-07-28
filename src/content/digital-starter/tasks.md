@@ -3,7 +3,7 @@ title: "完成一次截图、压缩和解压"
 description: "用一个十几分钟的小任务，走完截图、保存、压缩、移动和解压的完整流程。"
 routeId: "computer"
 status: "open"
-updatedAt: 2026-07-25
+updatedAt: 2026-07-28
 tags:
   - 实战任务
   - 截图

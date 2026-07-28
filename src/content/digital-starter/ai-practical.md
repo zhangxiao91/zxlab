@@ -3,7 +3,7 @@ title: "实战 AI 使用：从材料到大纲"
 description: "用一份真实但不敏感的材料，生成可核验的内容大纲或 PPT 页面结构。"
 routeId: "ai"
 status: "open"
-updatedAt: 2026-07-25
+updatedAt: 2026-07-28
 tags:
   - AI
   - 实战
@@ -18,6 +18,8 @@ tags:
 ## 准备材料
 
 选择一份不敏感、来源明确的材料，例如课程介绍、公开活动通知、自己的读书笔记或公开文章。不要上传身份证、成绩单、内部文件、他人隐私或受限制的资料。
+
+没有合适材料时，使用课程提供的[新生工作坊示例材料](/assets/digital-starter/ai-ppt/example-source.md)。完成后再与[已核验大纲示例](/assets/digital-starter/ai-ppt/verified-outline.md)对照，不要一开始就照抄答案。
 
 先自己写下：
 

@@ -490,6 +490,32 @@
   .experiment-frame__viewport { min-height: 28rem; border-radius: calc(1.5rem - .45rem); }
 }
 
+@media print {
+  .site-header,
+  .digital-starter-teaching-page .digital-starter-back,
+  .digital-starter-teaching-page .digital-starter-actions {
+    display: none !important;
+  }
+
+  .digital-starter-teaching-page,
+  .digital-starter-teaching-page :is(section, article, aside) {
+    background: #fff !important;
+    color: #111 !important;
+    box-shadow: none !important;
+  }
+
+  .digital-starter-teaching-page .digital-starter-detail-hero,
+  .digital-starter-teaching-page .digital-starter-computer-learning,
+  .digital-starter-teaching-page .digital-starter-safety-note {
+    min-height: auto;
+    padding: 1.5rem 0;
+  }
+
+  .digital-starter-teaching-page .digital-starter-computer-module {
+    break-inside: avoid;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .lab-page *, .lab-page *::before, .lab-page *::after,
   .lab-detail-page *, .lab-detail-page *::before, .lab-detail-page *::after {
@@ -654,12 +680,10 @@
   box-shadow: inset 0 0 0 1px rgba(89, 119, 0, 0.18);
 }
 
-[data-public-status="building"],
 [data-progress-state="active"] {
   border-style: dashed !important;
 }
 
-[data-public-status="placeholder"],
 [data-progress-state="idle"] {
   background-image: repeating-linear-gradient(135deg, transparent 0 5px, rgba(24, 25, 20, 0.035) 5px 7px);
 }
@@ -899,17 +923,27 @@
   gap: 0.7rem;
 }
 
-.digital-starter-training button {
+.digital-starter-training__actions :is(a, button) {
   display: flex;
   min-height: 4rem;
   padding: 0.9rem 1rem;
+  border: 1px solid rgba(24, 25, 20, 0.16);
   border-radius: 1.1rem;
+  background: #181914;
+  color: #f5f5ed;
   align-items: center;
   justify-content: space-between;
   font: inherit;
+  text-decoration: none;
+  transition: transform 240ms ease, background-color 240ms ease;
 }
 
-.digital-starter-training button span {
+.digital-starter-training__actions :is(a, button):hover {
+  transform: translateY(-2px);
+  background: #2b2d24;
+}
+
+.digital-starter-training__actions :is(a, button) span {
   font-size: 0.72rem;
 }
 
@@ -1150,44 +1184,6 @@
   color: #4f5049;
   font-size: 0.72rem;
   white-space: nowrap;
-}
-
-.digital-starter-foundation-note {
-  display: grid;
-  margin-top: 1.1rem;
-  padding: 0.9rem 1rem;
-  border-left: 0.32rem solid #181914;
-  grid-template-columns: max-content minmax(0, 1fr);
-  align-items: baseline;
-  gap: 0.8rem;
-  background: #d8ff73;
-  color: #181914;
-}
-
-.digital-starter-foundation-note strong {
-  font-size: 0.78rem;
-  font-weight: 700;
-}
-
-.digital-starter-foundation-note span {
-  font-size: 0.82rem;
-  line-height: 1.55;
-}
-
-.digital-starter-foundation-note--route {
-  max-width: 46rem;
-  margin-top: 1.35rem;
-  background: #f5f5ed;
-}
-
-.digital-starter-route-placeholder,
-.digital-starter-module-placeholder {
-  color: #77786f;
-  font-size: 0.82rem;
-}
-
-.digital-starter-computer-module[data-module-status="placeholder"] {
-  opacity: 0.82;
 }
 
 .digital-starter-computer-module h3 {
@@ -1507,7 +1503,7 @@
     position: static;
   }
 
-  .digital-starter-training__actions button,
+  .digital-starter-training__actions :is(a, button),
   .digital-starter-computer-module__actions :is(a, button),
   .digital-starter-learning-progress__reset {
     width: 100%;
@@ -2679,40 +2675,6 @@
   font-size: 0.74rem;
 }
 
-.digital-starter-doc-foundation-note {
-  display: grid;
-  max-width: 64rem;
-  margin-top: clamp(2rem, 4vw, 3.5rem);
-  padding: clamp(1.2rem, 2.5vw, 1.8rem);
-  border: 1px solid #181914;
-  border-left-width: 0.55rem;
-  grid-template-columns: minmax(9rem, 0.28fr) minmax(0, 1fr);
-  gap: clamp(1rem, 4vw, 3rem);
-  background: #d8ff73;
-  color: #181914;
-}
-
-.digital-starter-doc-foundation-note > div {
-  display: grid;
-  align-content: start;
-  gap: 0.3rem;
-}
-
-.digital-starter-doc-foundation-note strong {
-  font-size: 1.05rem;
-}
-
-.digital-starter-doc-foundation-note span {
-  font-size: 0.72rem;
-  font-weight: 600;
-}
-
-.digital-starter-doc-foundation-note p {
-  max-width: 42rem;
-  font-size: 0.92rem;
-  line-height: 1.7;
-}
-
 .digital-starter-doc-layout {
   display: grid;
   margin-top: clamp(4rem, 8vw, 7rem);
@@ -3446,11 +3408,6 @@
 }
 
 @media (max-width: 40rem) {
-  .digital-starter-foundation-note,
-  .digital-starter-doc-foundation-note {
-    grid-template-columns: 1fr;
-  }
-
   .digital-starter-hero,
   .digital-starter-detail-hero {
     min-height: auto;

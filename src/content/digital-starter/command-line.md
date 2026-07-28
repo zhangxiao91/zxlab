@@ -3,7 +3,7 @@ title: "命令行基础"
 description: "认识终端、当前目录和文件路径，用安全的只读命令找到并查看文件。"
 routeId: "coding"
 status: "open"
-updatedAt: 2026-07-25
+updatedAt: 2026-07-28
 tags:
   - 编程入门
   - 命令行

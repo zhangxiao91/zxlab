@@ -3,7 +3,7 @@ title: "浏览器使用基础"
 description: "从地址栏、标签页、收藏和下载记录开始，掌握浏览器基础，并理解插件的来源和权限。"
 routeId: "computer"
 status: "open"
-updatedAt: 2026-07-25
+updatedAt: 2026-07-28
 tags:
   - 浏览器
   - Windows

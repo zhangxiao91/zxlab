@@ -3,7 +3,7 @@ title: "文件管理基础"
 description: "认识常用位置、下载目录、文件扩展名、压缩包和 Windows 文件名，建立稳定的文件管理习惯。"
 routeId: "computer"
 status: "open"
-updatedAt: 2026-07-25
+updatedAt: 2026-07-28
 tags:
   - Windows
   - 文件管理

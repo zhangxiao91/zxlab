@@ -27,8 +27,6 @@ const { Content } = await render(doc);
 const route = digitalStarterRoutes.find((item) => item.id === doc.data.routeId);
 const backHref = route?.detailHref ?? "/lab/digital-starter";
 const pageTitle = doc.data.title + " | 数字技能启动包 | zxlab";
-const isFoundationContent = doc.data.status === "building";
-
 const dateFormatter = new Intl.DateTimeFormat("zh-CN", {
   year: "numeric",
   month: "long",
@@ -53,21 +51,11 @@ const dateFormatter = new Intl.DateTimeFormat("zh-CN", {
         </div>
       </header>
 
-      {isFoundationContent && (
-        <aside class="digital-starter-doc-foundation-note" role="note" aria-label="内容版本说明">
-          <div>
-            <strong>基础版内容</strong>
-            <span>可直接使用</span>
-          </div>
-          <p>这篇文档已经包含可执行的基础说明，但案例、设备差异或配套文件尚未完全覆盖，后续会继续补充。</p>
-        </aside>
-      )}
-
       <div class="digital-starter-doc-layout">
         <aside class="digital-starter-doc-rail" aria-label="文档路线信息">
           <p>所属路线</p>
           <a href={backHref}>{route?.title ?? "数字技能启动包"}</a>
-          <span>这是一份轻量速查文档，不是完整课程。</span>
+          <span>本课程的一篇核心文档，可按路线顺序学习，也可单独查阅。</span>
         </aside>
 
         <div class="digital-starter-prose">

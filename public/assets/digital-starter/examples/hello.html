@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hello World 练习</title>
+    <style>
+      body { max-width: 42rem; margin: 4rem auto; padding: 0 1.25rem; font-family: system-ui, sans-serif; }
+      button { min-height: 2.75rem; padding: 0.7rem 1rem; border: 0; border-radius: 0.75rem; background: #181914; color: white; cursor: pointer; }
+    </style>
+  </head>
+  <body>
+    <h1 id="message">Hello World</h1>
+    <p>打开开发者工具 Console，确认页面没有红色报错。</p>
+    <button id="change-message" type="button">切换文字</button>
+    <script>
+      const message = document.querySelector("#message");
+      const button = document.querySelector("#change-message");
+      button.addEventListener("click", () => {
+        message.textContent = message.textContent === "Hello World" ? "你好，大学" : "Hello World";
+      });
+    </script>
+  </body>
+</html>

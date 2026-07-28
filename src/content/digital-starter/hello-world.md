@@ -3,7 +3,7 @@ title: "Hello World"
 description: "运行第一个最小程序，认识代码、输入、输出、报错和重新运行。"
 routeId: "coding"
 status: "open"
-updatedAt: 2026-07-25
+updatedAt: 2026-07-28
 tags:
   - 编程入门
   - Hello World
@@ -13,6 +13,8 @@ tags:
 # Hello World
 
 “Hello World”不是为了学会一门语言，而是确认一条最小链路：你写下代码，运行环境读取它，屏幕出现结果。
+
+如果不想从空文件开始，可以下载并另存[完整 Hello World 示例](/assets/digital-starter/examples/hello.html)。先亲手完成下面的最小版本，再用示例对照交互和验证方法。
 
 ## 不安装软件的运行方法
 

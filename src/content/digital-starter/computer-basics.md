@@ -2,8 +2,8 @@
 title: "电脑基础速查表"
 description: "电脑基础路线的导航页：按文件、软件、浏览器、输入、办公、同步和安全问题找到对应文档。"
 routeId: "computer"
-status: "building"
-updatedAt: 2026-07-25
+status: "open"
+updatedAt: 2026-07-28
 tags:
   - Windows
   - 电脑基础
@@ -43,6 +43,6 @@ tags:
 
 ## 电脑基础路线
 
-电脑路线已经没有只有入口的空白文档。页面上标记为“基础版 · 持续补充”的内容可以直接阅读，但设备差异、案例或配套文件还会继续增加。
+电脑路线的十个模块、练习和配套下载均已开放。第一次使用建议先完成文件管理与软件安全，再按自己的问题跳读其余模块。
 
 需要工具时，进入[下载中心](/lab/digital-starter/docs/software-toolbox)；需要练习时，进入[实战任务](/lab/digital-starter/docs/tasks)。

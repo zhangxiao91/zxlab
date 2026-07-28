@@ -3,7 +3,7 @@ title: "GitHub 基础"
 description: "认识仓库、提交和远程副本，把一份 README 放进自己的第一个 GitHub 仓库。"
 routeId: "coding"
 status: "open"
-updatedAt: 2026-07-25
+updatedAt: 2026-07-28
 tags:
   - 编程入门
   - GitHub

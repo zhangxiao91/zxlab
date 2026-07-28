@@ -3,7 +3,7 @@ title: "反诈与账号安全基础"
 description: "把散落在软件、下载和电脑使用中的反诈提醒集中起来，遇到催促、授权和转账要求时先停下来核验。"
 routeId: "computer"
 status: "open"
-updatedAt: 2026-07-25
+updatedAt: 2026-07-28
 tags:
   - 反诈
   - 防诈骗

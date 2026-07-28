@@ -57,16 +57,7 @@ const computerRouteHref = "/lab/digital-starter/computer";
               <h3>{route.title}</h3>
               <p>{route.learningOutcome}</p>
               <strong>{route.durationLabel}</strong>
-              {route.detailHref ? (
-                <a href={route.detailHref}>{route.actionLabel}<span aria-hidden="true">↗</span></a>
-              ) : (
-                <button type="button" disabled aria-describedby={`route-unavailable-${route.id}`}>
-                  {route.actionLabel}
-                </button>
-              )}
-              {!route.detailHref && (
-                <small id={`route-unavailable-${route.id}`}>内容准备好后会在这里开放，不会跳转到空页面。</small>
-              )}
+              <a href={route.detailHref}>{route.actionLabel}<span aria-hidden="true">↗</span></a>
             </article>
           ))
         }
@@ -108,8 +99,8 @@ const computerRouteHref = "/lab/digital-starter/computer";
         <h2 id="training-title">digital-starter 也可以作为数字技能培训的配套内容使用。</h2>
       </div>
       <div class="digital-starter-training__actions" aria-label="培训功能">
-        <button type="button" disabled>查看课程安排<span>即将开放</span></button>
-        <button type="button" disabled>打开授课模式<span>即将开放</span></button>
+        <a href="/lab/digital-starter/teaching#course-plan">查看课程安排<span>3 次课完整方案</span></a>
+        <a href="/lab/digital-starter/teaching#facilitator-mode">打开授课模式<span>含讲师清单与计时</span></a>
       </div>
     </section>
 
@@ -118,10 +109,10 @@ const computerRouteHref = "/lab/digital-starter/computer";
         <summary>关于本项目</summary>
         <div>
           <p>
-            这是 zxlab 为准大学生整理的轻量数字技能学习项目。内容会优先补齐真实任务与可直接使用的文档，再逐步扩展 AI 和编程路线。
+            这是 zxlab 为准大学生整理的轻量数字技能学习项目。三条路线均以真实任务、可核验的完成标准和可直接使用的配套文件组织。
           </p>
           <p>
-            页面内容由统一的数据结构维护，后续可以继续接入课程安排、授课模式、示例文件和培训资料。当前更新记录仅供了解项目进度。
+            页面内容由统一的数据结构维护，课程安排、授课模式、示例文件和培训资料均已接入。更新记录用于说明内容演进。
           </p>
           <ol>
             {digitalStarterUpdates.map((update) => <li><time>{update.date}</time><span>{update.title}</span></li>)}

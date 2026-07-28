@@ -108,10 +108,9 @@ const principles = [
               <section class="digital-starter-toolbox-category" id={categoryId} aria-labelledby={`${categoryId}-title`}>
                 <div class="digital-starter-toolbox-category__heading">
                   <h3 id={`${categoryId}-title`}>{category}</h3>
-                  <span>{tools.length > 0 ? "选择建议" : digitalStarterStatusLabels.placeholder}</span>
+                  <span>选择建议</span>
                 </div>
-                {tools.length > 0 ? (
-                  <div class="digital-starter-tool-grid">
+                <div class="digital-starter-tool-grid">
                     {tools.map((tool) => (
                       <article class="digital-starter-tool-card" data-starter-reveal>
                         <div class="digital-starter-tool-card__top">
@@ -175,10 +174,7 @@ const principles = [
                         </div>
                       </article>
                     ))}
-                  </div>
-                ) : (
-                  <p class="digital-starter-toolbox-empty">这类工具尚未整理完成，当前不提供跳转入口。</p>
-                )}
+                </div>
               </section>
             );
           })

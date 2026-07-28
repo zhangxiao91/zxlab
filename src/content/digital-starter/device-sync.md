@@ -3,7 +3,7 @@ title: "跨设备同步方案"
 description: "区分临时传输、长期同步和重要备份，给手机、电脑和平板安排合适工具。"
 routeId: "computer"
 status: "open"
-updatedAt: 2026-07-25
+updatedAt: 2026-07-28
 tags:
   - 跨设备
   - 同步

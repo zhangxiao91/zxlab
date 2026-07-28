@@ -3,7 +3,7 @@ title: "找官网、下载与安装"
 description: "选择一个确实需要的小工具，走完核对官网、下载安装包、安装和检查结果的完整流程。"
 routeId: "computer"
 status: "open"
-updatedAt: 2026-07-25
+updatedAt: 2026-07-28
 tags:
   - 实战任务
   - 软件下载

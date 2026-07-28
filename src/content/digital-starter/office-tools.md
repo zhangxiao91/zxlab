@@ -3,7 +3,7 @@ title: "办公工具速讲"
 description: "解决 PDF、Excel、PowerPoint、Word 和邮件中最常见的阅读、编辑、导出、提交与协作问题。"
 routeId: "computer"
 status: "open"
-updatedAt: 2026-07-25
+updatedAt: 2026-07-28
 tags:
   - PDF
   - Excel

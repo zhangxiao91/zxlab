@@ -3,7 +3,7 @@ title: "电脑故障排查"
 description: "从任务管理器、磁盘空间和网络连接开始，先做安全的基础排查，再清楚地描述问题。"
 routeId: "computer"
 status: "open"
-updatedAt: 2026-07-25
+updatedAt: 2026-07-28
 tags:
   - 排查
   - Windows
