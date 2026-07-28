@@ -34,6 +34,9 @@
       "preview_bucket_name": "zxdrop-files-preview"
     }
   ],
+  "services": [
+    { "binding": "SIGNAL", "service": "zx-signal" }
+  ],
   "d1_databases": [
     {
       "binding": "DB",

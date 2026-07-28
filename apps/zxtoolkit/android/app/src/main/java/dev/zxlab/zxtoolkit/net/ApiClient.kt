@@ -13,6 +13,7 @@ import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
 import java.io.IOException
+import java.time.LocalDate
 import okio.BufferedSink
 import okio.buffer
 
@@ -73,6 +74,9 @@ class ApiClient(
     suspend fun publishPulse(credential: DeviceCredential, snapshot: PulseSnapshot) {
         call<AcceptedResponse>("/api/pulse/snapshots", "POST", snapshot, credential)
     }
+
+    suspend fun todayBriefing(credential: DeviceCredential, date: LocalDate = LocalDate.now()): DailyBriefing =
+        call("/api/briefings/today?date=$date", credential = credential)
 
     fun socketUrl(ticket: TicketResponse): String = url("/api/inbox/events?deviceId=${ticket.deviceId}&ticket=${ticket.ticket}")
         .replaceFirst("https://", "wss://").replaceFirst("http://", "ws://")

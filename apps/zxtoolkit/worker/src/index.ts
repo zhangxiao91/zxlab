@@ -95,6 +95,7 @@ export default {
       if (request.method === "POST" && (url.pathname === "/api/drops" || url.pathname === "/api/transfers")) return createDrop(request, env, cors);
       if (request.method === "GET" && url.pathname === "/api/drops/recent") return recentDrops(request, env, cors);
       if (request.method === "GET" && url.pathname === "/api/inbox") return inbox(request, env, cors);
+      if (request.method === "GET" && url.pathname === "/api/briefings/today") return todayBriefing(request, env, cors);
       if (request.method === "POST" && url.pathname === "/api/inbox/events/ticket") return createInboxEventTicket(request, env, cors);
       if (request.method === "GET" && url.pathname === "/api/inbox/events") return inboxEvents(request, env, cors);
       if (request.method === "POST" && url.pathname === "/api/devices/credential/rotate") return rotateDeviceCredential(request, env, cors);
@@ -263,6 +264,20 @@ async function listDevices(request: Request, env: Env, cors: Headers): Promise<R
   const auth = await authorizeDevice(request, env);
   if (!auth) return problem("DEVICE_UNAUTHORIZED", "设备凭证无效或已被吊销", 401, cors);
   return json({ device: auth.device, pairedDevices: await listPairedDevices(env.DB, auth.device.id) }, 200, cors);
+}
+
+async function todayBriefing(request: Request, env: Env, cors: Headers): Promise<Response> {
+  const auth = await authorizeDevice(request, env);
+  if (!auth) return problem("DEVICE_UNAUTHORIZED", "设备凭证无效或已被吊销", 401, cors);
+  const date = new URL(request.url).searchParams.get("date") ?? "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return problem("INVALID_BRIEFING_DATE", "日报日期无效", 400, cors);
+  const upstream = await env.SIGNAL.fetch(`https://signal.internal/api/briefings/${date}`, {
+    method: "GET",
+  });
+  const headers = new Headers(cors);
+  headers.set("content-type", upstream.headers.get("content-type") ?? "application/json; charset=utf-8");
+  headers.set("cache-control", "private, no-store");
+  return new Response(upstream.body, { status: upstream.status, statusText: upstream.statusText, headers });
 }
 
 async function removeDevice(request: Request, env: Env, targetId: string, cors: Headers): Promise<Response> {

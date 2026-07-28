@@ -7,6 +7,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import dev.zxlab.zxtoolkit.data.InboxEntity
 import dev.zxlab.zxtoolkit.data.Repository
+import dev.zxlab.zxtoolkit.health.HealthAvailability
+import dev.zxlab.zxtoolkit.health.HealthConnectRepository
 import dev.zxlab.zxtoolkit.model.*
 import dev.zxlab.zxtoolkit.net.ApiException
 import dev.zxlab.zxtoolkit.work.UploadWorker
@@ -30,11 +32,18 @@ data class MainUiState(
     val preview: Pair<File, String>? = null,
     val pairingId: String? = null,
     val pairingMacName: String? = null,
+    val briefing: DailyBriefing? = null,
+    val briefingLoading: Boolean = false,
+    val healthAvailability: HealthAvailability = HealthAvailability.UNAVAILABLE,
+    val healthPermissionGranted: Boolean = false,
+    val healthLoading: Boolean = false,
+    val todaySteps: Long? = null,
 )
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val app = application as ZxToolkitApplication
     private val repository = Repository(app, app.container.api, app.container.database, app.container.credentials)
+    private val health = HealthConnectRepository(app)
     private val mutable = MutableStateFlow(MainUiState())
     val state = mutable.asStateFlow()
     val inbox: StateFlow<List<InboxEntity>> = repository.inbox.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -47,11 +56,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun load() {
         val credential = app.container.credentials.credential()
         if (credential == null) {
-            mutable.update { it.copy(loading = false, paired = false) }
+            mutable.update { it.copy(loading = false, paired = false, healthAvailability = health.availability()) }
             return
         }
-        mutable.update { it.copy(loading = false, paired = true, deviceName = credential.device.name, pulseEnabled = app.container.credentials.pulseEnabled()) }
+        mutable.update {
+            it.copy(
+                loading = false,
+                paired = true,
+                deviceName = credential.device.name,
+                pulseEnabled = app.container.credentials.pulseEnabled(),
+                healthAvailability = health.availability(),
+            )
+        }
         refresh()
+        refreshToday()
         connectSocket()
     }
 
@@ -68,6 +86,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         app.container.credentials.saveCredential(credential)
         mutable.update { it.copy(paired = true, deviceName = credential.device.name, pairingId = null, pairingMacName = null, message = "配对成功") }
         refresh()
+        refreshToday()
         connectSocket()
     }
 
@@ -130,6 +149,54 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         app.container.credentials.setPulseEnabled(enabled)
         mutable.update { it.copy(pulseEnabled = enabled) }
         if (enabled) publishPulse(app, "online")
+    }
+
+    fun refreshToday() {
+        refreshBriefing()
+        refreshHealth()
+    }
+
+    fun healthPermissions(): Set<String> = setOf(health.stepsPermission)
+
+    fun onHealthPermissionResult(granted: Set<String>) {
+        if (health.stepsPermission in granted) {
+            refreshHealth()
+        } else {
+            mutable.update { it.copy(healthPermissionGranted = false, todaySteps = null, healthLoading = false) }
+        }
+    }
+
+    private fun refreshBriefing() = runTask(showErrors = false) {
+        val credential = app.container.credentials.credential() ?: return@runTask
+        mutable.update { it.copy(briefingLoading = true) }
+        try {
+            val briefing = app.container.api.todayBriefing(credential)
+            mutable.update { it.copy(briefing = briefing, briefingLoading = false) }
+        } catch (_: Exception) {
+            mutable.update { it.copy(briefing = null, briefingLoading = false) }
+        }
+    }
+
+    private fun refreshHealth() = runTask(showErrors = false) {
+        val availability = health.availability()
+        mutable.update { it.copy(healthAvailability = availability, healthLoading = availability == HealthAvailability.AVAILABLE) }
+        if (availability != HealthAvailability.AVAILABLE) {
+            mutable.update { it.copy(healthPermissionGranted = false, healthLoading = false, todaySteps = null) }
+            return@runTask
+        }
+        try {
+            val granted = health.hasStepsPermission()
+            val steps = if (granted) health.readTodaySteps() else null
+            mutable.update {
+                it.copy(
+                    healthPermissionGranted = granted,
+                    healthLoading = false,
+                    todaySteps = steps,
+                )
+            }
+        } catch (_: Exception) {
+            mutable.update { it.copy(healthLoading = false, todaySteps = null) }
+        }
     }
 
     fun clearMessage() = mutable.update { it.copy(message = null) }

@@ -77,6 +77,40 @@ data class PulseSnapshot(
 
 @Serializable data class PulseDevice(val presence: String, val batteryLevel: String, val charging: Boolean)
 
+@Serializable
+data class DailyBriefing(
+    val id: String,
+    val date: String,
+    val status: String,
+    val title: String,
+    val summary: String,
+    val generatedAt: String,
+    val items: List<BriefingItem> = emptyList(),
+)
+
+@Serializable
+data class BriefingItem(
+    val id: String,
+    val category: String,
+    val title: String,
+    val lede: String? = null,
+    val nutGraf: String? = null,
+    val summary: String,
+    val whyItMatters: String,
+    val keyFacts: List<String> = emptyList(),
+    val implications: String? = null,
+    val watchNext: String? = null,
+    val sources: List<BriefingSource> = emptyList(),
+)
+
+@Serializable
+data class BriefingSource(
+    val id: String,
+    val title: String,
+    val url: String,
+    val publisher: String? = null,
+)
+
 fun classifyText(value: String): DropPayload {
     val clean = value.trim()
     return normalizeHttpUrl(clean)?.let { DropPayload.Url(it) } ?: DropPayload.Text(clean)

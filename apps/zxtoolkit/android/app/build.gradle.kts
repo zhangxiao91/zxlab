@@ -61,6 +61,9 @@ dependencies {
     implementation("androidx.room:room-ktx:2.6.1")
     ksp("androidx.room:room-compiler:2.6.1")
     implementation("androidx.work:work-runtime-ktx:2.10.0")
+    // beta01 provides the aggregate Steps API while remaining compatible with this app's SDK 35 / AGP 8.7 toolchain.
+    implementation("androidx.health.connect:connect-client:1.1.0-beta01")
+    implementation("com.google.guava:guava:31.1-android")
 
     implementation("androidx.camera:camera-camera2:1.4.1")
     implementation("androidx.camera:camera-lifecycle:1.4.1")

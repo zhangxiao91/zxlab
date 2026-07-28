@@ -1,6 +1,6 @@
 # zxtoolkit
 
-zxtoolkit 是连接 Mac 与其他个人设备的轻量工具集，目前包含两个模块和一个原生 Android 客户端：
+zxtoolkit 是连接 Mac 与其他个人设备的轻量工具集，目前包含 Drop、Pulse、ZX Signal 日报入口和一个原生 Android 客户端：
 
 - Drop：已绑定设备之间投递文字、链接与剪贴板图片；旧的 10 分钟扫码图片会话继续兼容。
 - Pulse：设备本地生成脱敏公开快照，服务端校验、短期保存并向 zxlab Status 输出稳定公开 API。
@@ -23,7 +23,7 @@ apps/zxtoolkit/
 └── docs/           当前协议、隐私与接入文档
 ```
 
-Android 原生应用可与现有 Mac 凭证新增配对，支持双向文字、链接、图片和单文件传输。前台使用 WebSocket，后台使用 WorkManager 补拉；Pulse 从系统电池 API 读取真实电量档位和充电状态。
+Android 原生应用可与现有 Mac 凭证新增配对，支持双向文字、链接、图片和单文件传输。前台使用 WebSocket，后台使用 WorkManager 补拉；首页通过设备认证后的 zxtoolkit Worker 读取当天 ZX Signal 日报，并在用户单独授权后从 Health Connect 聚合今天的步数。精确步数只在本机展示，不上传到 Worker、D1 或 Pulse。
 
 ## 本地开发
 
@@ -106,13 +106,13 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 有已连接的真机或 API 35 模拟器时再执行 `./gradlew connectedDebugAndroidTest`。Debug 包固定连接生产 HTTPS Origin；本地 Worker 联调可在 `app/build.gradle.kts` 中临时覆盖 `API_ORIGIN` 和 `APP_ORIGIN`，不要提交局域网地址。
 
-首次运行需要相机权限以扫描 Mac 二维码；Android 13 及以上会请求通知权限。拒绝通知权限不会停止后台同步。系统 Photo Picker 不需要媒体库权限；相机、文件选择与 SAF 保存均使用系统授权的单个 URI。设备 token 使用 Android Keystore AES-GCM 加密，DataStore 不保存明文 token。
+首次运行需要相机权限以扫描 Mac 二维码；Android 13 及以上会请求通知权限。拒绝通知权限不会停止后台同步。步数功能只请求 `READ_STEPS`，在用户点击首页步数卡片时调用 Health Connect 权限页；拒绝后传输与日报功能照常工作。系统 Photo Picker 不需要媒体库权限；相机、文件选择与 SAF 保存均使用系统授权的单个 URI。设备 token 使用 Android Keystore AES-GCM 加密，DataStore 不保存明文 token。
 
-首版只绑定一台 Mac，单文件上限 20 MiB，不支持批量文件、文件夹、分片断点、FCM、Health Connect、端到端加密、Play 商店发布或正式签名。后台 15 分钟是系统调度下限，实际执行时间可能更晚。
+首版只绑定一台 Mac，单文件上限 20 MiB，不支持批量文件、文件夹、分片断点、FCM、端到端加密、Play 商店发布或正式签名。Health Connect 当前只读取并聚合当天步数，不请求后台健康数据权限。后台 15 分钟是系统调度下限，实际执行时间可能更晚。
 
 ## Cloudflare 配置与部署
 
-正式环境使用 Pages、Workers、D1、R2 与 Durable Objects。D1 保存设备、凭证哈希、配对关系、投递元数据和状态事件；R2 只保存短期图片；Durable Objects 负责配对协调、收件箱 WebSocket 和上传配额。
+正式环境使用 Pages、Workers、D1、R2 与 Durable Objects。D1 保存设备、凭证哈希、配对关系、投递元数据和状态事件；R2 只保存短期图片；Durable Objects 负责配对协调、收件箱 WebSocket 和上传配额。zxtoolkit Worker 通过 `SIGNAL` Service Binding 读取指定日期的日报，再经设备认证接口返回给 Android，手机不持有 Signal 管理凭证。
 
 新 Cloudflare 账号需要依次执行：
 
@@ -189,17 +189,18 @@ npm run r2:lifecycle:list
 
 ## 隐私模型
 
-Pulse 默认只接收 presence、电量档位、充电状态、步数档位、生成时间、过期时间和 schemaVersion。服务端会重建白名单对象，任意额外字段不会进入公开响应；快照过期后不再显示。不会上传精确位置、通知、应用列表、精确健康数据或设备 ID。
+Pulse 默认只接收 presence、电量档位、充电状态、步数档位、生成时间、过期时间和 schemaVersion。服务端会重建白名单对象，任意额外字段不会进入公开响应；快照过期后不再显示。Android 从 Health Connect 读取的精确步数不会写入 Pulse。不会上传精确位置、通知、应用列表、精确健康数据或设备 ID。
 
 ## 当前限制
 
-- Web/PWA Pulse 仍使用明确标记的开发态模拟值；Android 使用真实电量档位与充电状态，不接入 Health Connect。
+- Web/PWA Pulse 仍使用明确标记的开发态模拟值；Android 使用真实电量档位与充电状态，并可在前台按授权读取 Health Connect 今日步数，但不会把精确步数发布到 Pulse。
 - 文件/图片生产链路已部署；仍需用真实手机完成一次扫码、图片发送与分享的人工验收。
+- 今日日报依赖生产 zxtoolkit Worker 已配置 `SIGNAL` Service Binding；本地只启动 zxtoolkit Worker 时会显示日报暂不可用。
 - 收件箱使用 WebSocket 实时通知，并保留 30 秒轮询兜底。
 - macOS 包尚未 Developer ID 签名或 notarize。
 
 ## 路线图
 
-1. 在真实 Android 设备上完成耗电、后台调度和厂商 ROM 兼容性测试。
-2. 增加正式签名、Play 内测轨道与可选 FCM 实时通知。
+1. 在真实 Android 设备上完成 Health Connect 授权、步数聚合、耗电、后台调度和厂商 ROM 兼容性测试。
+2. 增加正式签名、Play 内测轨道、Health Apps declaration 与可选 FCM 实时通知。
 3. 增加费用与限流指标面板，并根据真实个人使用数据调整每日 500 次、2 GiB 的默认配额。

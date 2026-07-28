@@ -50,4 +50,19 @@ class ApiClientTest {
         assertEquals("FILE_UNAVAILABLE", error.code)
         assertEquals("文件已过期", error.message)
     }
+
+    @Test fun loadsTodayBriefingThroughDeviceBoundary() = runTest {
+        server.enqueue(
+            MockResponse().setHeader("content-type", "application/json").setBody(
+                """{"id":"briefing-1","date":"2026-07-28","status":"ready","title":"今日信号","summary":"两条值得关注的变化","generatedAt":"2026-07-28T01:00:00Z","items":[{"id":"item-1","category":"zxlab","title":"zxtoolkit 更新","summary":"移动端能力扩展","whyItMatters":"主链路更完整","sources":[]}]}""",
+            ),
+        )
+        val credential = DeviceCredential(Device("android-1", "Pixel", "android", emptyList(), "now"), "secret")
+        val result = api.todayBriefing(credential, java.time.LocalDate.parse("2026-07-28"))
+        assertEquals("今日信号", result.title)
+        assertEquals("zxtoolkit 更新", result.items.single().title)
+        val request = server.takeRequest()
+        assertEquals("/api/briefings/today?date=2026-07-28", request.path)
+        assertEquals("Bearer secret", request.getHeader("Authorization"))
+    }
 }
