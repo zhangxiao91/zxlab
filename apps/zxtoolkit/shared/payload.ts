@@ -28,7 +28,7 @@ export function validateDropPayload(value: unknown): DropPayload | null {
     const fileName = typeof value.fileName === "string" ? value.fileName.trim().slice(0, 180) : "";
     const mimeType = typeof value.mimeType === "string" && allowed.has(value.mimeType) ? value.mimeType as "image/png" | "image/jpeg" | "image/webp" | "image/gif" : null;
     const size = typeof value.size === "number" && Number.isSafeInteger(value.size) ? value.size : 0;
-    if (!fileName || !mimeType || size <= 0 || size > 20 * 1024 * 1024) return null;
+    if (!fileName || !mimeType || size <= 0 || size > 100_000_000) return null;
     const width = "width" in value && typeof value.width === "number" && Number.isSafeInteger(value.width) && value.width > 0 ? value.width : undefined;
     const height = "height" in value && typeof value.height === "number" && Number.isSafeInteger(value.height) && value.height > 0 ? value.height : undefined;
     return { type: "image", fileName, mimeType, size, width, height };
@@ -37,7 +37,7 @@ export function validateDropPayload(value: unknown): DropPayload | null {
     const fileName = typeof value.fileName === "string" ? safeFileName(value.fileName) : "";
     const mimeType = typeof value.mimeType === "string" ? value.mimeType.trim().toLowerCase().slice(0, 120) : "";
     const size = typeof value.size === "number" && Number.isSafeInteger(value.size) ? value.size : 0;
-    if (!fileName || !isSafeFileMime(mimeType) || size <= 0 || size > 20 * 1024 * 1024) return null;
+    if (!fileName || !isSafeFileMime(mimeType) || size <= 0 || size > 100_000_000) return null;
     return { type: "file", fileName, mimeType, size };
   }
   return null;

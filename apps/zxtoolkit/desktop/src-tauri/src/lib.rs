@@ -70,8 +70,8 @@ fn read_screenshot_file(app: tauri::AppHandle, path: String) -> Result<Vec<u8>, 
 
 #[tauri::command]
 fn save_received_file(app: tauri::AppHandle, file_name: String, bytes: Vec<u8>) -> Result<String, String> {
-    if bytes.is_empty() || bytes.len() > 20 * 1024 * 1024 {
-        return Err("文件为空或超过 20 MB".to_string());
+    if bytes.is_empty() || bytes.len() > 100_000_000 {
+        return Err("文件为空或超过 100 MB".to_string());
     }
     let downloads = app.path().download_dir().map_err(|_| "无法定位下载目录".to_string())?;
     let safe_name = safe_file_name(&file_name);

@@ -4,7 +4,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
-const val MAX_FILE_BYTES = 20L * 1024 * 1024
+const val MAX_FILE_BYTES = 100_000_000L
 
 @Serializable
 data class Device(

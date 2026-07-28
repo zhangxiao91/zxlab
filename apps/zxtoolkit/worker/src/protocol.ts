@@ -1,5 +1,5 @@
 export const SESSION_TTL_MS = 10 * 60 * 1000;
-export const MAX_FILE_BYTES = 20 * 1024 * 1024;
+export const MAX_FILE_BYTES = 100_000_000;
 export const ALLOWED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
 
 export type TransferStatus = "uploading" | "ready" | "claimed" | "deleted" | "expired" | "failed";
@@ -42,7 +42,7 @@ export function parseClientMessage(value: string | ArrayBuffer): { type: "ping" 
 export function validateUpload(contentType: string, size: number, maxBytes = MAX_FILE_BYTES): string | null {
   if (!ALLOWED_IMAGE_TYPES.has(contentType.toLowerCase())) return "仅支持 PNG、JPEG、WebP 和 GIF 图片";
   if (!Number.isFinite(size) || size <= 0) return "文件为空或大小无效";
-  if (size > maxBytes) return "单个文件不能超过 20 MB";
+  if (size > maxBytes) return "单个文件不能超过 100 MB";
   return null;
 }
 
@@ -50,7 +50,7 @@ export function validateUploadMetadata(contentType: string, declaredSize: number
   if (!ALLOWED_IMAGE_TYPES.has(contentType.toLowerCase())) return "仅支持 PNG、JPEG、WebP 和 GIF 图片";
   if (declaredSize === null) return null;
   if (!Number.isSafeInteger(declaredSize) || declaredSize <= 0) return "文件为空或大小无效";
-  if (declaredSize > maxBytes) return "单个文件不能超过 20 MB";
+  if (declaredSize > maxBytes) return "单个文件不能超过 100 MB";
   return null;
 }
 

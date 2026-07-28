@@ -23,7 +23,7 @@ describe("desktop clipboard payloads", () => {
     expect(validateDropPayload({ type: "image", fileName: "shot.png", mimeType: "image/png", size: 1024, width: 800, height: 600 })).toEqual({
       type: "image", fileName: "shot.png", mimeType: "image/png", size: 1024, width: 800, height: 600
     });
-    expect(validateDropPayload({ type: "image", fileName: "shot.png", mimeType: "image/png", size: 20 * 1024 * 1024 + 1 })).toBeNull();
+    expect(validateDropPayload({ type: "image", fileName: "shot.png", mimeType: "image/png", size: 100_000_001 })).toBeNull();
     expect(validateDropPayload({ type: "image", fileName: "shot.svg", mimeType: "image/svg+xml", size: 1024 })).toBeNull();
   });
 
@@ -33,7 +33,7 @@ describe("desktop clipboard payloads", () => {
     });
     expect(payloadForFile({ name: "photo.webp", type: "image/webp", size: 1024 })?.type).toBe("image");
     expect(payloadForFile({ name: "notes.txt", type: "text/plain", size: 1024 })?.type).toBe("file");
-    expect(payloadForFile({ name: "huge.zip", type: "application/zip", size: 20 * 1024 * 1024 + 1 })).toBeNull();
+    expect(payloadForFile({ name: "huge.zip", type: "application/zip", size: 100_000_001 })).toBeNull();
     const payload = validateDropPayload({ type: "file", fileName: "archive.zip", mimeType: "application/zip", size: 1024 });
     expect(payload && isBinaryDropPayload(payload)).toBe(true);
   });

@@ -257,7 +257,7 @@ private fun TodayPage(
         }
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                HealthMetricCard(state, onRequestHealth, Modifier.weight(1f))
+                HealthMetricCard(state, onRequestHealth, onRefresh, Modifier.weight(1f))
                 MetricCard(
                     icon = Icons.Outlined.MoveToInbox,
                     title = "待处理",
@@ -293,17 +293,23 @@ private fun TodayPage(
 }
 
 @Composable
-private fun HealthMetricCard(state: MainUiState, onRequestHealth: () -> Unit, modifier: Modifier = Modifier) {
+private fun HealthMetricCard(
+    state: MainUiState,
+    onRequestHealth: () -> Unit,
+    onRefresh: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val available = state.healthAvailability == HealthAvailability.AVAILABLE
     val value = when {
         state.healthLoading -> "…"
-        state.healthPermissionGranted -> state.todaySteps?.toString() ?: "0"
+        state.healthPermissionGranted -> state.todaySteps?.toString() ?: "暂无"
         available -> "授权"
         state.healthAvailability == HealthAvailability.UPDATE_REQUIRED -> "更新"
         else -> "不可用"
     }
     val caption = when {
-        state.healthPermissionGranted -> "Health Connect · 仅本机"
+        state.healthPermissionGranted && state.todaySteps != null -> "Health Connect · 仅本机"
+        state.healthPermissionGranted -> "暂无记录 · 授权后重新走几步"
         available -> "读取今天的步数"
         state.healthAvailability == HealthAvailability.UPDATE_REQUIRED -> "需更新 Health Connect"
         else -> "当前设备不支持"
@@ -315,7 +321,11 @@ private fun HealthMetricCard(state: MainUiState, onRequestHealth: () -> Unit, mo
         caption = caption,
         accent = Moss,
         modifier = modifier,
-        onClick = if (available && !state.healthPermissionGranted) onRequestHealth else null,
+        onClick = when {
+            !available -> null
+            state.healthPermissionGranted -> onRefresh
+            else -> onRequestHealth
+        },
     )
 }
 
@@ -588,7 +598,7 @@ private fun SendPage(viewModel: MainViewModel) {
                 SendTool(Icons.Outlined.AttachFile, "文件", Modifier.weight(1f)) { document.launch(arrayOf("*/*")) }
             }
         }
-        item { Text("文件通过临时加密连接传输；单个文件最大 20 MiB。", style = MaterialTheme.typography.bodySmall) }
+        item { Text("文件通过临时加密连接传输；单个文件最大 100 MB。", style = MaterialTheme.typography.bodySmall) }
     }
 }
 

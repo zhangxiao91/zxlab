@@ -31,7 +31,7 @@ describe("transfer rules", () => {
   it("validates MIME type and size", () => {
     expect(validateUpload("image/png", 1024)).toBeNull();
     expect(validateUpload("application/pdf", 1024)).toContain("PNG");
-    expect(validateUpload("image/png", 20 * 1024 * 1024 + 1)).toContain("20 MB");
+    expect(validateUpload("image/png", 100_000_001)).toContain("100 MB");
   });
 
   it("allows only valid transfer state transitions", () => {

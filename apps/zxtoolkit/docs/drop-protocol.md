@@ -1,6 +1,6 @@
 # Drop protocol
 
-认证请求同时携带 Bearer token 与 `X-Device-Id`。`POST /api/drops` 接受 `text`、`url`、`image` 与 `file`；图片和普通文件随后通过 `POST /api/transfers/:id/content` 上传。单个二进制内容最大 20 MiB。`GET /api/inbox` 支持游标分页，`POST /api/inbox/events/ticket` 创建一次性 WebSocket ticket，`GET /api/inbox/events` 接收实时投递通知。
+认证请求同时携带 Bearer token 与 `X-Device-Id`。`POST /api/drops` 接受 `text`、`url`、`image` 与 `file`；图片和普通文件随后通过 `POST /api/transfers/:id/content` 上传。单个二进制内容最大 100 MB（100,000,000 字节）。`GET /api/inbox` 支持游标分页，`POST /api/inbox/events/ticket` 创建一次性 WebSocket ticket，`GET /api/inbox/events` 接收实时投递通知。
 
 图片由 `GET /api/transfers/:id/download` 读取，客户端完成预览、分享或下载后通过 `PATCH /api/transfers/:id/status` 标记 opened 或 claimed。状态只能按 `pending → delivered → opened/claimed` 前进，并发重复领取不会倒退状态。claimed 后 R2 对象立即删除。
 

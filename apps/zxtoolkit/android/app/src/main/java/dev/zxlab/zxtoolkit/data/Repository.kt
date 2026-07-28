@@ -53,7 +53,7 @@ class Repository(
 
     suspend fun queueUri(uri: Uri, targetId: String): String {
         val metadata = contentMetadata(uri)
-        require(metadata.size <= MAX_FILE_BYTES) { "单个文件不能超过 20 MiB" }
+        require(metadata.size <= MAX_FILE_BYTES) { "单个文件不能超过 100 MB" }
         val cacheDir = File(context.cacheDir, "outgoing").apply { mkdirs() }
         val localId = UUID.randomUUID().toString()
         val file = File(cacheDir, localId)
@@ -66,7 +66,7 @@ class Repository(
                         val read = input.read(buffer)
                         if (read < 0) break
                         total += read
-                        require(total <= MAX_FILE_BYTES) { "单个文件不能超过 20 MiB" }
+                        require(total <= MAX_FILE_BYTES) { "单个文件不能超过 100 MB" }
                         output.write(buffer, 0, read)
                     }
                 }

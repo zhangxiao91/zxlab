@@ -1,6 +1,6 @@
-export const MAX_FILE_SIZE = 20 * 1024 * 1024;
+export const MAX_FILE_SIZE = 100_000_000;
 export const MAX_FILES = 10;
-export const MAX_TOTAL_SIZE = 50 * 1024 * 1024;
+export const MAX_TOTAL_SIZE = 100_000_000;
 export const ALLOWED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
 
 export function formatBytes(bytes: number): string {
@@ -13,8 +13,8 @@ export function validateFiles(files: File[]): string | null {
   if (!files.length) return "没有找到可发送的文件";
   if (files.length > MAX_FILES) return `一次最多发送 ${MAX_FILES} 个文件`;
   if (!ALLOWED_IMAGE_TYPES.has(files[0]?.type.toLowerCase())) return "当前版本仅支持 PNG、JPEG、WebP 和 GIF 图片";
-  if (files.some((file) => file.size > MAX_FILE_SIZE)) return "单个文件不能超过 20 MB";
-  if (files.reduce((sum, file) => sum + file.size, 0) > MAX_TOTAL_SIZE) return "单次文件总大小不能超过 50 MB";
+  if (files.some((file) => file.size > MAX_FILE_SIZE)) return "单个文件不能超过 100 MB";
+  if (files.reduce((sum, file) => sum + file.size, 0) > MAX_TOTAL_SIZE) return "单次文件总大小不能超过 100 MB";
   return null;
 }
 

@@ -31,7 +31,7 @@ export function SendPanel({ credential, onSent }: { credential: DeviceCredential
     const payload = file ? payloadForFile(file) : text.trim() ? classifyClipboard(text) : null;
     if (!payload) {
       setStatus("error");
-      setMessage(file ? "文件无效或超过 20 MB" : "请输入文字、链接，或选择图片和文件");
+      setMessage(file ? "文件无效或超过 100 MB" : "请输入文字、链接，或选择图片和文件");
       return;
     }
     setStatus("sending");
@@ -56,8 +56,8 @@ export function SendPanel({ credential, onSent }: { credential: DeviceCredential
     if (!selected) return;
     setFile(selected);
     setText("");
-    setMessage(selected.size > 20 * 1024 * 1024 ? "单个文件不能超过 20 MB" : "");
-    setStatus(selected.size > 20 * 1024 * 1024 ? "error" : "idle");
+    setMessage(selected.size > 100_000_000 ? "单个文件不能超过 100 MB" : "");
+    setStatus(selected.size > 100_000_000 ? "error" : "idle");
   }
 
   return <section className="send-panel">

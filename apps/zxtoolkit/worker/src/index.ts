@@ -450,7 +450,7 @@ async function uploadTransferContent(request: Request, env: Env, transferId: str
     await env.FILES.delete(objectKey);
     await quota.rollback(maxBytes);
     await failTransfer(env.DB, transferId, auth.device.id, cause instanceof BodyTooLargeError ? "FILE_TOO_LARGE" : "UPLOAD_FAILED");
-    if (cause instanceof BodyTooLargeError) return problem("FILE_TOO_LARGE", "单个文件不能超过 20 MB", 413, cors);
+    if (cause instanceof BodyTooLargeError) return problem("FILE_TOO_LARGE", "单个文件不能超过 100 MB", 413, cors);
     if (cause instanceof Error && cause.message === "EMPTY_FILE") return problem("EMPTY_FILE", "文件内容为空", 400, cors);
     throw cause;
   }
@@ -569,7 +569,7 @@ async function uploadFile(request: Request, env: Env, sessionId: string, cors: H
     await env.FILES.delete(objectKey);
     await quota.rollback(maxBytes);
     await stub.failTransfer(token, transferId);
-    if (cause instanceof BodyTooLargeError) return problem("FILE_TOO_LARGE", "单个文件不能超过 20 MB", 413, cors);
+    if (cause instanceof BodyTooLargeError) return problem("FILE_TOO_LARGE", "单个文件不能超过 100 MB", 413, cors);
     if (cause instanceof Error && cause.message === "EMPTY_FILE") return problem("EMPTY_FILE", "文件为空", 400, cors);
     throw cause;
   }
@@ -674,7 +674,7 @@ function validateBinaryMetadata(contentType: string, declaredSize: number | null
   if (!/^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/i.test(contentType)) return "文件类型无效";
   if (declaredSize === null) return null;
   if (!Number.isSafeInteger(declaredSize) || declaredSize <= 0) return "文件为空或大小无效";
-  if (declaredSize > maxBytes) return "单个文件不能超过 20 MB";
+  if (declaredSize > maxBytes) return "单个文件不能超过 100 MB";
   return null;
 }
 

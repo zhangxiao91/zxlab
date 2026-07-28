@@ -33,8 +33,8 @@ class ModelsTest {
         assertEquals(DropPayload.File("report.pdf", "application/pdf", 42), json.decodeFromString<DropPayload>(encoded))
     }
 
-    @Test fun fileLimitIsExactlyTwentyMiB() {
-        assertEquals(20L * 1024 * 1024, MAX_FILE_BYTES)
+    @Test fun fileLimitMatchesCloudflareOneHundredMegabytes() {
+        assertEquals(100_000_000L, MAX_FILE_BYTES)
         assertTrue(MAX_FILE_BYTES + 1 > MAX_FILE_BYTES)
     }
 }

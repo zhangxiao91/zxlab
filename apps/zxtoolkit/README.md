@@ -66,7 +66,7 @@ cd apps/zxtoolkit
 npx wrangler secret put TURNSTILE_SECRET_KEY --config worker/wrangler.jsonc
 ```
 
-Worker 还使用 `APP_ORIGIN`、`ZXLAB_ORIGIN`、`ENVIRONMENT`、`TURNSTILE_EXPECTED_HOSTNAMES`、`SESSION_TTL_SECONDS`、`PAIRING_TTL_SECONDS`、`DROP_TTL_SECONDS`、`DROP_RECORD_RETENTION_SECONDS`、`DAILY_DROP_LIMIT`、`MAX_FILE_BYTES`、`DAILY_UPLOAD_LIMIT` 与 `DAILY_UPLOAD_BYTES`。默认每日最多 200 次内容投递、500 次上传、总计 2 GiB；单文件硬上限仍为 20 MiB。旧 `VITE_API_BASE_URL` 与 `VITE_PUBLIC_APP_URL` 暂时作为兼容输入。
+Worker 还使用 `APP_ORIGIN`、`ZXLAB_ORIGIN`、`ENVIRONMENT`、`TURNSTILE_EXPECTED_HOSTNAMES`、`SESSION_TTL_SECONDS`、`PAIRING_TTL_SECONDS`、`DROP_TTL_SECONDS`、`DROP_RECORD_RETENTION_SECONDS`、`DAILY_DROP_LIMIT`、`MAX_FILE_BYTES`、`DAILY_UPLOAD_LIMIT` 与 `DAILY_UPLOAD_BYTES`。默认每日最多 200 次内容投递、500 次上传、总计 2 GiB；单文件硬上限为 100 MB（100,000,000 字节，以适配 Cloudflare Free/Pro 请求体上限）。旧 `VITE_API_BASE_URL` 与 `VITE_PUBLIC_APP_URL` 暂时作为兼容输入。
 
 生产 API 使用自定义域名 `https://zxtoolkit-api.zx-dx.xyz`，避免客户端依赖 `workers.dev`。
 
@@ -108,7 +108,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 首次运行需要相机权限以扫描 Mac 二维码；Android 13 及以上会请求通知权限。拒绝通知权限不会停止后台同步。步数功能只请求 `READ_STEPS`，在用户点击首页步数卡片时调用 Health Connect 权限页；拒绝后传输与日报功能照常工作。系统 Photo Picker 不需要媒体库权限；相机、文件选择与 SAF 保存均使用系统授权的单个 URI。设备 token 使用 Android Keystore AES-GCM 加密，DataStore 不保存明文 token。
 
-首版只绑定一台 Mac，单文件上限 20 MiB，不支持批量文件、文件夹、分片断点、FCM、端到端加密、Play 商店发布或正式签名。Health Connect 当前只读取并聚合当天步数，不请求后台健康数据权限。后台 15 分钟是系统调度下限，实际执行时间可能更晚。
+首版只绑定一台 Mac，单文件上限 100 MB，不支持批量文件、文件夹、分片断点、FCM、端到端加密、Play 商店发布或正式签名。Health Connect 当前只读取并聚合当天步数，不请求后台健康数据权限；没有步数记录时显示“暂无”，不再伪装成 0。后台 15 分钟是系统调度下限，实际执行时间可能更晚。
 
 ## Cloudflare 配置与部署
 
@@ -156,7 +156,7 @@ Tauri 使用 `APPLE_SIGNING_IDENTITY` 和 `APPLE_TEAM_ID` 签名，并通过 App
 - 配对码为短期、一次性高熵标识，并对创建接口限流。
 - 长期设备 token 只在客户端返回一次；服务端 D1 仅保存 SHA-256 摘要，支持轮换和吊销。
 - 设备只能读取发给自己的投递，图片下载必须携带目标设备凭证，R2 不公开。
-- 图片限制 PNG、JPEG、WebP、GIF 和 20 MiB，并同时检查 MIME、实际字节数和文件签名。
+- 图片限制 PNG、JPEG、WebP、GIF 和 100 MB，并同时检查 MIME、实际字节数和文件签名。
 - WebSocket 使用 60 秒一次性票据，不把长期 token 放进 URL。
 - CORS 仅允许配置的 Pages、zxlab、Tauri 和本地开发来源；日志不记录正文和完整 token。
 - 当前版本依赖 HTTPS 传输加密与短期访问控制，浏览器端端到端加密仍属于下一阶段。
@@ -165,7 +165,7 @@ Tauri 使用 `APPLE_SIGNING_IDENTITY` 和 `APPLE_TEAM_ID` 签名，并通过 App
 
 - 创建会话必须通过 Turnstile，并限制为每个来源每分钟 5 次。
 - 每个会话每分钟最多上传 10 次、下载 60 次，且整个会话最多尝试上传 20 次。
-- Worker 实际读取并计算上传字节，不信任 `Content-Length`；超过 20 MiB 会中止，图片 MIME 与文件签名必须匹配。
+- Worker 实际读取并计算上传字节，不信任 `Content-Length`；超过 100 MB 会中止，图片 MIME 与文件签名必须匹配。
 - UTC 每日配额由按日期分片的 `UploadQuota` Durable Object 强一致维护。
 - 10 分钟过期与领取即删由会话负责；R2 一天生命周期规则作为异常兜底。
 - 已绑定设备的 Drop 默认 24 小时过期；二进制图片领取后立即从 R2 删除，过期元数据在额外 7 天后由定时任务清理。
