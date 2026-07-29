@@ -13,6 +13,8 @@ import { CollectionService } from "../src/services/collection-service";
 import { DailySignalPipeline, selectBalancedDailyCandidates } from "../src/services/daily-signal-pipeline";
 import { handleAdmin } from "../src/routes/admin";
 import { BriefingRepository } from "../src/repositories/briefing-repository";
+import { SignalError } from "../src/lib/errors";
+import { GatewayRequestError } from "../src/services/gateway-client";
 import type {
   AnnotationReplyInput,
   EditorialFilterInput,
@@ -98,6 +100,17 @@ class PipelineLLM implements SignalLLM {
 
   async replyToAnnotation(_input: AnnotationReplyInput): Promise<AnnotationReplyDraft> { return { reply: "unused" }; }
   async extractMemory(_input: MemoryExtractionInput): Promise<MemoryCandidateDraft | null> { return null; }
+}
+
+class TransientEditorialFailureLLM extends PipelineLLM {
+  override async filterCandidates(): Promise<never> {
+    throw new SignalError(
+      "MODEL_REQUEST_FAILED",
+      "The model request failed",
+      502,
+      new GatewayRequestError("GATEWAY_502_ALL_CANDIDATES_FAILED", "Project AI gateway failed with ALL_CANDIDATES_FAILED"),
+    );
+  }
 }
 
 describe("Daily Signal pipeline", () => {
@@ -203,6 +216,38 @@ describe("Daily Signal pipeline", () => {
       briefing_date: "2026-07-19",
       data_origin: "real",
       collection_run_id: result.collectionRunId,
+    });
+  });
+
+  it("continues with an auditable deterministic shortlist when the editorial gateway is temporarily unavailable", async () => {
+    const fallbackCollector: SignalCollector = {
+      type: "rss",
+      async collect() {
+        return [{
+          externalId: "scheduled-editorial-fallback",
+          title: "Scheduled editorial fallback test",
+          url: "https://developers.cloudflare.com/changelog/scheduled-editorial-fallback",
+          summary: "A candidate that reaches the deterministic editorial fallback.",
+          publishedAt: "2026-07-29T22:00:00.000Z",
+        }];
+      },
+    };
+    const collectors = new Map<SignalSourceType, SignalCollector>([["rss", fallbackCollector]]);
+    const collection = new CollectionService(env, collectors);
+    const pipeline = new DailySignalPipeline(env, collection, new TransientEditorialFailureLLM());
+
+    const result = await pipeline.run(Date.parse("2026-07-29T23:30:00.000Z"), {
+      sourceIds: ["cloudflare-developer-platform"],
+    });
+
+    const run = await env.DB.prepare("SELECT status, selected_count FROM briefing_runs WHERE id = ?")
+      .bind(result.briefingRunId).first<{ status: string; selected_count: number }>();
+    const decision = await env.DB.prepare("SELECT editorial_decision, editorial_reason FROM candidate_signals WHERE collection_run_id = ?")
+      .bind(result.collectionRunId).first<{ editorial_decision: string; editorial_reason: string }>();
+    expect(run).toEqual({ status: "succeeded", selected_count: 1 });
+    expect(decision).toEqual({
+      editorial_decision: "keep",
+      editorial_reason: "Deterministic fallback after a temporary editorial gateway failure.",
     });
   });
 });

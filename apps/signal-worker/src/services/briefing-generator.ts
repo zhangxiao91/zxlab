@@ -10,8 +10,39 @@ import { CollectionRepository } from "../repositories/collection-repository";
 import { fixtureCandidate } from "./candidate-normalizer";
 import { buildStoryDossiers, selectStoryDossiers } from "./story-context";
 import type { CandidateEditorialDecision } from "@zxlab/signal-schema";
+import { GatewayRequestError } from "./gateway-client";
 
 const HISTORY_WINDOW_DAYS = 30;
+const EDITORIAL_FALLBACK_LIMIT = 8;
+const EDITORIAL_FALLBACK_REASON = "Deterministic fallback after a temporary editorial gateway failure.";
+
+function transientEditorialFailure(cause: unknown): GatewayRequestError | Error | undefined {
+  let current = cause;
+  for (let depth = 0; depth < 4 && current instanceof Error; depth += 1) {
+    if (current instanceof GatewayRequestError && (
+      current.failureCode.includes("ALL_CANDIDATES_FAILED")
+      || current.failureCode.includes("TIMEOUT")
+      || current.failureCode.startsWith("FETCH_")
+    )) return current;
+    if (current.name === "TimeoutError" || current instanceof TypeError) return current;
+    current = "cause" in current ? current.cause : undefined;
+  }
+  return undefined;
+}
+
+export function deterministicEditorialFallback(candidates: CandidateSignal[]): CandidateEditorialDecision[] {
+  return candidates.map((candidate, index) => ({
+    candidateId: candidate.id,
+    decision: index < EDITORIAL_FALLBACK_LIMIT ? "keep" as const : "drop" as const,
+    category: candidate.categoryHint,
+    relevance: index < EDITORIAL_FALLBACK_LIMIT ? 60 : 40,
+    novelty: index < EDITORIAL_FALLBACK_LIMIT ? 60 : 40,
+    actionability: 50,
+    sourceQuality: 60,
+    reason: EDITORIAL_FALLBACK_REASON,
+    relatedMemoryIds: [],
+  }));
+}
 
 export function selectSynthesisCandidates(candidates: CandidateSignal[], decisions: CandidateEditorialDecision[]): CandidateSignal[] {
   const kept = new Set(decisions.filter((decision) => decision.decision === "keep").map((decision) => decision.candidateId));
@@ -79,7 +110,21 @@ export class BriefingGenerator {
           this.briefings.recentItemsBefore(input.date),
         ]);
         storyDossiers = buildStoryDossiers(input.candidates, historicalCandidates, priorCoverage);
-        const decisions = await this.llm.filterCandidates({ candidates: input.candidates, memories, storyDossiers, runId });
+        let decisions: CandidateEditorialDecision[];
+        try {
+          decisions = await this.llm.filterCandidates({ candidates: input.candidates, memories, storyDossiers, runId });
+        } catch (cause) {
+          const transient = transientEditorialFailure(cause);
+          if (!transient) throw cause;
+          decisions = deterministicEditorialFallback(input.candidates);
+          console.warn(JSON.stringify({
+            event: "signal.editorial_filter.fallback",
+            runId,
+            candidateCount: input.candidates.length,
+            keptCount: decisions.filter((decision) => decision.decision === "keep").length,
+            reason: transient instanceof GatewayRequestError ? transient.failureCode : transient.name,
+          }));
+        }
         await this.candidates.saveEditorialDecisions(decisions);
         synthesisCandidates = selectSynthesisCandidates(input.candidates, decisions);
         if (synthesisCandidates.length === 0) throw new SignalError("NO_ELIGIBLE_CANDIDATES", "Editorial filter kept no candidates", 422);
