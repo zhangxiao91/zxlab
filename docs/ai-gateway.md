@@ -13,15 +13,21 @@ credential, model selection, or fallback decision is shipped to the browser.
 3. The Pages Function enforces access controls and validates method, content
    type, body size, task, messages, temperature, output-token limit, and allowed
    fields.
-4. The task-policy layer applies safe defaults and task-specific caps.
-5. The router attempts the centrally configured candidates in this exact order:
-   Provider 1 GPT-5.6, Provider 1 GPT-5.5, Provider 2 GPT-5.5, DeepSeek V4 Pro.
-6. An OpenAI-compatible adapter owns the Chat Completions request format. The
+4. The task-policy layer applies safe defaults and task-specific caps. Known
+   lightweight tasks select a deterministic low-cost tier.
+5. Ambiguous tasks use the non-recursive selector chain DeepSeek V4 Flash,
+   Terra Provider 1, then Terra Provider 2. Selector exhaustion uses the task
+   default and never fails the business request.
+6. The routing planner expands the selected capability tier into providers,
+   switching provider before lowering capability. The full capability order is
+   Sol, Kimi K3, Terra, then DeepSeek V4 Flash. Sol and Terra each have two
+   independent provider candidates.
+7. An OpenAI-compatible adapter owns the Chat Completions request format. The
    named DeepSeek adapter currently reuses that wire format while preserving a
    provider-specific extension point.
-7. Structured output is parsed on the server. A single outer JSON Markdown fence
+8. Structured output is parsed on the server. A single outer JSON Markdown fence
    is accepted; damaged JSON is never heuristically repaired.
-8. The logger emits one sanitized record per attempt and one request summary.
+9. The logger emits one sanitized record per attempt and one request summary.
 
 The streaming route asks the selected provider for Chat Completions SSE and
 forwards bounded text deltas without exposing provider credentials. Its event
@@ -117,22 +123,31 @@ not currently have a root Wrangler configuration from which to generate types.
 Required provider settings:
 
 ```env
-PROVIDER1_BASE_URL=
-PROVIDER1_API_KEY=
-PROVIDER1_GPT56_MODEL=
-PROVIDER1_GPT55_MODEL=
+GPT_PROVIDER1_BASE_URL=
+GPT_PROVIDER1_API_KEY=
+GPT_PROVIDER1_SOL_MODEL=
+GPT_PROVIDER1_TERRA_MODEL=
 
-PROVIDER2_BASE_URL=
-PROVIDER2_API_KEY=
-PROVIDER2_GPT55_MODEL=
+GPT_PROVIDER2_BASE_URL=
+GPT_PROVIDER2_SOL_API_KEY=
+GPT_PROVIDER2_TERRA_API_KEY=
+GPT_PROVIDER2_SOL_MODEL=
+GPT_PROVIDER2_TERRA_MODEL=
 
-DEEPSEEK_BASE_URL=
+KIMI_BASE_URL=https://api.moonshot.ai/v1
+KIMI_API_KEY=
+KIMI_K3_MODEL=
+
+DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_API_KEY=
-DEEPSEEK_V4_PRO_MODEL=
+DEEPSEEK_FLASH_MODEL=deepseek-v4-flash
 ```
 
 The model values are deliberately environment-specific. They may be official
 IDs or relay-provider IDs; source code never assumes they are identical.
+Provider 2's Sol and Terra credentials are deliberately separate. The selector
+cannot choose a provider or arbitrary model string; it returns only a validated
+capability tier, confidence, and reason code.
 
 Security settings:
 
@@ -228,14 +243,19 @@ error code.
 ## Usage telemetry
 
 Each actual provider attempt is recorded in the existing `zx-signal` D1 database
-after the gateway has determined its terminal attempt outcome. Apply migration
-`0004_llm_usage_events.sql`, then bind that same database to the Pages project
-as `LLM_USAGE_DB`. Writes use `waitUntil` when available and are best effort:
+after the gateway has determined its terminal attempt outcome. Apply migrations
+`0004_llm_usage_events.sql` and `0008_gateway_routing_telemetry.sql`, then bind
+that same database to the Pages project as `LLM_USAGE_DB`. Writes use
+`waitUntil` when available and are best effort:
 a telemetry failure never changes an AI response.
 
 `request_id` identifies a logical request; a row identifies a provider attempt.
 Retry attempts receive their own row, while `fallback_depth` tracks the selected
-candidate in the configured chain. The event table intentionally excludes
+candidate in the configured chain. Attempt rows also retain the sanitized
+candidate ID, capability tier, provider instance, and provider HTTP status.
+`llm_routing_events` records the selected tier, task-default versus selector
+source, reason code, selector fallback, sanitized selector attempt trace, and
+the expanded route candidate IDs. Both tables intentionally exclude
 prompts, responses, headers, credentials, and caller metadata. Token fields are
 only persisted when the provider returned them. Pricing is deliberately empty
 until provider-confirmed prices are added to `functions/_lib/ai/telemetry.ts`.

@@ -1,18 +1,24 @@
 # Copy to .dev.vars for Cloudflare Pages local development. Never commit real values.
 ENVIRONMENT=development
 
-PROVIDER1_BASE_URL=https://provider-1.example/v1
-PROVIDER1_API_KEY=
-PROVIDER1_GPT56_MODEL=
-PROVIDER1_GPT55_MODEL=
+GPT_PROVIDER1_BASE_URL=https://provider-1.example/v1
+GPT_PROVIDER1_API_KEY=
+GPT_PROVIDER1_SOL_MODEL=
+GPT_PROVIDER1_TERRA_MODEL=
 
-PROVIDER2_BASE_URL=https://provider-2.example/v1
-PROVIDER2_API_KEY=
-PROVIDER2_GPT55_MODEL=
+GPT_PROVIDER2_BASE_URL=https://provider-2.example/v1
+GPT_PROVIDER2_SOL_API_KEY=
+GPT_PROVIDER2_TERRA_API_KEY=
+GPT_PROVIDER2_SOL_MODEL=
+GPT_PROVIDER2_TERRA_MODEL=
 
-DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
+KIMI_BASE_URL=https://api.moonshot.ai/v1
+KIMI_API_KEY=
+KIMI_K3_MODEL=
+
+DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_API_KEY=
-DEEPSEEK_V4_PRO_MODEL=
+DEEPSEEK_FLASH_MODEL=deepseek-v4-flash
 
 # Optional in development. Set this in production unless a supported
 # AI_RATE_LIMITER binding and application authentication are present.

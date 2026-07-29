@@ -15,6 +15,8 @@ export interface LLMUsageEvent {
   estimatedCostUsd?: number; latencyMs: number; status: LLMUsageStatus;
   errorType?: string; errorCode?: string; fallbackDepth: number;
   fallbackFromProvider?: string; fallbackFromModel?: string; isStreaming: boolean;
+  candidateId: string; capabilityTier: string; providerInstance: string;
+  providerStatusCode?: number;
 }
 
 export const LLM_PRICING_UPDATED_AT = "unconfigured";
@@ -53,7 +55,7 @@ export function telemetryStatus(error?: AIErrorCode): LLMUsageStatus {
 
 export function createUsageEvent(input: {
   requestId: string; context: ReturnType<typeof resolveCallContext>; candidate: ModelCandidate; previousCandidate?: ModelCandidate;
-  fallbackDepth: number; latencyMs: number; status: LLMUsageStatus; usage?: AIUsage; errorCode?: AIErrorCode; isStreaming?: boolean;
+  fallbackDepth: number; latencyMs: number; status: LLMUsageStatus; usage?: AIUsage; errorCode?: AIErrorCode; providerStatusCode?: number; isStreaming?: boolean;
 }): LLMUsageEvent {
   const usage = normalizeUsage(input.usage);
   const event = {
@@ -63,6 +65,8 @@ export function createUsageEvent(input: {
     reasoningTokens: usage?.reasoningTokens, totalTokens: usage?.totalTokens, latencyMs: Math.max(0, Math.trunc(input.latencyMs)),
     status: input.status, ...(input.errorCode ? { errorType: errorType(input.errorCode), errorCode: input.errorCode } : {}),
     fallbackDepth: input.fallbackDepth, ...(input.previousCandidate ? { fallbackFromProvider: input.previousCandidate.provider, fallbackFromModel: input.previousCandidate.model } : {}), isStreaming: input.isStreaming ?? false,
+    candidateId: input.candidate.id, capabilityTier: input.candidate.tier, providerInstance: input.candidate.providerInstance,
+    providerStatusCode: input.providerStatusCode,
   } satisfies Omit<LLMUsageEvent, "estimatedCostUsd">;
   return { ...event, estimatedCostUsd: estimateLLMCost(event) };
 }
@@ -80,10 +84,26 @@ function errorType(code: AIErrorCode): string {
 /** Best effort only: failures are intentionally swallowed by the caller. */
 export async function recordLLMUsage(db: LLMUsageDatabase | undefined, event: LLMUsageEvent): Promise<void> {
   if (!db) return;
-  await db.prepare(`INSERT INTO llm_usage_events (id, request_id, created_at, source, operation, provider, model, input_tokens, output_tokens, cached_input_tokens, reasoning_tokens, total_tokens, estimated_cost_usd, latency_ms, status, error_type, error_code, fallback_depth, fallback_from_provider, fallback_from_model, is_streaming)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+  await db.prepare(`INSERT INTO llm_usage_events (id, request_id, created_at, source, operation, provider, model, input_tokens, output_tokens, cached_input_tokens, reasoning_tokens, total_tokens, estimated_cost_usd, latency_ms, status, error_type, error_code, fallback_depth, fallback_from_provider, fallback_from_model, is_streaming, candidate_id, capability_tier, provider_instance, provider_status_code)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .bind(event.id, event.requestId, event.createdAt, event.source, event.operation ?? null, event.provider, event.model,
       event.inputTokens ?? null, event.outputTokens ?? null, event.cachedInputTokens ?? null, event.reasoningTokens ?? null, event.totalTokens ?? null,
       event.estimatedCostUsd ?? null, event.latencyMs, event.status, event.errorType ?? null, event.errorCode ?? null, event.fallbackDepth,
-      event.fallbackFromProvider ?? null, event.fallbackFromModel ?? null, event.isStreaming ? 1 : 0).run();
+      event.fallbackFromProvider ?? null, event.fallbackFromModel ?? null, event.isStreaming ? 1 : 0,
+      event.candidateId, event.capabilityTier, event.providerInstance, event.providerStatusCode ?? null).run();
+}
+
+export async function recordRoutingDecision(db: LLMUsageDatabase | undefined, input: {
+  requestId: string; task: string; source: string; selectedTier: string; selectionSource: string; reasonCode: string;
+  selectorProvider?: string; selectorModel?: string; selectorFallbackUsed: boolean; selectorAttempts: number; routeCandidateIds: string[];
+  selectorTrace: Array<{ candidateId: string; providerInstance: string; status: "success" | "error"; errorCode?: string; latencyMs: number }>;
+}): Promise<void> {
+  if (!db) return;
+  await db.prepare(`INSERT INTO llm_routing_events
+    (id, request_id, created_at, task, source, selected_tier, selection_source, reason_code, selector_provider,
+     selector_model, selector_fallback_used, selector_attempts, selector_trace_json, route_candidate_ids_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .bind(crypto.randomUUID(), input.requestId, new Date().toISOString(), input.task, input.source, input.selectedTier,
+      input.selectionSource, input.reasonCode, input.selectorProvider ?? null, input.selectorModel ?? null,
+      input.selectorFallbackUsed ? 1 : 0, input.selectorAttempts, JSON.stringify(input.selectorTrace), JSON.stringify(input.routeCandidateIds)).run();
 }

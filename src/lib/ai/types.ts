@@ -38,6 +38,9 @@ export type GenerateAIResult = {
   fallbackIndex: number;
   attempts?: number;
   latencyMs: number;
+  selectedTier?: "sol" | "kimi-k3" | "terra" | "deepseek-flash";
+  selectionSource?: "selector" | "task-default" | "selector-fallback";
+  selectionReason?: string;
   usage?: AIUsage;
 };
 

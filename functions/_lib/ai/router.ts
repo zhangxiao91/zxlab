@@ -1,13 +1,14 @@
 import type { GenerateAIInput, GenerateAIResult } from "../../../src/lib/ai/types.ts";
-import { getDefaultModelChain, type AIEnv, type ModelCandidate } from "./config.ts";
+import { executionCandidates, getModelCatalog, type AIEnv, type ModelCandidate } from "./config.ts";
 import { AIError, asAIError } from "./errors.ts";
 import { parseStructuredOutput } from "./json.ts";
 import { consoleAILogger, type AILogger, usageFields } from "./logger.ts";
 import { DeepSeekCompatibleAdapter } from "./providers/deepseek.ts";
 import { OpenAICompatibleAdapter } from "./providers/openai-compatible.ts";
 import type { AIProviderAdapter } from "./providers/types.ts";
+import { selectModelTier, type ModelSelection, type SelectorDependencies } from "./model-selector.ts";
 import { resolveTaskPolicy } from "./task-policies.ts";
-import { createUsageEvent, recordLLMUsage, resolveCallContext, telemetryStatus, type LLMUsageDatabase } from "./telemetry.ts";
+import { createUsageEvent, recordLLMUsage, recordRoutingDecision, resolveCallContext, telemetryStatus, type LLMUsageDatabase } from "./telemetry.ts";
 
 type AdapterMap = Record<ModelCandidate["adapter"], AIProviderAdapter>;
 
@@ -17,6 +18,7 @@ export interface AIGatewayOptions {
   fetcher?: typeof fetch;
   logger?: AILogger;
   candidates?: ModelCandidate[];
+  selector?: (input: GenerateAIInput, catalog: ReturnType<typeof getModelCatalog>, dependencies: SelectorDependencies) => Promise<ModelSelection>;
   adapters?: AdapterMap;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
@@ -37,6 +39,37 @@ const defaultAdapters: AdapterMap = {
   "openai-compatible": new OpenAICompatibleAdapter(),
   "deepseek-compatible": new DeepSeekCompatibleAdapter(),
 };
+
+async function resolveRoute(input: GenerateAIInput, options: AIGatewayOptions, requestId: string): Promise<{
+  candidates: ModelCandidate[];
+  selection?: ModelSelection;
+}> {
+  if (options.candidates) return { candidates: options.candidates };
+  const catalog = getModelCatalog(options.env ?? {});
+  const selection = await (options.selector ?? selectModelTier)(input, catalog, {
+    adapters: options.adapters ?? defaultAdapters,
+    fetcher: options.fetcher ?? fetch,
+    requestId,
+    signal: options.signal,
+  });
+  const candidates = executionCandidates(catalog, selection.tier);
+  const routingWrite = recordRoutingDecision(options.telemetryDb, {
+    requestId,
+    task: input.task,
+    source: resolveCallContext(input.task, input.context).source,
+    selectedTier: selection.tier,
+    selectionSource: selection.source,
+    reasonCode: selection.reasonCode,
+    selectorProvider: selection.selectorProvider,
+    selectorModel: selection.selectorModel,
+    selectorFallbackUsed: selection.selectorFallbackUsed,
+    selectorAttempts: selection.selectorAttempts,
+    selectorTrace: selection.selectorTrace,
+    routeCandidateIds: candidates.map((candidate) => candidate.id),
+  }).catch((error) => console.warn("ai.gateway.routing_telemetry_failed", requestId, error instanceof Error ? error.name : "unknown"));
+  if (options.scheduleTelemetry) options.scheduleTelemetry(routingWrite); else void routingWrite;
+  return { candidates, selection };
+}
 
 function secureJitterMs(): number {
   const value = new Uint16Array(1);
@@ -73,9 +106,9 @@ export async function generateAI(input: GenerateAIInput, options: AIGatewayOptio
   const inputChars = input.messages.reduce((sum, message) => sum + message.content.length, 0);
   const callContext = resolveCallContext(input.task, input.context);
   let candidates: ModelCandidate[] = [];
-  const recordAttempt = (candidate: ModelCandidate, fallbackIndex: number, durationMs: number, status: "success" | "error" | "timeout" | "cancelled", usage?: GenerateAIResult["usage"], errorCode?: AIError["code"]) => {
+  const recordAttempt = (candidate: ModelCandidate, fallbackIndex: number, durationMs: number, status: "success" | "error" | "timeout" | "cancelled", usage?: GenerateAIResult["usage"], errorCode?: AIError["code"], providerStatusCode?: number) => {
     const event = createUsageEvent({ requestId, context: callContext, candidate, previousCandidate: fallbackIndex > 0 ? candidates?.[fallbackIndex - 1] : undefined,
-      fallbackDepth: fallbackIndex, latencyMs: durationMs, status, usage, errorCode });
+      fallbackDepth: fallbackIndex, latencyMs: durationMs, status, usage, errorCode, providerStatusCode });
     const task = recordLLMUsage(options.telemetryDb, event).catch((error) => console.warn("ai.gateway.telemetry_failed", requestId, error instanceof Error ? error.name : "unknown"));
     if (options.scheduleTelemetry) options.scheduleTelemetry(task); else void task;
   };
@@ -83,7 +116,8 @@ export async function generateAI(input: GenerateAIInput, options: AIGatewayOptio
   let lastError: AIError | undefined;
 
   try {
-    candidates = options.candidates ?? getDefaultModelChain(options.env ?? {});
+    const route = await resolveRoute(input, options, requestId);
+    candidates = route.candidates;
     const adapters = options.adapters ?? defaultAdapters;
     for (let fallbackIndex = 0; fallbackIndex < candidates.length; fallbackIndex += 1) {
       const candidate = candidates[fallbackIndex];
@@ -110,7 +144,7 @@ export async function generateAI(input: GenerateAIInput, options: AIGatewayOptio
             event: "ai.gateway.attempt", requestId, task: input.task, candidateId: candidate.id,
             attempt: retryIndex + 1, durationMs, success: true, statusCode: providerResult.statusCode,
           });
-          recordAttempt(candidate, fallbackIndex, durationMs, "success", providerResult.usage);
+          recordAttempt(candidate, fallbackIndex, durationMs, "success", providerResult.usage, undefined, providerResult.statusCode);
           const result: GenerateAIResult = {
             text: json === undefined ? providerResult.text : JSON.stringify(json),
             ...(json === undefined ? {} : { json }),
@@ -119,6 +153,11 @@ export async function generateAI(input: GenerateAIInput, options: AIGatewayOptio
             fallbackIndex,
             attempts,
             latencyMs: Math.max(0, now() - startedAt),
+            ...(route.selection ? {
+              selectedTier: route.selection.tier,
+              selectionSource: route.selection.source,
+              selectionReason: route.selection.reasonCode,
+            } : {}),
             usage: providerResult.usage,
           };
           logger.write({
@@ -136,7 +175,7 @@ export async function generateAI(input: GenerateAIInput, options: AIGatewayOptio
             attempt: retryIndex + 1, durationMs: Math.max(0, now() - attemptStartedAt), success: false,
             statusCode: error.statusCode ?? attemptStatusCode, normalizedErrorCode: error.code,
           });
-          recordAttempt(candidate, fallbackIndex, Math.max(0, now() - attemptStartedAt), telemetryStatus(error.code), undefined, error.code);
+          recordAttempt(candidate, fallbackIndex, Math.max(0, now() - attemptStartedAt), telemetryStatus(error.code), undefined, error.code, error.statusCode ?? attemptStatusCode);
           if (error.retryable && retryIndex === 0) {
             const delayMs = 250 + jitterMs();
             if (deadline - now() <= delayMs) throw new AIError("TIMEOUT", { cause: error, attempts });
@@ -185,15 +224,16 @@ export async function streamAI(
   let attempts = 0;
   let lastError: AIError | undefined;
 
-  const recordAttempt = (candidate: ModelCandidate, fallbackIndex: number, durationMs: number, status: "success" | "error" | "timeout" | "cancelled", usage?: GenerateAIResult["usage"], errorCode?: AIError["code"]) => {
+  const recordAttempt = (candidate: ModelCandidate, fallbackIndex: number, durationMs: number, status: "success" | "error" | "timeout" | "cancelled", usage?: GenerateAIResult["usage"], errorCode?: AIError["code"], providerStatusCode?: number) => {
     const event = createUsageEvent({ requestId, context: callContext, candidate, previousCandidate: fallbackIndex > 0 ? candidates[fallbackIndex - 1] : undefined,
-      fallbackDepth: fallbackIndex, latencyMs: durationMs, status, usage, errorCode, isStreaming: true });
+      fallbackDepth: fallbackIndex, latencyMs: durationMs, status, usage, errorCode, providerStatusCode, isStreaming: true });
     const task = recordLLMUsage(options.telemetryDb, event).catch((error) => console.warn("ai.gateway.telemetry_failed", requestId, error instanceof Error ? error.name : "unknown"));
     if (options.scheduleTelemetry) options.scheduleTelemetry(task); else void task;
   };
 
   try {
-    candidates = options.candidates ?? getDefaultModelChain(options.env ?? {});
+    const route = await resolveRoute(input, options, requestId);
+    candidates = route.candidates;
     const adapters = options.adapters ?? defaultAdapters;
     for (let fallbackIndex = 0; fallbackIndex < candidates.length; fallbackIndex += 1) {
       const candidate = candidates[fallbackIndex];
@@ -221,7 +261,7 @@ export async function streamAI(
             event: "ai.gateway.attempt", requestId, task: input.task, candidateId: candidate.id,
             attempt: retryIndex + 1, durationMs, success: true, statusCode: providerResult.statusCode,
           });
-          recordAttempt(candidate, fallbackIndex, durationMs, "success", providerResult.usage);
+          recordAttempt(candidate, fallbackIndex, durationMs, "success", providerResult.usage, undefined, providerResult.statusCode);
           const result: GenerateAIResult = {
             text: json === undefined ? providerResult.text : JSON.stringify(json),
             ...(json === undefined ? {} : { json }),
@@ -230,6 +270,11 @@ export async function streamAI(
             fallbackIndex,
             attempts,
             latencyMs: Math.max(0, now() - startedAt),
+            ...(route.selection ? {
+              selectedTier: route.selection.tier,
+              selectionSource: route.selection.source,
+              selectionReason: route.selection.reasonCode,
+            } : {}),
             usage: providerResult.usage,
           };
           logger.write({
@@ -247,7 +292,7 @@ export async function streamAI(
             attempt: retryIndex + 1, durationMs: Math.max(0, now() - attemptStartedAt), success: false,
             statusCode: error.statusCode ?? attemptStatusCode, normalizedErrorCode: error.code,
           });
-          recordAttempt(candidate, fallbackIndex, Math.max(0, now() - attemptStartedAt), telemetryStatus(error.code), undefined, error.code);
+          recordAttempt(candidate, fallbackIndex, Math.max(0, now() - attemptStartedAt), telemetryStatus(error.code), undefined, error.code, error.statusCode ?? attemptStatusCode);
           if (error.retryable && retryIndex === 0) {
             await observer.reset("retry");
             const delayMs = 250 + jitterMs();
