@@ -5,7 +5,6 @@ import {
   digitalStarterSoftwareCategories,
   digitalStarterSoftwareScenarios,
   digitalStarterSoftwareTools,
-  digitalStarterStatusLabels,
   digitalStarterWebsiteRecommendations,
   type DigitalStarterSoftwareToolType,
 } from "../../../../data/digitalStarter";
@@ -115,7 +114,7 @@ const principles = [
                       <article class="digital-starter-tool-card" data-starter-reveal>
                         <div class="digital-starter-tool-card__top">
                           <span>{typeLabels[tool.type]}</span>
-                          <span>{digitalStarterStatusLabels[tool.status]} · {tool.freeLabel}</span>
+                          <span>{tool.freeLabel}</span>
                         </div>
                         <h4>{tool.defaultChoice}</h4>
                         <p>{tool.description}</p>
@@ -192,7 +191,7 @@ const principles = [
           <article class="digital-starter-website-card">
             <div class="digital-starter-website-card__top">
               <span>网站</span>
-              <span>{digitalStarterStatusLabels[website.status]} · 外部链接</span>
+              <span>外部链接</span>
             </div>
             <div class="digital-starter-website-card__body">
               <div>

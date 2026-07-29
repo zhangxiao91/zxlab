@@ -5,7 +5,6 @@ import {
   digitalStarterDocs,
   digitalStarterRouteModules,
   digitalStarterRoutes,
-  digitalStarterStatusLabels,
   digitalStarterTasks,
   type DigitalStarterRouteId,
 } from "../../data/digitalStarter";
@@ -33,7 +32,13 @@ const taskHrefById: Record<string, string> = {
 };
 
 const docFor = (id?: string) => (id ? docsById.get(id) : undefined);
-const moduleStatus = (module: (typeof modules)[number]) => docFor(module.coreDocumentId)?.status ?? module.status;
+const coreDocumentFor = (module: (typeof modules)[number]) => {
+  const document = docFor(module.coreDocumentId);
+  if (!document) {
+    throw new Error(`Digital Starter module is missing its core document: ${module.id}`);
+  }
+  return document;
+};
 const progressModuleIds = modules.map((module) => module.id);
 const pageTitle = `${route.title}学习路线 | 准大学生数字技能启动包 | zxlab`;
 const pageDescription = `${route.title}：${route.learningOutcome}`;
@@ -50,8 +55,7 @@ const pageDescription = `${route.title}：${route.learningOutcome}`;
         <p class="digital-starter-intro">{route.description}</p>
         <div class="digital-starter-computer-hero__meta">
           <span>{route.durationLabel}</span>
-          <span>{digitalStarterStatusLabels[route.status]}</span>
-          <span>{routeId === "computer" ? "主要面向 Windows" : "完整课程已开放"}</span>
+          <span>{routeId === "computer" ? "主要面向 Windows" : routeId === "ai" ? "重在核验与表达" : "不要求编程经验"}</span>
         </div>
         <div class="digital-starter-actions">
           <a class="digital-starter-button" href="#route-modules">
@@ -66,7 +70,7 @@ const pageDescription = `${route.title}：${route.learningOutcome}`;
             <li>
               <span>{String(index + 1).padStart(2, "0")}</span>
               <strong>{module.title}</strong>
-              <small>{digitalStarterStatusLabels[moduleStatus(module)]} · {module.duration}</small>
+              <small>{module.duration}</small>
             </li>
           ))}
         </ol>
@@ -87,15 +91,13 @@ const pageDescription = `${route.title}：${route.learningOutcome}`;
 
       <div class="digital-starter-computer-timeline">
         {modules.map((module, index) => {
-          const status = moduleStatus(module);
-          const coreDocument = docFor(module.coreDocumentId);
+          const coreDocument = coreDocumentFor(module);
           const practiceTask = module.practiceTaskId ? tasksById.get(module.practiceTaskId) : undefined;
           const practiceHref = module.practiceTaskId ? taskHrefById[module.practiceTaskId] : undefined;
           const extensionDocument = docFor(module.extensionDocumentId);
-          const moduleEntryHref = coreDocument?.path ?? module.entryHref;
 
           return (
-            <article class="digital-starter-computer-module" data-starter-reveal data-module-status={status}>
+            <article class="digital-starter-computer-module" data-starter-reveal>
               <div class="digital-starter-computer-module__rail" aria-hidden="true">
                 <span>{String(index + 1).padStart(2, "0")}</span>
               </div>
@@ -105,19 +107,12 @@ const pageDescription = `${route.title}：${route.learningOutcome}`;
                     <p>模块 {String(index + 1).padStart(2, "0")}</p>
                     <h3>{module.title}</h3>
                   </div>
-                  <span class="digital-starter-module-status">{digitalStarterStatusLabels[status]}</span>
                 </div>
                 <p class="digital-starter-computer-module__outcome">{module.outcome}</p>
                 <dl>
                   <div>
-                    <dt>{module.entryHref ? "保留入口" : "核心文档"}</dt>
-                    <dd>
-                      {coreDocument ? (
-                        <a href={coreDocument.path}>{coreDocument.title}</a>
-                      ) : module.entryHref ? (
-                        <a href={module.entryHref}>{module.entryLabel ?? "打开入口"}</a>
-                      ) : "查看路线入口"}
-                    </dd>
+                    <dt>核心文档</dt>
+                    <dd><a href={coreDocument.path}>{coreDocument.title}</a></dd>
                   </div>
                   <div>
                     <dt>实战任务</dt>
@@ -135,7 +130,7 @@ const pageDescription = `${route.title}：${route.learningOutcome}`;
                   </div>
                 </dl>
                 <div class="digital-starter-computer-module__actions">
-                  <a href={moduleEntryHref}>{module.entryLabel ?? "开始模块"}<span aria-hidden="true">↗</span></a>
+                  <a href={coreDocument.path}>开始模块<span aria-hidden="true">↗</span></a>
                   <button type="button" data-progress-complete={module.id}>标记完成</button>
                   <button type="button" data-progress-cancel={module.id} hidden>取消完成</button>
                 </div>

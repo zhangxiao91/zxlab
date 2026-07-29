@@ -56,8 +56,6 @@ export interface DigitalStarterRouteModule {
   practiceTaskId?: string;
   practiceLabel?: string;
   extensionDocumentId?: string;
-  entryHref?: string;
-  entryLabel?: string;
   duration: string;
   updatedAt: string;
 }
@@ -94,12 +92,6 @@ export interface DigitalStarterAsset {
   url: string;
   status: DigitalStarterStatus;
   updatedAt: string;
-}
-
-export interface DigitalStarterUpdate {
-  date: string;
-  title: string;
-  description: string;
 }
 
 export interface DigitalStarterTask {
@@ -177,10 +169,6 @@ export const digitalStarterResourceTypeMarks: Record<DigitalStarterResourceType,
   file: "文件",
   prompt: "模板",
   task: "任务",
-};
-
-export const digitalStarterStatusLabels: Record<DigitalStarterStatus, string> = {
-  open: "已开放",
 };
 
 const DIGITAL_STARTER_UPDATED_AT = "2026-07-28";
@@ -1618,70 +1606,4 @@ export const digitalStarterSafetyNotes = [
   "不要把验证码、密码和身份证号发给别人或 AI",
   "重要文件至少保留一份备份",
   "遇到报错时，先保存截图和错误信息",
-];
-
-export const digitalStarterRoadmap = [
-  "十个电脑基础模块与配套练习已开放",
-  "AI 基础与材料到大纲实战已开放",
-  "五个编程入门模块与示例文件已开放",
-  "课程安排、授课指南与下载资产已接入",
-];
-
-export const digitalStarterUpdates: DigitalStarterUpdate[] = [
-  {
-    date: "2026-07-28",
-    title: "完成全部课程与配套资源",
-    description: "补齐键盘输入、硬件、数字边界与 AI Coding 课程，开放全部软件卡、下载模板、示例文件、课程安排和授课模式。",
-  },
-  {
-    date: "2026-07-26",
-    title: "建立进阶内容初稿",
-    description: "为硬件基础、数字边界与 AI Coding 建立可直接使用的首版正文，并移除失效资源入口。",
-  },
-  {
-    date: "2026-07-25",
-    title: "开放首批完整学习闭环",
-    description: "完成六个电脑基础文档、办公工具速讲、两项实战任务、AI 两节内容与编程前四节内容，并同步更新路线、模块、文档和任务状态。",
-  },
-  {
-    date: "2026-07-23",
-    title: "调整电脑路线入口与网站推荐卡片",
-    description: "把保留的 404 入口移入电脑基础第十模块，并为网站推荐统一卡片结构和外链按钮样式。",
-  },
-  {
-    date: "2026-07-23",
-    title: "确定 AI 与编程路线模块",
-    description: "将 AI 路线固定为 AI 基础与实战 AI 使用，将编程路线固定为 Hello World、命令行、Markdown、GitHub 和 AI Coding。",
-  },
-  {
-    date: "2026-07-23",
-    title: "修正路线进度与精选资源入口",
-    description: "把路线进度分母对齐完整模块数，移除无效的 Hero 文档按钮，并补充浏览器、键盘和反诈资源卡片。",
-  },
-  {
-    date: "2026-07-22",
-    title: "重构电脑基础信息架构",
-    description: "把电脑速查表改为导航页，拆分浏览器、文件管理、故障排查、办公和反诈文档，并建立统一状态与更新时间模型。",
-  },
-  {
-    date: "2026-07-05",
-    title: "创建三条路线骨架",
-    description: "建立电脑、AI 和编程三条路线的入口页结构。",
-  },
-  {
-    date: "2026-07-06",
-    title: "预留资源接入结构",
-    description: "整理 routes、resources、docs、assets 和 updates 数据集合。",
-  },
-  {
-    date: "2026-07-06",
-    title: "建立文档与资产入口",
-    description: "为每条路线建立首批资源入口，验证统一数据结构与接入方式。",
-  },
-];
-
-export const digitalStarterConnectionNotes = [
-  String(digitalStarterDocs.length) + " 个文档入口已接入",
-  String(digitalStarterAssets.length) + " 类配套资产可直接下载",
-  String(digitalStarterResources.length) + " 个资源从统一数据渲染",
 ];

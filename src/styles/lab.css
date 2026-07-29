@@ -665,8 +665,7 @@
 }
 
 .digital-starter-home-route-card__top > span:last-child,
-.digital-starter-featured-card > div > span:last-child,
-.digital-starter-computer-module__heading > span {
+.digital-starter-featured-card > div > span:last-child {
   padding: 0.42rem 0.62rem;
   border: 1px solid rgba(24, 25, 20, 0.12);
   border-radius: 999px;
@@ -675,7 +674,6 @@
   white-space: nowrap;
 }
 
-[data-public-status="open"],
 [data-progress-state="completed"] {
   box-shadow: inset 0 0 0 1px rgba(89, 119, 0, 0.18);
 }
@@ -1178,12 +1176,6 @@
 .digital-starter-computer-module__heading p {
   color: #77786f;
   font-size: 0.72rem;
-}
-
-.digital-starter-module-status {
-  color: #4f5049;
-  font-size: 0.72rem;
-  white-space: nowrap;
 }
 
 .digital-starter-computer-module h3 {

@@ -1,11 +1,7 @@
 ---
 import { getCollection, render, type CollectionEntry } from "astro:content";
 import Layout from "../../../../layouts/Layout.astro";
-import {
-  digitalStarterRoutes,
-  digitalStarterStatusLabels,
-  type DigitalStarterStatus,
-} from "../../../../data/digitalStarter";
+import { digitalStarterRoutes } from "../../../../data/digitalStarter";
 import "../../../../styles/lab-status-shell.css";
 import "../../../../styles/lab.css";
 
@@ -43,7 +39,6 @@ const dateFormatter = new Intl.DateTimeFormat("zh-CN", {
         <h1>{doc.data.title}</h1>
         <p>{doc.data.description}</p>
         <div class="digital-starter-doc-meta" aria-label="文档信息">
-          <span>{digitalStarterStatusLabels[doc.data.status as DigitalStarterStatus]}</span>
           <time datetime={doc.data.updatedAt.toISOString()}>
             更新于 {dateFormatter.format(doc.data.updatedAt)}
           </time>

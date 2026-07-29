@@ -143,6 +143,8 @@ if (computerBasics.includes("建议先整理一个大学资料文件夹") || com
 const source = await readFile(new URL("src/data/digitalStarter.ts", root), "utf8");
 const routeDetailSource = await readFile(new URL("src/components/digital-starter/RouteDetailPage.astro", root), "utf8");
 const homeSource = await readFile(new URL("src/pages/lab/digital-starter.astro", root), "utf8");
+const docPageSource = await readFile(new URL("src/pages/lab/digital-starter/docs/[id].astro", root), "utf8");
+const toolboxSource = await readFile(new URL("src/pages/lab/digital-starter/docs/software-toolbox.astro", root), "utf8");
 const teachingSource = await readFile(new URL("src/pages/lab/digital-starter/teaching.astro", root), "utf8");
 if (source.includes("publicStatus") || source.includes("DigitalStarterPublicStatus")) failures.push("data: publicStatus model remains");
 for (const legacy of ["status: \"planned\"", "status: \"draft\"", "status: \"ready\"", "status: \"writing\"", "status: \"todo\"", "status: \"pending\"", "status: \"organizing\"", "status: \"placeholder\"", "status: \"building\""]) {
@@ -151,6 +153,20 @@ for (const legacy of ["status: \"planned\"", "status: \"draft\"", "status: \"rea
 if (source.includes("推荐软件与插件")) failures.push("data: legacy toolbox title remains");
 for (const marker of ["内容待补充", "正文待补充", "即将开放", "后续逐步开放", "基础版内容"]) {
   if (routeDetailSource.includes(marker) || homeSource.includes(marker)) failures.push(`page: unfinished marker remains: ${marker}`);
+}
+const publicPageSources = [routeDetailSource, homeSource, docPageSource, toolboxSource];
+for (const marker of ["状态：", "已开放", "完整课程已开放", "保留入口", "查看路线入口", "内容演进", "统一的数据结构"]) {
+  if (publicPageSources.some((pageSource) => pageSource.includes(marker))) {
+    failures.push(`page: development-facing copy remains: ${marker}`);
+  }
+}
+for (const implementationMarker of ["digitalStarterUpdates", "digitalStarterStatusLabels", "data-public-status", "entryHref ?"]) {
+  if (publicPageSources.some((pageSource) => pageSource.includes(implementationMarker))) {
+    failures.push(`page: obsolete fallback remains: ${implementationMarker}`);
+  }
+}
+for (const obsoleteExport of ["DigitalStarterUpdate", "digitalStarterRoadmap", "digitalStarterUpdates", "digitalStarterConnectionNotes", "digitalStarterStatusLabels"]) {
+  if (source.includes(obsoleteExport)) failures.push(`data: obsolete development export remains: ${obsoleteExport}`);
 }
 if (!routeDetailSource.includes('"software-shortlist": "/lab/digital-starter/docs/safe-install-task"')) {
   failures.push("route detail: software install task does not use its dedicated document");

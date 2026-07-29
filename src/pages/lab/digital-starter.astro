@@ -3,8 +3,6 @@ import Layout from "../../layouts/Layout.astro";
 import {
   digitalStarterFeaturedResources,
   digitalStarterRoutes,
-  digitalStarterStatusLabels,
-  digitalStarterUpdates,
 } from "../../data/digitalStarter";
 import "../../styles/lab-status-shell.css";
 import "../../styles/lab.css";
@@ -50,13 +48,11 @@ const computerRouteHref = "/lab/digital-starter/computer";
             <article class="digital-starter-home-route-card" data-starter-reveal>
               <div class="digital-starter-home-route-card__top">
                 <span>{String(index + 1).padStart(2, "0")}</span>
-                <span data-public-status={route.status}>
-                  状态：{digitalStarterStatusLabels[route.status]}
-                </span>
+                <span>{route.durationLabel}</span>
               </div>
               <h3>{route.title}</h3>
               <p>{route.learningOutcome}</p>
-              <strong>{route.durationLabel}</strong>
+              <strong>{route.description}</strong>
               <a href={route.detailHref}>{route.actionLabel}<span aria-hidden="true">↗</span></a>
             </article>
           ))
@@ -75,18 +71,11 @@ const computerRouteHref = "/lab/digital-starter/computer";
             <article class="digital-starter-featured-card" data-starter-reveal>
               <div>
                 <span>{resource.typeLabel}</span>
-                <span data-public-status={resource.status}>
-                  {digitalStarterStatusLabels[resource.status]}
-                </span>
+                <span>{resource.duration}</span>
               </div>
               <h3>{resource.title}</h3>
               <p>{resource.description}</p>
-              <small>{resource.duration}</small>
-              {resource.href ? (
-                <a href={resource.href}>{resource.actionLabel}<span aria-hidden="true">↗</span></a>
-              ) : (
-                <button type="button" disabled>{resource.actionLabel}</button>
-              )}
+              <a href={resource.href}>{resource.actionLabel}<span aria-hidden="true">↗</span></a>
             </article>
           ))
         }
@@ -106,17 +95,14 @@ const computerRouteHref = "/lab/digital-starter/computer";
 
     <section class="digital-starter-about">
       <details>
-        <summary>关于本项目</summary>
+        <summary>怎么使用这套课程</summary>
         <div>
           <p>
-            这是 zxlab 为准大学生整理的轻量数字技能学习项目。三条路线均以真实任务、可核验的完成标准和可直接使用的配套文件组织。
+            个人学习时，从眼下最想解决的问题开始，不必按顺序学完三条路线。每个模块都提供核心文档、练习和清晰的完成标准。
           </p>
           <p>
-            页面内容由统一的数据结构维护，课程安排、授课模式、示例文件和培训资料均已接入。更新记录用于说明内容演进。
+            课堂使用时，可以直接打开课程安排和授课模式。学习进度只保存在当前浏览器中，不需要注册账号。
           </p>
-          <ol>
-            {digitalStarterUpdates.map((update) => <li><time>{update.date}</time><span>{update.title}</span></li>)}
-          </ol>
         </div>
       </details>
     </section>
