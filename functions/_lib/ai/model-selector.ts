@@ -60,11 +60,16 @@ function selectorInput(input: GenerateAIInput): GenerateAIInput {
         inputChars: input.messages.reduce((sum, message) => sum + message.content.length, 0),
         excerpt,
         tiers: ["sol", "kimi-k3", "terra", "deepseek-flash"],
-        schema: { tier: "tier enum", confidence: "0..1", reasonCode: "reason enum" },
+        reasonCodes: ["complex-reasoning", "long-context", "structured-generation", "creative-generation", "classification", "simple-extraction"],
+        schema: {
+          tier: "exactly one value from tiers",
+          confidence: "number from 0 through 1",
+          reasonCode: "exactly one value from reasonCodes",
+        },
       }) },
     ],
     temperature: 0,
-    maxOutputTokens: 120,
+    maxOutputTokens: 320,
     responseFormat: { type: "json" },
   };
 }

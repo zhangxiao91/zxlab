@@ -210,6 +210,16 @@ test("non-fallback provider parameter errors stop immediately", async () => {
   assert.equal(adapter.calls.length, 1);
 });
 
+test("provider authentication failures fall back to the next capability", async () => {
+  const adapter = new ScriptedAdapter([
+    new AIError("UNAUTHORIZED", { statusCode: 401, fallbackAllowed: true }),
+    success(),
+  ]);
+  const result = await generateAI(input, { candidates, adapters: adapters(adapter), jitterMs: () => 0 });
+  assert.equal(result.fallbackIndex, 1);
+  assert.deepEqual(adapter.calls, ["provider1-gpt-5.6", "provider1-gpt-5.5"]);
+});
+
 test("total budget expiry stops later candidates", async () => {
   let clock = 0;
   const adapter = new ScriptedAdapter([fallback500()], () => { clock = 80_000; });

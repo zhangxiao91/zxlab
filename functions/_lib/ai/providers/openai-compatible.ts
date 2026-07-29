@@ -41,6 +41,9 @@ function errorText(value: unknown): string {
 
 function providerHttpError(status: number, value: unknown): AIError {
   const detail = errorText(value);
+  if (status === 401 || status === 403) {
+    return new AIError("UNAUTHORIZED", { statusCode: status, fallbackAllowed: true });
+  }
   if (/context|maximum.*token|too many tokens|context_length/.test(detail)) {
     return new AIError("CONTEXT_TOO_LONG", { statusCode: status });
   }
