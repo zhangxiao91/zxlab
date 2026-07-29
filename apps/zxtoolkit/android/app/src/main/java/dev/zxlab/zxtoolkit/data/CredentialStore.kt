@@ -19,6 +19,7 @@ class CredentialStore(private val context: Context, private val json: Json) {
     private val credentialKey = stringPreferencesKey("credential_ciphertext")
     private val defaultMacKey = stringPreferencesKey("default_mac")
     private val pulseKey = booleanPreferencesKey("pulse_enabled")
+    private val musicCaptureKey = booleanPreferencesKey("music_capture_enabled")
 
     suspend fun credential(): DeviceCredential? {
         val encoded = context.secureDataStore.data.first()[credentialKey] ?: return null
@@ -38,6 +39,8 @@ class CredentialStore(private val context: Context, private val json: Json) {
     suspend fun setDefaultMac(id: String) = context.secureDataStore.edit { it[defaultMacKey] = id }
     suspend fun pulseEnabled(): Boolean = context.secureDataStore.data.first()[pulseKey] ?: false
     suspend fun setPulseEnabled(enabled: Boolean) = context.secureDataStore.edit { it[pulseKey] = enabled }
+    suspend fun musicCaptureEnabled(): Boolean = context.secureDataStore.data.first()[musicCaptureKey] ?: false
+    suspend fun setMusicCaptureEnabled(enabled: Boolean) = context.secureDataStore.edit { it[musicCaptureKey] = enabled }
 
     private fun encrypt(value: String): String {
         return AesGcmCodec(key()).encrypt(value)

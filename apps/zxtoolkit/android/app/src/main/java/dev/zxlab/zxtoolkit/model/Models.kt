@@ -70,12 +70,69 @@ data class DropItem(
 @Serializable
 data class PulseSnapshot(
     val device: PulseDevice,
+    val activity: PulseActivity? = null,
     val generatedAt: String,
     val expiresAt: String,
     val schemaVersion: Int = 1,
 )
 
 @Serializable data class PulseDevice(val presence: String, val batteryLevel: String, val charging: Boolean)
+@Serializable data class PulseActivity(val stepsBucket: String? = null)
+
+@Serializable
+data class EncryptedEnvelope(
+    val schemaVersion: Int = 1,
+    val algorithm: String = "A256GCM",
+    val iv: String,
+    val ciphertext: String,
+)
+
+@Serializable
+data class PlaybackTrack(
+    val title: String,
+    val artist: String? = null,
+    val album: String? = null,
+    val durationMs: Long? = null,
+    val artworkUrl: String? = null,
+)
+
+@Serializable
+data class PlaybackPosition(
+    val state: String,
+    val positionMs: Long? = null,
+    val speed: Float? = null,
+)
+
+@Serializable
+data class PlaybackEvent(
+    val eventId: String,
+    val sessionId: String,
+    val eventType: String,
+    val packageName: String = "com.netease.cloudmusic",
+    val mediaId: String? = null,
+    val fingerprint: String,
+    val track: PlaybackTrack,
+    val playback: PlaybackPosition,
+    val occurredAt: String,
+    val elapsedRealtimeMs: Long,
+)
+
+@Serializable
+data class PlaybackEventBatch(
+    val schemaVersion: Int = 1,
+    val batchId: String,
+    val sentAt: String,
+    val events: List<PlaybackEvent>,
+)
+
+@Serializable
+data class PlaybackBatchResponse(
+    val batchId: String,
+    val accepted: List<String> = emptyList(),
+    val duplicates: List<String> = emptyList(),
+    val rejected: List<String> = emptyList(),
+    val serverTime: String,
+)
 
 @Serializable
 data class DailyBriefing(
@@ -122,4 +179,12 @@ fun batteryBucket(percent: Int): String = when {
     percent >= 60 -> "high"
     percent >= 25 -> "medium"
     else -> "low"
+}
+
+fun stepsBucket(steps: Long): String = when {
+    steps < 2_000 -> "0-2k"
+    steps < 5_000 -> "2k-5k"
+    steps < 8_000 -> "5k-8k"
+    steps < 12_000 -> "8k-12k"
+    else -> "12k+"
 }

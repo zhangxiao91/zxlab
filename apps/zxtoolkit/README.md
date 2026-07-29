@@ -106,9 +106,9 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 有已连接的真机或 API 35 模拟器时再执行 `./gradlew connectedDebugAndroidTest`。Debug 包固定连接生产 HTTPS Origin；本地 Worker 联调可在 `app/build.gradle.kts` 中临时覆盖 `API_ORIGIN` 和 `APP_ORIGIN`，不要提交局域网地址。
 
-首次运行需要相机权限以扫描 Mac 二维码；Android 13 及以上会请求通知权限。拒绝通知权限不会停止后台同步。步数功能只请求 `READ_STEPS`，在用户点击首页步数卡片时调用 Health Connect 权限页；拒绝后传输与日报功能照常工作。系统 Photo Picker 不需要媒体库权限；相机、文件选择与 SAF 保存均使用系统授权的单个 URI。设备 token 使用 Android Keystore AES-GCM 加密，DataStore 不保存明文 token。
+首次运行需要相机权限以扫描 Mac 二维码；Android 13 及以上会请求通知权限。拒绝通知权限不会停止后台同步。步数功能只请求 `READ_STEPS`，在用户点击首页步数卡片时调用 Health Connect 权限页；拒绝后传输与日报功能照常工作。网易云同步需用户单独开启系统“通知使用权”和应用内采集开关，只读取 `com.netease.cloudmusic` 的 MediaSession。系统 Photo Picker 不需要媒体库权限；相机、文件选择与 SAF 保存均使用系统授权的单个 URI。设备 token 使用 Android Keystore AES-GCM 加密，DataStore 不保存明文 token。
 
-首版只绑定一台 Mac，单文件上限 100 MB，不支持批量文件、文件夹、分片断点、FCM、端到端加密、Play 商店发布或正式签名。Health Connect 当前只读取并聚合当天步数，不请求后台健康数据权限；没有步数记录时显示“暂无”，不再伪装成 0。后台 15 分钟是系统调度下限，实际执行时间可能更晚。
+首版只绑定一台 Mac，单文件上限 100 MB，不支持批量文件、文件夹、分片断点、FCM、端到端加密、Play 商店发布或正式签名。Health Connect 当前只读取并聚合当天步数，不请求后台健康数据权限；没有步数记录时显示“暂无”，不再伪装成 0。Pulse 请求体额外使用 AES-256-GCM 应用层加密。网易云事件先持久化到 Room，再由唯一 WorkManager 同步；不使用前台保活、WakeLock 或后台 WebSocket。后台 15 分钟是系统调度下限，Doze 下实际执行时间可能更晚。
 
 ## Cloudflare 配置与部署
 

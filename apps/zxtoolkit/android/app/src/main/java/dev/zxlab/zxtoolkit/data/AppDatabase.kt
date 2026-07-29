@@ -27,6 +27,23 @@ data class OutboxEntity(
     val createdAt: Long = System.currentTimeMillis(),
 )
 
+@Entity(
+    tableName = "playback_events",
+    indices = [
+        Index(value = ["eventId"], unique = true),
+        Index(value = ["syncState", "occurredAt"]),
+    ],
+)
+data class PlaybackEventEntity(
+    @PrimaryKey val localId: String,
+    val eventId: String,
+    val payloadJson: String,
+    val occurredAt: String,
+    val syncState: String = "pending",
+    val attemptCount: Int = 0,
+    val lastErrorCode: String? = null,
+)
+
 @Dao
 interface TransferDao {
     @Query("SELECT * FROM inbox ORDER BY createdAt DESC") fun inbox(): Flow<List<InboxEntity>>
@@ -44,7 +61,32 @@ interface TransferDao {
     suspend fun updateOutbox(id: String, transferId: String?, stage: String, error: String? = null)
 }
 
-@Database(entities = [InboxEntity::class, OutboxEntity::class], version = 1, exportSchema = true)
+@Dao
+interface PlaybackEventDao {
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insert(item: PlaybackEventEntity): Long
+
+    @Query("SELECT * FROM playback_events WHERE syncState IN ('pending', 'in_flight') ORDER BY occurredAt, eventId LIMIT :limit")
+    suspend fun pending(limit: Int = 100): List<PlaybackEventEntity>
+
+    @Query("UPDATE playback_events SET syncState = 'synced', lastErrorCode = NULL WHERE eventId IN (:eventIds)")
+    suspend fun markSynced(eventIds: List<String>)
+
+    @Query("UPDATE playback_events SET syncState = :state, attemptCount = attemptCount + 1, lastErrorCode = :code WHERE eventId IN (:eventIds)")
+    suspend fun markFailed(eventIds: List<String>, state: String, code: String?)
+
+    @Query("SELECT COUNT(*) FROM playback_events WHERE syncState = 'pending'")
+    suspend fun pendingCount(): Int
+
+    @Query("SELECT COUNT(*) FROM playback_events WHERE syncState = 'dead_letter'")
+    suspend fun deadLetterCount(): Int
+
+    @Query("DELETE FROM playback_events WHERE syncState = 'synced' AND occurredAt < :before")
+    suspend fun deleteSyncedBefore(before: String)
+}
+
+@Database(entities = [InboxEntity::class, OutboxEntity::class, PlaybackEventEntity::class], version = 2, exportSchema = true)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun transfers(): TransferDao
+    abstract fun playbackEvents(): PlaybackEventDao
 }

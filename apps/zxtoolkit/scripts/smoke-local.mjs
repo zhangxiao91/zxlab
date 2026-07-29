@@ -23,6 +23,20 @@ function ensure(value, message) {
   if (!value) throw new Error(message);
 }
 
+async function encryptedPulse(snapshot, token) {
+  const context = "zxtoolkit-pulse-v1";
+  const keyBytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${context}\0${token}`));
+  const key = await crypto.subtle.importKey("raw", keyBytes, { name: "AES-GCM" }, false, ["encrypt"]);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv, additionalData: new TextEncoder().encode(context) },
+    key,
+    new TextEncoder().encode(JSON.stringify(snapshot)),
+  );
+  const encode = (value) => Buffer.from(value).toString("base64url");
+  return { schemaVersion: 1, algorithm: "A256GCM", iv: encode(iv), ciphertext: encode(new Uint8Array(ciphertext)) };
+}
+
 await request("/api/health");
 const pairing = await request("/api/pairing/sessions", {
   method: "POST",
@@ -181,10 +195,28 @@ const now = Date.now();
 await request("/api/pulse/snapshots", {
   method: "POST",
   headers: jsonAuth(rotated.credential),
-  body: JSON.stringify({ device: { presence: "online", batteryLevel: "high", charging: true }, generatedAt: new Date(now).toISOString(), expiresAt: new Date(now + 30 * 60_000).toISOString(), schemaVersion: 1 })
+  body: JSON.stringify(await encryptedPulse({ device: { presence: "online", batteryLevel: "high", charging: true }, activity: { stepsBucket: "5k-8k" }, generatedAt: new Date(now).toISOString(), expiresAt: new Date(now + 30 * 60_000).toISOString(), schemaVersion: 1 }, rotated.credential.token))
 });
 const latestPulse = await request("/api/pulse/snapshots/latest", { headers: auth(rotated.credential) });
 ensure(latestPulse.snapshot?.device?.presence === "online", "rotated credential cannot read Pulse");
+const musicEvent = {
+  eventId: "evt_smoke_music_01",
+  sessionId: "ses_smoke_music_01",
+  eventType: "track_started",
+  packageName: "com.netease.cloudmusic",
+  fingerprint: "a".repeat(64),
+  track: { title: "Smoke Track", artist: "Smoke Artist", durationMs: 180000 },
+  playback: { state: "playing", positionMs: 1200, speed: 1 },
+  occurredAt: new Date(now).toISOString(),
+  elapsedRealtimeMs: 123456,
+};
+const musicBatch = { schemaVersion: 1, batchId: "batch_smoke_music_01", sentAt: new Date(now).toISOString(), events: [musicEvent] };
+const firstMusic = await request("/api/music/events/batch", { method: "POST", headers: jsonAuth(android), body: JSON.stringify(musicBatch) });
+const duplicateMusic = await request("/api/music/events/batch", { method: "POST", headers: jsonAuth(android), body: JSON.stringify(musicBatch) });
+ensure(firstMusic.accepted.includes(musicEvent.eventId), "music event was not accepted");
+ensure(duplicateMusic.duplicates.includes(musicEvent.eventId), "duplicate music event was not idempotent");
+const playing = await request("/api/music/now-playing", { headers: auth(android) });
+ensure(playing.nowPlaying?.title === "Smoke Track" && playing.summary?.playsToday >= 1, "current playback projection is invalid");
 const ticket = await request("/api/inbox/events/ticket", { method: "POST", headers: auth(mobile) });
 ensure(ticket.ticket && ticket.expiresAt > Date.now(), "inbox socket ticket was not issued");
 
@@ -220,6 +252,9 @@ console.log(JSON.stringify({
   bidirectionalFile: true,
   imageClaimDeleted: true,
   rotatedCredentialPulse: true,
+  encryptedPulse: true,
+  neteasePlayback: true,
+  playbackIdempotency: true,
   revokedCredential: true,
   selfUnlink: true,
   pagination: true,

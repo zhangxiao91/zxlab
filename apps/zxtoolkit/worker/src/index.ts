@@ -6,7 +6,10 @@ import { DeviceMailbox } from "./device-mailbox";
 import type { DevicePlatform, DropItem } from "../../shared/types";
 import { isBinaryDropPayload, validateDropPayload } from "../../shared/payload";
 import { validatePulseSnapshot } from "../../shared/pulse";
+import { validatePlaybackBatch } from "../../shared/music";
 import { PulseHub } from "./pulse-hub";
+import { currentPlayback, ingestPlaybackBatch, playbackSummary } from "./music-store";
+import { decryptPulseEnvelope } from "./encrypted-envelope";
 import { UploadQuota } from "./upload-quota";
 import { BodyTooLargeError, declaredBodySize, hasImageSignature, readBodyWithLimit, readJsonWithLimit } from "./request-body";
 import { verifyTurnstile } from "./turnstile";
@@ -63,7 +66,11 @@ async function runtimeHealth(request: Request, env: Env, cors: Headers): Promise
   if (!await runtimeTokenValid(request, env)) return problem("DEVICE_UNAUTHORIZED", "Runtime service token is required", 401, cors);
   const startedAt = Date.now();
   await env.DB.prepare("SELECT 1 ok").first();
-  const pulse = await env.PULSE.getByName("public-status-v1").publicStatus();
+  const [pulse, nowPlaying, music] = await Promise.all([
+    env.PULSE.getByName("public-status-v1").publicStatus(),
+    currentPlayback(env.DB),
+    playbackSummary(env.DB),
+  ]);
   const generatedAt = new Date().toISOString();
   return json({
     schemaVersion: "1",
@@ -76,7 +83,7 @@ async function runtimeHealth(request: Request, env: Env, cors: Headers): Promise
       { id: "d1", status: "operational", latencyMs: Date.now() - startedAt, lastSuccessAt: generatedAt },
       { id: "pulse", status: pulse.stale ? "degraded" : "operational", lastSuccessAt: pulse.updatedAt ?? undefined },
     ],
-    public: { agents: pulse.devices },
+    public: { agents: pulse.devices, activity: pulse.activity, nowPlaying, music },
   }, 200, cors);
 }
 
@@ -102,6 +109,8 @@ export default {
       if (request.method === "POST" && url.pathname === "/api/pulse/snapshots") return publishPulse(request, env, cors);
       if (request.method === "GET" && url.pathname === "/api/pulse/snapshots/latest") return latestPulse(request, env, cors);
       if (request.method === "GET" && url.pathname === "/api/pulse/devices") return listDevices(request, env, cors);
+      if (request.method === "POST" && url.pathname === "/api/music/events/batch") return publishPlaybackEvents(request, env, cors);
+      if (request.method === "GET" && url.pathname === "/api/music/now-playing") return nowPlaying(request, env, cors);
       if (request.method === "GET" && url.pathname === "/api/public/status") return publicStatus(env, cors);
 
       const pairingCancelMatch = url.pathname.match(PAIRING_CANCEL_PATH);
@@ -323,12 +332,30 @@ async function rotateDeviceCredential(request: Request, env: Env, cors: Headers)
 async function publishPulse(request: Request, env: Env, cors: Headers): Promise<Response> {
   const auth = await authorizeDevice(request, env);
   if (!auth) return problem("DEVICE_UNAUTHORIZED", "设备凭证无效或已被吊销", 401, cors);
-  const snapshot = validatePulseSnapshot(await safeJson(request));
+  const token = deviceAuth(request)?.token ?? "";
+  const snapshot = validatePulseSnapshot(await decryptPulseEnvelope(await safeJson(request), token));
   if (!snapshot) return problem("INVALID_PULSE", "公开状态快照无效、已过期或包含不支持字段", 400, cors);
   const published = await env.DEVICES.getByName(auth.device.id).publishPulseInternal(auth.device, snapshot);
   if (!published) return problem("DEVICE_UNAUTHORIZED", "设备无权发布 Pulse", 401, cors);
   await env.PULSE.getByName("public-status-v1").upsert(auth.device.id, published);
-  return json({ accepted: true, snapshot }, 202, cors);
+  return json({ accepted: true }, 202, cors);
+}
+
+async function publishPlaybackEvents(request: Request, env: Env, cors: Headers): Promise<Response> {
+  const auth = await authorizeDevice(request, env);
+  if (!auth) return problem("DEVICE_UNAUTHORIZED", "设备凭证无效或已被吊销", 401, cors);
+  if (!(await env.UPLOAD_RATE_LIMITER.limit({ key: `music:${auth.device.id}` })).success) {
+    return problem("RATE_LIMITED", "播放同步过于频繁，请稍后重试", 429, cors);
+  }
+  const batch = validatePlaybackBatch(await safeJson(request));
+  if (!batch) return problem("INVALID_PLAYBACK_BATCH", "播放事件批次无效", 422, cors);
+  return json(await ingestPlaybackBatch(env.DB, auth.device.id, batch), 202, cors);
+}
+
+async function nowPlaying(request: Request, env: Env, cors: Headers): Promise<Response> {
+  const auth = await authorizeDevice(request, env);
+  if (!auth) return problem("DEVICE_UNAUTHORIZED", "设备凭证无效或已被吊销", 401, cors);
+  return json({ nowPlaying: await currentPlayback(env.DB), summary: await playbackSummary(env.DB) }, 200, cors);
 }
 
 async function latestPulse(request: Request, env: Env, cors: Headers): Promise<Response> {

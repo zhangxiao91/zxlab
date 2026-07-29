@@ -3,6 +3,7 @@ package dev.zxlab.zxtoolkit
 import android.app.Application
 import android.content.Intent
 import android.net.Uri
+import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import dev.zxlab.zxtoolkit.data.InboxEntity
@@ -38,6 +39,10 @@ data class MainUiState(
     val healthPermissionGranted: Boolean = false,
     val healthLoading: Boolean = false,
     val todaySteps: Long? = null,
+    val musicCaptureEnabled: Boolean = false,
+    val notificationAccessGranted: Boolean = false,
+    val playbackPending: Int = 0,
+    val playbackDeadLetters: Int = 0,
 )
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -65,6 +70,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 paired = true,
                 deviceName = credential.device.name,
                 pulseEnabled = app.container.credentials.pulseEnabled(),
+                musicCaptureEnabled = app.container.credentials.musicCaptureEnabled(),
+                notificationAccessGranted = notificationAccessGranted(),
                 healthAvailability = health.availability(),
             )
         }
@@ -151,10 +158,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (enabled) publishPulse(app, "online")
     }
 
+    fun setMusicCapture(enabled: Boolean) = runTask {
+        app.container.credentials.setMusicCaptureEnabled(enabled)
+        mutable.update { it.copy(musicCaptureEnabled = enabled) }
+        refreshCaptureStatus()
+    }
+
     fun refreshToday() {
         refreshBriefing()
         refreshHealth()
+        refreshCaptureStatus()
     }
+
+    fun refreshCaptureStatus() = runTask(showErrors = false) {
+        mutable.update {
+            it.copy(
+                notificationAccessGranted = notificationAccessGranted(),
+                musicCaptureEnabled = app.container.credentials.musicCaptureEnabled(),
+                playbackPending = app.container.database.playbackEvents().pendingCount(),
+                playbackDeadLetters = app.container.database.playbackEvents().deadLetterCount(),
+            )
+        }
+    }
+
+    private fun notificationAccessGranted(): Boolean =
+        NotificationManagerCompat.getEnabledListenerPackages(app).contains(app.packageName)
 
     fun healthPermissions(): Set<String> = setOf(health.stepsPermission)
 

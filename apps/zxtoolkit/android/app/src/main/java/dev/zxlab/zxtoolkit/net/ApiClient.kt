@@ -1,6 +1,7 @@
 package dev.zxlab.zxtoolkit.net
 
 import dev.zxlab.zxtoolkit.BuildConfig
+import dev.zxlab.zxtoolkit.data.TransportEnvelopeCodec
 import dev.zxlab.zxtoolkit.model.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -72,8 +73,12 @@ class ApiClient(
     }
 
     suspend fun publishPulse(credential: DeviceCredential, snapshot: PulseSnapshot) {
-        call<AcceptedResponse>("/api/pulse/snapshots", "POST", snapshot, credential)
+        val cleartext = json.encodeToString(PulseSnapshot.serializer(), snapshot)
+        call<AcceptedResponse>("/api/pulse/snapshots", "POST", TransportEnvelopeCodec.encrypt(cleartext, credential.token), credential)
     }
+
+    suspend fun publishPlaybackEvents(credential: DeviceCredential, batch: PlaybackEventBatch): PlaybackBatchResponse =
+        call("/api/music/events/batch", "POST", batch, credential)
 
     suspend fun todayBriefing(credential: DeviceCredential, date: LocalDate = LocalDate.now()): DailyBriefing =
         call("/api/briefings/today?date=$date", credential = credential)
@@ -111,7 +116,8 @@ class ApiClient(
         is CreateDropBody -> CreateDropBody.serializer()
         is StatusBody -> StatusBody.serializer()
         is RenameBody -> RenameBody.serializer()
-        is PulseSnapshot -> PulseSnapshot.serializer()
+        is EncryptedEnvelope -> EncryptedEnvelope.serializer()
+        is PlaybackEventBatch -> PlaybackEventBatch.serializer()
         is UnitBody -> UnitBody.serializer()
         else -> error("Unsupported request body ${value::class}")
     } as kotlinx.serialization.SerializationStrategy<Any>

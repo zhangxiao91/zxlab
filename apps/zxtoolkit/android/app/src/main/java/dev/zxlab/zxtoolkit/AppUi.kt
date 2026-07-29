@@ -621,6 +621,7 @@ private fun SendPage(viewModel: MainViewModel) {
 @Composable
 private fun SettingsPage(state: MainUiState, viewModel: MainViewModel) {
     var name by remember(state.deviceName) { mutableStateOf(state.deviceName) }
+    val context = LocalContext.current
     LazyColumn(
         Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 20.dp, top = 12.dp, end = 20.dp, bottom = 32.dp),
@@ -656,7 +657,7 @@ private fun SettingsPage(state: MainUiState, viewModel: MainViewModel) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                         Text("Pulse", fontWeight = FontWeight.Medium)
-                        Text("只发送在线、电量档位和充电状态", style = MaterialTheme.typography.bodySmall)
+                        Text("加密发送在线、电量、充电和步数档位", style = MaterialTheme.typography.bodySmall)
                     }
                     Switch(state.pulseEnabled, viewModel::setPulse)
                 }
@@ -666,10 +667,54 @@ private fun SettingsPage(state: MainUiState, viewModel: MainViewModel) {
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text("Health Connect", fontWeight = FontWeight.Medium)
-                        Text("步数仅在本机读取，不进入 Pulse", style = MaterialTheme.typography.bodySmall)
+                        Text("精确值留在本机，仅同步步数档位", style = MaterialTheme.typography.bodySmall)
                     }
                     Text(if (state.healthPermissionGranted) "已授权" else "未授权", style = MaterialTheme.typography.labelMedium, color = InkMuted)
                 }
+            }
+        }
+        item {
+            SettingsGroup {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Outlined.MusicNote, null, tint = Moss)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text("网易云播放同步", fontWeight = FontWeight.Medium)
+                        Text(
+                            if (state.notificationAccessGranted) "MediaSession 已连接，仅采集网易云"
+                            else "需要开启系统通知使用权",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    Switch(
+                        checked = state.musicCaptureEnabled,
+                        onCheckedChange = { enabled ->
+                            viewModel.setMusicCapture(enabled)
+                            if (enabled && !state.notificationAccessGranted) {
+                                context.startActivity(Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                            }
+                        },
+                    )
+                }
+                HorizontalDivider(color = Line)
+                Row(
+                    Modifier.fillMaxWidth().clickable {
+                        context.startActivity(Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                    }.padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("通知使用权", fontWeight = FontWeight.Medium)
+                        Text(
+                            if (state.notificationAccessGranted) "已授权；回到应用后自动刷新"
+                            else "未授权；点击前往系统设置",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    Text(if (state.notificationAccessGranted) "已开启" else "去开启", style = MaterialTheme.typography.labelMedium, color = InkMuted)
+                }
+                HorizontalDivider(color = Line)
+                InfoRow("本地同步队列", "${state.playbackPending} 待同步 · ${state.playbackDeadLetters} 待处理")
             }
         }
         item {

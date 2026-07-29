@@ -41,10 +41,25 @@ export async function publicSnapshot(repository: RuntimeRepository): Promise<Run
   const devices = publicDevices(pages?.public?.devices, toolkit?.public?.agents);
   const devicesAvailable = pages?.public?.devicesAvailable === true || Array.isArray(toolkit?.public?.agents);
   const usageData = usage?.public?.usage as Record<string, unknown> | undefined;
+  const toolkitNowPlaying = toolkit?.public?.nowPlaying;
+  const toolkitMusic = toolkit?.public?.music;
+  const toolkitActivity = toolkit?.public?.activity;
   const modules: PublicModule[] = [
     { id: "runtime", name: "Runtime", status: runtimeState, summary: `${runtimeRows.filter((row) => row.status === "operational").length} / ${runtimeRows.length || 4} core services operational.`, updatedAt: runtimeRows[0]?.observed_at ?? null, data: { operational: runtimeRows.filter((row) => row.status === "operational").length, total: runtimeRows.length || 4 } },
     { id: "memory", name: "Memory", status: signal?.status ?? "unknown", summary: memory ? "Canonical Memory is connected and auditable." : "Memory telemetry is unavailable.", updatedAt: signal?.observed_at ?? null, data: memory ?? null },
-    { id: "agents", name: "Device", status: devicesAvailable ? worst([pages?.status ?? "unknown", toolkit?.status ?? "unknown"]) : "unknown", summary: devicesAvailable ? `${devices.length} privacy-filtered devices reported.` : "Device presence is unavailable.", updatedAt: pages?.observed_at ?? toolkit?.observed_at ?? null, data: devicesAvailable ? { agents: devices } : null },
+    {
+      id: "agents",
+      name: "Device",
+      status: devicesAvailable ? worst([pages?.status ?? "unknown", toolkit?.status ?? "unknown"]) : "unknown",
+      summary: devicesAvailable ? `${devices.length} privacy-filtered devices reported.` : "Device presence is unavailable.",
+      updatedAt: pages?.observed_at ?? toolkit?.observed_at ?? null,
+      data: devicesAvailable ? {
+        agents: devices,
+        ...(toolkitActivity && typeof toolkitActivity === "object" ? { activity: toolkitActivity } : {}),
+        ...(toolkitNowPlaying && typeof toolkitNowPlaying === "object" ? { nowPlaying: toolkitNowPlaying } : {}),
+        ...(toolkitMusic && typeof toolkitMusic === "object" ? { music: toolkitMusic } : {}),
+      } : null,
+    },
     { id: "usage", name: "Usage", status: usage?.status ?? "unknown", summary: usageData ? "Live Codex usage is connected." : "Codex usage is unavailable.", updatedAt: usage?.observed_at ?? null, data: usageData ?? null },
   ];
   const overallStatus = stale ? "unknown" : worst(modules.map((module) => module.status));

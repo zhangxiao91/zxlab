@@ -68,6 +68,10 @@
 .mobile-device-card__battery > div:last-child { display: grid; text-align: right; }
 .mobile-device-card__battery strong { font-size: clamp(2rem,4vw,3.7rem); font-weight: 500; line-height: .9; text-transform: capitalize; }
 .mobile-device-card__battery span { margin-top: .5rem; color: rgba(245,245,237,.45); font-size: .68rem; }
+.mobile-device-card__music { display: grid; margin: 0 0 1rem; padding: 1rem 0; border-top: 1px solid rgba(255,255,255,.09); border-bottom: 1px solid rgba(255,255,255,.09); gap: .35rem; }
+.mobile-device-card__music > span { color: #d8ff73; font-size: .6rem; letter-spacing: .12em; text-transform: uppercase; }
+.mobile-device-card__music > strong { overflow: hidden; font-size: clamp(1.15rem,2vw,1.65rem); font-weight: 500; line-height: 1.15; text-overflow: ellipsis; white-space: nowrap; }
+.mobile-device-card__music > p { overflow: hidden; color: rgba(245,245,237,.46); font-size: .7rem; text-overflow: ellipsis; white-space: nowrap; }
 .mobile-device-card dl { display: grid; margin: 0 0 1rem; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 1px; background: rgba(255,255,255,.09); }
 .mobile-device-card dl div { display: grid; min-height: 4.8rem; padding: .8rem; align-content: space-between; background: #23241f; }
 .mobile-device-card dt { color: rgba(245,245,237,.4); font-size: .6rem; text-transform: uppercase; }

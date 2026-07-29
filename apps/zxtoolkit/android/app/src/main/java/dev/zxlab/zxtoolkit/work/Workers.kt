@@ -12,6 +12,7 @@ import androidx.work.*
 import dev.zxlab.zxtoolkit.R
 import dev.zxlab.zxtoolkit.ZxToolkitApplication
 import dev.zxlab.zxtoolkit.data.Repository
+import dev.zxlab.zxtoolkit.health.HealthConnectRepository
 import dev.zxlab.zxtoolkit.model.*
 import dev.zxlab.zxtoolkit.net.ApiException
 import kotlinx.serialization.decodeFromString
@@ -19,6 +20,7 @@ import java.io.File
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 import java.util.concurrent.TimeUnit
+import java.util.UUID
 
 class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
@@ -26,6 +28,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         val repository = Repository(app, app.container.api, app.container.database, app.container.credentials)
         return try {
             repository.sync()
+            syncPlayback(app)
             notifyNew(app)
             publishPulse(app, "recently_online")
             Result.success()
@@ -47,6 +50,58 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
             )
         }
         dao.markNotified(ids)
+    }
+}
+
+class PlaybackSyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+    override suspend fun doWork(): Result {
+        val app = applicationContext as ZxToolkitApplication
+        return syncPlayback(app)
+    }
+
+    companion object {
+        fun enqueue(context: Context) {
+            val request = OneTimeWorkRequestBuilder<PlaybackSyncWorker>()
+                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+                .build()
+            WorkManager.getInstance(context).enqueueUniqueWork("playback-event-sync", ExistingWorkPolicy.KEEP, request)
+        }
+    }
+}
+
+private suspend fun syncPlayback(app: ZxToolkitApplication): ListenableWorker.Result {
+    val credential = app.container.credentials.credential() ?: return ListenableWorker.Result.failure()
+    val dao = app.container.database.playbackEvents()
+    val queued = dao.pending(100)
+    if (queued.isEmpty()) return ListenableWorker.Result.success()
+    val events = queued.map { app.container.api.json.decodeFromString<PlaybackEvent>(it.payloadJson) }
+    return try {
+        val response = app.container.api.publishPlaybackEvents(
+            credential,
+            PlaybackEventBatch(batchId = "batch_${UUID.randomUUID().toString().replace("-", "")}", sentAt = Instant.now().toString(), events = events),
+        )
+        val completed = response.accepted + response.duplicates
+        if (completed.isNotEmpty()) dao.markSynced(completed)
+        if (response.rejected.isNotEmpty()) dao.markFailed(response.rejected, "dead_letter", "SERVER_REJECTED")
+        dao.deleteSyncedBefore(Instant.now().minus(30, ChronoUnit.DAYS).toString())
+        if (dao.pendingCount() > 0) ListenableWorker.Result.retry() else ListenableWorker.Result.success()
+    } catch (error: ApiException) {
+        val permanentlyRejected = error.status == 400 || error.status == 422
+        val dead = queued.filter { permanentlyRejected || it.attemptCount >= 19 }.map { it.eventId }
+        val pending = queued.map { it.eventId } - dead.toSet()
+        if (dead.isNotEmpty()) dao.markFailed(dead, "dead_letter", error.code)
+        if (pending.isNotEmpty()) dao.markFailed(pending, "pending", error.code)
+        when {
+            error.status == 401 || error.status == 403 || permanentlyRejected -> ListenableWorker.Result.failure()
+            else -> ListenableWorker.Result.retry()
+        }
+    } catch (_: Exception) {
+        val dead = queued.filter { it.attemptCount >= 19 }.map { it.eventId }
+        val pending = queued.map { it.eventId } - dead.toSet()
+        if (dead.isNotEmpty()) dao.markFailed(dead, "dead_letter", "NETWORK_ERROR")
+        if (pending.isNotEmpty()) dao.markFailed(pending, "pending", "NETWORK_ERROR")
+        ListenableWorker.Result.retry()
     }
 }
 
@@ -123,8 +178,20 @@ suspend fun publishPulse(app: ZxToolkitApplication, presence: String) {
     val state = app.registerReceiver(null, android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED))
     val status = state?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
     val charging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
+    val steps = runCatching {
+        val health = HealthConnectRepository(app)
+        if (health.hasStepsPermission()) health.readTodaySteps() else null
+    }.getOrNull()
     val now = Instant.now()
-    app.container.api.publishPulse(credential, PulseSnapshot(PulseDevice(presence, batteryBucket(percent), charging), now.toString(), now.plus(60, ChronoUnit.MINUTES).toString()))
+    app.container.api.publishPulse(
+        credential,
+        PulseSnapshot(
+            device = PulseDevice(presence, batteryBucket(percent), charging),
+            activity = steps?.let { PulseActivity(stepsBucket(it)) },
+            generatedAt = now.toString(),
+            expiresAt = now.plus(60, ChronoUnit.MINUTES).toString(),
+        ),
+    )
 }
 
 private fun notifyResult(context: Context, success: Boolean, message: String) {

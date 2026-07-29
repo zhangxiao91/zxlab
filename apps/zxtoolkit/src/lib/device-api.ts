@@ -1,4 +1,5 @@
 import type { Device, DeviceCredential, DevicePlatform, DropItem, DropPayload, InboxPage, PairingSessionResponse, PairingStatusResponse, PublicPulseSnapshot, PublicStatusResponse } from "../../shared/types";
+import { encryptPulseSnapshot } from "../../shared/envelope";
 import { API_BASE_URL, ApiError } from "./api";
 
 const WEB_CREDENTIAL_KEY = "zxtoolkit.web-device";
@@ -140,7 +141,11 @@ export const uploadDropImage = uploadDropFile;
 export const fetchDropImage = fetchDropFile;
 
 export async function publishPulse(credential: DeviceCredential, snapshot: PublicPulseSnapshot): Promise<void> {
-  await request("/api/pulse/snapshots", { method: "POST", headers: { ...auth(credential), "content-type": "application/json" }, body: JSON.stringify(snapshot) });
+  await request("/api/pulse/snapshots", {
+    method: "POST",
+    headers: { ...auth(credential), "content-type": "application/json" },
+    body: JSON.stringify(await encryptPulseSnapshot(snapshot, credential.token)),
+  });
 }
 
 export async function getMyPulse(credential: DeviceCredential): Promise<PublicPulseSnapshot | null> {
