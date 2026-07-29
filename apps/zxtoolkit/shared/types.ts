@@ -52,8 +52,18 @@ export interface PrivacyRule {
 }
 
 export interface PublicPulseSnapshot {
-  device: { presence: Presence; batteryLevel?: BatteryLevel; charging?: boolean };
-  activity?: { stepsBucket?: StepsBucket };
+  device: {
+    presence: Presence;
+    batteryPercent?: number;
+    /** Legacy compatibility for clients deployed before exact telemetry was enabled. */
+    batteryLevel?: BatteryLevel;
+    charging?: boolean;
+  };
+  activity?: {
+    steps?: number;
+    /** Legacy compatibility for clients deployed before exact telemetry was enabled. */
+    stepsBucket?: StepsBucket;
+  };
   generatedAt: string;
   expiresAt: string;
   schemaVersion: 1;
@@ -62,8 +72,14 @@ export interface PublicPulseSnapshot {
 export interface PublicStatusResponse {
   updatedAt: string | null;
   stale: boolean;
-  devices: Array<{ name: string; presence: Presence; batteryLevel?: BatteryLevel; charging?: boolean }>;
-  activity?: { stepsBucket?: StepsBucket };
+  devices: Array<{
+    name: string;
+    presence: Presence;
+    batteryPercent?: number;
+    batteryLevel?: BatteryLevel;
+    charging?: boolean;
+  }>;
+  activity?: { steps?: number; stepsBucket?: StepsBucket };
 }
 
 export interface DeviceCredential { device: Device; token: string; }

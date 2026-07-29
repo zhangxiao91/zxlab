@@ -657,7 +657,7 @@ private fun SettingsPage(state: MainUiState, viewModel: MainViewModel) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                         Text("Pulse", fontWeight = FontWeight.Medium)
-                        Text("加密发送在线、电量、充电和步数档位", style = MaterialTheme.typography.bodySmall)
+                        Text("加密发送在线、精确电量、充电和今日步数", style = MaterialTheme.typography.bodySmall)
                     }
                     Switch(state.pulseEnabled, viewModel::setPulse)
                 }
@@ -667,7 +667,7 @@ private fun SettingsPage(state: MainUiState, viewModel: MainViewModel) {
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text("Health Connect", fontWeight = FontWeight.Medium)
-                        Text("精确值留在本机，仅同步步数档位", style = MaterialTheme.typography.bodySmall)
+                        Text("授权后读取并同步今日精确步数", style = MaterialTheme.typography.bodySmall)
                     }
                     Text(if (state.healthPermissionGranted) "已授权" else "未授权", style = MaterialTheme.typography.labelMedium, color = InkMuted)
                 }

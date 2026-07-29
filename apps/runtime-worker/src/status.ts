@@ -13,11 +13,15 @@ function publicDevices(...sources: unknown[]) {
     seen.add(key);
     const state = String(device.state ?? device.presence ?? "unknown");
     const batteryLevel = String(device.batteryLevel ?? "");
+    const batteryPercent = typeof device.batteryPercent === "number" && Number.isInteger(device.batteryPercent) && device.batteryPercent >= 0 && device.batteryPercent <= 100
+      ? device.batteryPercent
+      : null;
     return [{
       ...(typeof device.id === "string" ? { id: device.id } : {}),
       name: String(device.name),
       type: typeof device.type === "string" ? device.type : typeof device.platform === "string" ? device.platform : "managed device",
       state: ["online", "offline", "idle"].includes(state) ? state : "unknown",
+      ...(batteryPercent !== null ? { batteryPercent } : {}),
       ...(["high", "medium", "low"].includes(batteryLevel) ? { batteryLevel } : {}),
       ...(typeof device.charging === "boolean" ? { charging: device.charging } : {}),
       ...(typeof device.lastSeen === "string" ? { lastSeen: device.lastSeen } : {}),

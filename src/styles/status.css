@@ -1,7 +1,27 @@
+/* Hallmark · component: Pulse telemetry card · genre: atmospheric · theme: ZXLab control room
+ * states: current · recent · empty · legacy · unavailable
+ * contrast: pass
+ * pre-emit critique: P5 H5 E4 S5 R5 V4
+ */
+:root {
+  --pulse-surface: #181914;
+  --pulse-surface-raised: #23241f;
+  --pulse-panel: #20211d;
+  --pulse-panel-raised: #292a24;
+  --pulse-artwork-fallback: #303129;
+  --pulse-ink: #f5f5ed;
+  --pulse-muted: rgba(245,245,237,.6);
+  --pulse-dim: rgba(245,245,237,.48);
+  --pulse-line: rgba(255,255,255,.1);
+  --pulse-accent: #d8ff73;
+  --pulse-low: #e29a67;
+  --pulse-music: #e64848;
+  --pulse-music-glow: rgba(230,72,72,.12);
+}
 .status-page {
   width: 100%;
   max-width: 100%;
-  overflow-x: hidden;
+  overflow-x: clip;
   color: #181914;
 }
 
@@ -46,36 +66,49 @@
 .runtime-module-body dt { font-size: .68rem; text-transform: uppercase; }
 .runtime-module-body dd { margin: 0; font-size: clamp(2rem,4vw,4rem); }
 .status-agents .runtime-module-body { align-content: stretch; flex: 1; }
-.device-layout { display: flex; height: 100%; min-height: 46rem; flex-direction: column; gap: .8rem; }
+.device-layout { display: flex; height: 100%; min-height: 0; flex-direction: column; gap: .8rem; }
 .device-server-list { display: grid; margin: 0; padding: 0; grid-template-columns: repeat(2,minmax(0,1fr)); gap: .8rem; list-style: none; }
 .device-server-item { display: grid; min-height: 9.5rem; padding: 1rem; border-radius: .8rem; grid-template-columns: minmax(0,1fr) auto; align-content: space-between; gap: 1rem; background: #e8e7de; }
 .device-server-item > div > span { color: #777870; font-size: .62rem; text-transform: uppercase; }
 .device-server-item h3 { margin-top: .35rem; font-size: 1rem; font-weight: 500; }
 .device-server-item > p { grid-column: 1 / -1; padding-top: .7rem; border-top: 1px solid rgba(23,24,20,.08); color: #696a62; font-size: .68rem; }
-.mobile-device-card { display: flex; min-height: 30rem; padding: clamp(1.4rem,3vw,2rem); border-radius: 1.1rem; flex: 1; flex-direction: column; background: #181914; color: #f5f5ed; box-shadow: inset 0 1px 0 rgba(255,255,255,.1); }
+.mobile-device-card { display: flex; min-width: 0; padding: clamp(1.2rem,3vw,1.8rem); border-radius: 1.1rem; flex: 1; flex-direction: column; gap: 1.2rem; background: var(--pulse-surface); color: var(--pulse-ink); box-shadow: inset 0 1px 0 var(--pulse-line); }
 .mobile-device-card > header { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
 .mobile-device-card > header span:first-child { color: rgba(245,245,237,.43); font-size: .63rem; text-transform: uppercase; }
 .mobile-device-card > header h3 { margin-top: .45rem; font-size: clamp(1.6rem,3vw,2.5rem); font-weight: 500; }
 .mobile-device-card .status-indicator { color: rgba(245,245,237,.62); }
-.mobile-device-card__battery { display: grid; margin: auto 0; grid-template-columns: minmax(8rem,1fr) auto; align-items: end; gap: 1.2rem; }
-.battery-gauge { position: relative; display: grid; height: clamp(5rem,9vw,7rem); padding: .7rem; border: 2px solid rgba(245,245,237,.46); border-radius: .7rem; grid-template-columns: repeat(3,1fr); gap: .4rem; }
-.battery-gauge > i { border-radius: .25rem; background: rgba(245,245,237,.1); }
-.battery-gauge > span { position: absolute; width: .45rem; height: 2.2rem; right: -.55rem; top: 50%; border-radius: 0 .25rem .25rem 0; background: rgba(245,245,237,.46); transform: translateY(-50%); }
-[data-battery-level="low"] .battery-gauge > i:first-child,
-[data-battery-level="medium"] .battery-gauge > i:nth-child(-n+2),
-[data-battery-level="high"] .battery-gauge > i { background: #d8ff73; box-shadow: 0 0 1.2rem rgba(216,255,115,.12); }
-[data-battery-level="low"] .battery-gauge > i:first-child { background: #e29a67; }
-.mobile-device-card__battery > div:last-child { display: grid; text-align: right; }
-.mobile-device-card__battery strong { font-size: clamp(2rem,4vw,3.7rem); font-weight: 500; line-height: .9; text-transform: capitalize; }
-.mobile-device-card__battery span { margin-top: .5rem; color: rgba(245,245,237,.45); font-size: .68rem; }
-.mobile-device-card__music { display: grid; margin: 0 0 1rem; padding: 1rem 0; border-top: 1px solid rgba(255,255,255,.09); border-bottom: 1px solid rgba(255,255,255,.09); gap: .35rem; }
-.mobile-device-card__music > span { color: #d8ff73; font-size: .6rem; letter-spacing: .12em; text-transform: uppercase; }
-.mobile-device-card__music > strong { overflow: hidden; font-size: clamp(1.15rem,2vw,1.65rem); font-weight: 500; line-height: 1.15; text-overflow: ellipsis; white-space: nowrap; }
-.mobile-device-card__music > p { overflow: hidden; color: rgba(245,245,237,.46); font-size: .7rem; text-overflow: ellipsis; white-space: nowrap; }
-.mobile-device-card dl { display: grid; margin: 0 0 1rem; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 1px; background: rgba(255,255,255,.09); }
-.mobile-device-card dl div { display: grid; min-height: 4.8rem; padding: .8rem; align-content: space-between; background: #23241f; }
-.mobile-device-card dt { color: rgba(245,245,237,.4); font-size: .6rem; text-transform: uppercase; }
-.mobile-device-card dd { margin: 0; font-size: .78rem; text-transform: capitalize; }
+.mobile-device-card__telemetry { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 1px; overflow: hidden; border-radius: .75rem; background: var(--pulse-line); }
+.mobile-device-card__telemetry > section { display: grid; min-width: 0; min-height: 8.2rem; padding: 1rem; align-content: space-between; background: var(--pulse-surface-raised); }
+.mobile-device-card__telemetry span, .mobile-device-card__telemetry small { color: var(--pulse-muted); font-size: .62rem; }
+.mobile-device-card__telemetry strong { overflow-wrap: anywhere; font-size: clamp(1.75rem,4vw,3.2rem); font-weight: 500; font-variant-numeric: tabular-nums; line-height: .9; }
+.mobile-device-card__telemetry p { color: var(--pulse-muted); font-size: .62rem; line-height: 1.4; }
+.battery-meter { height: .3rem; overflow: hidden; border-radius: 999px; background: var(--pulse-line); }
+.battery-meter i { display: block; height: 100%; border-radius: inherit; background: var(--pulse-accent); }
+[data-battery-level="low"] .battery-meter i { background: var(--pulse-low); }
+.mobile-device-card__music { display: grid; min-width: 0; padding: 1rem; border: 1px solid var(--pulse-line); border-radius: .85rem; gap: 1rem; background: var(--pulse-panel); }
+.mobile-device-card__music > header { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 1rem; }
+.mobile-device-card__music > header > div { display: flex; min-width: 0; align-items: center; gap: .55rem; }
+.mobile-device-card__music > header strong { overflow: hidden; font-size: .72rem; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.mobile-device-card__music > header > span { color: var(--pulse-accent); font-size: .62rem; white-space: nowrap; }
+.music-source-mark { width: .55rem; height: .55rem; flex: 0 0 auto; border-radius: 50%; background: var(--pulse-music); box-shadow: 0 0 0 .22rem var(--pulse-music-glow); }
+.mobile-device-card__track { display: grid; min-width: 0; grid-template-columns: 5.5rem minmax(0,1fr); align-items: center; gap: 1rem; }
+.mobile-device-card__track figure { position: relative; display: grid; width: 5.5rem; aspect-ratio: 1; margin: 0; overflow: hidden; border-radius: .6rem; place-items: center; background: var(--pulse-artwork-fallback); color: var(--pulse-muted); font-size: .68rem; letter-spacing: .08em; }
+.mobile-device-card__track img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.mobile-device-card__track img[hidden] { display: none; }
+.mobile-device-card__track h4 { min-width: 0; overflow-wrap: anywhere; font-size: clamp(1.2rem,2.5vw,1.8rem); font-style: normal; font-weight: 500; line-height: 1.05; }
+.mobile-device-card__track p { margin-top: .45rem; overflow: hidden; color: var(--pulse-ink); font-size: .75rem; text-overflow: ellipsis; white-space: nowrap; }
+.mobile-device-card__track small { display: block; margin-top: .25rem; overflow: hidden; color: var(--pulse-muted); font-size: .66rem; text-overflow: ellipsis; white-space: nowrap; }
+.mobile-device-card__progress > span { display: block; height: .22rem; overflow: hidden; border-radius: 999px; background: var(--pulse-line); }
+.mobile-device-card__progress i { display: block; height: 100%; border-radius: inherit; background: var(--pulse-accent); }
+.mobile-device-card__progress > div { display: flex; margin-top: .4rem; justify-content: space-between; color: var(--pulse-muted); font-size: .58rem; font-variant-numeric: tabular-nums; }
+.mobile-device-card dl.mobile-device-card__music-stats { display: grid; margin: 0; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 1px; overflow: hidden; border-radius: .55rem; background: var(--pulse-line); }
+.mobile-device-card dl.mobile-device-card__music-stats div { display: grid; min-height: 4.3rem; padding: .7rem; align-content: space-between; background: var(--pulse-panel-raised); }
+.mobile-device-card__music--empty > div { display: grid; min-height: 6rem; align-content: center; gap: .4rem; }
+.mobile-device-card__music--empty h4 { font-size: 1.2rem; font-style: normal; font-weight: 500; }
+.mobile-device-card__music--empty p { max-width: 32rem; color: var(--pulse-muted); font-size: .68rem; line-height: 1.5; }
+.mobile-device-card dt { color: var(--pulse-muted); font-size: .58rem; }
+.mobile-device-card dd { margin: 0; overflow-wrap: anywhere; font-size: .76rem; font-variant-numeric: tabular-nums; }
+.mobile-device-card > footer { display: flex; padding-top: .1rem; justify-content: space-between; gap: 1rem; color: var(--pulse-muted); font-size: .58rem; line-height: 1.4; }
 .mobile-device-card > p { color: rgba(245,245,237,.42); font-size: .68rem; line-height: 1.5; }
 .status-memory .runtime-module-body { align-content: start; }
 .memory-ready { display: grid; gap: 1.2rem; }
@@ -131,9 +164,13 @@
   .runtime-module-body { min-height: 11rem; }
   .device-layout { min-height: 0; }
   .device-server-list { grid-template-columns: 1fr; }
-  .mobile-device-card { min-height: 28rem; }
-  .mobile-device-card__battery { grid-template-columns: 1fr; }
-  .mobile-device-card__battery > div:last-child { text-align: left; }
+  .mobile-device-card { min-height: 0; }
+  .mobile-device-card__telemetry { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .mobile-device-card__track { grid-template-columns: 4.6rem minmax(0,1fr); }
+  .mobile-device-card__track figure { width: 4.6rem; }
+  .mobile-device-card dl.mobile-device-card__music-stats { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .mobile-device-card__music-stats div:last-child:nth-child(3) { grid-column: 1 / -1; }
+  .mobile-device-card > footer { flex-direction: column; gap: .25rem; }
   .memory-private__toolbar { align-items: stretch; flex-direction: column; }
   .memory-private__toolbar label { min-width: 100%; }
   .memory-private__stats, .memory-private__columns, .usage-radar-layout { grid-template-columns: 1fr !important; }

@@ -19,7 +19,7 @@ const runtimeApiBase = String(import.meta.env.PUBLIC_RUNTIME_API_BASE ?? (import
         <span aria-hidden="true"></span>
         <p>Runtime control plane</p>
         <h2 data-status-notice-title>Connecting to verified sources.</h2>
-        <p data-status-notice-message>Only normalized health, allowlisted aliases, and coarse telemetry reach this public surface.</p>
+        <p data-status-notice-message>Only normalized health and explicitly allowlisted device telemetry reach this public surface.</p>
       </aside>
     </section>
 
@@ -79,6 +79,11 @@ const runtimeApiBase = String(import.meta.env.PUBLIC_RUNTIME_API_BASE ?? (import
     };
     const indicator = (state: string) => `<span class="status-indicator" data-state="${escapeHtml(state)}"><span aria-hidden="true"></span><span>${escapeHtml(state)}</span></span>`;
     const dateTime = (value?: string | null) => value ? new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "Unavailable";
+    const formatCount = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? new Intl.NumberFormat("en").format(value) : "Unavailable";
+    const formatDuration = (value: number) => {
+      const totalSeconds = Math.max(0, Math.floor(value / 1000));
+      return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, "0")}`;
+    };
 
     const formatTokens = (value: number | null | undefined) => value == null ? "N/A" : value >= 1_000_000 ? `${(value / 1_000_000).toFixed(2)}M` : value >= 1_000 ? `${(value / 1_000).toFixed(1)}K` : String(value);
     const formatCost = (value: number | null | undefined) => value == null ? "N/A" : `$${value < .01 ? value.toFixed(4) : value.toFixed(2)}`;
@@ -296,22 +301,49 @@ const runtimeApiBase = String(import.meta.env.PUBLIC_RUNTIME_API_BASE ?? (import
         const agents = Array.isArray(data.agents) ? data.agents : [];
         const nowPlaying = data.nowPlaying && typeof data.nowPlaying === "object" ? data.nowPlaying : null;
         const music = data.music && typeof data.music === "object" ? data.music : null;
+        const exactSteps = typeof data.activity?.steps === "number" && Number.isFinite(data.activity.steps) ? data.activity.steps : null;
         const stepsBucket = typeof data.activity?.stepsBucket === "string" ? data.activity.stepsBucket : null;
-        const mobile = agents.find((agent: any) => agent.batteryLevel || agent.type === "managed device")
+        const mobile = agents.find((agent: any) => typeof agent.batteryPercent === "number" || agent.batteryLevel || agent.type === "managed device")
           ?? (nowPlaying ? { name: nowPlaying.deviceName ?? "Android device", type: "managed device", state: "unknown" } : null);
         const infrastructure = agents.filter((agent: any) => agent !== mobile);
         const serverCards = infrastructure.map((agent: any) => `<li class="device-server-item" data-device-state="${escapeHtml(agent.state ?? "unknown")}"><div><span>${escapeHtml(agent.type ?? "server")}</span><h3>${escapeHtml(agent.name ?? "Managed server")}</h3></div>${indicator(agent.state ?? "unknown")}<p>${escapeHtml(agent.publicTask ?? (agent.lastSeen ? `Last seen ${relative(agent.lastSeen)}` : "Public presence"))}</p></li>`).join("");
+        const batteryPercent = typeof mobile?.batteryPercent === "number" && Number.isFinite(mobile.batteryPercent) ? Math.max(0, Math.min(100, Math.round(mobile.batteryPercent))) : null;
         const batteryLevel = ["high", "medium", "low"].includes(mobile?.batteryLevel) ? mobile.batteryLevel : "unknown";
+        const batteryValue = batteryPercent !== null ? `${batteryPercent}%` : batteryLevel === "unknown" ? "Unavailable" : batteryLevel;
+        const artworkUrl = typeof nowPlaying?.artworkUrl === "string" && nowPlaying.artworkUrl.startsWith("https://") ? nowPlaying.artworkUrl : null;
+        const positionMs = typeof nowPlaying?.positionMs === "number" && Number.isFinite(nowPlaying.positionMs) ? Math.max(0, nowPlaying.positionMs) : 0;
+        const durationMs = typeof nowPlaying?.durationMs === "number" && Number.isFinite(nowPlaying.durationMs) ? Math.max(0, nowPlaying.durationMs) : 0;
+        const playbackProgress = durationMs > 0 ? Math.min(100, Math.round(positionMs / durationMs * 100)) : 0;
+        const playbackState = nowPlaying?.state === "playing" ? "Playing" : nowPlaying ? "Recently played" : "Waiting for playback";
+        const playbackArtwork = `<span aria-hidden="true">NCM</span>${artworkUrl ? `<img data-music-artwork src="${escapeHtml(artworkUrl)}" alt="" loading="lazy" referrerpolicy="no-referrer" />` : ""}`;
+        const musicPanel = nowPlaying ? `<section class="mobile-device-card__music" data-playback-state="${escapeHtml(nowPlaying.state ?? "unknown")}">
+            <header><div><span class="music-source-mark" aria-hidden="true"></span><strong>NetEase Cloud Music</strong></div><span>${escapeHtml(playbackState)}</span></header>
+            <div class="mobile-device-card__track">
+              <figure>${playbackArtwork}</figure>
+              <div><h4>${escapeHtml(nowPlaying.title ?? "Unknown track")}</h4><p>${escapeHtml(nowPlaying.artist ?? "Unknown artist")}</p><small>${escapeHtml(nowPlaying.album ?? "Album unavailable")}</small></div>
+            </div>
+            <div class="mobile-device-card__progress" aria-label="${escapeHtml(`${formatDuration(positionMs)} of ${durationMs > 0 ? formatDuration(durationMs) : "unknown"}`)}"><span><i style="width:${playbackProgress}%"></i></span><div><time>${escapeHtml(formatDuration(positionMs))}</time><time>${escapeHtml(durationMs > 0 ? formatDuration(durationMs) : "—")}</time></div></div>
+            <dl class="mobile-device-card__music-stats"><div><dt>Plays today</dt><dd>${escapeHtml(formatCount(music?.playsToday))}</dd></div><div><dt>Artists today</dt><dd>${escapeHtml(formatCount(music?.artistsToday))}</dd></div><div><dt>Last signal</dt><dd>${escapeHtml(nowPlaying.occurredAt ? relative(nowPlaying.occurredAt) : "Unavailable")}</dd></div></dl>
+          </section>` : `<section class="mobile-device-card__music mobile-device-card__music--empty">
+            <header><div><span class="music-source-mark" aria-hidden="true"></span><strong>NetEase Cloud Music</strong></div><span>Waiting for playback</span></header>
+            <div><h4>No recent track</h4><p>Open NetEase Cloud Music on the paired Android device to populate this listening surface.</p></div>
+            <dl class="mobile-device-card__music-stats"><div><dt>Plays today</dt><dd>${escapeHtml(formatCount(music?.playsToday))}</dd></div><div><dt>Artists today</dt><dd>${escapeHtml(formatCount(music?.artistsToday))}</dd></div></dl>
+          </section>`;
         const mobileCard = mobile ? `<article class="mobile-device-card" data-battery-level="${escapeHtml(batteryLevel)}" data-device-state="${escapeHtml(mobile.state ?? "unknown")}">
-          <header><div><span>zxtoolkit mobile pulse</span><h3>${escapeHtml(mobile.name ?? "Mobile device")}</h3></div>${indicator(mobile.state ?? "unknown")}</header>
-          <div class="mobile-device-card__battery"><div class="battery-gauge" role="img" aria-label="Battery level ${escapeHtml(batteryLevel)}"><i></i><i></i><i></i><span aria-hidden="true"></span></div><div><strong>${escapeHtml(batteryLevel === "unknown" ? "Unavailable" : batteryLevel)}</strong><span>Battery level</span></div></div>
-          ${nowPlaying ? `<section class="mobile-device-card__music" data-playback-state="${escapeHtml(nowPlaying.state ?? "unknown")}"><span>${nowPlaying.state === "playing" ? "Now playing" : "Recently played"}</span><strong>${escapeHtml(nowPlaying.title ?? "Unknown track")}</strong><p>${escapeHtml([nowPlaying.artist, nowPlaying.album].filter(Boolean).join(" · ") || "NetEase Cloud Music")}</p></section>` : ""}
-          <dl><div><dt>Presence</dt><dd>${escapeHtml(mobile.state ?? "unknown")}</dd></div><div><dt>Power</dt><dd>${typeof mobile.charging === "boolean" ? (mobile.charging ? "Charging" : "On battery") : "Unavailable"}</dd></div><div><dt>Steps</dt><dd>${escapeHtml(stepsBucket ?? "Not shared")}</dd></div><div><dt>Plays today</dt><dd>${escapeHtml(music?.playsToday ?? "Unavailable")}</dd></div></dl>
-          <p>Android Pulse is application-layer encrypted before upload. Playback metadata is limited to the allowlisted NetEase MediaSession.</p>
+          <header><div><span>Mobile telemetry</span><h3>${escapeHtml(mobile.name ?? "Mobile device")}</h3></div>${indicator(mobile.state ?? "unknown")}</header>
+          <div class="mobile-device-card__telemetry">
+            <section><span>Battery</span><strong>${escapeHtml(batteryValue)}</strong><div class="battery-meter" role="img" aria-label="Battery ${escapeHtml(batteryValue)}"><i style="width:${batteryPercent ?? 0}%"></i></div><small>${typeof mobile.charging === "boolean" ? (mobile.charging ? "Charging now" : "On battery") : "Power state unavailable"}</small></section>
+            <section><span>Steps today</span><strong>${escapeHtml(exactSteps !== null ? formatCount(exactSteps) : stepsBucket ?? "Unavailable")}</strong><p>${exactSteps !== null ? "Health Connect exact total" : stepsBucket ? "Legacy range from Pulse" : "Health Connect not shared"}</p></section>
+          </div>
+          ${musicPanel}
+          <footer><span>Pulse payload encrypted before upload</span><span>NetEase MediaSession only</span></footer>
         </article>` : `<article class="mobile-device-card" data-battery-level="unknown" data-device-state="unknown"><header><div><span>zxtoolkit mobile pulse</span><h3>Mobile telemetry unavailable</h3></div></header><p>No current mobile Pulse snapshot has been reported.</p></article>`;
         body.innerHTML = agents.length || nowPlaying
           ? `<div class="device-layout"><ul class="device-server-list">${serverCards}</ul>${mobileCard}</div>`
           : `<h3>No devices have reported yet.</h3><p>The source is connected and currently reports zero allowlisted devices.</p>`;
+        body.querySelectorAll<HTMLImageElement>("img[data-music-artwork]").forEach((image) => {
+          image.addEventListener("error", () => { image.hidden = true; }, { once: true });
+        });
       }
       if (module.id === "usage") {
         body.querySelector<HTMLElement>("[data-module-fallback]")?.setAttribute("hidden", "");

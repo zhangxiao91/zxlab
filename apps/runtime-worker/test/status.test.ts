@@ -34,9 +34,9 @@ describe("public runtime snapshot", () => {
       row("pages", { devicesAvailable: true, devices: [{ id: "server-a", name: "Server A", type: "server", state: "online" }] }), row("market"),
       row("signal", { memory: { activeCount: 4, proposedCount: 1 } }),
       row("zxtoolkit", {
-        agents: [{ name: "Studio", presence: "online", batteryLevel: "medium", charging: false }],
-        activity: { stepsBucket: "5k-8k" },
-        nowPlaying: { title: "夜曲", artist: "周杰伦", state: "playing", deviceName: "Studio", occurredAt: "2026-07-30T12:00:00.000Z" },
+        agents: [{ name: "Studio", presence: "online", batteryPercent: 57, charging: false }],
+        activity: { steps: 6_832 },
+        nowPlaying: { title: "夜曲", artist: "周杰伦", album: "十一月的萧邦", state: "playing", positionMs: 61_000, durationMs: 226_000, deviceName: "Studio", occurredAt: "2026-07-30T12:00:00.000Z" },
         music: { playsToday: 4, artistsToday: 2 },
       }),
       row("codex-usage", { usage: { status: "online", limits: [] } }),
@@ -46,9 +46,9 @@ describe("public runtime snapshot", () => {
     expect(snapshot.modules.find((module) => module.id === "memory")?.data).toMatchObject({ activeCount: 4 });
     expect(snapshot.modules.find((module) => module.id === "agents")?.name).toBe("Device");
     expect(snapshot.modules.find((module) => module.id === "agents")?.data).toMatchObject({ agents: [{ name: "Server A" }, { name: "Studio" }] });
-    expect((snapshot.modules.find((module) => module.id === "agents")?.data as { agents: Array<Record<string, unknown>> }).agents[1]).toEqual({ name: "Studio", type: "managed device", state: "online", batteryLevel: "medium", charging: false });
+    expect((snapshot.modules.find((module) => module.id === "agents")?.data as { agents: Array<Record<string, unknown>> }).agents[1]).toEqual({ name: "Studio", type: "managed device", state: "online", batteryPercent: 57, charging: false });
     expect(snapshot.modules.find((module) => module.id === "agents")?.data).toMatchObject({
-      activity: { stepsBucket: "5k-8k" },
+      activity: { steps: 6_832 },
       nowPlaying: { title: "夜曲", state: "playing" },
       music: { playsToday: 4 },
     });

@@ -195,10 +195,10 @@ const now = Date.now();
 await request("/api/pulse/snapshots", {
   method: "POST",
   headers: jsonAuth(rotated.credential),
-  body: JSON.stringify(await encryptedPulse({ device: { presence: "online", batteryLevel: "high", charging: true }, activity: { stepsBucket: "5k-8k" }, generatedAt: new Date(now).toISOString(), expiresAt: new Date(now + 30 * 60_000).toISOString(), schemaVersion: 1 }, rotated.credential.token))
+  body: JSON.stringify(await encryptedPulse({ device: { presence: "online", batteryPercent: 87, charging: true }, activity: { steps: 6_500 }, generatedAt: new Date(now).toISOString(), expiresAt: new Date(now + 30 * 60_000).toISOString(), schemaVersion: 1 }, rotated.credential.token))
 });
 const latestPulse = await request("/api/pulse/snapshots/latest", { headers: auth(rotated.credential) });
-ensure(latestPulse.snapshot?.device?.presence === "online", "rotated credential cannot read Pulse");
+ensure(latestPulse.snapshot?.device?.presence === "online" && latestPulse.snapshot?.device?.batteryPercent === 87 && latestPulse.snapshot?.activity?.steps === 6_500, "rotated credential cannot read exact Pulse telemetry");
 const musicEvent = {
   eventId: "evt_smoke_music_01",
   sessionId: "ses_smoke_music_01",

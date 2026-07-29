@@ -186,8 +186,8 @@ suspend fun publishPulse(app: ZxToolkitApplication, presence: String) {
     app.container.api.publishPulse(
         credential,
         PulseSnapshot(
-            device = PulseDevice(presence, batteryBucket(percent), charging),
-            activity = steps?.let { PulseActivity(stepsBucket(it)) },
+            device = PulseDevice(presence, percent, charging),
+            activity = steps?.let { PulseActivity(it) },
             generatedAt = now.toString(),
             expiresAt = now.plus(60, ChronoUnit.MINUTES).toString(),
         ),

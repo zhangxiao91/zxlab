@@ -13,16 +13,28 @@ export function validatePulseSnapshot(value: unknown, now = Date.now()): PublicP
   const expiresAt = typeof input.expiresAt === "string" ? Date.parse(input.expiresAt) : NaN;
   if (input.schemaVersion !== 1 || !device || !presences.includes(device.presence as Presence)) return null;
   if (!Number.isFinite(generatedAt) || !Number.isFinite(expiresAt) || generatedAt > now + 60_000 || expiresAt <= now || expiresAt > now + 24 * 60 * 60 * 1000) return null;
+  if (device.batteryPercent !== undefined && (!Number.isInteger(device.batteryPercent) || (device.batteryPercent as number) < 0 || (device.batteryPercent as number) > 100)) return null;
   if (device.batteryLevel !== undefined && !batteries.includes(device.batteryLevel as BatteryLevel)) return null;
   if (device.charging !== undefined && typeof device.charging !== "boolean") return null;
+  if (activity?.steps !== undefined && (!Number.isInteger(activity.steps) || (activity.steps as number) < 0 || (activity.steps as number) > 500_000)) return null;
   if (activity?.stepsBucket !== undefined && !steps.includes(activity.stepsBucket as StepsBucket)) return null;
   return {
     device: {
       presence: device.presence as Presence,
+      ...(typeof device.batteryPercent === "number" ? { batteryPercent: device.batteryPercent } : {}),
       ...(device.batteryLevel ? { batteryLevel: device.batteryLevel as BatteryLevel } : {}),
       ...(typeof device.charging === "boolean" ? { charging: device.charging } : {})
     },
-    ...(activity?.stepsBucket ? { activity: { stepsBucket: activity.stepsBucket as StepsBucket } } : {}),
+    ...(
+      typeof activity?.steps === "number" || activity?.stepsBucket
+        ? {
+            activity: {
+              ...(typeof activity?.steps === "number" ? { steps: activity.steps } : {}),
+              ...(activity?.stepsBucket ? { stepsBucket: activity.stepsBucket as StepsBucket } : {}),
+            },
+          }
+        : {}
+    ),
     generatedAt: new Date(generatedAt).toISOString(),
     expiresAt: new Date(expiresAt).toISOString(),
     schemaVersion: 1

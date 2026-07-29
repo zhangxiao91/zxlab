@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { validatePulseSnapshot } from "../../shared/pulse";
 
 const now = Date.parse("2026-07-15T10:00:00.000Z");
-const valid = { device: { presence: "online", batteryLevel: "high", charging: true }, activity: { stepsBucket: "8k-12k" }, generatedAt: "2026-07-15T10:00:00.000Z", expiresAt: "2026-07-15T10:30:00.000Z", schemaVersion: 1 };
+const valid = { device: { presence: "online", batteryPercent: 87, charging: true }, activity: { steps: 9_426 }, generatedAt: "2026-07-15T10:00:00.000Z", expiresAt: "2026-07-15T10:30:00.000Z", schemaVersion: 1 };
 
 describe("Pulse public snapshot validation", () => {
   it("accepts only the public schema", () => { expect(validatePulseSnapshot(valid, now)).toEqual(valid); });
@@ -15,5 +15,14 @@ describe("Pulse public snapshot validation", () => {
     expect(result).toEqual(valid);
     expect(result).not.toHaveProperty("preciseLocation");
     expect(result?.device).not.toHaveProperty("serialNumber");
+  });
+  it("rejects impossible exact telemetry values", () => {
+    expect(validatePulseSnapshot({ ...valid, device: { ...valid.device, batteryPercent: 101 } }, now)).toBeNull();
+    expect(validatePulseSnapshot({ ...valid, activity: { steps: -1 } }, now)).toBeNull();
+    expect(validatePulseSnapshot({ ...valid, activity: { steps: 1.5 } }, now)).toBeNull();
+  });
+  it("continues to accept legacy bucket clients during rollout", () => {
+    const legacy = { ...valid, device: { presence: "online", batteryLevel: "medium" }, activity: { stepsBucket: "5k-8k" } };
+    expect(validatePulseSnapshot(legacy, now)).toEqual(legacy);
   });
 });

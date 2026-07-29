@@ -20,11 +20,18 @@ class ModelsTest {
         assertNull(normalizeHttpUrl("javascript:alert(1)"))
     }
 
-    @Test fun mapsBatteryBoundaries() {
-        assertEquals("low", batteryBucket(24))
-        assertEquals("medium", batteryBucket(25))
-        assertEquals("medium", batteryBucket(59))
-        assertEquals("high", batteryBucket(60))
+    @Test fun pulseSerializesExactBatteryAndSteps() {
+        val snapshot = PulseSnapshot(
+            device = PulseDevice("online", 57, false),
+            activity = PulseActivity(6_832),
+            generatedAt = "2026-07-30T00:00:00Z",
+            expiresAt = "2026-07-30T01:00:00Z",
+        )
+        val encoded = json.encodeToString(snapshot)
+        assertTrue(encoded.contains("\"batteryPercent\":57"))
+        assertTrue(encoded.contains("\"steps\":6832"))
+        assertFalse(encoded.contains("batteryLevel"))
+        assertFalse(encoded.contains("stepsBucket"))
     }
 
     @Test fun payloadUsesProtocolDiscriminator() {

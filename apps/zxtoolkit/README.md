@@ -9,7 +9,7 @@ zxtoolkit 是连接 Mac 与其他个人设备的轻量工具集，目前包含 D
 
 Mac 菜单栏复制文字、URL 或图片 → 点击“发送剪贴板” → 移动 Web 收件箱实时收到内容 → 复制、打开、分享或下载。
 
-已配对移动 Web/PWA 选择开发态电量与步数档位 → 预览公开 JSON → 发布 → `/pulse/preview` 与 `/api/public/status` 读取。当前 Pulse 是明确标记的 mock provider，不代表 Android 系统真实数据。
+已配对移动 Web/PWA 输入开发态精确电量与今日步数 → 预览公开 JSON → 发布 → `/pulse/preview` 与 `/api/public/status` 读取。Web Pulse 是明确标记的 mock provider；Android 使用系统真实电量与授权后的 Health Connect 今日步数。
 
 ## 结构
 
@@ -189,11 +189,11 @@ npm run r2:lifecycle:list
 
 ## 隐私模型
 
-Pulse 默认只接收 presence、电量档位、充电状态、步数档位、生成时间、过期时间和 schemaVersion。服务端会重建白名单对象，任意额外字段不会进入公开响应；快照过期后不再显示。Android 从 Health Connect 读取的精确步数不会写入 Pulse。不会上传精确位置、通知、应用列表、精确健康数据或设备 ID。
+Pulse 默认只接收 presence、精确电量、充电状态、今日精确步数、生成时间、过期时间和 schemaVersion。服务端会重建白名单对象，任意额外字段不会进入公开响应；快照过期后不再显示。不会上传精确位置、通知、应用列表、其他 Health Connect 数据或设备 ID。
 
 ## 当前限制
 
-- Web/PWA Pulse 仍使用明确标记的开发态模拟值；Android 使用真实电量档位与充电状态，并可在前台按授权读取 Health Connect 今日步数，但不会把精确步数发布到 Pulse。
+- Web/PWA Pulse 仍使用明确标记的开发态模拟值；Android 使用真实精确电量与充电状态，并在授权后读取和发布 Health Connect 今日精确步数。
 - 文件/图片生产链路已部署；仍需用真实手机完成一次扫码、图片发送与分享的人工验收。
 - 今日日报依赖生产 zxtoolkit Worker 已配置 `SIGNAL` Service Binding；本地只启动 zxtoolkit Worker 时会显示日报暂不可用。
 - 收件箱使用 WebSocket 实时通知，并保留 30 秒轮询兜底。

@@ -76,8 +76,8 @@ data class PulseSnapshot(
     val schemaVersion: Int = 1,
 )
 
-@Serializable data class PulseDevice(val presence: String, val batteryLevel: String, val charging: Boolean)
-@Serializable data class PulseActivity(val stepsBucket: String? = null)
+@Serializable data class PulseDevice(val presence: String, val batteryPercent: Int, val charging: Boolean)
+@Serializable data class PulseActivity(val steps: Long? = null)
 
 @Serializable
 data class EncryptedEnvelope(
@@ -174,17 +174,3 @@ fun classifyText(value: String): DropPayload {
 }
 
 fun normalizeHttpUrl(value: String): String? = value.trim().toHttpUrlOrNull()?.toString()
-
-fun batteryBucket(percent: Int): String = when {
-    percent >= 60 -> "high"
-    percent >= 25 -> "medium"
-    else -> "low"
-}
-
-fun stepsBucket(steps: Long): String = when {
-    steps < 2_000 -> "0-2k"
-    steps < 5_000 -> "2k-5k"
-    steps < 8_000 -> "5k-8k"
-    steps < 12_000 -> "8k-12k"
-    else -> "12k+"
-}
