@@ -103,7 +103,7 @@ test("known lightweight tasks bypass the selector with a deterministic tier", as
 test("selector falls from DeepSeek Flash to Terra without recursively routing itself", async () => {
   const adapter = new ScriptedAdapter([
     fallback500(),
-    success('{"tier":"sol","confidence":0.91,"reasonCode":"complex-reasoning"}'),
+    success('{"tier":"deepseek-flash","confidence":0.91,"reasonCode":"complex-reasoning"}'),
   ]);
   const selection = await selectModelTier(input, {
     ...catalog,

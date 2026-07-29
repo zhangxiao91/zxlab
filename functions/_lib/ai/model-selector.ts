@@ -78,7 +78,15 @@ function parseSelection(text: string): Pick<ModelSelection, "tier" | "confidence
   const value = parseStructuredOutput(text) as Record<string, unknown>;
   if (!TIERS.has(value.tier as CapabilityTier) || typeof value.confidence !== "number" || value.confidence < 0 || value.confidence > 1
     || !REASONS.has(value.reasonCode as SelectionReason)) throw new AIError("INVALID_STRUCTURED_OUTPUT", { fallbackAllowed: true });
-  return { tier: value.tier as CapabilityTier, confidence: value.confidence, reasonCode: value.reasonCode as SelectionReason };
+  const reasonCode = value.reasonCode as SelectionReason;
+  const tier: CapabilityTier = reasonCode === "complex-reasoning" || reasonCode === "long-context"
+    ? "sol"
+    : reasonCode === "creative-generation"
+      ? "kimi-k3"
+      : reasonCode === "structured-generation"
+        ? "terra"
+        : "deepseek-flash";
+  return { tier, confidence: value.confidence, reasonCode };
 }
 
 export async function selectModelTier(input: GenerateAIInput, catalog: ModelCatalog, dependencies: SelectorDependencies): Promise<ModelSelection> {
