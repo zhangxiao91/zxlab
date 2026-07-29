@@ -101,6 +101,22 @@ it never physically deletes the row.
 The debug UI is `/admin/memory`. It intentionally exposes no provider keys or
 model configuration and performs writes only through the protected API.
 
+## Profile import CLI
+
+Reviewed profile manifests can be synchronized through the protected Runtime
+proxy without writing D1 directly:
+
+```bash
+npm run memory:import -- data/memory/zhangxiao-initial.yaml --env beta
+npm run memory:import -- data/memory/zhangxiao-initial.yaml --env beta --apply
+```
+
+Dry-run is the default. The CLI obtains a short-lived Access JWT from
+`cloudflared`, compares normalized content with active canonical records, and
+plans `create`, `update`, or `skip`. Applying the plan repairs metadata on
+matching records and verifies that a second plan contains only `skip` actions.
+It never prints the JWT or writes Memory tables directly.
+
 ## Migrations and sample data
 
 ```bash
