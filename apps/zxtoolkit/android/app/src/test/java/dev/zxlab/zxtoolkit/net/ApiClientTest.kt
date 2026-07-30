@@ -65,4 +65,36 @@ class ApiClientTest {
         assertEquals("/api/briefings/today?date=2026-07-28", request.path)
         assertEquals("Bearer secret", request.getHeader("Authorization"))
     }
+
+    @Test fun omitsNullPlaybackFieldsFromWirePayload() = runTest {
+        server.enqueue(
+            MockResponse().setResponseCode(202).setHeader("content-type", "application/json").setBody(
+                """{"batchId":"batch_12345678","accepted":["evt_12345678"],"duplicates":[],"rejected":[],"serverTime":"2026-07-30T12:00:00Z"}""",
+            ),
+        )
+        val credential = DeviceCredential(Device("android-1", "Pixel", "android", emptyList(), "now"), "secret")
+        api.publishPlaybackEvents(
+            credential,
+            PlaybackEventBatch(
+                batchId = "batch_12345678",
+                sentAt = "2026-07-30T12:00:00Z",
+                events = listOf(
+                    PlaybackEvent(
+                        eventId = "evt_12345678",
+                        sessionId = "ses_12345678",
+                        eventType = "track_started",
+                        fingerprint = "a".repeat(64),
+                        track = PlaybackTrack(title = "Example Song"),
+                        playback = PlaybackPosition(state = "playing"),
+                        occurredAt = "2026-07-30T12:00:00Z",
+                        elapsedRealtimeMs = 42,
+                    ),
+                ),
+            ),
+        )
+        val body = server.takeRequest().body.readUtf8()
+        assertFalse(body.contains("\"artworkUrl\""))
+        assertFalse(body.contains("\"mediaId\""))
+        assertFalse(body.contains("\"positionMs\""))
+    }
 }

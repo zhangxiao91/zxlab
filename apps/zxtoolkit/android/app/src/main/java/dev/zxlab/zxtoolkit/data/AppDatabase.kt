@@ -85,7 +85,7 @@ interface PlaybackEventDao {
     suspend fun deleteSyncedBefore(before: String)
 }
 
-@Database(entities = [InboxEntity::class, OutboxEntity::class, PlaybackEventEntity::class], version = 2, exportSchema = true)
+@Database(entities = [InboxEntity::class, OutboxEntity::class, PlaybackEventEntity::class], version = 3, exportSchema = true)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun transfers(): TransferDao
     abstract fun playbackEvents(): PlaybackEventDao

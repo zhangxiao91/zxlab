@@ -90,7 +90,7 @@ function validatePlaybackEvent(value: unknown, now: number): PlaybackEvent | nul
     typeof input.elapsedRealtimeMs !== "number" || !Number.isSafeInteger(input.elapsedRealtimeMs) || input.elapsedRealtimeMs < 0
   ) return null;
   const artworkUrl = optionalHttpsUrl(track.artworkUrl);
-  if (track.artworkUrl !== undefined && !artworkUrl) return null;
+  if (track.artworkUrl !== undefined && track.artworkUrl !== null && !artworkUrl) return null;
   return {
     eventId: input.eventId,
     sessionId: input.sessionId,

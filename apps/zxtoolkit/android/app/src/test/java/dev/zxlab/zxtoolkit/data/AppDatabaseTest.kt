@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import dev.zxlab.zxtoolkit.ZxToolkitApplication
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -31,5 +32,30 @@ class AppDatabaseTest {
         assertEquals(1, rows.size)
         assertTrue(rows.single().notified)
         assertEquals("opened", rows.single().status)
+    }
+
+    @Test fun migrationRequeuesPlaybackEventsRejectedByTheOldWireContract() = runTest {
+        val dao = db.playbackEvents()
+        dao.insert(
+            PlaybackEventEntity(
+                localId = "local-1",
+                eventId = "evt_12345678",
+                payloadJson = "{}",
+                occurredAt = "2026-07-30T12:00:00Z",
+            ),
+        )
+        dao.markFailed(listOf("evt_12345678"), "dead_letter", "INVALID_PLAYBACK_BATCH")
+
+        ZxToolkitApplication.MIGRATION_2_3.migrate(db.openHelper.writableDatabase)
+
+        db.openHelper.writableDatabase.query(
+            "SELECT syncState, attemptCount, lastErrorCode FROM playback_events WHERE eventId = ?",
+            arrayOf("evt_12345678"),
+        ).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("pending", cursor.getString(0))
+            assertEquals(0, cursor.getInt(1))
+            assertTrue(cursor.isNull(2))
+        }
     }
 }

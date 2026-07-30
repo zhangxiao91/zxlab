@@ -25,6 +25,31 @@ describe("music event contract", () => {
     expect(validatePlaybackBatch({ schemaVersion: 1, batchId: "batch_01J12345", sentAt: new Date(now).toISOString(), events: [{ ...event, track: { ...event.track, artworkUrl: "content://cover" } }] }, now)).toBeNull();
   });
 
+  it("normalizes Kotlin nulls for optional playback fields", () => {
+    const result = validatePlaybackBatch({
+      schemaVersion: 1,
+      batchId: "batch_01J12345",
+      sentAt: new Date(now).toISOString(),
+      events: [{
+        ...event,
+        mediaId: null,
+        track: { title: "Example Song", artist: null, album: null, durationMs: null, artworkUrl: null },
+        playback: { state: "playing", positionMs: null, speed: null },
+      }],
+    }, now);
+    expect(result?.events[0]).toEqual({
+      eventId: event.eventId,
+      sessionId: event.sessionId,
+      eventType: event.eventType,
+      packageName: NETEASE_PACKAGE,
+      fingerprint: event.fingerprint,
+      track: { title: "Example Song" },
+      playback: { state: "playing" },
+      occurredAt: event.occurredAt,
+      elapsedRealtimeMs: event.elapsedRealtimeMs,
+    });
+  });
+
   it("rejects oversized batches", () => {
     expect(validatePlaybackBatch({ schemaVersion: 1, batchId: "batch_01J12345", sentAt: new Date(now).toISOString(), events: Array.from({ length: 101 }, (_, index) => ({ ...event, eventId: `evt_01J${String(index).padStart(5, "0")}` })) }, now)).toBeNull();
   });

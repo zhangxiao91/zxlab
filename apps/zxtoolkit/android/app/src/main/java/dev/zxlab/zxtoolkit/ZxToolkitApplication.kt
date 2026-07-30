@@ -10,6 +10,7 @@ import androidx.work.*
 import dev.zxlab.zxtoolkit.data.AppDatabase
 import dev.zxlab.zxtoolkit.data.CredentialStore
 import dev.zxlab.zxtoolkit.net.ApiClient
+import dev.zxlab.zxtoolkit.work.PlaybackSyncWorker
 import dev.zxlab.zxtoolkit.work.SyncWorker
 import java.util.concurrent.TimeUnit
 
@@ -21,7 +22,7 @@ class ZxToolkitApplication : Application() {
         super.onCreate()
         val api = ApiClient()
         val database = Room.databaseBuilder(this, AppDatabase::class.java, "zxtoolkit.db")
-            .addMigrations(MIGRATION_1_2)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
             .build()
         val credentials = CredentialStore(this, api.json)
         container = AppContainer(api, database, credentials)
@@ -29,6 +30,7 @@ class ZxToolkitApplication : Application() {
             NotificationChannel(NOTIFICATION_CHANNEL, "传输", NotificationManager.IMPORTANCE_DEFAULT)
         )
         scheduleBackgroundSync()
+        PlaybackSyncWorker.enqueue(this)
     }
 
     private fun scheduleBackgroundSync() {
@@ -60,6 +62,15 @@ class ZxToolkitApplication : Application() {
                 )
                 db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_playback_events_eventId ON playback_events(eventId)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_playback_events_syncState_occurredAt ON playback_events(syncState, occurredAt)")
+            }
+        }
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """UPDATE playback_events
+                        SET syncState = 'pending', attemptCount = 0, lastErrorCode = NULL
+                        WHERE syncState = 'dead_letter' AND lastErrorCode = 'INVALID_PLAYBACK_BATCH'""",
+                )
             }
         }
     }

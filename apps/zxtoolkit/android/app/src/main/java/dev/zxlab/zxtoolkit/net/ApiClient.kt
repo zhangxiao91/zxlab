@@ -23,7 +23,12 @@ class ApiException(val code: String, override val message: String, val status: I
 class ApiClient(
     private val origin: String = BuildConfig.API_ORIGIN,
     val http: OkHttpClient = OkHttpClient(),
-    val json: Json = Json { ignoreUnknownKeys = true; classDiscriminator = "type"; encodeDefaults = true },
+    val json: Json = Json {
+        ignoreUnknownKeys = true
+        classDiscriminator = "type"
+        encodeDefaults = true
+        explicitNulls = false
+    },
 ) {
     suspend fun confirmPairing(pairingId: String, name: String): DeviceCredential =
         call<PairingCredentialResponse>("/api/pairing/sessions/$pairingId/confirm", "POST", ConfirmBody(name)).credential
