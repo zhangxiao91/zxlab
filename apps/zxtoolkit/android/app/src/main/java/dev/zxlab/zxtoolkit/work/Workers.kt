@@ -60,15 +60,18 @@ class PlaybackSyncWorker(context: Context, params: WorkerParameters) : Coroutine
     }
 
     companion object {
-        fun enqueue(context: Context) {
+        fun enqueue(context: Context, force: Boolean = false) {
             val request = OneTimeWorkRequestBuilder<PlaybackSyncWorker>()
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
                 .build()
-            WorkManager.getInstance(context).enqueueUniqueWork("playback-event-sync", ExistingWorkPolicy.KEEP, request)
+            WorkManager.getInstance(context).enqueueUniqueWork("playback-event-sync", playbackSyncPolicy(force), request)
         }
     }
 }
+
+internal fun playbackSyncPolicy(force: Boolean): ExistingWorkPolicy =
+    if (force) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP
 
 private suspend fun syncPlayback(app: ZxToolkitApplication): ListenableWorker.Result {
     val credential = app.container.credentials.credential() ?: return ListenableWorker.Result.failure()

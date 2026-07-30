@@ -30,7 +30,7 @@ class ZxToolkitApplication : Application() {
             NotificationChannel(NOTIFICATION_CHANNEL, "传输", NotificationManager.IMPORTANCE_DEFAULT)
         )
         scheduleBackgroundSync()
-        PlaybackSyncWorker.enqueue(this)
+        PlaybackSyncWorker.enqueue(this, force = true)
     }
 
     private fun scheduleBackgroundSync() {
