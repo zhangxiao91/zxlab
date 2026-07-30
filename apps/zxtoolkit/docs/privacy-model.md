@@ -6,6 +6,6 @@
 
 已绑定设备的文字、链接和图片元数据默认 24 小时有效。图片二进制领取后立即删除，未领取图片在过期清理或 R2 一天生命周期兜底时删除；过期/已领取元数据额外保留不超过 7 天用于状态一致性后清理。日志不输出设备 token、文字、URL 或文件内容。
 
-Android 的 Health Connect 集成只声明 `READ_STEPS`。用户点击首页步数卡片后才会看到系统权限页；应用按本地时区对当天 `StepsRecord.COUNT_TOTAL` 做聚合，结果只进入进程内 UI state，不写入 Room、DataStore、日志、D1、日报或 Pulse。权限被拒绝、撤销或 Health Connect 不可用时，其他设备传输和日报功能不受影响。
+Android 的 Health Connect 集成声明 `READ_STEPS`，并在设备支持时请求 `READ_HEALTH_DATA_IN_BACKGROUND`。用户点击首页步数卡片后才会看到系统权限页；应用按本地时区对当天 `StepsRecord.COUNT_TOTAL` 做聚合。启用 Pulse 后，精确步数只作为 AES-256-GCM 加密快照的一部分上传，不写入 Room、DataStore 或日志，也不会读取其他健康数据。权限被拒绝、撤销或 Health Connect 不可用时，其他设备传输和日报功能不受影响。
 
 今日日报不在 Android 端直连 Signal。手机使用已有设备凭证请求 zxtoolkit Worker，Worker 验证设备后通过 Cloudflare `SIGNAL` Service Binding 读取指定日期的公开日报。Android 不接触 Signal 管理凭证，zxtoolkit Worker 也不缓存日报正文。

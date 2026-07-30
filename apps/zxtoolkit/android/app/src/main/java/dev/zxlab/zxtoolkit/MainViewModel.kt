@@ -184,14 +184,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun notificationAccessGranted(): Boolean =
         NotificationManagerCompat.getEnabledListenerPackages(app).contains(app.packageName)
 
-    fun healthPermissions(): Set<String> = setOf(health.stepsPermission)
+    fun healthPermissions(): Set<String> = health.requiredPermissions()
 
-    fun onHealthPermissionResult(granted: Set<String>) {
-        if (health.stepsPermission in granted) {
-            refreshHealth()
-        } else {
-            mutable.update { it.copy(healthPermissionGranted = false, todaySteps = null, healthLoading = false) }
-        }
+    fun onHealthPermissionResult(@Suppress("UNUSED_PARAMETER") granted: Set<String>) {
+        refreshHealth(republishPulse = true)
     }
 
     private fun refreshBriefing() = runTask(showErrors = false) {
@@ -205,7 +201,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun refreshHealth() = runTask(showErrors = false) {
+    private fun refreshHealth(republishPulse: Boolean = false) = runTask(showErrors = false) {
         val availability = health.availability()
         mutable.update { it.copy(healthAvailability = availability, healthLoading = availability == HealthAvailability.AVAILABLE) }
         if (availability != HealthAvailability.AVAILABLE) {
@@ -213,15 +209,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return@runTask
         }
         try {
-            val granted = health.hasStepsPermission()
-            val steps = if (granted) health.readTodaySteps() else null
+            val stepsGranted = health.hasStepsPermission()
+            val pulsePermissionsGranted = health.hasRequiredPermissions()
+            val steps = if (stepsGranted) health.readTodaySteps() else null
             mutable.update {
                 it.copy(
-                    healthPermissionGranted = granted,
+                    healthPermissionGranted = pulsePermissionsGranted,
                     healthLoading = false,
                     todaySteps = steps,
                 )
             }
+            if (republishPulse && pulsePermissionsGranted) publishPulse(app, "online")
         } catch (_: Exception) {
             mutable.update { it.copy(healthLoading = false, todaySteps = null) }
         }

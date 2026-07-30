@@ -23,7 +23,7 @@ apps/zxtoolkit/
 └── docs/           当前协议、隐私与接入文档
 ```
 
-Android 原生应用可与现有 Mac 凭证新增配对，支持双向文字、链接、图片和单文件传输。前台使用 WebSocket，后台使用 WorkManager 补拉；首页通过设备认证后的 zxtoolkit Worker 读取当天 ZX Signal 日报，并在用户单独授权后从 Health Connect 聚合今天的步数。精确步数只在本机展示，不上传到 Worker、D1 或 Pulse。
+Android 原生应用可与现有 Mac 凭证新增配对，支持双向文字、链接、图片和单文件传输。前台使用 WebSocket，后台使用 WorkManager 补拉；首页通过设备认证后的 zxtoolkit Worker 读取当天 ZX Signal 日报，并在用户单独授权后从 Health Connect 聚合今天的步数。启用 Pulse 后，精确步数会随加密快照同步到 Worker 和 zxlab Status。
 
 ## 本地开发
 
@@ -108,7 +108,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 首次运行需要相机权限以扫描 Mac 二维码；Android 13 及以上会请求通知权限。拒绝通知权限不会停止后台同步。步数功能只请求 `READ_STEPS`，在用户点击首页步数卡片时调用 Health Connect 权限页；拒绝后传输与日报功能照常工作。网易云同步需用户单独开启系统“通知使用权”和应用内采集开关，只读取 `com.netease.cloudmusic` 的 MediaSession。系统 Photo Picker 不需要媒体库权限；相机、文件选择与 SAF 保存均使用系统授权的单个 URI。设备 token 使用 Android Keystore AES-GCM 加密，DataStore 不保存明文 token。
 
-首版只绑定一台 Mac，单文件上限 100 MB，不支持批量文件、文件夹、分片断点、FCM、端到端加密、Play 商店发布或正式签名。Health Connect 当前只读取并聚合当天步数，不请求后台健康数据权限；没有步数记录时显示“暂无”，不再伪装成 0。Pulse 请求体额外使用 AES-256-GCM 应用层加密。网易云事件先持久化到 Room，再由唯一 WorkManager 同步；不使用前台保活、WakeLock 或后台 WebSocket。后台 15 分钟是系统调度下限，Doze 下实际执行时间可能更晚。
+首版只绑定一台 Mac，单文件上限 100 MB，不支持批量文件、文件夹、分片断点、FCM、端到端加密、Play 商店发布或正式签名。Health Connect 只读取并聚合当天步数；设备支持时会同时请求后台读取权限，以便 WorkManager 更新 Pulse。当天没有步数记录时按精确的 `0` 处理。Pulse 请求体额外使用 AES-256-GCM 应用层加密。网易云事件先持久化到 Room，再由唯一 WorkManager 同步；不使用前台保活、WakeLock 或后台 WebSocket。后台 15 分钟是系统调度下限，Doze 下实际执行时间可能更晚。
 
 ## Cloudflare 配置与部署
 

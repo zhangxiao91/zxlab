@@ -180,7 +180,7 @@ suspend fun publishPulse(app: ZxToolkitApplication, presence: String) {
     val charging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
     val steps = runCatching {
         val health = HealthConnectRepository(app)
-        if (health.hasStepsPermission()) health.readTodaySteps() else null
+        if (health.hasRequiredPermissions()) health.readTodaySteps() else null
     }.getOrNull()
     val now = Instant.now()
     app.container.api.publishPulse(
