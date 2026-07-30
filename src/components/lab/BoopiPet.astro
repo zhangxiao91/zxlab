@@ -134,8 +134,10 @@
   const restore = root?.querySelector<HTMLButtonElement>('[data-boopi-restore]');
   const dragHandle = root?.querySelector<HTMLElement>('[data-boopi-drag-handle]');
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const positionKey = 'zxlab-boopi-position';
-  const minimizedKey = 'zxlab-boopi-minimized';
+  // The Lab macrostructure changed in July 2026; ignore coordinates saved
+  // against the previous full-height hero so Boopi cannot reopen over copy.
+  const positionKey = 'zxlab-boopi-position-v2';
+  const minimizedKey = 'zxlab-boopi-minimized-v2';
   const cellWidth = 192;
   const cellHeight = 208;
   const states = {
@@ -336,7 +338,7 @@
   });
   restore?.addEventListener('click', () => {
     root?.classList.remove('is-minimized');
-    localStorage.removeItem(minimizedKey);
+    localStorage.setItem(minimizedKey, '0');
     restoreSavedPosition();
     startIdle();
   });
@@ -395,5 +397,11 @@
   });
 
   restoreSavedPosition();
-  if (localStorage.getItem(minimizedKey) === '1') root?.classList.add('is-minimized');
+  const savedMinimized = localStorage.getItem(minimizedKey);
+  if (
+    savedMinimized === '1' ||
+    (savedMinimized === null && window.matchMedia('(max-width: 680px)').matches)
+  ) {
+    root?.classList.add('is-minimized');
+  }
 </script>

@@ -6,6 +6,7 @@ import {
 } from "../../data/digitalStarter";
 import "../../styles/lab-status-shell.css";
 import "../../styles/lab.css";
+import "../../styles/critical-visual-reset.css";
 
 const computerRouteHref = "/lab/digital-starter/computer";
 ---
@@ -42,10 +43,10 @@ const computerRouteHref = "/lab/digital-starter/computer";
         <h2 id="routes-title">先选一个眼下最想解决的问题。</h2>
       </div>
 
-      <div class="digital-starter-home-route-grid">
+      <ol class="digital-starter-home-route-grid">
         {
           digitalStarterRoutes.map((route, index) => (
-            <article class="digital-starter-home-route-card" data-starter-reveal>
+            <li class="digital-starter-home-route-card" data-starter-reveal>
               <div class="digital-starter-home-route-card__top">
                 <span>{String(index + 1).padStart(2, "0")}</span>
                 <span>{route.durationLabel}</span>
@@ -54,10 +55,10 @@ const computerRouteHref = "/lab/digital-starter/computer";
               <p>{route.learningOutcome}</p>
               <strong>{route.description}</strong>
               <a href={route.detailHref}>{route.actionLabel}<span aria-hidden="true">↗</span></a>
-            </article>
+            </li>
           ))
         }
-      </div>
+      </ol>
     </section>
 
     <section class="digital-starter-featured" id="featured-resources" aria-labelledby="featured-title">
@@ -65,10 +66,10 @@ const computerRouteHref = "/lab/digital-starter/computer";
         <p>精选资源</p>
         <h2 id="featured-title">只放现在值得打开的内容。</h2>
       </div>
-      <div class="digital-starter-featured-grid">
+      <ul class="digital-starter-featured-grid">
         {
           digitalStarterFeaturedResources.map((resource) => (
-            <article class="digital-starter-featured-card" data-starter-reveal>
+            <li class="digital-starter-featured-card" data-starter-reveal>
               <div>
                 <span>{resource.typeLabel}</span>
                 <span>{resource.duration}</span>
@@ -76,10 +77,10 @@ const computerRouteHref = "/lab/digital-starter/computer";
               <h3>{resource.title}</h3>
               <p>{resource.description}</p>
               <a href={resource.href}>{resource.actionLabel}<span aria-hidden="true">↗</span></a>
-            </article>
+            </li>
           ))
         }
-      </div>
+      </ul>
     </section>
 
     <section class="digital-starter-training" aria-labelledby="training-title">

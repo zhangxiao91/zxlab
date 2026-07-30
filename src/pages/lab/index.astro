@@ -6,6 +6,7 @@ import BoopiPet from "../../components/lab/BoopiPet.astro";
 import { labProjects } from "../../lab/projects";
 import "../../styles/lab-status-shell.css";
 import "../../styles/lab.css";
+import "../../styles/critical-visual-reset.css";
 
 const statement =
   "A stable site can still make room for unstable ideas, as long as every experiment has a clear boundary.";
@@ -31,11 +32,7 @@ const statement =
             className="section-yuragi-title__text"
           />
         </div>
-        <h1 id="lab-title">
-          Experiments need
-          <span class="lab-title-image" role="img" aria-label="Abstract light signal"></span>
-          room to misbehave.
-        </h1>
+        <h1 id="lab-title">A test bench for unfinished interaction.</h1>
         <p class="lab-hero__intro">
           ZXLab’s test bench for interactive demos, small tools, visual systems,
           and future client-heavy ideas kept safely outside the main site bundle.
@@ -79,12 +76,6 @@ const statement =
         <span>Developer tools</span><i></i>
         <span>Canvas</span><i></i>
         <span>WebGL</span><i></i>
-        <span>Interaction</span><i></i>
-        <span>Visualization</span><i></i>
-        <span>AI experiments</span><i></i>
-        <span>Developer tools</span><i></i>
-        <span>Canvas</span><i></i>
-        <span>WebGL</span><i></i>
       </div>
     </section>
 
@@ -111,9 +102,7 @@ const statement =
 
   <script>
     import gsap from "gsap";
-    import { ScrollTrigger } from "gsap/ScrollTrigger";
 
-    gsap.registerPlugin(ScrollTrigger);
     const labMotion = gsap.matchMedia();
 
     labMotion.add("(prefers-reduced-motion: no-preference)", () => {
@@ -125,25 +114,6 @@ const statement =
         ease: "power3.out",
       });
 
-      gsap.utils.toArray<HTMLElement>("[data-lab-image]").forEach((image) => {
-        gsap.timeline({
-          scrollTrigger: { trigger: image, start: "top 94%", end: "bottom 6%", scrub: 0.8 },
-        })
-          .fromTo(image, { scale: 0.84, opacity: 0.42 }, { scale: 1, opacity: 1, ease: "none" })
-          .to(image, { scale: 1.025, opacity: 0.28, ease: "none" });
-      });
-
-      gsap.to(".lab-boundary__word", {
-        opacity: 1,
-        stagger: 0.055,
-        ease: "none",
-        scrollTrigger: {
-          trigger: ".lab-boundary",
-          start: "top 72%",
-          end: "bottom 58%",
-          scrub: 0.8,
-        },
-      });
     });
   </script>
 </Layout>

@@ -1,5 +1,6 @@
 ---
 import Layout from "../layouts/Layout.astro";
+import "../styles/critical-visual-reset.css";
 
 const reflections = [
   {
@@ -27,16 +28,8 @@ const reflections = [
   <main class="about-page">
     <section class="about-hero" aria-labelledby="about-title">
       <div class="about-hero__copy">
-        <p class="about-kicker">Zhangxiao, building from Beijing</p>
-        <h1 id="about-title">
-          A student learning
-          <span
-            class="about-title-image"
-            role="img"
-            aria-label="A fragment of a working desk"
-          ></span>
-          through things that work.
-        </h1>
+        <p class="about-kicker">Hello, I’m Zhangxiao.</p>
+        <h1 id="about-title">A student learning through things that work.</h1>
         <p class="about-hero__intro">
           I study computer science at Beihang University and use software as a
           way to investigate difficult ideas. ZXLab is the public edge of that
@@ -95,12 +88,6 @@ const reflections = [
 
     <section class="interest-marquee" aria-label="Areas of interest">
       <div class="interest-marquee__track" aria-hidden="true">
-        <span>AI Evaluation</span><i></i>
-        <span>Infrastructure</span><i></i>
-        <span>Algorithms</span><i></i>
-        <span>Retrieval</span><i></i>
-        <span>Interface Craft</span><i></i>
-        <span>Clear Writing</span><i></i>
         <span>AI Evaluation</span><i></i>
         <span>Infrastructure</span><i></i>
         <span>Algorithms</span><i></i>
@@ -216,9 +203,6 @@ const reflections = [
 
   <script>
     import gsap from "gsap";
-    import { ScrollTrigger } from "gsap/ScrollTrigger";
-
-    gsap.registerPlugin(ScrollTrigger);
 
     const aboutMotion = gsap.matchMedia();
 
@@ -231,28 +215,6 @@ const reflections = [
         ease: "power3.out",
       });
 
-      gsap.utils.toArray<HTMLElement>("[data-about-image]").forEach((image) => {
-        gsap.timeline({
-          scrollTrigger: {
-            trigger: image,
-            start: "top 94%",
-            end: "bottom 6%",
-            scrub: 0.8,
-          },
-        })
-          .fromTo(image, { scale: 0.84, opacity: 0.42 }, { scale: 1, opacity: 1, ease: "none" })
-          .to(image, { scale: 1.025, opacity: 0.28, ease: "none" });
-      });
-    });
-
-    aboutMotion.add("(min-width: 901px) and (prefers-reduced-motion: no-preference)", () => {
-      ScrollTrigger.create({
-        trigger: ".about-principles",
-        start: "top 112px",
-        end: "bottom bottom",
-        pin: ".about-principles__heading",
-        pinSpacing: false,
-      });
     });
 
     const reflectionTrack = document.querySelector<HTMLElement>(".reflection-carousel__track");

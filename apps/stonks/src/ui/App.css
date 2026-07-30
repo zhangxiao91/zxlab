@@ -1,3 +1,9 @@
+/* Hallmark · component: STONKS application shell · genre: technical
+ * typography: Geist UI · Geist Mono market data
+ * pre-emit critique: P5 H4 E5 S5 R5 V4
+ */
+@import url("https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600;700&family=Geist:wght@400;500;600;700;800&display=swap");
+
 :root {
   color-scheme: light;
   --bg: #f5f6f3;
@@ -19,8 +25,9 @@
   --heat: #c77800;
   --heat-soft: #fff5de;
   --shadow: 0 10px 28px rgba(25, 32, 31, 0.06);
-  font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-ui: "Geist", ui-sans-serif, system-ui, sans-serif;
+  --font-data: "Geist Mono", ui-monospace, monospace;
+  font-family: var(--font-ui);
   font-size: 14px;
   font-weight: 400;
   background: var(--bg);
@@ -51,6 +58,21 @@ button {
 button:disabled {
   cursor: not-allowed;
   opacity: 0.62;
+}
+
+.whale-index,
+.clock-block,
+.fund-strip,
+.price-tag,
+.axis-labels,
+.market-table,
+.portfolio-table,
+.book-table,
+.book-compact,
+.fundamentals-grid,
+.ticket-summary {
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
 }
 
 .app-shell {

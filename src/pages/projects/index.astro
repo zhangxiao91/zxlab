@@ -2,6 +2,7 @@
 import Layout from "../../layouts/Layout.astro";
 import { YuragiStaticTitle } from "../../components/yuragi/YuragiStaticTitle";
 import { projects } from "../../data/projects";
+import "../../styles/critical-visual-reset.css";
 
 const statement =
   "Each project begins as a question. Building gives the question edges, constraints, and a form that can be tested.";
@@ -136,19 +137,6 @@ const statement =
         duration: 1.05,
         stagger: 0.09,
         ease: "power3.out",
-      });
-
-      gsap.utils.toArray<HTMLElement>("[data-project-image]").forEach((image) => {
-        gsap.timeline({
-          scrollTrigger: {
-            trigger: image,
-            start: "top 94%",
-            end: "bottom 6%",
-            scrub: 0.8,
-          },
-        })
-          .fromTo(image, { scale: 0.84, opacity: 0.42 }, { scale: 1, opacity: 1, ease: "none" })
-          .to(image, { scale: 1.025, opacity: 0.28, ease: "none" });
       });
 
       gsap.to(".projects-statement__word", {

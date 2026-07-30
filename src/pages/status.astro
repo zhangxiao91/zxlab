@@ -3,6 +3,7 @@ import Layout from "../layouts/Layout.astro";
 import StatusDashboard from "../components/status/StatusDashboard.astro";
 import "../styles/lab-status-shell.css";
 import "../styles/status.css";
+import "../styles/critical-visual-reset.css";
 
 const runtimeApiBase = String(import.meta.env.PUBLIC_RUNTIME_API_BASE ?? (import.meta.env.DEV ? "http://localhost:8790" : "https://runtime-api.zx-dx.xyz")).replace(/\/$/, "");
 ---
@@ -12,7 +13,7 @@ const runtimeApiBase = String(import.meta.env.PUBLIC_RUNTIME_API_BASE ?? (import
     <section class="status-hero" aria-labelledby="status-title">
       <div class="status-hero__copy">
         <p class="status-kicker">ZX control room</p>
-        <h1 id="status-title">Public signals, <span class="status-title-image" role="img" aria-label="Abstract control surface"></span> private boundaries.</h1>
+        <h1 id="status-title">Public signals, private boundaries.</h1>
         <p class="status-hero__intro">A live view of runtime health, canonical Memory, safe device presence, and account usage. Unavailable data stays explicitly unavailable.</p>
       </div>
       <aside class="status-source-panel" aria-label="Status source" data-status-source-notice>
@@ -59,10 +60,8 @@ const runtimeApiBase = String(import.meta.env.PUBLIC_RUNTIME_API_BASE ?? (import
 
   <script>
     import gsap from "gsap";
-    import { ScrollTrigger } from "gsap/ScrollTrigger";
     import type { PublicModule, RuntimePublicSnapshot } from "@zxlab/runtime-schema";
     import type { UsageStatus } from "../status/types";
-    gsap.registerPlugin(ScrollTrigger);
 
     const page = document.querySelector<HTMLElement>("[data-runtime-api]");
     const dashboard = document.querySelector<HTMLElement>("[data-status-dashboard]");
@@ -411,8 +410,6 @@ const runtimeApiBase = String(import.meta.env.PUBLIC_RUNTIME_API_BASE ?? (import
     const motion = gsap.matchMedia();
     motion.add("(prefers-reduced-motion: no-preference)", () => {
       gsap.from(".status-hero__copy > *, .status-source-panel", { y: 48, opacity: 0, duration: 1.05, stagger: 0.08, ease: "power3.out" });
-      gsap.to(".status-hero__intro", { opacity: 1, scrollTrigger: { trigger: ".status-hero", start: "top top", end: "bottom 35%", scrub: 0.8 } });
-      ScrollTrigger.create({ trigger: ".status-privacy", start: "top 28%", end: "bottom 65%", pin: ".status-privacy > p", pinSpacing: false });
     });
     window.addEventListener("focus", () => window.setTimeout(() => void loadAccess(), 500));
     window.addEventListener("pagehide", () => { window.clearInterval(timer); motion.revert(); }, { once: true });

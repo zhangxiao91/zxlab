@@ -2,6 +2,7 @@
 import { getCollection } from "astro:content";
 import Layout from "../../layouts/Layout.astro";
 import { YuragiStaticTitle } from "../../components/yuragi/YuragiStaticTitle";
+import "../../styles/critical-visual-reset.css";
 
 const notes = (await getCollection("notes", ({ data }) => !data.draft)).sort(
   (a, b) => (b.data.updatedAt ?? b.data.publishedAt).valueOf() - (a.data.updatedAt ?? a.data.publishedAt).valueOf(),
@@ -298,19 +299,6 @@ const dateFormatter = new Intl.DateTimeFormat("en-US", {
         duration: 1.05,
         stagger: 0.085,
         ease: "power3.out",
-      });
-
-      gsap.utils.toArray<HTMLElement>("[data-note-image]").forEach((image) => {
-        gsap.timeline({
-          scrollTrigger: {
-            trigger: image,
-            start: "top 94%",
-            end: "bottom 6%",
-            scrub: 0.8,
-          },
-        })
-          .fromTo(image, { scale: 0.84, opacity: 0.42 }, { scale: 1, opacity: 1, ease: "none" })
-          .to(image, { scale: 1.025, opacity: 0.28, ease: "none" });
       });
 
       const cards = gsap.utils.toArray<HTMLElement>(".notes-reading-card");
