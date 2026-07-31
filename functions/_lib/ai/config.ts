@@ -45,14 +45,13 @@ export interface ModelCatalog {
 
 const TIER_ORDER: CapabilityTier[] = ["sol", "kimi-k3", "terra", "deepseek-flash"];
 
-function required(env: AIEnv, key: keyof AIEnv): string {
+function configured(env: AIEnv, key: keyof AIEnv): string | undefined {
   const value = env[key];
-  if (typeof value !== "string" || !value.trim()) throw new AIError("MISSING_CONFIGURATION");
-  return value.trim();
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
 function baseUrl(env: AIEnv, key: keyof AIEnv, fallback?: string): string {
-  const value = typeof env[key] === "string" && env[key].trim() ? env[key].trim() : fallback;
+  const value = configured(env, key) ?? fallback;
   if (!value) throw new AIError("MISSING_CONFIGURATION");
   try {
     const url = new URL(value);
@@ -64,33 +63,55 @@ function baseUrl(env: AIEnv, key: keyof AIEnv, fallback?: string): string {
 }
 
 export function getModelCatalog(env: AIEnv): ModelCatalog {
-  const gpt1 = baseUrl(env, "GPT_PROVIDER1_BASE_URL");
-  const gpt2 = baseUrl(env, "GPT_PROVIDER2_BASE_URL");
-  const kimi = baseUrl(env, "KIMI_BASE_URL", "https://api.moonshot.ai/v1");
-  const deepseek = baseUrl(env, "DEEPSEEK_BASE_URL", "https://api.deepseek.com");
-  const gpt1Key = required(env, "GPT_PROVIDER1_API_KEY");
-  const sol1: ModelCandidate = { id: "sol-gpt-provider1", tier: "sol", provider: "gpt", providerInstance: "gpt-provider1",
-    adapter: "openai-compatible", model: required(env, "GPT_PROVIDER1_SOL_MODEL"), baseUrl: gpt1, apiKey: gpt1Key };
-  const sol2: ModelCandidate = { id: "sol-gpt-provider2", tier: "sol", provider: "gpt", providerInstance: "gpt-provider2",
-    adapter: "openai-compatible", model: required(env, "GPT_PROVIDER2_SOL_MODEL"), baseUrl: gpt2, apiKey: required(env, "GPT_PROVIDER2_SOL_API_KEY") };
-  const terra1: ModelCandidate = { id: "terra-gpt-provider1", tier: "terra", provider: "gpt", providerInstance: "gpt-provider1",
-    adapter: "openai-compatible", model: required(env, "GPT_PROVIDER1_TERRA_MODEL"), baseUrl: gpt1, apiKey: gpt1Key };
-  const terra2: ModelCandidate = { id: "terra-gpt-provider2", tier: "terra", provider: "gpt", providerInstance: "gpt-provider2",
-    adapter: "openai-compatible", model: required(env, "GPT_PROVIDER2_TERRA_MODEL"), baseUrl: gpt2, apiKey: required(env, "GPT_PROVIDER2_TERRA_API_KEY") };
-  const kimiK3: ModelCandidate = { id: "kimi-k3-moonshot", tier: "kimi-k3", provider: "moonshot", providerInstance: "moonshot-official",
-    adapter: "openai-compatible", model: required(env, "KIMI_K3_MODEL"), baseUrl: kimi, apiKey: required(env, "KIMI_API_KEY") };
-  const flash: ModelCandidate = { id: "deepseek-flash-official", tier: "deepseek-flash", provider: "deepseek", providerInstance: "deepseek-official",
-    adapter: "deepseek-compatible", model: env.DEEPSEEK_FLASH_MODEL?.trim() || "deepseek-v4-flash", baseUrl: deepseek, apiKey: required(env, "DEEPSEEK_API_KEY") };
-  return {
-    tiers: { sol: [sol1, sol2], "kimi-k3": [kimiK3], terra: [terra1, terra2], "deepseek-flash": [flash] },
-    selector: [flash, terra1, terra2],
-  };
+  const sol: ModelCandidate[] = [];
+  const kimiK3: ModelCandidate[] = [];
+  const terra: ModelCandidate[] = [];
+  const flash: ModelCandidate[] = [];
+
+  const gpt1Key = configured(env, "GPT_PROVIDER1_API_KEY");
+  const gpt1SolModel = configured(env, "GPT_PROVIDER1_SOL_MODEL");
+  const gpt1TerraModel = configured(env, "GPT_PROVIDER1_TERRA_MODEL");
+  if (gpt1Key && (gpt1SolModel || gpt1TerraModel)) {
+    const gpt1 = baseUrl(env, "GPT_PROVIDER1_BASE_URL");
+    if (gpt1SolModel) sol.push({ id: "sol-gpt-provider1", tier: "sol", provider: "gpt", providerInstance: "gpt-provider1",
+      adapter: "openai-compatible", model: gpt1SolModel, baseUrl: gpt1, apiKey: gpt1Key });
+    if (gpt1TerraModel) terra.push({ id: "terra-gpt-provider1", tier: "terra", provider: "gpt", providerInstance: "gpt-provider1",
+      adapter: "openai-compatible", model: gpt1TerraModel, baseUrl: gpt1, apiKey: gpt1Key });
+  }
+
+  const gpt2SolKey = configured(env, "GPT_PROVIDER2_SOL_API_KEY");
+  const gpt2TerraKey = configured(env, "GPT_PROVIDER2_TERRA_API_KEY");
+  const gpt2SolModel = configured(env, "GPT_PROVIDER2_SOL_MODEL");
+  const gpt2TerraModel = configured(env, "GPT_PROVIDER2_TERRA_MODEL");
+  if ((gpt2SolKey && gpt2SolModel) || (gpt2TerraKey && gpt2TerraModel)) {
+    const gpt2 = baseUrl(env, "GPT_PROVIDER2_BASE_URL");
+    if (gpt2SolKey && gpt2SolModel) sol.push({ id: "sol-gpt-provider2", tier: "sol", provider: "gpt", providerInstance: "gpt-provider2",
+      adapter: "openai-compatible", model: gpt2SolModel, baseUrl: gpt2, apiKey: gpt2SolKey });
+    if (gpt2TerraKey && gpt2TerraModel) terra.push({ id: "terra-gpt-provider2", tier: "terra", provider: "gpt", providerInstance: "gpt-provider2",
+      adapter: "openai-compatible", model: gpt2TerraModel, baseUrl: gpt2, apiKey: gpt2TerraKey });
+  }
+
+  const kimiKey = configured(env, "KIMI_API_KEY");
+  const kimiModel = configured(env, "KIMI_K3_MODEL");
+  if (kimiKey && kimiModel) kimiK3.push({ id: "kimi-k3-moonshot", tier: "kimi-k3", provider: "moonshot", providerInstance: "moonshot-official",
+    adapter: "openai-compatible", model: kimiModel, baseUrl: baseUrl(env, "KIMI_BASE_URL", "https://api.moonshot.ai/v1"), apiKey: kimiKey });
+
+  const deepseekKey = configured(env, "DEEPSEEK_API_KEY");
+  if (deepseekKey) flash.push({ id: "deepseek-flash-official", tier: "deepseek-flash", provider: "deepseek", providerInstance: "deepseek-official",
+    adapter: "deepseek-compatible", model: configured(env, "DEEPSEEK_FLASH_MODEL") ?? "deepseek-v4-flash",
+    baseUrl: baseUrl(env, "DEEPSEEK_BASE_URL", "https://api.deepseek.com"), apiKey: deepseekKey });
+
+  const tiers = { sol, "kimi-k3": kimiK3, terra, "deepseek-flash": flash };
+  if (TIER_ORDER.every((tier) => tiers[tier].length === 0)) throw new AIError("MISSING_CONFIGURATION");
+  return { tiers, selector: [...flash, ...terra] };
 }
 
 export function executionCandidates(catalog: ModelCatalog, selectedTier: CapabilityTier): ModelCandidate[] {
   const start = TIER_ORDER.indexOf(selectedTier);
   if (start < 0) throw new AIError("MISSING_CONFIGURATION");
-  return TIER_ORDER.slice(start).flatMap((tier) => catalog.tiers[tier]);
+  const preferred = TIER_ORDER.slice(start).flatMap((tier) => catalog.tiers[tier]);
+  if (preferred.length > 0) return preferred;
+  return TIER_ORDER.slice(0, start).reverse().flatMap((tier) => catalog.tiers[tier]);
 }
 
 /** Compatibility seam for injected tests and callers that explicitly request the complete chain. */

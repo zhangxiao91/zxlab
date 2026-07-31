@@ -158,6 +158,47 @@ test("production routing expands the selected tier into provider-first fallback 
   assert.equal(result.model, "terra-2");
 });
 
+test("Signal routing uses configured GPT models when optional providers are absent", async () => {
+  const adapter = new ScriptedAdapter([success()]);
+  const result = await generateAI({ ...input, task: "signal-editorial-filter" }, {
+    env: {
+      GPT_PROVIDER1_BASE_URL: "https://gpt1.example/v1",
+      GPT_PROVIDER1_API_KEY: "gpt1-secret",
+      GPT_PROVIDER1_SOL_MODEL: "sol-1",
+      GPT_PROVIDER1_TERRA_MODEL: "terra-1",
+    },
+    adapters: adapters(adapter),
+    jitterMs: () => 0,
+  });
+
+  assert.deepEqual(adapter.calls, ["terra-gpt-provider1"]);
+  assert.equal(result.selectedTier, "deepseek-flash");
+  assert.equal(result.provider, "gpt");
+  assert.equal(result.model, "terra-1");
+});
+
+test("Signal briefing selection and generation survive absent optional providers", async () => {
+  const adapter = new ScriptedAdapter([
+    success('{"tier":"terra","confidence":0.9,"reasonCode":"structured-generation"}'),
+    success(),
+  ]);
+  const result = await generateAI({ ...input, task: "signal-briefing" }, {
+    env: {
+      GPT_PROVIDER1_BASE_URL: "https://gpt1.example/v1",
+      GPT_PROVIDER1_API_KEY: "gpt1-secret",
+      GPT_PROVIDER1_SOL_MODEL: "sol-1",
+      GPT_PROVIDER1_TERRA_MODEL: "terra-1",
+    },
+    adapters: adapters(adapter),
+    jitterMs: () => 0,
+  });
+
+  assert.deepEqual(adapter.calls, ["terra-gpt-provider1", "terra-gpt-provider1"]);
+  assert.equal(result.selectedTier, "terra");
+  assert.equal(result.provider, "gpt");
+  assert.equal(result.model, "terra-1");
+});
+
 test("first candidate succeeds without fallback", async () => {
   const adapter = new ScriptedAdapter([success()]);
   const result = await generateAI(input, { candidates, adapters: adapters(adapter), jitterMs: () => 0 });
