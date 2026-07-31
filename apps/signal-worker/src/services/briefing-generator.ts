@@ -1,6 +1,6 @@
-import type { CandidateSignal, GenerateBriefingResponse } from "@zxlab/signal-schema";
+import type { BriefingCategory, CandidateSignal, GenerateBriefingResponse, GeneratedBriefingDraft } from "@zxlab/signal-schema";
 import fixtureCandidates from "../../fixtures/candidates.json";
-import { parseCandidateSignal } from "@zxlab/signal-schema";
+import { parseCandidateSignal, parseGeneratedBriefingDraft } from "@zxlab/signal-schema";
 import { SignalError } from "../lib/errors";
 import { BriefingRepository } from "../repositories/briefing-repository";
 import { BRIEFING_PROMPT_VERSION } from "./prompts";
@@ -15,8 +15,9 @@ import { GatewayRequestError } from "./gateway-client";
 const HISTORY_WINDOW_DAYS = 30;
 const EDITORIAL_FALLBACK_LIMIT = 8;
 const EDITORIAL_FALLBACK_REASON = "Deterministic fallback after a temporary editorial gateway failure.";
+const BRIEFING_FALLBACK_LIMIT = 6;
 
-function transientEditorialFailure(cause: unknown): GatewayRequestError | Error | undefined {
+function transientModelFailure(cause: unknown): GatewayRequestError | Error | undefined {
   let current = cause;
   for (let depth = 0; depth < 4 && current instanceof Error; depth += 1) {
     if (current instanceof GatewayRequestError && (
@@ -28,6 +29,47 @@ function transientEditorialFailure(cause: unknown): GatewayRequestError | Error 
     current = "cause" in current ? current.cause : undefined;
   }
   return undefined;
+}
+
+function truncate(value: string, maxLength: number): string {
+  const normalized = value.trim();
+  return normalized.length <= maxLength ? normalized : normalized.slice(0, maxLength).trimEnd();
+}
+
+function fallbackCategory(candidate: CandidateSignal): BriefingCategory {
+  return candidate.categoryHint === "uncategorized" ? "zxlab" : candidate.categoryHint;
+}
+
+export function deterministicBriefingFallback(date: string, candidates: CandidateSignal[]): GeneratedBriefingDraft {
+  const selected = candidates.slice(0, BRIEFING_FALLBACK_LIMIT);
+  const items: GeneratedBriefingDraft["items"] = selected.map((candidate, index) => {
+    const sourceName = truncate(candidate.source.sourceName, 160);
+    const summary = truncate(candidate.summary ?? candidate.contentText ?? candidate.title, 3_000);
+    const leadFields = index === 0 ? {
+      broaderContext: "本期简报由已筛选的原始信号确定性生成，保留来源与链接，未进行跨来源模型综合。",
+      counterpoint: "模型服务暂时不可用，条目的优先级和影响判断尚未经过模型复核。",
+      watchNext: "模型服务恢复后，继续核对后续进展与跨来源关联。",
+    } : {};
+    return {
+      itemType: index === 0 ? "lead" as const : "brief" as const,
+      category: fallbackCategory(candidate),
+      title: truncate(candidate.title, 240),
+      lede: summary,
+      nutGraf: truncate(`该信号由 ${sourceName} 发布，原始内容与链接已保留供直接核验。`, 3_000),
+      keyFacts: [truncate(summary, 1_000)],
+      implications: "该更新进入今日 Signal 候选集，值得结合原始来源判断其后续影响。",
+      importance: index === 0 ? 70 : 55,
+      confidence: 60,
+      sourceIds: [candidate.id],
+      ...leadFields,
+    };
+  });
+  return parseGeneratedBriefingDraft({
+    title: `${date} Signal 日报`,
+    summary: `模型服务暂时不可用。本期基于 ${selected.length} 条已筛选原始信号生成，并保留可核验来源。`,
+    longTermThreads: [],
+    items,
+  }, new Set(selected.map((candidate) => candidate.id)));
 }
 
 export function deterministicEditorialFallback(candidates: CandidateSignal[]): CandidateEditorialDecision[] {
@@ -114,7 +156,7 @@ export class BriefingGenerator {
         try {
           decisions = await this.llm.filterCandidates({ candidates: input.candidates, memories, storyDossiers, runId });
         } catch (cause) {
-          const transient = transientEditorialFailure(cause);
+          const transient = transientModelFailure(cause);
           if (!transient) throw cause;
           decisions = deterministicEditorialFallback(input.candidates);
           console.warn(JSON.stringify({
@@ -130,7 +172,21 @@ export class BriefingGenerator {
         if (synthesisCandidates.length === 0) throw new SignalError("NO_ELIGIBLE_CANDIDATES", "Editorial filter kept no candidates", 422);
         storyDossiers = selectStoryDossiers(storyDossiers, new Set(synthesisCandidates.map((candidate) => candidate.id)));
       }
-      const draft = await this.llm.generateBriefing({ date: input.date, candidates: synthesisCandidates, memories, storyDossiers, runId });
+      let draft: GeneratedBriefingDraft;
+      try {
+        draft = await this.llm.generateBriefing({ date: input.date, candidates: synthesisCandidates, memories, storyDossiers, runId });
+      } catch (cause) {
+        const transient = input.dataOrigin === "real" ? transientModelFailure(cause) : undefined;
+        if (!transient) throw cause;
+        draft = deterministicBriefingFallback(input.date, synthesisCandidates);
+        console.warn(JSON.stringify({
+          event: "signal.briefing.fallback",
+          runId,
+          candidateCount: synthesisCandidates.length,
+          itemCount: draft.items.length,
+          reason: transient instanceof GatewayRequestError ? transient.failureCode : transient.name,
+        }));
+      }
       const generatedAt = new Date().toISOString();
       await this.briefings.saveGenerated({ runId, briefingId, date: input.date, draft, candidates: synthesisCandidates,
         promptVersion: BRIEFING_PROMPT_VERSION, model: this.env.ZX_SIGNAL_LLM_LABEL, dataOrigin: input.dataOrigin,

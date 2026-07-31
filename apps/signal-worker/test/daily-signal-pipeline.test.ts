@@ -113,6 +113,23 @@ class TransientEditorialFailureLLM extends PipelineLLM {
   }
 }
 
+class TransientPipelineFailureLLM extends TransientEditorialFailureLLM {
+  override async generateBriefing(): Promise<never> {
+    throw new SignalError(
+      "MODEL_REQUEST_FAILED",
+      "The model request failed",
+      502,
+      new GatewayRequestError("GATEWAY_502_ALL_CANDIDATES_FAILED", "Project AI gateway failed with ALL_CANDIDATES_FAILED"),
+    );
+  }
+}
+
+class InvalidBriefingLLM extends PipelineLLM {
+  override async generateBriefing(): Promise<never> {
+    throw new SignalError("INVALID_MODEL_OUTPUT", "The model response did not match the Signal schema", 400);
+  }
+}
+
 describe("Daily Signal pipeline", () => {
   it("runs the complete pipeline and refreshes Pages through the admin recovery route", async () => {
     const calls: string[] = [];
@@ -249,5 +266,69 @@ describe("Daily Signal pipeline", () => {
       editorial_decision: "keep",
       editorial_reason: "Deterministic fallback after a temporary editorial gateway failure.",
     });
+  });
+
+  it("persists a source-backed briefing when every transient model request fails", async () => {
+    const fallbackCollector: SignalCollector = {
+      type: "rss",
+      async collect() {
+        return [{
+          externalId: "scheduled-briefing-fallback",
+          title: "Workers adds deterministic recovery controls",
+          url: "https://developers.cloudflare.com/changelog/scheduled-briefing-fallback",
+          summary: "Operators can recover scheduled workloads without losing the source trail.",
+          publishedAt: "2026-07-30T22:00:00.000Z",
+        }];
+      },
+    };
+    const collectors = new Map<SignalSourceType, SignalCollector>([["rss", fallbackCollector]]);
+    const collection = new CollectionService(env, collectors);
+    const pipeline = new DailySignalPipeline(env, collection, new TransientPipelineFailureLLM());
+
+    const result = await pipeline.run(Date.parse("2026-07-30T23:30:00.000Z"), {
+      sourceIds: ["cloudflare-developer-platform"],
+    });
+
+    const run = await env.DB.prepare("SELECT status, selected_count FROM briefing_runs WHERE id = ?")
+      .bind(result.briefingRunId).first<{ status: string; selected_count: number }>();
+    const briefing = await env.DB.prepare("SELECT status, briefing_date FROM briefings WHERE id = ?")
+      .bind(result.briefingId).first<{ status: string; briefing_date: string }>();
+    const item = await env.DB.prepare(`SELECT i.item_type, i.title, s.url, bic.candidate_signal_id
+      FROM briefing_items i
+      JOIN briefing_sources s ON s.item_id = i.id
+      JOIN briefing_item_candidates bic ON bic.briefing_item_id = i.id
+      WHERE i.briefing_id = ?`)
+      .bind(result.briefingId).first<{ item_type: string; title: string; url: string; candidate_signal_id: string }>();
+
+    expect(run).toEqual({ status: "succeeded", selected_count: 1 });
+    expect(briefing).toEqual({ status: "ready", briefing_date: "2026-07-31" });
+    expect(item).toMatchObject({
+      item_type: "lead",
+      title: "Workers adds deterministic recovery controls",
+      url: "https://developers.cloudflare.com/changelog/scheduled-briefing-fallback",
+    });
+    expect(item?.candidate_signal_id).toBeTruthy();
+  });
+
+  it("does not mask invalid briefing output with the deterministic fallback", async () => {
+    const invalidOutputCollector: SignalCollector = {
+      type: "rss",
+      async collect() {
+        return [{
+          externalId: "invalid-briefing-output",
+          title: "Invalid briefing output test",
+          url: "https://developers.cloudflare.com/changelog/invalid-briefing-output",
+          summary: "A candidate that reaches the briefing validation boundary.",
+          publishedAt: "2026-07-31T22:00:00.000Z",
+        }];
+      },
+    };
+    const collectors = new Map<SignalSourceType, SignalCollector>([["rss", invalidOutputCollector]]);
+    const collection = new CollectionService(env, collectors);
+    const pipeline = new DailySignalPipeline(env, collection, new InvalidBriefingLLM());
+
+    await expect(pipeline.run(Date.parse("2026-07-31T23:30:00.000Z"), {
+      sourceIds: ["cloudflare-developer-platform"],
+    })).rejects.toMatchObject({ code: "INVALID_MODEL_OUTPUT" });
   });
 });
