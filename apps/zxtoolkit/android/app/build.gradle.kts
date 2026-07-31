@@ -14,8 +14,8 @@ android {
         applicationId = "dev.zxlab.zxtoolkit"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.1.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "API_ORIGIN", "\"https://zxtoolkit-api.zx-dx.xyz\"")
         buildConfigField("String", "APP_ORIGIN", "\"https://zxtoolkit.pages.dev\"")

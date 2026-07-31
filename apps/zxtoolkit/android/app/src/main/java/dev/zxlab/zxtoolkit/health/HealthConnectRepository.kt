@@ -1,6 +1,8 @@
 package dev.zxlab.zxtoolkit.health
 
 import android.content.Context
+import android.os.Build
+import android.provider.Settings
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.HealthConnectFeatures
 import androidx.health.connect.client.permission.HealthPermission
@@ -27,6 +29,16 @@ internal fun requiredHealthPermissions(
 }
 
 internal fun stepsOrZero(steps: Long?): Long = steps ?: 0L
+
+internal fun selectTodaySteps(
+    healthConnectSteps: Long?,
+    manufacturer: String,
+    vivoSystemSteps: Int,
+): Long {
+    val standardSteps = stepsOrZero(healthConnectSteps)
+    if (standardSteps > 0L || !manufacturer.equals("vivo", ignoreCase = true)) return standardSteps
+    return vivoSystemSteps.takeIf { it in 0..500_000 }?.toLong() ?: standardSteps
+}
 
 class HealthConnectRepository(private val context: Context) {
     val stepsPermission: String = HealthPermission.getReadPermission(StepsRecord::class)
@@ -69,7 +81,18 @@ class HealthConnectRepository(private val context: Context) {
                 timeRangeFilter = TimeRangeFilter.between(start, end),
             ),
         )
-        return stepsOrZero(result[StepsRecord.COUNT_TOTAL])
+        val vivoSystemSteps = if (Build.MANUFACTURER.equals("vivo", ignoreCase = true)) {
+            runCatching {
+                Settings.System.getInt(context.contentResolver, VIVO_TODAY_STEPS_SETTING, -1)
+            }.getOrDefault(-1)
+        } else {
+            -1
+        }
+        return selectTodaySteps(
+            healthConnectSteps = result[StepsRecord.COUNT_TOTAL],
+            manufacturer = Build.MANUFACTURER,
+            vivoSystemSteps = vivoSystemSteps,
+        )
     }
 
     private fun backgroundReadAvailable(): Boolean =
@@ -78,4 +101,8 @@ class HealthConnectRepository(private val context: Context) {
             HealthConnectFeatures.FEATURE_STATUS_AVAILABLE
 
     private fun client(): HealthConnectClient = HealthConnectClient.getOrCreate(context)
+
+    private companion object {
+        const val VIVO_TODAY_STEPS_SETTING = "vivo_settings_realtime_steps"
+    }
 }
