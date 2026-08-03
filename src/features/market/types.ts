@@ -1,85 +1,33 @@
-export type MarketQuality = "live" | "cached" | "stale" | "unavailable";
-export type MarketExchange = "SSE" | "SZSE";
-export type MarketInterval = "1d" | "1m";
-export type MarketCapabilityStatus = "operational" | "degraded" | "unavailable";
-export type MarketFreshness = "fresh" | "mixed" | "stale" | "unknown";
-export type MarketSession = "preopen" | "open" | "break" | "closed" | "holiday";
+import type {
+  MarketBar as SharedMarketBar,
+  MarketCapabilityHealth as SharedMarketCapabilityHealth,
+  MarketCapabilityStatus,
+  MarketExchange,
+  MarketFactQuality,
+  MarketFreshness,
+  MarketInterval,
+  MarketNewsItem as SharedMarketNewsItem,
+  MarketProviderAttempt as SharedMarketProviderAttempt,
+  MarketQuote as SharedMarketQuote,
+  MarketSession,
+  MarketStatus as SharedMarketStatus,
+} from "../../../packages/market-schema/src/index";
 
-export interface MarketProviderAttempt {
-  provider: string;
-  ok: boolean;
-  latencyMs: number;
-  errorCode: string | null;
-  message: string | null;
-}
+export type MarketQuality = MarketFactQuality;
+export type { MarketCapabilityStatus, MarketExchange, MarketFreshness, MarketInterval, MarketSession };
 
-export interface MarketQuote {
-  instrumentId: string;
-  price: number | null;
-  previousClose: number | null;
-  open: number | null;
-  high: number | null;
-  low: number | null;
-  volume: number | null;
-  turnover: number | null;
-  marketTimestamp: string | null;
-  receivedAt: string;
-  source: string;
-  quality: MarketQuality;
-  stale: boolean;
-  warnings: string[];
-  fallbackUsed?: boolean;
-  providerAttempts?: MarketProviderAttempt[];
-}
+export interface MarketProviderAttempt extends SharedMarketProviderAttempt {}
 
-export interface MarketBar {
-  instrumentId: string;
-  timestamp: string;
-  open: number | null;
-  high: number | null;
-  low: number | null;
-  close: number | null;
-  volume: number | null;
-  turnover: number | null;
-  source?: string;
-}
+export interface MarketQuote extends SharedMarketQuote {}
 
-export interface MarketNewsItem {
-  id: string;
-  type: "stock-news" | "market-news" | "announcement";
-  title: string;
-  url: string;
-  summary: string | null;
-  content: string | null;
-  source: string;
-  publishedAt: string | null;
-  receivedAt: string;
-  instrumentId: string | null;
-  symbol: string | null;
-  warnings: string[];
-}
+export interface MarketBar extends SharedMarketBar {}
 
-export interface MarketStatus {
-  exchange: string;
-  open: boolean;
-  marketTimestamp: string | null;
-  asOf?: string | null;
-  receivedAt?: string;
-  freshness?: MarketFreshness;
-  session?: MarketSession;
-  quality?: MarketCapabilityStatus;
-  reliable?: boolean;
-  source: string;
-  warnings?: string[];
-}
+export interface MarketNewsItem extends SharedMarketNewsItem {}
 
-export interface MarketCapabilityHealth {
-  id: string;
-  status: MarketCapabilityStatus;
-  asOf: string | null;
+export interface MarketStatus extends SharedMarketStatus {}
+
+export interface MarketCapabilityHealth extends Omit<SharedMarketCapabilityHealth, "required" | "receivedAt" | "freshness"> {
   receivedAt: string | null;
-  warnings: string[];
-  attempts: MarketProviderAttempt[];
 }
 
 export interface MarketDataQuality {

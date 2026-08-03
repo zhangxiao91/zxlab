@@ -139,8 +139,10 @@
 .instrument-cell span { color: var(--risk-muted); font-size: .6rem; }
 .quality-tag { display: block; width: fit-content; margin-top: .4rem; font-size: .56rem; }
 .quality-tag--live { color: var(--risk-lime); }
+.quality-tag--cached { color: var(--risk-amber); }
 .quality-tag--stale { color: var(--risk-amber); }
 .quality-tag--unavailable { color: var(--risk-red); }
+.quality-tag--conflicted { color: var(--risk-red); font-weight: 650; }
 .leverage-mark { display: inline-block; margin-left: .4rem; padding: .18rem .28rem; border-radius: .25rem; background: rgba(255,112,92,.14); color: var(--risk-red); font-size: .53rem; }
 .plan-state { padding: .3rem .45rem; border-radius: 999px; font-size: .58rem; }
 .plan-state--aligned { background: rgba(217,255,116,.1); color: var(--risk-lime); }

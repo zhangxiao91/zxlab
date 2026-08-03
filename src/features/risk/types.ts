@@ -1,5 +1,5 @@
 export type Severity = "critical" | "high" | "medium" | "low";
-export type Quality = "live" | "cached" | "stale" | "unavailable";
+export type Quality = "live" | "cached" | "stale" | "conflicted" | "unavailable";
 export type MarketSnapshotStatus = "live" | "closed-snapshot" | "stale" | "unavailable";
 export type TransactionType = "BUY" | "SELL" | "FEE" | "TAX" | "DIVIDEND" | "DEPOSIT" | "WITHDRAWAL" | "POSITION_ADJUSTMENT";
 export type MarketProviderMode = "mock" | "api";

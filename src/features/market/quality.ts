@@ -11,7 +11,7 @@ interface CapabilityInput<T> {
   response?: MarketResponse<T>;
   error?: unknown;
   emptyIsUnavailable?: boolean;
-  itemQualities?: Array<"live" | "cached" | "stale" | "unavailable">;
+  itemQualities?: Array<"live" | "cached" | "stale" | "conflicted" | "unavailable">;
   extraWarnings?: string[];
 }
 

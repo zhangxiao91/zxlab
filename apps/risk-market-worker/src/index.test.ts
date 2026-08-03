@@ -20,32 +20,57 @@ import {
   parseTencentStockNews,
   parseTencentSecurityName,
   parseTonghuashunDailyBars,
+  runCorroboratedQuote,
   runWithFallback,
 } from "./index.ts";
-import { getChinaMarketStatus } from "./calendar.ts";
+import worker from "./index.ts";
+import { validateMarketSnapshot } from "../../../packages/market-schema/src/index.ts";
+import { CachedTradingCalendar, getChinaMarketStatus, OfficialCnTradingCalendar } from "./calendar.ts";
 
 test("maps normalized instruments for all HTTP providers", () => {
   assert.equal(instrumentToTencent("SSE:512480"), "sh512480");
   assert.deepEqual(instrumentToCode("SZSE:159995"), { exchange: "SZSE", symbol: "159995", prefixed: "sz159995", secid: "0.159995" });
 });
 
-test("uses the official 2026 calendar and marks out-of-coverage fallback", () => {
-  const holiday = getChinaMarketStatus("SSE", new Date("2026-10-05T02:00:00.000Z"));
+test("uses the official 2026 calendar and marks out-of-coverage fallback", async () => {
+  const holiday = await getChinaMarketStatus("SSE", new Date("2026-10-05T02:00:00.000Z"));
   assert.equal(holiday.session, "holiday");
   assert.equal(holiday.open, false);
   assert.equal(holiday.reliable, true);
   assert.equal(holiday.source, "sse-calendar-2026");
 
-  const trading = getChinaMarketStatus("SZSE", new Date("2026-08-03T02:00:00.000Z"));
+  const trading = await getChinaMarketStatus("SZSE", new Date("2026-08-03T02:00:00.000Z"));
   assert.equal(trading.session, "open");
   assert.equal(trading.open, true);
   assert.equal(trading.quality, "operational");
 
-  const fallback = getChinaMarketStatus("SSE", new Date("2027-01-04T02:00:00.000Z"));
+  const fallback = await getChinaMarketStatus("SSE", new Date("2027-01-04T02:00:00.000Z"));
   assert.equal(fallback.source, "weekday-fallback");
   assert.equal(fallback.reliable, false);
   assert.equal(fallback.quality, "degraded");
-  assert.match(fallback.warnings[0], /官方交易日历仅覆盖/);
+  assert.equal(fallback.open, null);
+  assert.equal(fallback.session, "unknown");
+  assert.match(fallback.warnings[0], /不得用于确定性开闭市判断/);
+});
+
+test("calendar adapter supports temporary closures and caches stable dates", async () => {
+  let calls = 0;
+  const fixture = new OfficialCnTradingCalendar({ start: "2026-08-01", end: "2026-08-31", source: "official-fixture", closures: [{ date: "2026-08-04", kind: "temporary", label: "应急休市演练" }] });
+  const cached = new CachedTradingCalendar({ getMarketDay: async (market, date) => { calls += 1; return fixture.getMarketDay(market, date); } });
+  const first = await cached.getMarketDay("CN", "2026-08-04");
+  const second = await cached.getMarketDay("CN", "2026-08-04");
+  assert.equal(first.status, "holiday");
+  assert.match(first.warnings[0], /临时休市/);
+  assert.deepEqual(second, first);
+  assert.equal(calls, 1);
+});
+
+test("serves a validated aggregate snapshot route without recursive HTTP calls", async () => {
+  const response = await worker.fetch(new Request("https://market.example/api/market/snapshot?ids=SSE%3A512480&include=comparisons&intervals=1m&quoteMode=fallback"), { ZX_RUNTIME_SERVICE_TOKEN: "test" }, { waitUntil() {}, passThroughOnException() {}, props: {} } as unknown as ExecutionContext);
+  assert.equal(response.status, 200);
+  const body = await response.json() as { data: unknown };
+  assert.equal(validateMarketSnapshot(body.data).ok, true);
+  assert.equal((body.data as { quality: { status: string } }).quality.status, "unavailable");
 });
 
 test("parses Tencent quote without coercing empty values to zero", () => {
@@ -90,6 +115,30 @@ test("falls back sequentially and preserves attempt diagnostics", async () => {
   assert.equal(result.source, "backup-1");
   assert.equal(result.fallbackUsed, true);
   assert.deepEqual(result.attempts.map((item) => [item.provider, item.ok]), [["primary", false], ["backup-1", true]]);
+});
+
+test("corroborated quotes become conflicted only when independent sources exceed the threshold", async () => {
+  const quote = (price: number) => ({ instrumentId: "SSE:512480", price, previousClose: .9, open: .9, high: price, low: .9, volume: 1, turnover: 1, marketTimestamp: "2026-08-03T02:00:00.000Z", receivedAt: "2026-08-03T02:00:01.000Z", source: "fixture", quality: "live" as const, stale: false, warnings: [], fallbackUsed: false, providerAttempts: [] });
+  const result = await runCorroboratedQuote([
+    { name: "primary", load: async () => quote(1) },
+    { name: "secondary", load: async () => quote(1.02) },
+  ], async () => new Response(), 50);
+  assert.equal(result.quality, "conflicted");
+  assert.equal(result.corroboration?.status, "conflicted");
+  assert.equal(result.corroboration?.observations.length, 2);
+  assert.ok((result.corroboration?.maxDeviationBps ?? 0) > 50);
+});
+
+test("corroborated mode reports a limitation when only one source succeeds", async () => {
+  const quote = { instrumentId: "SSE:512480", price: 1, previousClose: .9, open: .9, high: 1, low: .9, volume: 1, turnover: 1, marketTimestamp: "2026-08-03T02:00:00.000Z", receivedAt: "2026-08-03T02:00:01.000Z", source: "fixture", quality: "live" as const, stale: false, warnings: [], fallbackUsed: false, providerAttempts: [] };
+  const result = await runCorroboratedQuote([
+    { name: "primary", load: async () => quote },
+    { name: "secondary", load: async () => { throw new Error("offline"); } },
+  ], async () => new Response(), 50);
+  assert.equal(result.quality, "live");
+  assert.equal(result.corroboration?.status, "limited");
+  assert.equal(result.corroboration?.maxDeviationBps, null);
+  assert.doesNotMatch(result.warnings.join(" "), /超过 .* 阈值/);
 });
 
 test("normalizes Eastmoney stock news and 7x24 market news", () => {

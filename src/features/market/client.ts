@@ -1,4 +1,5 @@
 import type { MarketBar, MarketExchange, MarketInterval, MarketNewsItem, MarketProviders, MarketQuote, MarketResponse, MarketStatus } from "./types";
+import { parseMarketSnapshot, type MarketSnapshot, type MarketSnapshotRequest } from "../../../packages/market-schema/src/index";
 
 export class MarketDataError extends Error {
   constructor(message: string, readonly code: string, readonly status?: number, readonly details?: unknown) {
@@ -15,6 +16,12 @@ export class MarketClient {
 
   async getQuotes(instrumentIds: string[]): Promise<MarketResponse<MarketQuote[]>> {
     return this.request(`/api/market/quotes?instruments=${encodeURIComponent(instrumentIds.join(","))}`);
+  }
+
+  async getSnapshot(input: MarketSnapshotRequest): Promise<MarketResponse<MarketSnapshot>> {
+    const params = new URLSearchParams({ ids: input.instrumentIds.join(","), include: input.include.join(","), intervals: input.intervals.join(","), quoteMode: input.quoteMode });
+    const response = await this.request<unknown>(`/api/market/snapshot?${params}`);
+    return { data: parseMarketSnapshot(response.data), meta: response.meta };
   }
 
   async getBars(instrumentId: string, interval: MarketInterval): Promise<MarketResponse<MarketBar[]>> {

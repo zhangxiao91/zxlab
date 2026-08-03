@@ -11,11 +11,11 @@ export function isChinaTradingSession(value: string): boolean {
 
 export function blockingStaleQuotes(quotes: Quote[], now: string): Quote[] {
   if (!isChinaTradingSession(now)) return [];
-  return quotes.filter((item) => item.stale || item.quality === "stale");
+  return quotes.filter((item) => item.stale || item.quality === "stale" || item.quality === "conflicted");
 }
 
 export function marketSnapshotStatus(quotes: Quote[], now: string): MarketSnapshotStatus {
-  if (!quotes.length || quotes.some((item) => item.quality === "unavailable" || item.price == null)) return "unavailable";
+  if (!quotes.length || quotes.some((item) => item.quality === "unavailable" || item.quality === "conflicted" || item.price == null)) return "unavailable";
   if (blockingStaleQuotes(quotes, now).length) return "stale";
   if (quotes.some((item) => item.stale || item.quality === "stale")) return "closed-snapshot";
   return "live";

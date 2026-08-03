@@ -1,7 +1,9 @@
 import { getChinaMarketStatus } from "./calendar.ts";
+import { readCurrentMarketSnapshot, type SnapshotLoadResult } from "./snapshot.ts";
+import { DEFAULT_QUOTE_CONFLICT_THRESHOLD_BPS, type MarketFactQuality, type MarketQuoteMode, type QuoteCorroboration } from "../../../packages/market-schema/src/index.ts";
 
 type NullableNumber = number | null;
-type Quality = "live" | "cached" | "stale" | "unavailable";
+type Quality = MarketFactQuality;
 type Capability = "quote" | "daily-bars" | "minute-bars" | "stock-news" | "market-news" | "announcement";
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
@@ -30,6 +32,7 @@ export interface StandardQuote {
   warnings: string[];
   fallbackUsed: boolean;
   providerAttempts: ProviderAttempt[];
+  corroboration?: QuoteCorroboration;
 }
 
 export interface StandardBar {
@@ -75,6 +78,8 @@ interface LoadResult<T> {
   data: T;
   meta: Record<string, unknown>;
 }
+
+const QUOTE_CONFLICT_THRESHOLD_BPS = DEFAULT_QUOTE_CONFLICT_THRESHOLD_BPS;
 
 const CORS = {
   "access-control-allow-origin": "*",
@@ -442,6 +447,49 @@ export async function runWithFallback<T>(capability: Capability, providers: Prov
   throw new AllProvidersFailedError(capability, attempts);
 }
 
+export async function runCorroboratedQuote(providers: Provider<StandardQuote>[], fetcher: Fetcher = fetch, thresholdBps = QUOTE_CONFLICT_THRESHOLD_BPS): Promise<StandardQuote> {
+  const attempts: ProviderAttempt[] = [];
+  const observations: Array<{ provider: string; quote: StandardQuote }> = [];
+  for (const provider of providers) {
+    const startedAt = performance.now();
+    try {
+      const quote = await provider.load(fetcher);
+      if (quote.price == null) throw new GatewayError("UPSTREAM_SCHEMA_CHANGED", `${provider.name} 未返回有效价格`, 502);
+      attempts.push({ provider: provider.name, ok: true, latencyMs: Math.round(performance.now() - startedAt), errorCode: null, message: null });
+      observations.push({ provider: provider.name, quote });
+      if (observations.length === 2) break;
+    } catch (error) {
+      const known = error instanceof GatewayError ? error : new GatewayError("PROVIDER_ERROR", error instanceof Error ? error.message : "Provider 失败", 502);
+      attempts.push({ provider: provider.name, ok: false, latencyMs: Math.round(performance.now() - startedAt), errorCode: known.code, message: known.message });
+    }
+  }
+  if (!observations.length) throw new AllProvidersFailedError("quote", attempts);
+  const primary = observations[0];
+  const quoteObservations = observations.map((item) => ({ provider: item.provider, price: item.quote.price as number, marketTimestamp: item.quote.marketTimestamp, receivedAt: item.quote.receivedAt }));
+  const maxDeviationBps = observations.length >= 2 ? deviationBps(quoteObservations[0].price, quoteObservations[1].price) : null;
+  const conflicted = maxDeviationBps != null && maxDeviationBps > thresholdBps;
+  const limited = observations.length < 2;
+  const warnings = [
+    ...primary.quote.warnings,
+    ...(limited ? ["corroborated 模式未取得第二个独立报价源"] : []),
+    ...(conflicted ? [`独立报价源差异 ${maxDeviationBps.toFixed(1)} bps，超过 ${thresholdBps} bps 阈值`] : []),
+  ];
+  return {
+    ...primary.quote,
+    source: primary.provider,
+    quality: conflicted ? "conflicted" : primary.quote.quality,
+    warnings,
+    fallbackUsed: attempts[0]?.ok !== true,
+    providerAttempts: attempts,
+    corroboration: { mode: "corroborated", status: conflicted ? "conflicted" : limited ? "limited" : "corroborated", thresholdBps, maxDeviationBps, observations: quoteObservations },
+  };
+}
+
+function deviationBps(left: number, right: number): number {
+  const midpoint = (Math.abs(left) + Math.abs(right)) / 2;
+  return midpoint === 0 ? 0 : Math.abs(left - right) / midpoint * 10_000;
+}
+
 class AllProvidersFailedError extends GatewayError {
   constructor(readonly capability: Capability, readonly attempts: ProviderAttempt[]) { super("ALL_PROVIDERS_FAILED", `${capability} 的 ${attempts.length} 个 Provider 均失败`, 502); }
 }
@@ -556,13 +604,13 @@ function announcementProviders(instrumentId: string, limit: number): Provider<St
   ];
 }
 
-function unavailableQuote(instrumentId: string, error: AllProvidersFailedError): StandardQuote {
-  return { instrumentId, price: null, previousClose: null, open: null, high: null, low: null, volume: null, turnover: null, marketTimestamp: null, receivedAt: new Date().toISOString(), source: "unavailable", quality: "unavailable", stale: true, warnings: [error.message, ...error.attempts.map((item) => `${item.provider}: ${item.errorCode}`)], fallbackUsed: true, providerAttempts: error.attempts };
+function unavailableQuote(instrumentId: string, error: AllProvidersFailedError, mode: MarketQuoteMode): StandardQuote {
+  return { instrumentId, price: null, previousClose: null, open: null, high: null, low: null, volume: null, turnover: null, marketTimestamp: null, receivedAt: new Date().toISOString(), source: "unavailable", quality: "unavailable", stale: true, warnings: [error.message, ...error.attempts.map((item) => `${item.provider}: ${item.errorCode}`)], fallbackUsed: true, providerAttempts: error.attempts, corroboration: { mode, status: mode === "fallback" ? "not_requested" : "limited", thresholdBps: QUOTE_CONFLICT_THRESHOLD_BPS, maxDeviationBps: null, observations: [] } };
 }
 
 function withQuoteDiagnostics(result: FallbackResult<StandardQuote>): StandardQuote {
   const fallbackWarning = result.fallbackUsed ? [`主源失败，已降级至 ${result.source}`] : [];
-  return { ...result.data, source: result.source, fallbackUsed: result.fallbackUsed, providerAttempts: result.attempts, warnings: [...fallbackWarning, ...result.data.warnings] };
+  return { ...result.data, source: result.source, fallbackUsed: result.fallbackUsed, providerAttempts: result.attempts, warnings: [...fallbackWarning, ...result.data.warnings], corroboration: { mode: "fallback", status: "not_requested", thresholdBps: QUOTE_CONFLICT_THRESHOLD_BPS, maxDeviationBps: null, observations: [] } };
 }
 
 function json(data: unknown, status = 200, cache = "no-store") { return new Response(JSON.stringify(data), { status, headers: { ...CORS, "cache-control": cache } }); }
@@ -581,17 +629,17 @@ async function cached<T>(request: Request, seconds: number, ctx: ExecutionContex
   return response;
 }
 
-async function loadQuotes(ids: string[]): Promise<LoadResult<StandardQuote[]>> {
+async function loadQuotes(ids: string[], mode: MarketQuoteMode = "fallback"): Promise<LoadResult<StandardQuote[]>> {
   const resolved = await mapWithConcurrency(ids, 1, async (id) => {
-    try { return withQuoteDiagnostics(await runWithFallback("quote", quoteProviders(id))); }
-    catch (error) { if (error instanceof AllProvidersFailedError) return unavailableQuote(id, error); throw error; }
+    try { return mode === "corroborated" ? await runCorroboratedQuote(quoteProviders(id)) : withQuoteDiagnostics(await runWithFallback("quote", quoteProviders(id))); }
+    catch (error) { if (error instanceof AllProvidersFailedError) return unavailableQuote(id, error, mode); throw error; }
   });
   const sources = [...new Set(resolved.map((item) => item.source))];
   const unavailableCount = resolved.filter((item) => item.quality === "unavailable").length;
   const receivedAt = resolved.map((item) => item.receivedAt).sort().at(-1) ?? new Date().toISOString();
   const asOf = resolved.map((item) => item.marketTimestamp).filter((value): value is string => Boolean(value)).sort().at(-1) ?? null;
-  const capabilityStatus = unavailableCount === resolved.length ? "unavailable" : unavailableCount > 0 || resolved.some((item) => item.fallbackUsed || item.quality !== "live") ? "degraded" : "operational";
-  return { data: resolved, meta: { capability: "quote", capabilityStatus, asOf, receivedAt, freshness: capabilityStatus === "operational" ? "fresh" : "mixed", providerChain: ["tencent-qt", "sina-hq", "eastmoney-push2"], sources, attempts: resolved.flatMap((item) => item.providerAttempts), warnings: resolved.flatMap((item) => item.warnings), fallbackCount: resolved.filter((item) => item.fallbackUsed).length, unavailableCount } };
+  const capabilityStatus = unavailableCount === resolved.length ? "unavailable" : unavailableCount > 0 || resolved.some((item) => item.fallbackUsed || item.quality !== "live" || item.corroboration?.status === "limited") ? "degraded" : "operational";
+  return { data: resolved, meta: { capability: "quote", quoteMode: mode, capabilityStatus, asOf, receivedAt, freshness: capabilityStatus === "operational" ? "fresh" : "mixed", providerChain: ["tencent-qt", "sina-hq", "eastmoney-push2"], sources, attempts: resolved.flatMap((item) => item.providerAttempts), warnings: resolved.flatMap((item) => item.warnings), fallbackCount: resolved.filter((item) => item.fallbackUsed).length, unavailableCount, corroboratedCount: resolved.filter((item) => item.corroboration?.status === "corroborated").length, conflictedCount: resolved.filter((item) => item.quality === "conflicted").length } };
 }
 
 async function mapWithConcurrency<T, R>(items: T[], limit: number, mapper: (item: T) => Promise<R>): Promise<R[]> {
@@ -672,10 +720,35 @@ async function loadMarketNews(ids: string[], limit: number): Promise<LoadResult<
   return { data: dedupNews(batches.flat(), limit), meta: { capability: "market-news", providerChain: ["eastmoney-724", "tencent-stock-news", "eastmoney-stock-news"], attempts, warnings } };
 }
 
+async function loadStatus(exchange: "SSE" | "SZSE"): Promise<SnapshotLoadResult<Awaited<ReturnType<typeof getChinaMarketStatus>>>> {
+  const data = await getChinaMarketStatus(exchange);
+  return { data, meta: { capability: `status:${exchange}`, capabilityStatus: data.quality, asOf: data.asOf, receivedAt: data.receivedAt, freshness: data.freshness, warnings: data.warnings } };
+}
+
 async function route(request: Request, ctx: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
   const segments = url.pathname.split("/").filter(Boolean);
   if (url.pathname === "/api/market/providers") return json({ data: { quote: ["tencent-qt", "sina-hq", "eastmoney-push2"], dailyBars: ["tencent-kline", "baidu-gushitong", "tonghuashun-kline"], minuteBars: ["tencent-minute", "sina-minute", "eastmoney-trends"], news: ["eastmoney-724", "tencent-stock-news", "eastmoney-stock-news", "cninfo-announcement", "eastmoney-announcement"], strategy: "sequential-fallback", timeoutMsPerProvider: UPSTREAM_TIMEOUT_MS } }, 200, "public, max-age=300");
+  if (url.pathname === "/api/market/snapshot") {
+    const ids = uniqueQuery(url.searchParams.get("ids"));
+    if (!ids.length || ids.length > 10) throw new GatewayError("INVALID_ARGUMENT", "ids 需要包含 1 至 10 个证券代码", 400);
+    ids.forEach(instrumentToCode);
+    const include = uniqueQuery(url.searchParams.get("include") || "quotes,bars");
+    if (!include.length || include.some((item) => !["quotes", "bars", "news", "announcements", "comparisons"].includes(item))) throw new GatewayError("INVALID_ARGUMENT", "include 包含不支持的 capability", 400);
+    const intervals = uniqueQuery(url.searchParams.get("intervals") || "1m");
+    if (!intervals.length || intervals.some((item) => item !== "1d" && item !== "1m")) throw new GatewayError("INVALID_INTERVAL", "intervals 仅支持 1d 或 1m", 400);
+    const quoteMode = url.searchParams.get("quoteMode") || "fallback";
+    if (quoteMode !== "fallback" && quoteMode !== "corroborated") throw new GatewayError("INVALID_ARGUMENT", "quoteMode 仅支持 fallback 或 corroborated", 400);
+    const data = await readCurrentMarketSnapshot({ instrumentIds: ids, include: include as Array<"quotes" | "bars" | "news" | "announcements" | "comparisons">, intervals: intervals as Array<"1d" | "1m">, quoteMode }, {
+      loadQuotes,
+      loadBars,
+      loadNews: loadMarketNews,
+      loadAnnouncements,
+      loadStatus,
+      now: () => new Date().toISOString(),
+    });
+    return json({ data, meta: { schemaVersion: data.schemaVersion, asOf: data.asOf, receivedAt: data.receivedAt, capabilityStatus: data.quality.status, freshness: data.quality.freshness, warnings: data.quality.warnings, attempts: data.quality.attempts } }, 200, "no-store");
+  }
   if (url.pathname === "/api/market/quotes") {
     const ids = (url.searchParams.get("instruments") ?? "").split(",").filter(Boolean);
     if (!ids.length || ids.length > 30) throw new GatewayError("INVALID_ARGUMENT", "instruments 需要包含 1 至 30 个证券代码", 400);
@@ -706,11 +779,13 @@ async function route(request: Request, ctx: ExecutionContext): Promise<Response>
   if (url.pathname === "/api/market/status") {
     const exchange = url.searchParams.get("exchange");
     if (exchange !== "SSE" && exchange !== "SZSE") throw new GatewayError("INVALID_EXCHANGE", "exchange 仅支持 SSE 或 SZSE", 400);
-    const data = getChinaMarketStatus(exchange);
-    return json({ data, meta: { capability: `status:${exchange}`, capabilityStatus: data.quality, asOf: data.asOf, receivedAt: data.receivedAt, freshness: data.freshness, warnings: data.warnings } }, 200, "public, max-age=30");
+    const loaded = await loadStatus(exchange);
+    return json(loaded, 200, "public, max-age=30");
   }
   throw new GatewayError("NOT_FOUND", "未找到行情接口", 404);
 }
+
+function uniqueQuery(value: string | null): string[] { return [...new Set((value ?? "").split(",").map((item) => item.trim()).filter(Boolean))]; }
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {

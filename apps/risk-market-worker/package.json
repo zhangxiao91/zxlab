@@ -7,7 +7,7 @@
     "deploy": "wrangler deploy",
     "types": "wrangler types",
     "typecheck": "wrangler types && tsc --noEmit",
-    "test": "node --test --experimental-transform-types src/index.test.ts"
+    "test": "node --test --experimental-transform-types src/*.test.ts"
   },
   "devDependencies": {
     "typescript": "^6.0.3",
