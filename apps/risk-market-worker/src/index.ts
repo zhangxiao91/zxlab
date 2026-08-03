@@ -129,9 +129,17 @@ function toIso(value: unknown): string | null {
   const hasZone = /(?:Z|[+-]\d{2}:?\d{2})$/.test(text);
   const normalized = /^\d{8}$/.test(text)
     ? `${text.slice(0, 4)}-${text.slice(4, 6)}-${text.slice(6, 8)}T00:00:00+08:00`
+    : /^\d{4}-\d{2}-\d{2}$/.test(text)
+      ? `${text}T00:00:00+08:00`
     : `${text.includes("T") ? text : text.replace(" ", "T")}${hasZone ? "" : "+08:00"}`;
   const parsed = Date.parse(normalized);
   return Number.isNaN(parsed) ? null : new Date(parsed).toISOString();
+}
+
+export function normalizeBarTimestamp(value: string): string | null {
+  const compact = /^(\d{8})\s+(\d{4})(\d{2})?$/.exec(value.trim());
+  if (compact) return toIso(chinaIso(compact[1], `${compact[2]}${compact[3] ?? "00"}`));
+  return toIso(value);
 }
 
 function compactText(value: unknown, max = 2_000): string | null {
@@ -660,9 +668,14 @@ async function loadBars(instrumentId: string, interval: "1d" | "1m"): Promise<Lo
   const capability = interval === "1d" ? "daily-bars" : "minute-bars";
   const providers = interval === "1d" ? dailyProviders(instrumentId) : minuteProviders(instrumentId);
   const result = await runWithFallback(capability, providers);
+  const data = result.data.map((item) => {
+    const timestamp = normalizeBarTimestamp(item.timestamp);
+    if (!timestamp) throw new GatewayError("UPSTREAM_SCHEMA_CHANGED", `${result.source} 返回无法识别的 K 线时间`, 502);
+    return { ...item, timestamp };
+  });
   const receivedAt = new Date().toISOString();
-  const asOf = result.data.map((item) => item.timestamp).sort().at(-1) ?? null;
-  return { data: result.data, meta: { capability, capabilityStatus: result.data.length ? result.fallbackUsed ? "degraded" : "operational" : "unavailable", asOf, receivedAt, freshness: result.data.length ? "fresh" : "unknown", source: result.source, fallbackUsed: result.fallbackUsed, providerChain: providers.map((item) => item.name), attempts: result.attempts } };
+  const asOf = data.map((item) => item.timestamp).sort().at(-1) ?? null;
+  return { data, meta: { capability, capabilityStatus: data.length ? result.fallbackUsed ? "degraded" : "operational" : "unavailable", asOf, receivedAt, freshness: data.length ? "fresh" : "unknown", source: result.source, fallbackUsed: result.fallbackUsed, providerChain: providers.map((item) => item.name), attempts: result.attempts } };
 }
 
 export function dedupNews(items: StandardNewsItem[], limit: number): StandardNewsItem[] {
@@ -801,7 +814,8 @@ export default {
     catch (error) {
       const known = error instanceof GatewayError ? error : new GatewayError("INTERNAL_ERROR", "行情网关内部错误", 500);
       const details = error instanceof AllProvidersFailedError ? { attempts: error.attempts } : undefined;
-      console.error(JSON.stringify({ event: "market_gateway_error", code: known.code, message: known.message, path: new URL(request.url).pathname, details }));
+      const cause = error instanceof Error && !(error instanceof GatewayError) ? error.message : undefined;
+      console.error(JSON.stringify({ event: "market_gateway_error", code: known.code, message: known.message, cause, path: new URL(request.url).pathname, details }));
       return json({ error: { code: known.code, message: known.message, details } }, known.status);
     }
   },

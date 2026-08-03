@@ -4,6 +4,7 @@ import {
   dedupNews,
   instrumentToCode,
   instrumentToTencent,
+  normalizeBarTimestamp,
   parseBaiduDailyBars,
   parseEastmoneyMinuteBars,
   parseEastmoneyAnnouncements,
@@ -103,6 +104,13 @@ test("normalizes three daily and minute K schemas", () => {
   assert.equal(parseTonghuashunDailyBars("SSE:512480", 'callback({"data":"20260718,1,3,0.5,2,10,20"})')[0].close, 2);
   assert.equal(parseTencentMinuteBars("SSE:512480", "sh512480", { data: { sh512480: { data: { date: "20260718", data: ["0930 0.899 10 9"] } } } })[0].open, null);
   assert.equal(parseEastmoneyMinuteBars("SSE:512480", { data: { trends: ["2026-07-18 09:30,0.898,0.899,0.900,0.897,10,9"] } })[0].close, .899);
+});
+
+test("normalizes provider bar timestamps to timezone-aware ISO values", () => {
+  assert.equal(normalizeBarTimestamp("20260803 0930"), "2026-08-03T01:30:00.000Z");
+  assert.equal(normalizeBarTimestamp("2026-08-03 09:30"), "2026-08-03T01:30:00.000Z");
+  assert.equal(normalizeBarTimestamp("2026-08-03"), "2026-08-02T16:00:00.000Z");
+  assert.equal(normalizeBarTimestamp("not-a-date"), null);
 });
 
 test("falls back sequentially and preserves attempt diagnostics", async () => {
