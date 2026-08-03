@@ -66,6 +66,21 @@ export function createCandlestickChart(element: HTMLDivElement, bars: MarketBar[
   return chart;
 }
 
+export function createMarketLineChart(element: HTMLDivElement, bars: MarketBar[], interval: "1d" | "1m"): EChartsType {
+  const rows = bars.filter((bar): bar is MarketBar & { close: number } => bar.close != null);
+  const chart = init(element, undefined, { renderer: "svg" });
+  chart.setOption({
+    animationDuration: 500,
+    tooltip: { trigger: "axis", backgroundColor: "#151613", borderWidth: 0, textStyle: { color: "#f4f2e9" } },
+    grid: { left: 8, right: 8, top: 12, bottom: 8, containLabel: true },
+    xAxis: { type: "category", data: rows.map((bar) => formatBarTime(bar.timestamp, interval)), boundaryGap: false, axisLine: { lineStyle: { color: "rgba(242,240,231,.14)" } }, axisLabel: { color: "rgba(242,240,231,.42)", fontSize: 10 }, axisTick: { show: false } },
+    yAxis: { type: "value", scale: true, splitNumber: 3, axisLabel: { color: "rgba(242,240,231,.38)", fontSize: 10 }, splitLine: { lineStyle: { color: "rgba(242,240,231,.08)" } } },
+    dataZoom: [{ type: "inside", start: Math.max(0, 100 - 80 / Math.max(rows.length, 1) * 100), end: 100 }],
+    series: [{ type: "line", name: interval === "1m" ? "1分钟收盘价" : "收盘价", data: rows.map((bar) => bar.close), smooth: .18, symbol: "none", lineStyle: { color: "#d9ff74", width: 2 }, areaStyle: { color: { type: "linear", x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: "rgba(217,255,116,.22)" }, { offset: 1, color: "rgba(217,255,116,0)" }] } } }],
+  });
+  return chart;
+}
+
 function formatBarTime(value: string, interval: "1d" | "1m") {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;

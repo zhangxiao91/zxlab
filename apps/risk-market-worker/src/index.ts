@@ -1,3 +1,5 @@
+import { getChinaMarketStatus } from "./calendar.ts";
+
 type NullableNumber = number | null;
 type Quality = "live" | "cached" | "stale" | "unavailable";
 type Capability = "quote" | "daily-bars" | "minute-bars" | "stock-news" | "market-news" | "announcement";
@@ -585,7 +587,11 @@ async function loadQuotes(ids: string[]): Promise<LoadResult<StandardQuote[]>> {
     catch (error) { if (error instanceof AllProvidersFailedError) return unavailableQuote(id, error); throw error; }
   });
   const sources = [...new Set(resolved.map((item) => item.source))];
-  return { data: resolved, meta: { capability: "quote", providerChain: ["tencent-qt", "sina-hq", "eastmoney-push2"], sources, fallbackCount: resolved.filter((item) => item.fallbackUsed).length, unavailableCount: resolved.filter((item) => item.quality === "unavailable").length } };
+  const unavailableCount = resolved.filter((item) => item.quality === "unavailable").length;
+  const receivedAt = resolved.map((item) => item.receivedAt).sort().at(-1) ?? new Date().toISOString();
+  const asOf = resolved.map((item) => item.marketTimestamp).filter((value): value is string => Boolean(value)).sort().at(-1) ?? null;
+  const capabilityStatus = unavailableCount === resolved.length ? "unavailable" : unavailableCount > 0 || resolved.some((item) => item.fallbackUsed || item.quality !== "live") ? "degraded" : "operational";
+  return { data: resolved, meta: { capability: "quote", capabilityStatus, asOf, receivedAt, freshness: capabilityStatus === "operational" ? "fresh" : "mixed", providerChain: ["tencent-qt", "sina-hq", "eastmoney-push2"], sources, attempts: resolved.flatMap((item) => item.providerAttempts), warnings: resolved.flatMap((item) => item.warnings), fallbackCount: resolved.filter((item) => item.fallbackUsed).length, unavailableCount } };
 }
 
 async function mapWithConcurrency<T, R>(items: T[], limit: number, mapper: (item: T) => Promise<R>): Promise<R[]> {
@@ -606,7 +612,9 @@ async function loadBars(instrumentId: string, interval: "1d" | "1m"): Promise<Lo
   const capability = interval === "1d" ? "daily-bars" : "minute-bars";
   const providers = interval === "1d" ? dailyProviders(instrumentId) : minuteProviders(instrumentId);
   const result = await runWithFallback(capability, providers);
-  return { data: result.data, meta: { capability, source: result.source, fallbackUsed: result.fallbackUsed, providerChain: providers.map((item) => item.name), attempts: result.attempts } };
+  const receivedAt = new Date().toISOString();
+  const asOf = result.data.map((item) => item.timestamp).sort().at(-1) ?? null;
+  return { data: result.data, meta: { capability, capabilityStatus: result.data.length ? result.fallbackUsed ? "degraded" : "operational" : "unavailable", asOf, receivedAt, freshness: result.data.length ? "fresh" : "unknown", source: result.source, fallbackUsed: result.fallbackUsed, providerChain: providers.map((item) => item.name), attempts: result.attempts } };
 }
 
 export function dedupNews(items: StandardNewsItem[], limit: number): StandardNewsItem[] {
@@ -698,11 +706,8 @@ async function route(request: Request, ctx: ExecutionContext): Promise<Response>
   if (url.pathname === "/api/market/status") {
     const exchange = url.searchParams.get("exchange");
     if (exchange !== "SSE" && exchange !== "SZSE") throw new GatewayError("INVALID_EXCHANGE", "exchange 仅支持 SSE 或 SZSE", 400);
-    const china = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Shanghai" }));
-    const weekday = china.getDay();
-    const minutes = china.getHours() * 60 + china.getMinutes();
-    const open = weekday >= 1 && weekday <= 5 && ((minutes >= 570 && minutes <= 690) || (minutes >= 780 && minutes <= 900));
-    return json({ data: { exchange, open, marketTimestamp: new Date().toISOString(), source: "gateway-calendar", warnings: ["未接入节假日交易日历"] } }, 200, "public, max-age=30");
+    const data = getChinaMarketStatus(exchange);
+    return json({ data, meta: { capability: `status:${exchange}`, capabilityStatus: data.quality, asOf: data.asOf, receivedAt: data.receivedAt, freshness: data.freshness, warnings: data.warnings } }, 200, "public, max-age=30");
   }
   throw new GatewayError("NOT_FOUND", "未找到行情接口", 404);
 }

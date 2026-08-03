@@ -1,6 +1,9 @@
 export type MarketQuality = "live" | "cached" | "stale" | "unavailable";
 export type MarketExchange = "SSE" | "SZSE";
 export type MarketInterval = "1d" | "1m";
+export type MarketCapabilityStatus = "operational" | "degraded" | "unavailable";
+export type MarketFreshness = "fresh" | "mixed" | "stale" | "unknown";
+export type MarketSession = "preopen" | "open" | "break" | "closed" | "holiday";
 
 export interface MarketProviderAttempt {
   provider: string;
@@ -60,8 +63,34 @@ export interface MarketStatus {
   exchange: string;
   open: boolean;
   marketTimestamp: string | null;
+  asOf?: string | null;
+  receivedAt?: string;
+  freshness?: MarketFreshness;
+  session?: MarketSession;
+  quality?: MarketCapabilityStatus;
+  reliable?: boolean;
   source: string;
   warnings?: string[];
+}
+
+export interface MarketCapabilityHealth {
+  id: string;
+  status: MarketCapabilityStatus;
+  asOf: string | null;
+  receivedAt: string | null;
+  warnings: string[];
+  attempts: MarketProviderAttempt[];
+}
+
+export interface MarketDataQuality {
+  status: MarketCapabilityStatus;
+  asOf: string | null;
+  receivedAt: string;
+  freshness: MarketFreshness;
+  capabilities: MarketCapabilityHealth[];
+  warnings: string[];
+  attempts: MarketProviderAttempt[];
+  unavailableCapabilities: string[];
 }
 
 export interface MarketProviders {
@@ -86,6 +115,10 @@ export interface MarketResponse<T> {
     attempts?: MarketProviderAttempt[];
     warnings?: string[];
     cached?: boolean;
+    asOf?: string | null;
+    receivedAt?: string;
+    freshness?: MarketFreshness;
+    capabilityStatus?: MarketCapabilityStatus;
     [key: string]: unknown;
   };
 }

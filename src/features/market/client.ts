@@ -1,7 +1,7 @@
 import type { MarketBar, MarketExchange, MarketInterval, MarketNewsItem, MarketProviders, MarketQuote, MarketResponse, MarketStatus } from "./types";
 
 export class MarketDataError extends Error {
-  constructor(message: string, readonly code: string, readonly status?: number) {
+  constructor(message: string, readonly code: string, readonly status?: number, readonly details?: unknown) {
     super(message);
     this.name = "MarketDataError";
   }
@@ -46,9 +46,9 @@ export class MarketClient {
     } catch (error) {
       throw new MarketDataError(error instanceof Error ? error.message : "行情中心不可达", "MARKET_CENTER_UNREACHABLE");
     }
-    const body = await response.json().catch(() => null) as { data?: T; meta?: MarketResponse<T>["meta"]; error?: { code?: string; message?: string } } | null;
+    const body = await response.json().catch(() => null) as { data?: T; meta?: MarketResponse<T>["meta"]; error?: { code?: string; message?: string; details?: unknown } } | null;
     if (!response.ok || !body || body.data === undefined) {
-      throw new MarketDataError(body?.error?.message || `行情中心返回 ${response.status}`, body?.error?.code || "MARKET_CENTER_ERROR", response.status);
+      throw new MarketDataError(body?.error?.message || `行情中心返回 ${response.status}`, body?.error?.code || "MARKET_CENTER_ERROR", response.status, body?.error?.details);
     }
     return { data: body.data, meta: body.meta };
   }

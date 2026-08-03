@@ -65,6 +65,7 @@
 .risk-appbar__status > span { width: .48rem; height: .48rem; border-radius: 50%; box-shadow: 0 0 0 .28rem rgba(217,255,116,.08); }
 .risk-appbar__status > span.is-live { background: var(--risk-lime); }
 .risk-appbar__status > span.is-mock { background: var(--risk-amber); box-shadow: 0 0 0 .28rem rgba(255,196,92,.08); }
+.risk-appbar__status > span.is-offline { background: var(--risk-red); box-shadow: 0 0 0 .28rem rgba(255,112,92,.08); }
 .risk-appbar__status div { display: flex; align-items: flex-end; flex-direction: column; line-height: 1.1; }
 .risk-appbar__status strong { font-size: .72rem; font-weight: 540; }
 .risk-appbar__status small { margin-top: .28rem; color: var(--risk-muted); font-size: .61rem; }
@@ -139,6 +140,7 @@
 .quality-tag { display: block; width: fit-content; margin-top: .4rem; font-size: .56rem; }
 .quality-tag--live { color: var(--risk-lime); }
 .quality-tag--stale { color: var(--risk-amber); }
+.quality-tag--unavailable { color: var(--risk-red); }
 .leverage-mark { display: inline-block; margin-left: .4rem; padding: .18rem .28rem; border-radius: .25rem; background: rgba(255,112,92,.14); color: var(--risk-red); font-size: .53rem; }
 .plan-state { padding: .3rem .45rem; border-radius: 999px; font-size: .58rem; }
 .plan-state--aligned { background: rgba(217,255,116,.1); color: var(--risk-lime); }

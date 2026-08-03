@@ -22,10 +22,30 @@ import {
   parseTonghuashunDailyBars,
   runWithFallback,
 } from "./index.ts";
+import { getChinaMarketStatus } from "./calendar.ts";
 
 test("maps normalized instruments for all HTTP providers", () => {
   assert.equal(instrumentToTencent("SSE:512480"), "sh512480");
   assert.deepEqual(instrumentToCode("SZSE:159995"), { exchange: "SZSE", symbol: "159995", prefixed: "sz159995", secid: "0.159995" });
+});
+
+test("uses the official 2026 calendar and marks out-of-coverage fallback", () => {
+  const holiday = getChinaMarketStatus("SSE", new Date("2026-10-05T02:00:00.000Z"));
+  assert.equal(holiday.session, "holiday");
+  assert.equal(holiday.open, false);
+  assert.equal(holiday.reliable, true);
+  assert.equal(holiday.source, "sse-calendar-2026");
+
+  const trading = getChinaMarketStatus("SZSE", new Date("2026-08-03T02:00:00.000Z"));
+  assert.equal(trading.session, "open");
+  assert.equal(trading.open, true);
+  assert.equal(trading.quality, "operational");
+
+  const fallback = getChinaMarketStatus("SSE", new Date("2027-01-04T02:00:00.000Z"));
+  assert.equal(fallback.source, "weekday-fallback");
+  assert.equal(fallback.reliable, false);
+  assert.equal(fallback.quality, "degraded");
+  assert.match(fallback.warnings[0], /官方交易日历仅覆盖/);
 });
 
 test("parses Tencent quote without coercing empty values to zero", () => {

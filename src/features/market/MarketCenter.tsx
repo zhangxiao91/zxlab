@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MarketClient, MarketDataError } from "./client";
-import type { MarketBar, MarketInterval, MarketNewsItem, MarketProviderAttempt, MarketProviders, MarketQuote, MarketStatus, MarketWatchlistItem } from "./types";
+import { resolveMarketChartKind } from "./chart-model";
+import { capabilityHealth, LatestMarketRequest, summarizeMarketDataQuality } from "./quality";
+import type { MarketBar, MarketDataQuality, MarketInterval, MarketNewsItem, MarketProviderAttempt, MarketProviders, MarketQuote, MarketStatus, MarketWatchlistItem } from "./types";
 import { defaultMarketWatchlist, loadMarketWatchlist, saveMarketWatchlist, toWatchlistItem } from "./watchlist";
 
 const number = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 3 });
@@ -20,9 +22,11 @@ interface MarketCenterState {
   providers: MarketProviders | null;
   attempts: MarketProviderAttempt[];
   warnings: string[];
+  quality: MarketDataQuality;
 }
 
-const emptyState = (): MarketCenterState => ({ quotes: [], bars: {}, news: [], announcements: [], status: [], providers: null, attempts: [], warnings: [] });
+const emptyQuality = (): MarketDataQuality => ({ status: "unavailable", asOf: null, receivedAt: new Date(0).toISOString(), freshness: "unknown", capabilities: [], warnings: [], attempts: [], unavailableCapabilities: [] });
+const emptyState = (): MarketCenterState => ({ quotes: [], bars: {}, news: [], announcements: [], status: [], providers: null, attempts: [], warnings: [], quality: emptyQuality() });
 
 export default function MarketCenter() {
   const storage = typeof window === "undefined" ? null : window.localStorage;
@@ -36,7 +40,7 @@ export default function MarketCenter() {
   const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const inFlightRef = useRef(false);
+  const requestGateRef = useRef(new LatestMarketRequest());
   const ids = useMemo(() => watchlist.map((item) => item.instrumentId), [watchlist]);
   const idsKey = ids.join(",");
   const selectedQuote = state.quotes.find((item) => item.instrumentId === selectedId);
@@ -44,8 +48,8 @@ export default function MarketCenter() {
   const pollIntervalMs = state.status.length ? state.status.some((item) => item.open) ? REALTIME_POLL_INTERVAL_MS : SNAPSHOT_POLL_INTERVAL_MS : INITIAL_POLL_INTERVAL_MS;
 
   const refresh = useCallback(async ({ slow = true }: { slow?: boolean } = {}) => {
-    if (inFlightRef.current || !ids.length) return;
-    inFlightRef.current = true;
+    if (!ids.length) return;
+    const requestToken = requestGateRef.current.begin();
     setLoading(true); setError(null);
     try {
       const activeId = selectedId || ids[0];
@@ -58,42 +62,42 @@ export default function MarketCenter() {
         slow && activeId ? client.getAnnouncements(activeId, 20) : Promise.resolve(null),
         activeId ? client.getBars(activeId, interval) : Promise.resolve(null),
       ]);
+      if (!requestGateRef.current.isCurrent(requestToken)) return;
       const next = emptyState();
+      const capabilityResults = [];
       if (quotes.status === "fulfilled") {
         next.quotes = quotes.value.data;
-        next.attempts.push(...attemptsOf(quotes.value.meta?.attempts));
-        next.warnings.push(...stringsOf(quotes.value.meta?.warnings));
-      } else next.warnings.push(errorText("quotes", quotes.reason));
+      }
+      capabilityResults.push(capabilityHealth({ id: "quotes", response: quotes.status === "fulfilled" ? quotes.value : undefined, error: quotes.status === "rejected" ? quotes.reason : undefined, emptyIsUnavailable: true, itemQualities: quotes.status === "fulfilled" ? quotes.value.data.map((item) => item.quality) : [] }));
       if (providers.status === "fulfilled") next.providers = providers.value.data;
-      else next.warnings.push(errorText("providers", providers.reason));
-      for (const result of [sse, szse]) {
+      capabilityResults.push(capabilityHealth({ id: "providers", response: providers.status === "fulfilled" ? providers.value : undefined, error: providers.status === "rejected" ? providers.reason : undefined }));
+      for (const [exchange, result] of [["SSE", sse], ["SZSE", szse]] as const) {
         if (result.status === "fulfilled") next.status.push(result.value.data);
-        else next.warnings.push(errorText("status", result.reason));
+        capabilityResults.push(capabilityHealth({ id: `status:${exchange}`, response: result.status === "fulfilled" ? result.value : undefined, error: result.status === "rejected" ? result.reason : undefined, extraWarnings: result.status === "fulfilled" ? result.value.data.warnings ?? [] : [] }));
       }
       if (news.status === "fulfilled" && news.value) {
         next.news = news.value.data;
-        next.attempts.push(...attemptsOf(news.value.meta?.attempts));
-        next.warnings.push(...stringsOf(news.value.meta?.warnings));
-      } else if (news.status === "rejected") next.warnings.push(errorText("news", news.reason));
+      }
+      if (slow) capabilityResults.push(capabilityHealth({ id: "news", response: news.status === "fulfilled" ? news.value ?? undefined : undefined, error: news.status === "rejected" ? news.reason : undefined }));
       if (announcements.status === "fulfilled" && announcements.value) {
         next.announcements = announcements.value.data;
-        next.attempts.push(...attemptsOf(announcements.value.meta?.attempts));
-        next.warnings.push(...stringsOf(announcements.value.meta?.warnings));
-      } else if (announcements.status === "rejected") next.warnings.push(errorText(`announcements:${activeId}`, announcements.reason));
+      }
+      if (slow) capabilityResults.push(capabilityHealth({ id: `announcements:${activeId}`, response: announcements.status === "fulfilled" ? announcements.value ?? undefined : undefined, error: announcements.status === "rejected" ? announcements.reason : undefined }));
       if (bars.status === "fulfilled" && bars.value) next.bars[activeId] = bars.value.data;
-      else if (bars.status === "rejected") next.warnings.push(errorText(`bars:${activeId}`, bars.reason));
+      capabilityResults.push(capabilityHealth({ id: `bars:${activeId}:${interval}`, response: bars.status === "fulfilled" ? bars.value ?? undefined : undefined, error: bars.status === "rejected" ? bars.reason : undefined, emptyIsUnavailable: true }));
+      const receivedAt = new Date().toISOString();
       setState((current) => ({
         ...next,
         news: slow ? next.news : current.news,
         announcements: slow ? next.announcements : current.announcements,
         bars: { ...current.bars, ...next.bars },
+        ...qualityState(capabilityResults, current.quality, receivedAt, !slow),
       }));
-      setLastUpdatedAt(new Date().toISOString());
+      setLastUpdatedAt(receivedAt);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Market Center 加载失败");
     } finally {
-      setLoading(false);
-      inFlightRef.current = false;
+      if (requestGateRef.current.isCurrent(requestToken)) setLoading(false);
     }
   }, [client, ids, idsKey, selectedId, interval]);
 
@@ -124,7 +128,9 @@ export default function MarketCenter() {
     setDraft("");
   };
 
-  return <div className="risk-app market-app"><header className="risk-appbar"><a href="/lab" className="risk-brand"><span className="risk-brand__mark">Z</span><span><strong>Market Center</strong><small>Quotes, news, providers</small></span></a><nav aria-label="Market Center 导航"><a href="/lab/risk">Risk</a><button className="is-active">行情中心</button></nav><div className="risk-appbar__actions"><button className={autoRefresh ? "market-auto-button is-active" : "market-auto-button"} onClick={() => setAutoRefresh((value) => !value)}>{autoRefresh ? `自动刷新 ${pollIntervalMs / 1000}s` : "自动刷新关"}</button><button disabled={loading} onClick={() => void refresh({ slow: true })}>{loading ? "刷新中" : "刷新"}</button><div className="risk-appbar__status"><span className={error ? "is-mock" : "is-live"}/><div><strong>{error ? "部分不可用" : "Market API"}</strong><small>{lastUpdatedAt ? `更新 ${new Date(lastUpdatedAt).toLocaleTimeString("zh-CN")}` : state.providers?.strategy ?? "sequential-fallback"}</small></div></div></div></header><main className="risk-main market-main"><header className="market-hero"><div><p>行情、K 线、公告与消息面统一入口</p><h1>Market Center 承接估值事实，Risk 只消费它。</h1><span>价格质量、上游 fallback、7x24 新闻和上市公司公告会在这里先被看见，再进入风险台。</span></div><aside className="market-hero__panel"><p>行情中心</p><strong>{state.quotes.length} 个标的</strong><small>{state.news.length} 条消息面 · {state.announcements.length} 条公告</small><span>{state.providers?.strategy ?? "sequential-fallback"} · {autoRefresh ? `报价与当前 K 线 ${pollIntervalMs / 1000} 秒轮询` : "自动刷新已暂停"}</span><a className="market-hero__link" href="/lab/risk">回到 Risk 工作台</a></aside></header>{error && <p className="review-status review-status--warning">{error}</p>}<section className="market-grid"><article className="market-panel market-panel--wide"><header><div><span>自选报价</span><h2>{watchlist.length} 个标的</h2></div><div className="market-add"><input value={draft} placeholder="SSE:512480" onChange={(event) => setDraft(event.target.value)}/><button onClick={addInstrument}>添加</button></div></header><div className="position-table-wrap"><table className="position-table market-table"><thead><tr><th>标的</th><th>价格</th><th>质量</th><th>成交额</th><th>上游</th><th>市场时间</th><th/></tr></thead><tbody>{watchlist.map((item) => { const quote = state.quotes.find((entry) => entry.instrumentId === item.instrumentId); return <tr key={item.instrumentId} className={selectedId === item.instrumentId ? "is-selected" : ""}><td><button className="market-instrument-button" onClick={() => setSelectedId(item.instrumentId)}><strong>{item.label}</strong><span>{item.instrumentId} · {item.reason}</span></button></td><td><strong>{quote?.price == null ? "—" : number.format(quote.price)}</strong></td><td><span className={`quality-tag quality-tag--${quote?.quality === "live" ? "live" : quote?.quality === "unavailable" ? "stale" : "stale"}`}>{qualityText(quote)}</span></td><td>{quote?.turnover == null ? "—" : compact.format(quote.turnover)}</td><td>{quote?.source ?? "—"}</td><td>{time(quote?.marketTimestamp)}</td><td><button className="market-row-action" onClick={() => save(watchlist.filter((entry) => entry.instrumentId !== item.instrumentId))}>移除</button></td></tr>; })}</tbody></table></div></article><article className="market-panel"><header><div><span>价格质量</span><h2>{selectedId}</h2></div><div className="market-chart-controls"><button className={interval === "1m" ? "is-active" : ""} onClick={() => setIntervalType("1m")}>1分钟</button><button className={interval === "1d" ? "is-active" : ""} onClick={() => setIntervalType("1d")}>日K</button></div></header><CandlestickPanel bars={selectedBars} interval={interval}/><dl className="market-kv"><div><dt>现价</dt><dd>{selectedQuote?.price == null ? "—" : number.format(selectedQuote.price)}</dd></div><div><dt>昨收</dt><dd>{selectedQuote?.previousClose == null ? "—" : number.format(selectedQuote.previousClose)}</dd></div><div><dt>来源</dt><dd>{selectedQuote?.source ?? "—"}</dd></div><div><dt>{interval === "1m" ? "1分钟K线点数" : "日K点数"}</dt><dd>{selectedBars.length}</dd></div></dl>{selectedQuote?.warnings.map((warning) => <p key={warning} className="duplicate-note">{warning}</p>)}</article><article className="market-panel"><header><div><span>交易状态</span><h2>交易所</h2></div></header>{state.status.map((item) => <div className="setting-row" key={item.exchange}><span><i className={`source-dot source-dot--${item.open ? "healthy" : "degraded"}`}/>{item.exchange}</span><strong>{item.open ? "开市" : "休市"} · {item.source}</strong></div>)}<div className="setting-row"><span>Provider 策略</span><strong>{state.providers?.strategy ?? "—"}</strong></div><div className="setting-row"><span>自动刷新</span><strong>{autoRefresh ? `${pollIntervalMs / 1000} 秒` : "暂停"}</strong></div><div className="setting-row"><span>超时</span><strong>{state.providers?.timeoutMsPerProvider ?? "—"} ms</strong></div></article><article className="market-panel market-panel--half"><header><div><span>消息面</span><h2>7x24 + 个股新闻</h2></div><strong>{state.news.length}</strong></header><NewsList items={state.news}/></article><article className="market-panel market-panel--half"><header><div><span>公告</span><h2>巨潮优先 · 东财回退</h2></div><strong>{state.announcements.length}</strong></header><NewsList items={state.announcements}/></article><article className="market-panel market-panel--wide"><header><div><span>上游健康</span><h2>{state.attempts.length} 次 provider attempt</h2></div></header><div className="market-attempts">{state.attempts.slice(0, 18).map((attempt, index) => <div key={`${attempt.provider}-${index}`} className={attempt.ok ? "is-ok" : "is-bad"}><strong>{attempt.provider}</strong><span>{attempt.ok ? "ok" : attempt.errorCode ?? "failed"} · {attempt.latencyMs}ms</span></div>)}</div>{state.warnings.map((warning) => <p key={warning} className="data-warning">{warning}</p>)}</article></section></main><footer className="risk-footer"><span>zxlab / market</span><p>Market Center 是只读行情层；交易账本仍由 Risk 本地维护。</p><a href="/lab/risk">Risk</a></footer></div>;
+  const healthLabel = state.quality.status === "operational" ? "Market API" : state.quality.status === "degraded" ? "数据降级" : "行情不可用";
+  const healthClass = state.quality.status === "operational" ? "is-live" : state.quality.status === "degraded" ? "is-mock" : "is-offline";
+  return <div className="risk-app market-app"><header className="risk-appbar"><a href="/lab" className="risk-brand"><span className="risk-brand__mark">Z</span><span><strong>Market Center</strong><small>Quotes, news, providers</small></span></a><nav aria-label="Market Center 导航"><a href="/lab/risk">Risk</a><button className="is-active">行情中心</button></nav><div className="risk-appbar__actions"><button className={autoRefresh ? "market-auto-button is-active" : "market-auto-button"} onClick={() => setAutoRefresh((value) => !value)}>{autoRefresh ? `自动刷新 ${pollIntervalMs / 1000}s` : "自动刷新关"}</button><button disabled={loading} onClick={() => void refresh({ slow: true })}>{loading ? "刷新中" : "刷新"}</button><div className="risk-appbar__status"><span className={healthClass}/><div><strong>{healthLabel}</strong><small>{lastUpdatedAt ? `更新 ${new Date(lastUpdatedAt).toLocaleTimeString("zh-CN")} · ${state.quality.freshness}` : state.providers?.strategy ?? "sequential-fallback"}</small></div></div></div></header><main className="risk-main market-main"><header className="market-hero"><div><p>行情、K 线、公告与消息面统一入口</p><h1>Market Center 承接估值事实，Risk 只消费它。</h1><span>价格质量、上游 fallback、7x24 新闻和上市公司公告会在这里先被看见，再进入风险台。</span></div><aside className="market-hero__panel"><p>行情中心</p><strong>{state.quotes.length} 个标的</strong><small>{state.news.length} 条消息面 · {state.announcements.length} 条公告</small><span>{state.providers?.strategy ?? "sequential-fallback"} · {autoRefresh ? `报价与当前 K 线 ${pollIntervalMs / 1000} 秒轮询` : "自动刷新已暂停"}</span><a className="market-hero__link" href="/lab/risk">回到 Risk 工作台</a></aside></header>{error && <p className="review-status review-status--warning">{error}</p>}<section className="market-grid"><article className="market-panel market-panel--wide"><header><div><span>自选报价</span><h2>{watchlist.length} 个标的</h2></div><div className="market-add"><input value={draft} placeholder="SSE:512480" onChange={(event) => setDraft(event.target.value)}/><button onClick={addInstrument}>添加</button></div></header><div className="position-table-wrap"><table className="position-table market-table"><thead><tr><th>标的</th><th>价格</th><th>质量</th><th>成交额</th><th>上游</th><th>市场时间</th><th/></tr></thead><tbody>{watchlist.map((item) => { const quote = state.quotes.find((entry) => entry.instrumentId === item.instrumentId); return <tr key={item.instrumentId} className={selectedId === item.instrumentId ? "is-selected" : ""}><td><button className="market-instrument-button" onClick={() => setSelectedId(item.instrumentId)}><strong>{item.label}</strong><span>{item.instrumentId} · {item.reason}</span></button></td><td><strong>{quote?.price == null ? "—" : number.format(quote.price)}</strong></td><td><span className={`quality-tag quality-tag--${quote?.quality === "live" ? "live" : quote?.quality === "unavailable" ? "unavailable" : "stale"}`}>{qualityText(quote)}</span></td><td>{quote?.turnover == null ? "—" : compact.format(quote.turnover)}</td><td>{quote?.source ?? "—"}</td><td>{time(quote?.marketTimestamp)}</td><td><button className="market-row-action" onClick={() => save(watchlist.filter((entry) => entry.instrumentId !== item.instrumentId))}>移除</button></td></tr>; })}</tbody></table></div></article><article className="market-panel"><header><div><span>价格质量</span><h2>{selectedId}</h2></div><div className="market-chart-controls"><button className={interval === "1m" ? "is-active" : ""} onClick={() => setIntervalType("1m")}>1分钟</button><button className={interval === "1d" ? "is-active" : ""} onClick={() => setIntervalType("1d")}>日K</button></div></header><CandlestickPanel bars={selectedBars} interval={interval}/><dl className="market-kv"><div><dt>现价</dt><dd>{selectedQuote?.price == null ? "—" : number.format(selectedQuote.price)}</dd></div><div><dt>昨收</dt><dd>{selectedQuote?.previousClose == null ? "—" : number.format(selectedQuote.previousClose)}</dd></div><div><dt>来源</dt><dd>{selectedQuote?.source ?? "—"}</dd></div><div><dt>{interval === "1m" ? "1分钟价格点数" : "日K点数"}</dt><dd>{selectedBars.length}</dd></div></dl>{selectedQuote?.warnings.map((warning) => <p key={warning} className="duplicate-note">{warning}</p>)}</article><article className="market-panel"><header><div><span>交易状态</span><h2>交易所</h2></div></header>{state.status.map((item) => <div className="setting-row" key={item.exchange}><span><i className={`source-dot source-dot--${statusDot(item)}`}/>{item.exchange}</span><strong>{statusText(item)} · {item.source}</strong></div>)}<div className="setting-row"><span>Provider 策略</span><strong>{state.providers?.strategy ?? "—"}</strong></div><div className="setting-row"><span>自动刷新</span><strong>{autoRefresh ? `${pollIntervalMs / 1000} 秒` : "暂停"}</strong></div><div className="setting-row"><span>超时</span><strong>{state.providers?.timeoutMsPerProvider ?? "—"} ms</strong></div></article><article className="market-panel market-panel--half"><header><div><span>消息面</span><h2>7x24 + 个股新闻</h2></div><strong>{state.news.length}</strong></header><NewsList items={state.news}/></article><article className="market-panel market-panel--half"><header><div><span>公告</span><h2>巨潮优先 · 东财回退</h2></div><strong>{state.announcements.length}</strong></header><NewsList items={state.announcements}/></article><article className="market-panel market-panel--wide"><header><div><span>上游健康</span><h2>{state.attempts.length} 次 provider attempt · {state.quality.unavailableCapabilities.length} 项不可用</h2></div></header><div className="market-attempts">{state.attempts.slice(0, 18).map((attempt, index) => <div key={`${attempt.provider}-${index}`} className={attempt.ok ? "is-ok" : "is-bad"}><strong>{attempt.provider}</strong><span>{attempt.ok ? "ok" : attempt.errorCode ?? "failed"} · {attempt.latencyMs}ms</span></div>)}</div>{state.quality.unavailableCapabilities.map((id) => <p key={id} className="data-warning">不可用 capability：{id}</p>)}{state.warnings.map((warning) => <p key={warning} className="data-warning">{warning}</p>)}</article></section></main><footer className="risk-footer"><span>zxlab / market</span><p>Market Center 是只读行情层；交易账本仍由 Risk 本地维护。</p><a href="/lab/risk">Risk</a></footer></div>;
 }
 
 function NewsList({ items }: { items: MarketNewsItem[] }) {
@@ -133,15 +139,17 @@ function NewsList({ items }: { items: MarketNewsItem[] }) {
 
 function CandlestickPanel({ bars, interval }: { bars: MarketBar[]; interval: MarketInterval }) {
   const ref = useRef<HTMLDivElement>(null);
+  const chartKind = useMemo(() => resolveMarketChartKind(bars), [bars]);
   const validBars = useMemo(() => bars.filter((item) => item.open != null && item.high != null && item.low != null && item.close != null), [bars]);
+  const closeBars = useMemo(() => bars.filter((item) => item.close != null), [bars]);
   useEffect(() => {
-    if (!ref.current || validBars.length < 2) return;
+    if (!ref.current || chartKind === "empty") return;
     let chart: import("echarts/core").EChartsType | undefined;
     let disposed = false;
     const resize = () => chart?.resize();
-    void import("../risk/chart").then(({ createCandlestickChart }) => {
+    void import("../risk/chart").then(({ createCandlestickChart, createMarketLineChart }) => {
       if (!ref.current || disposed) return;
-      chart = createCandlestickChart(ref.current, validBars, interval);
+      chart = chartKind === "candlestick" ? createCandlestickChart(ref.current, validBars, interval) : createMarketLineChart(ref.current, closeBars, interval);
       window.addEventListener("resize", resize);
     });
     return () => {
@@ -149,17 +157,30 @@ function CandlestickPanel({ bars, interval }: { bars: MarketBar[]; interval: Mar
       window.removeEventListener("resize", resize);
       chart?.dispose();
     };
-  }, [validBars, interval]);
-  if (validBars.length < 2) return <div className="market-candlestick is-empty">等待 K 线</div>;
-  return <div ref={ref} className="market-candlestick" role="img" aria-label={`${interval === "1m" ? "1分钟" : "日"}K 线蜡烛图`}/>;
+  }, [chartKind, closeBars, validBars, interval]);
+  if (chartKind === "empty") return <div className="market-candlestick is-empty">暂无可用价格序列</div>;
+  return <div ref={ref} className="market-candlestick" role="img" aria-label={chartKind === "candlestick" ? `${interval === "1m" ? "1分钟" : "日"}K 线蜡烛图` : `${interval === "1m" ? "1分钟" : "日"}收盘价折线图`}/>;
 }
 
-function attemptsOf(value: unknown): MarketProviderAttempt[] {
-  return Array.isArray(value) ? value.filter((item): item is MarketProviderAttempt => Boolean(item) && typeof item === "object" && typeof (item as MarketProviderAttempt).provider === "string") : [];
+function qualityState(fresh: ReturnType<typeof capabilityHealth>[], current: MarketDataQuality, receivedAt: string, retainSlowCapabilities: boolean) {
+  const replaced = new Set(fresh.map((item) => item.id));
+  const retained = retainSlowCapabilities ? current.capabilities.filter((item) => !replaced.has(item.id) && (item.id === "news" || item.id.startsWith("announcements:"))) : [];
+  const quality = summarizeMarketDataQuality([...fresh, ...retained], receivedAt);
+  return { quality, attempts: quality.attempts, warnings: quality.warnings };
 }
 
-function stringsOf(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+function statusText(item: MarketStatus): string {
+  const inferred = item.reliable === false ? "推定" : "";
+  if (item.session === "preopen") return `${inferred}盘前集合竞价`;
+  if (item.session === "break") return `${inferred}午间休市`;
+  if (item.session === "holiday") return "节假日休市";
+  return `${inferred}${item.open ? "开市" : "休市"}`;
+}
+
+function statusDot(item: MarketStatus): "healthy" | "degraded" | "offline" {
+  if (item.quality === "unavailable") return "offline";
+  if (item.quality === "degraded" || item.reliable === false || item.warnings?.length) return "degraded";
+  return "healthy";
 }
 
 function errorText(scope: string, reason: unknown): string {
