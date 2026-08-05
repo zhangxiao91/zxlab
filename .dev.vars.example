@@ -1,24 +1,16 @@
 # Copy to .dev.vars for Cloudflare Pages local development. Never commit real values.
 ENVIRONMENT=development
 
-GPT_PROVIDER1_BASE_URL=https://provider-1.example/v1
-GPT_PROVIDER1_API_KEY=
-GPT_PROVIDER1_SOL_MODEL=
-GPT_PROVIDER1_TERRA_MODEL=
-
-GPT_PROVIDER2_BASE_URL=https://provider-2.example/v1
-GPT_PROVIDER2_SOL_API_KEY=
-GPT_PROVIDER2_TERRA_API_KEY=
-GPT_PROVIDER2_SOL_MODEL=
-GPT_PROVIDER2_TERRA_MODEL=
-
-KIMI_BASE_URL=https://api.moonshot.ai/v1
-KIMI_API_KEY=
-KIMI_K3_MODEL=
-
-DEEPSEEK_BASE_URL=https://api.deepseek.com
+# Required model credentials. The gateway always tries DeepSeek first and
+# falls back to Kimi only when the DeepSeek attempt is allowed to fall back.
 DEEPSEEK_API_KEY=
-DEEPSEEK_FLASH_MODEL=deepseek-v4-flash
+KIMI_API_KEY=
+
+# Official defaults are built in. Keep these only when local testing needs an override.
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL=deepseek-v4-flash
+KIMI_BASE_URL=https://api.moonshot.ai/v1
+KIMI_MODEL=kimi-k3
 
 # Optional in development. Set this in production unless a supported
 # AI_RATE_LIMITER binding and application authentication are present.

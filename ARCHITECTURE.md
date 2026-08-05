@@ -78,6 +78,11 @@ and structured-output parsing stay here. Browser features receive only validated
 results and coarse provider metadata. Pages does not aggregate Status state;
 that responsibility belongs to Runtime.
 
+The AI gateway exposes one deep module interface to callers and keeps a fixed
+provider policy behind it: official DeepSeek V4 Flash is primary, official Kimi
+K3 is the only fallback, and both share the OpenAI-compatible Chat Completions
+adapter. Callers cannot select providers or models.
+
 ### Runtime
 
 `apps/runtime-worker/` is the control plane for public Status and private
@@ -220,5 +225,6 @@ architectural constraint to preserve as the repository grows.
 - [Lab and Status](docs/lab-status.md)
 - [ZX Signal](docs/zx-signal.md)
 - [Risk MVP](docs/risk-mvp-architecture.md)
+- [Personal Market Agent plan](docs/market-agent-plan.md)
 - [zxtoolkit architecture](apps/zxtoolkit/docs/architecture.md)
 - [STONKS progress](apps/stonks/docs/PROGRESS.md)

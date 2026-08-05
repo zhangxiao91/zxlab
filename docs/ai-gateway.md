@@ -13,21 +13,16 @@ credential, model selection, or fallback decision is shipped to the browser.
 3. The Pages Function enforces access controls and validates method, content
    type, body size, task, messages, temperature, output-token limit, and allowed
    fields.
-4. The task-policy layer applies safe defaults and task-specific caps. Known
-   lightweight tasks select a deterministic low-cost tier.
-5. Ambiguous tasks use the non-recursive selector chain DeepSeek V4 Flash,
-   Terra Provider 1, then Terra Provider 2. Selector exhaustion uses the task
-   default and never fails the business request.
-6. The routing planner expands the selected capability tier into providers,
-   switching provider before lowering capability. The full capability order is
-   Sol, Kimi K3, Terra, then DeepSeek V4 Flash. Sol and Terra each have two
-   independent provider candidates.
-7. An OpenAI-compatible adapter owns the Chat Completions request format. The
-   named DeepSeek adapter currently reuses that wire format while preserving a
-   provider-specific extension point.
-8. Structured output is parsed on the server. A single outer JSON Markdown fence
+4. The task-policy layer applies safe defaults and task-specific caps without
+   changing the configured model order.
+5. The fixed model chain tries the official DeepSeek V4 Flash endpoint first.
+   When the normalized provider error permits fallback, it tries the official
+   Kimi K3 endpoint next. No model selector or GPT relay remains in the path.
+6. One OpenAI-compatible adapter owns the shared Chat Completions wire format
+   used by both official providers.
+7. Structured output is parsed on the server. A single outer JSON Markdown fence
    is accepted; damaged JSON is never heuristically repaired.
-9. The logger emits one sanitized record per attempt and one request summary.
+8. The logger emits one sanitized record per attempt and one request summary.
 
 The streaming route asks the selected provider for Chat Completions SSE and
 forwards bounded text deltas without exposing provider credentials. Its event
@@ -107,7 +102,8 @@ Unknown input fields are rejected rather than silently forwarded.
 | Empty or unparseable provider response | No | Yes |
 | Invalid requested JSON output | No | Yes |
 | Context too long | No | No |
-| Provider 4xx parameter/authentication error | No | No |
+| Provider authentication error | No | Yes |
+| Provider 4xx parameter error | No | No |
 | Invalid ZXLab input or missing server configuration | No | No |
 
 Transient retries wait 250 ms plus up to 100 ms of cryptographic jitter. Each
@@ -123,31 +119,22 @@ not currently have a root Wrangler configuration from which to generate types.
 Required provider settings:
 
 ```env
-GPT_PROVIDER1_BASE_URL=
-GPT_PROVIDER1_API_KEY=
-GPT_PROVIDER1_SOL_MODEL=
-GPT_PROVIDER1_TERRA_MODEL=
-
-GPT_PROVIDER2_BASE_URL=
-GPT_PROVIDER2_SOL_API_KEY=
-GPT_PROVIDER2_TERRA_API_KEY=
-GPT_PROVIDER2_SOL_MODEL=
-GPT_PROVIDER2_TERRA_MODEL=
-
-KIMI_BASE_URL=https://api.moonshot.ai/v1
-KIMI_API_KEY=
-KIMI_K3_MODEL=
-
-DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_API_KEY=
-DEEPSEEK_FLASH_MODEL=deepseek-v4-flash
+KIMI_API_KEY=
 ```
 
-The model values are deliberately environment-specific. They may be official
-IDs or relay-provider IDs; source code never assumes they are identical.
-Provider 2's Sol and Terra credentials are deliberately separate. The selector
-cannot choose a provider or arbitrary model string; it returns only a validated
-capability tier, confidence, and reason code.
+The official URLs and model IDs are built in:
+
+```env
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL=deepseek-v4-flash
+KIMI_BASE_URL=https://api.moonshot.ai/v1
+KIMI_MODEL=kimi-k3
+```
+
+Ordinary deployments should set only the two keys. The URL and model variables
+remain available for isolated local tests, but production policy is the fixed
+official DeepSeek-first, Kimi-second chain.
 
 Security settings:
 
@@ -180,7 +167,7 @@ ZX Signal task policies are intentionally separate from generic callers:
 | Task | Output cap | Candidate timeout | Total budget |
 | --- | ---: | ---: | ---: |
 | `signal-editorial-filter` | 4,000 | 30 s | 75 s |
-| `signal-briefing` | 4,000 | 30 s | 75 s |
+| `signal-briefing` | 4,000 | 60 s | 150 s |
 | `signal-annotation-reply` | 1,200 | 20 s | 40 s |
 | `signal-memory-extraction` | 800 | 20 s | 40 s |
 | `signal-memory-consolidation` | 1,600 | 30 s | 60 s |
@@ -209,8 +196,8 @@ Success:
   "ok": true,
   "data": {
     "text": "Summary text",
-    "provider": "provider1",
-    "model": "configured-provider-model-id",
+    "provider": "deepseek",
+    "model": "deepseek-v4-flash",
     "fallbackIndex": 0,
     "latencyMs": 1234,
     "usage": { "inputTokens": 100, "outputTokens": 200, "totalTokens": 300 }
@@ -230,7 +217,7 @@ Failure:
   "error": {
     "code": "ALL_CANDIDATES_FAILED",
     "message": "AI service is temporarily unavailable.",
-    "attempts": 4
+    "attempts": 2
   },
   "requestId": "2efaa6c7-dd6f-4b9c-aa34-c6d1a156cf18"
 }
@@ -253,9 +240,8 @@ a telemetry failure never changes an AI response.
 Retry attempts receive their own row, while `fallback_depth` tracks the selected
 candidate in the configured chain. Attempt rows also retain the sanitized
 candidate ID, capability tier, provider instance, and provider HTTP status.
-`llm_routing_events` records the selected tier, task-default versus selector
-source, reason code, selector fallback, sanitized selector attempt trace, and
-the expanded route candidate IDs. Both tables intentionally exclude
+`llm_routing_events` records the fixed-chain source, route reason, and candidate
+IDs. Legacy selector columns remain empty for schema compatibility. Both tables intentionally exclude
 prompts, responses, headers, credentials, and caller metadata. Token fields are
 only persisted when the provider returned them. Pricing is deliberately empty
 until provider-confirmed prices are added to `functions/_lib/ai/telemetry.ts`.

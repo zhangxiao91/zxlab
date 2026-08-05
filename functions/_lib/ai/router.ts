@@ -1,12 +1,10 @@
 import type { GenerateAIInput, GenerateAIResult } from "../../../src/lib/ai/types.ts";
-import { executionCandidates, getModelCatalog, type AIEnv, type ModelCandidate } from "./config.ts";
+import { getDefaultModelChain, type AIEnv, type ModelCandidate } from "./config.ts";
 import { AIError, asAIError } from "./errors.ts";
 import { parseStructuredOutput } from "./json.ts";
 import { consoleAILogger, type AILogger, usageFields } from "./logger.ts";
-import { DeepSeekCompatibleAdapter } from "./providers/deepseek.ts";
 import { OpenAICompatibleAdapter } from "./providers/openai-compatible.ts";
 import type { AIProviderAdapter } from "./providers/types.ts";
-import { selectModelTier, type ModelSelection, type SelectorDependencies } from "./model-selector.ts";
 import { resolveTaskPolicy } from "./task-policies.ts";
 import { createUsageEvent, recordLLMUsage, recordRoutingDecision, resolveCallContext, telemetryStatus, type LLMUsageDatabase } from "./telemetry.ts";
 
@@ -18,7 +16,6 @@ export interface AIGatewayOptions {
   fetcher?: typeof fetch;
   logger?: AILogger;
   candidates?: ModelCandidate[];
-  selector?: (input: GenerateAIInput, catalog: ReturnType<typeof getModelCatalog>, dependencies: SelectorDependencies) => Promise<ModelSelection>;
   adapters?: AdapterMap;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
@@ -37,38 +34,28 @@ export interface AIStreamObserver {
 
 const defaultAdapters: AdapterMap = {
   "openai-compatible": new OpenAICompatibleAdapter(),
-  "deepseek-compatible": new DeepSeekCompatibleAdapter(),
 };
 
 async function resolveRoute(input: GenerateAIInput, options: AIGatewayOptions, requestId: string): Promise<{
   candidates: ModelCandidate[];
-  selection?: ModelSelection;
+  fixedRoute: boolean;
 }> {
-  if (options.candidates) return { candidates: options.candidates };
-  const catalog = getModelCatalog(options.env ?? {});
-  const selection = await (options.selector ?? selectModelTier)(input, catalog, {
-    adapters: options.adapters ?? defaultAdapters,
-    fetcher: options.fetcher ?? fetch,
-    requestId,
-    signal: options.signal,
-  });
-  const candidates = executionCandidates(catalog, selection.tier);
+  if (options.candidates) return { candidates: options.candidates, fixedRoute: false };
+  const candidates = getDefaultModelChain(options.env ?? {});
   const routingWrite = recordRoutingDecision(options.telemetryDb, {
     requestId,
     task: input.task,
     source: resolveCallContext(input.task, input.context).source,
-    selectedTier: selection.tier,
-    selectionSource: selection.source,
-    reasonCode: selection.reasonCode,
-    selectorProvider: selection.selectorProvider,
-    selectorModel: selection.selectorModel,
-    selectorFallbackUsed: selection.selectorFallbackUsed,
-    selectorAttempts: selection.selectorAttempts,
-    selectorTrace: selection.selectorTrace,
+    selectedTier: candidates[0]!.tier,
+    selectionSource: "fixed-chain",
+    reasonCode: "deepseek-primary-kimi-fallback",
+    selectorFallbackUsed: false,
+    selectorAttempts: 0,
+    selectorTrace: [],
     routeCandidateIds: candidates.map((candidate) => candidate.id),
   }).catch((error) => console.warn("ai.gateway.routing_telemetry_failed", requestId, error instanceof Error ? error.name : "unknown"));
   if (options.scheduleTelemetry) options.scheduleTelemetry(routingWrite); else void routingWrite;
-  return { candidates, selection };
+  return { candidates, fixedRoute: true };
 }
 
 function secureJitterMs(): number {
@@ -153,10 +140,10 @@ export async function generateAI(input: GenerateAIInput, options: AIGatewayOptio
             fallbackIndex,
             attempts,
             latencyMs: Math.max(0, now() - startedAt),
-            ...(route.selection ? {
-              selectedTier: route.selection.tier,
-              selectionSource: route.selection.source,
-              selectionReason: route.selection.reasonCode,
+            ...(route.fixedRoute ? {
+              selectedTier: candidates[0]!.tier,
+              selectionSource: "fixed-chain" as const,
+              selectionReason: "deepseek-primary-kimi-fallback",
             } : {}),
             usage: providerResult.usage,
           };
@@ -270,10 +257,10 @@ export async function streamAI(
             fallbackIndex,
             attempts,
             latencyMs: Math.max(0, now() - startedAt),
-            ...(route.selection ? {
-              selectedTier: route.selection.tier,
-              selectionSource: route.selection.source,
-              selectionReason: route.selection.reasonCode,
+            ...(route.fixedRoute ? {
+              selectedTier: candidates[0]!.tier,
+              selectionSource: "fixed-chain" as const,
+              selectionReason: "deepseek-primary-kimi-fallback",
             } : {}),
             usage: providerResult.usage,
           };

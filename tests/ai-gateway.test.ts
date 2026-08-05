@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { streamAI as streamAIClient } from "../src/lib/ai/client.ts";
 import type { AIStreamEvent, GenerateAIInput } from "../src/lib/ai/types.ts";
-import { executionCandidates, type ModelCandidate, type ModelCatalog } from "../functions/_lib/ai/config.ts";
+import { getDefaultModelChain, type ModelCandidate } from "../functions/_lib/ai/config.ts";
 import { AIError } from "../functions/_lib/ai/errors.ts";
 import type { AILogger } from "../functions/_lib/ai/logger.ts";
 import { OpenAICompatibleAdapter } from "../functions/_lib/ai/providers/openai-compatible.ts";
@@ -11,30 +11,11 @@ import { generateAI, streamAI } from "../functions/_lib/ai/router.ts";
 import { validateGenerateAIInput } from "../functions/_lib/ai/validation.ts";
 import { estimateLLMCost, normalizeUsage, type LLMUsageDatabase } from "../functions/_lib/ai/telemetry.ts";
 import { resolveTaskPolicy } from "../functions/_lib/ai/task-policies.ts";
-import { defaultTierForTask, selectModelTier } from "../functions/_lib/ai/model-selector.ts";
 
 const candidates: ModelCandidate[] = [
-  { id: "provider1-gpt-5.6", tier: "sol", provider: "provider1", providerInstance: "provider1", adapter: "openai-compatible", model: "p1-56", baseUrl: "https://p1.example/v1", apiKey: "p1-secret" },
-  { id: "provider1-gpt-5.5", tier: "kimi-k3", provider: "provider1", providerInstance: "provider1", adapter: "openai-compatible", model: "p1-55", baseUrl: "https://p1.example/v1", apiKey: "p1-secret" },
-  { id: "provider2-gpt-5.5", tier: "terra", provider: "provider2", providerInstance: "provider2", adapter: "openai-compatible", model: "p2-55", baseUrl: "https://p2.example/v1", apiKey: "p2-secret" },
-  { id: "deepseek-v4-pro", tier: "deepseek-flash", provider: "deepseek", providerInstance: "deepseek", adapter: "deepseek-compatible", model: "deepseek-v4-pro", baseUrl: "https://deepseek.example/v1", apiKey: "deep-secret" },
+  { id: "deepseek-v4-flash-official", tier: "deepseek-flash", provider: "deepseek", providerInstance: "deepseek-official", adapter: "openai-compatible", model: "deepseek-v4-flash", baseUrl: "https://api.deepseek.com", apiKey: "deep-secret" },
+  { id: "kimi-k3-official", tier: "kimi-k3", provider: "moonshot", providerInstance: "moonshot-official", adapter: "openai-compatible", model: "kimi-k3", baseUrl: "https://api.moonshot.ai/v1", apiKey: "kimi-secret" },
 ];
-
-const catalog: ModelCatalog = {
-  tiers: {
-    sol: [
-      { ...candidates[0]!, id: "sol-a", tier: "sol", providerInstance: "sol-a" },
-      { ...candidates[0]!, id: "sol-b", tier: "sol", providerInstance: "sol-b" },
-    ],
-    "kimi-k3": [{ ...candidates[1]!, id: "kimi", tier: "kimi-k3", providerInstance: "kimi" }],
-    terra: [
-      { ...candidates[2]!, id: "terra-a", tier: "terra", providerInstance: "terra-a" },
-      { ...candidates[2]!, id: "terra-b", tier: "terra", providerInstance: "terra-b" },
-    ],
-    "deepseek-flash": [{ ...candidates[3]!, id: "flash", tier: "deepseek-flash", providerInstance: "flash" }],
-  },
-  selector: [],
-};
 
 const input: GenerateAIInput = {
   task: "notes-summary",
@@ -68,142 +49,43 @@ class ScriptedAdapter implements AIProviderAdapter {
 }
 
 function adapters(adapter: AIProviderAdapter) {
-  return { "openai-compatible": adapter, "deepseek-compatible": adapter } as const;
+  return { "openai-compatible": adapter } as const;
 }
 
 const success = (text = "ok"): ProviderGenerateResult => ({ text, statusCode: 200, usage: { inputTokens: 10, outputTokens: 4, totalTokens: 14 } });
 const fallback500 = () => new AIError("MODEL_UNAVAILABLE", { statusCode: 500, fallbackAllowed: true });
 const rateLimit = () => new AIError("RATE_LIMITED", { statusCode: 429, retryable: true, fallbackAllowed: true });
 
-test("routing plan switches providers before lowering capability", () => {
-  assert.deepEqual(executionCandidates(catalog, "sol").map((candidate) => candidate.id),
-    ["sol-a", "sol-b", "kimi", "terra-a", "terra-b", "flash"]);
-  assert.deepEqual(executionCandidates(catalog, "terra").map((candidate) => candidate.id),
-    ["terra-a", "terra-b", "flash"]);
-});
-
-test("known lightweight tasks bypass the selector with a deterministic tier", async () => {
-  assert.equal(defaultTierForTask("signal-editorial-filter"), "deepseek-flash");
-  const selection = await selectModelTier({ ...input, task: "signal-editorial-filter" }, catalog, {
-    adapters: adapters(new ScriptedAdapter([])),
-    fetcher: fetch,
-    requestId: "selector-bypass",
-  });
-  assert.deepEqual(selection, {
-    tier: "deepseek-flash",
-    confidence: 1,
-    reasonCode: "task-default",
-    source: "task-default",
-    selectorFallbackUsed: false,
-    selectorAttempts: 0,
-    selectorTrace: [],
-  });
-});
-
-test("selector falls from DeepSeek Flash to Terra without recursively routing itself", async () => {
-  const adapter = new ScriptedAdapter([
-    fallback500(),
-    success('{"tier":"deepseek-flash","confidence":0.91,"reasonCode":"complex-reasoning"}'),
+test("production model chain uses official DeepSeek then Kimi endpoints", () => {
+  const chain = getDefaultModelChain({ DEEPSEEK_API_KEY: "deep-key", KIMI_API_KEY: "kimi-key" });
+  assert.deepEqual(chain.map(({ id, model, baseUrl }) => ({ id, model, baseUrl })), [
+    { id: "deepseek-v4-flash-official", model: "deepseek-v4-flash", baseUrl: "https://api.deepseek.com" },
+    { id: "kimi-k3-official", model: "kimi-k3", baseUrl: "https://api.moonshot.ai/v1" },
   ]);
-  const selection = await selectModelTier(input, {
-    ...catalog,
-    selector: [catalog.tiers["deepseek-flash"][0]!, catalog.tiers.terra[0]!],
-  }, {
-    adapters: adapters(adapter),
-    fetcher: fetch,
-    requestId: "selector-fallback",
-  });
-  assert.equal(selection.tier, "sol");
-  assert.equal(selection.selectorProvider, "terra-a");
-  assert.equal(selection.selectorFallbackUsed, true);
-  assert.equal(selection.selectorAttempts, 2);
-  assert.deepEqual(adapter.calls, ["flash", "terra-a"]);
 });
 
-test("production routing expands the selected tier into provider-first fallback order", async () => {
+test("production routing always tries DeepSeek before Kimi", async () => {
   const adapter = new ScriptedAdapter([fallback500(), success()]);
   const result = await generateAI(input, {
     env: {
-      GPT_PROVIDER1_BASE_URL: "https://gpt1.example/v1",
-      GPT_PROVIDER1_API_KEY: "gpt1-secret",
-      GPT_PROVIDER1_SOL_MODEL: "sol-1",
-      GPT_PROVIDER1_TERRA_MODEL: "terra-1",
-      GPT_PROVIDER2_BASE_URL: "https://gpt2.example/v1",
-      GPT_PROVIDER2_SOL_API_KEY: "sol2-secret",
-      GPT_PROVIDER2_TERRA_API_KEY: "terra2-secret",
-      GPT_PROVIDER2_SOL_MODEL: "sol-2",
-      GPT_PROVIDER2_TERRA_MODEL: "terra-2",
-      KIMI_API_KEY: "kimi-secret",
-      KIMI_K3_MODEL: "kimi-k3",
       DEEPSEEK_API_KEY: "deepseek-secret",
-    },
-    selector: async () => ({
-      tier: "terra",
-      confidence: 0.84,
-      reasonCode: "structured-generation",
-      source: "selector",
-      selectorProvider: "deepseek-official",
-      selectorModel: "deepseek-v4-flash",
-      selectorFallbackUsed: false,
-      selectorAttempts: 1,
-      selectorTrace: [],
-    }),
-    adapters: adapters(adapter),
-    jitterMs: () => 0,
-  });
-  assert.deepEqual(adapter.calls, ["terra-gpt-provider1", "terra-gpt-provider2"]);
-  assert.equal(result.selectedTier, "terra");
-  assert.equal(result.selectionSource, "selector");
-  assert.equal(result.provider, "gpt");
-  assert.equal(result.model, "terra-2");
-});
-
-test("Signal routing uses configured GPT models when optional providers are absent", async () => {
-  const adapter = new ScriptedAdapter([success()]);
-  const result = await generateAI({ ...input, task: "signal-editorial-filter" }, {
-    env: {
-      GPT_PROVIDER1_BASE_URL: "https://gpt1.example/v1",
-      GPT_PROVIDER1_API_KEY: "gpt1-secret",
-      GPT_PROVIDER1_SOL_MODEL: "sol-1",
-      GPT_PROVIDER1_TERRA_MODEL: "terra-1",
+      KIMI_API_KEY: "kimi-secret",
     },
     adapters: adapters(adapter),
     jitterMs: () => 0,
   });
-
-  assert.deepEqual(adapter.calls, ["terra-gpt-provider1"]);
+  assert.deepEqual(adapter.calls, ["deepseek-v4-flash-official", "kimi-k3-official"]);
   assert.equal(result.selectedTier, "deepseek-flash");
-  assert.equal(result.provider, "gpt");
-  assert.equal(result.model, "terra-1");
-});
-
-test("Signal briefing selection and generation survive absent optional providers", async () => {
-  const adapter = new ScriptedAdapter([
-    success('{"tier":"terra","confidence":0.9,"reasonCode":"structured-generation"}'),
-    success(),
-  ]);
-  const result = await generateAI({ ...input, task: "signal-briefing" }, {
-    env: {
-      GPT_PROVIDER1_BASE_URL: "https://gpt1.example/v1",
-      GPT_PROVIDER1_API_KEY: "gpt1-secret",
-      GPT_PROVIDER1_SOL_MODEL: "sol-1",
-      GPT_PROVIDER1_TERRA_MODEL: "terra-1",
-    },
-    adapters: adapters(adapter),
-    jitterMs: () => 0,
-  });
-
-  assert.deepEqual(adapter.calls, ["terra-gpt-provider1", "terra-gpt-provider1"]);
-  assert.equal(result.selectedTier, "terra");
-  assert.equal(result.provider, "gpt");
-  assert.equal(result.model, "terra-1");
+  assert.equal(result.selectionSource, "fixed-chain");
+  assert.equal(result.provider, "moonshot");
+  assert.equal(result.model, "kimi-k3");
 });
 
 test("first candidate succeeds without fallback", async () => {
   const adapter = new ScriptedAdapter([success()]);
   const result = await generateAI(input, { candidates, adapters: adapters(adapter), jitterMs: () => 0 });
   assert.equal(result.fallbackIndex, 0);
-  assert.deepEqual(adapter.calls, ["provider1-gpt-5.6"]);
+  assert.deepEqual(adapter.calls, ["deepseek-v4-flash-official"]);
 });
 
 test("Yuzi uses its bounded generation policy", () => {
@@ -216,32 +98,18 @@ test("Yuzi uses its bounded generation policy", () => {
   assert.equal(resolveTaskPolicy({ ...input, task: "yuzi-turn", maxOutputTokens: 2_000 }).maxOutputTokens, 700);
 });
 
-test("429 retries once, then falls back to Provider 1 GPT-5.5", async () => {
+test("429 retries once, then falls back to Kimi K3", async () => {
   const adapter = new ScriptedAdapter([rateLimit(), rateLimit(), success("second")]);
   const result = await generateAI(input, { candidates, adapters: adapters(adapter), sleep: async () => {}, jitterMs: () => 0 });
   assert.equal(result.fallbackIndex, 1);
-  assert.deepEqual(adapter.calls, ["provider1-gpt-5.6", "provider1-gpt-5.6", "provider1-gpt-5.5"]);
-});
-
-test("Provider 2 succeeds after both Provider 1 candidates fail", async () => {
-  const adapter = new ScriptedAdapter([fallback500(), fallback500(), success()]);
-  const result = await generateAI(input, { candidates, adapters: adapters(adapter) });
-  assert.equal(result.fallbackIndex, 2);
-  assert.equal(result.provider, "provider2");
-});
-
-test("DeepSeek succeeds after the first three candidates fail", async () => {
-  const adapter = new ScriptedAdapter([fallback500(), fallback500(), fallback500(), success()]);
-  const result = await generateAI(input, { candidates, adapters: adapters(adapter) });
-  assert.equal(result.fallbackIndex, 3);
-  assert.equal(result.provider, "deepseek");
+  assert.deepEqual(adapter.calls, ["deepseek-v4-flash-official", "deepseek-v4-flash-official", "kimi-k3-official"]);
 });
 
 test("all candidate failures return the unified terminal error", async () => {
-  const adapter = new ScriptedAdapter([fallback500(), fallback500(), fallback500(), fallback500()]);
+  const adapter = new ScriptedAdapter([fallback500(), fallback500()]);
   await assert.rejects(
     generateAI(input, { candidates, adapters: adapters(adapter) }),
-    (error: unknown) => error instanceof AIError && error.code === "ALL_CANDIDATES_FAILED" && error.attempts === 4,
+    (error: unknown) => error instanceof AIError && error.code === "ALL_CANDIDATES_FAILED" && error.attempts === 2,
   );
 });
 
@@ -258,7 +126,7 @@ test("provider authentication failures fall back to the next capability", async 
   ]);
   const result = await generateAI(input, { candidates, adapters: adapters(adapter), jitterMs: () => 0 });
   assert.equal(result.fallbackIndex, 1);
-  assert.deepEqual(adapter.calls, ["provider1-gpt-5.6", "provider1-gpt-5.5"]);
+  assert.deepEqual(adapter.calls, ["deepseek-v4-flash-official", "kimi-k3-official"]);
 });
 
 test("total budget expiry stops later candidates", async () => {
@@ -288,7 +156,7 @@ test("structured logs contain no API keys or complete prompt", async () => {
   const logger: AILogger = { write: (entry) => { entries.push(entry); } };
   await generateAI(input, { candidates, adapters: adapters(new ScriptedAdapter([success()])), logger });
   const serialized = JSON.stringify(entries);
-  assert.doesNotMatch(serialized, /p1-secret|deep-secret|private prompt content/);
+  assert.doesNotMatch(serialized, /kimi-secret|deep-secret|private prompt content/);
   assert.match(serialized, /"inputChars":22/);
 });
 
@@ -386,10 +254,10 @@ test("stream router resets partial output before JSON fallback", async () => {
     reset: async (reason) => { events.push({ type: "reset", value: reason }); },
   }, { candidates, adapters: adapters(adapter) });
   assert.deepEqual(events, [
-    { type: "attempt", value: "p1-56" },
+    { type: "attempt", value: "deepseek-v4-flash" },
     { type: "delta", value: "{broken" },
     { type: "reset", value: "fallback" },
-    { type: "attempt", value: "p1-55" },
+    { type: "attempt", value: "kimi-k3" },
     { type: "delta", value: "{\"answer\":42}" },
   ]);
   assert.equal(result.fallbackIndex, 1);
@@ -402,7 +270,7 @@ test("browser stream client parses fragmented SSE through the terminal event", a
   const events: AIStreamEvent[] = [
     { type: "start", requestId: "client-stream" },
     { type: "delta", requestId: "client-stream", text: "client-ok" },
-    { type: "done", requestId: "client-stream", data: { text: result.text, provider: "provider1", model: "p1-56", fallbackIndex: 0, latencyMs: 10 } },
+    { type: "done", requestId: "client-stream", data: { text: result.text, provider: "deepseek", model: "deepseek-v4-flash", fallbackIndex: 0, latencyMs: 10 } },
   ];
   const wire = events.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join("");
   const split = [wire.slice(0, 17), wire.slice(17, 63), wire.slice(63)];
