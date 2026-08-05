@@ -1,0 +1,50 @@
+/* Hallmark · pre-emit critique: P5 H4 E4 S4 R5 V4 */
+html:has(.agent-app), body:has(.agent-app) { overflow-x: clip; }
+.agent-app { --agent-cyan: #8ce8e3; --agent-purple: #bda8ff; background: radial-gradient(circle at 72% 0%, rgba(140,232,227,.07), transparent 28rem), var(--risk-bg); }
+.agent-main { overflow-x: clip; }
+.agent-hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(16rem, 20rem); min-height: 34rem; padding: clamp(7rem, 12vw, 10rem) 0 clamp(5rem, 9vw, 8rem); align-items: end; gap: 4rem; }
+.agent-hero > div:first-child { max-width: 68rem; }
+.agent-hero p, .agent-bento-card > span, .agent-pin > p, .agent-runs header p { margin-bottom: 1.2rem; color: var(--risk-muted); font-size: .68rem; letter-spacing: .14em; text-transform: uppercase; }
+.agent-hero h1 { max-width: 72rem; font-family: var(--font-sans); font-size: clamp(3rem, 5.6vw, 6.2rem); font-weight: 450; line-height: .94; letter-spacing: -.06em; overflow-wrap: anywhere; }
+.agent-hero h1 span { color: var(--agent-cyan); }
+.agent-hero > div:first-child > span { display: block; max-width: 38rem; margin-top: 1.8rem; color: var(--risk-muted); font-size: .85rem; line-height: 1.7; }
+.agent-hero__action { display: grid; padding: 1.4rem; gap: 1rem; border-left: 1px solid var(--risk-line); }
+.agent-hero__action span, .agent-hero__action small { color: var(--risk-muted); font-size: .68rem; }
+.agent-hero__action button { padding: .95rem 1.1rem; border: 0; border-radius: .5rem; background: var(--risk-lime); color: var(--risk-ink); cursor: pointer; font-size: .75rem; font-weight: 600; transition: transform 350ms, filter 350ms; }
+.agent-hero__action button:hover { transform: translateY(-3px); filter: brightness(1.08); }
+.agent-hero__action button:disabled { cursor: wait; opacity: .6; transform: none; }
+.agent-health-dot { width: .45rem; height: .45rem; border-radius: 50%; background: var(--agent-cyan); box-shadow: 0 0 0 .28rem rgba(140,232,227,.1); }
+.agent-bento { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-template-rows: repeat(2, 10rem); grid-auto-flow: dense; gap: 1px; border: 1px solid var(--risk-line); background: var(--risk-line); }
+.agent-bento-card { display: flex; padding: 1.3rem; flex-direction: column; background: var(--risk-panel); }
+.agent-bento-card--lead { grid-column: span 2; grid-row: span 2; padding: 1.6rem; }
+.agent-bento-card--accent { background: linear-gradient(145deg, rgba(189,168,255,.17), rgba(255,255,255,.02)); }
+.agent-bento-card strong { margin-top: auto; color: #f0eee5; font-size: clamp(1.4rem, 2.5vw, 2.4rem); font-weight: 460; line-height: 1; letter-spacing: -.045em; }
+.agent-bento-card p { margin-top: .65rem; color: var(--risk-muted); font-size: .68rem; line-height: 1.55; }
+.agent-mono, .agent-evidence-row code { font-family: var(--font-mono); font-size: .6rem !important; }
+.agent-desire { display: grid; grid-template-columns: minmax(15rem, .65fr) minmax(0, 1.35fr); padding-top: clamp(8rem, 14vw, 13rem); gap: clamp(3rem, 8vw, 8rem); }
+.agent-pin { align-self: start; position: sticky; top: 7rem; padding-bottom: 4rem; }
+.agent-pin h2, .agent-runs h2 { max-width: 38rem; font-size: clamp(2rem, 4vw, 4.2rem); font-weight: 450; line-height: 1; letter-spacing: -.05em; }
+.agent-pin > span { display: block; max-width: 18rem; margin-top: 1.3rem; color: var(--risk-muted); font-size: .75rem; line-height: 1.65; }
+.agent-event-stack { display: grid; gap: 1rem; }
+.agent-run-card { padding: 1.4rem; border: 1px solid var(--risk-line); border-radius: .75rem; background: rgba(255,255,255,.025); }
+.agent-run-card > div:first-child, .agent-run-row > div:first-child { display: flex; justify-content: space-between; gap: 1rem; color: var(--risk-muted); font-size: .62rem; }
+.agent-run-card h3 { margin-top: 3.2rem; font-size: 1.45rem; font-weight: 500; letter-spacing: -.035em; }
+.agent-run-card p { max-width: 36rem; margin-top: .7rem; color: var(--risk-muted); font-size: .75rem; line-height: 1.65; }
+.agent-run-card button, .agent-runs header button, .agent-feedback button { margin-top: 1.2rem; padding: .55rem .7rem; border: 1px solid var(--risk-line); border-radius: .4rem; background: transparent; color: #f0eee5; cursor: pointer; font-size: .62rem; }
+.agent-run-card button:hover, .agent-runs header button:hover, .agent-feedback button:hover { border-color: var(--agent-cyan); color: var(--agent-cyan); }
+.agent-evidence-row { display: flex; margin-top: .7rem; flex-wrap: wrap; gap: .4rem; }
+.agent-evidence-row code { padding: .35rem .45rem; border: 1px solid rgba(140,232,227,.25); color: var(--agent-cyan); }
+.agent-observation--inference { color: var(--agent-purple); } .agent-observation--unknown { color: var(--risk-amber); }
+.agent-empty { padding: 3rem 0; color: var(--risk-muted); font-size: .75rem; }
+.agent-runs { padding-top: clamp(8rem, 14vw, 13rem); }
+.agent-runs > header { display: flex; align-items: end; justify-content: space-between; gap: 2rem; }
+.agent-runs header h2 { max-width: 48rem; }
+.agent-runs header button { margin: 0; padding: .8rem 1rem; background: var(--risk-lime); color: var(--risk-ink); border-color: transparent; font-weight: 600; }
+.agent-run-list { margin-top: 2.5rem; border-top: 1px solid var(--risk-line); }
+.agent-run-row { display: grid; grid-template-columns: 10rem minmax(0, 1fr) auto; padding: 1.3rem 0; align-items: start; gap: 2rem; border-bottom: 1px solid var(--risk-line); }
+.agent-run-row strong { font-size: .88rem; font-weight: 540; }
+.agent-run-row p { margin-top: .35rem; color: var(--risk-muted); font-size: .7rem; line-height: 1.55; }
+.agent-status--success { color: var(--risk-lime); } .agent-status--partial, .agent-status--failed { color: var(--risk-amber); } .agent-status--queued, .agent-status--collecting { color: var(--agent-cyan); }
+.agent-feedback { display: flex; gap: .35rem; } .agent-feedback button { margin-top: 0; white-space: nowrap; }
+@media (max-width: 768px) { .risk-appbar { grid-template-columns: 1fr auto; padding: 0 1rem; } .risk-appbar nav { grid-column: 1 / -1; grid-row: 2; justify-self: start; margin-bottom: .8rem; } .agent-hero { grid-template-columns: 1fr; min-height: auto; padding-top: 5rem; gap: 3rem; } .agent-hero__action { max-width: 22rem; border-left: 0; border-top: 1px solid var(--risk-line); } .agent-bento { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(3, 9rem); } .agent-bento-card--lead { grid-column: span 2; grid-row: span 2; } .agent-desire { grid-template-columns: 1fr; gap: 2rem; } .agent-pin { position: static; } .agent-runs > header { align-items: start; flex-direction: column; } .agent-run-row { grid-template-columns: 1fr; gap: .7rem; } .agent-feedback { flex-wrap: wrap; } }
+@media (max-width: 414px) { .agent-main { width: min(calc(100% - 2rem), 86rem); } .agent-hero h1 { font-size: clamp(2.7rem, 13vw, 4rem); } .agent-bento-card { padding: 1rem; } .agent-bento-card strong { font-size: 1.35rem; } }

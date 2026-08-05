@@ -3,6 +3,7 @@ import { RiskReviewError, type RiskReviewEnv, verifyCloudflareAccess } from "./r
 export interface PrivateProxyEnv extends RiskReviewEnv {
   RUNTIME_API_URL?: string;
   ZX_RUNTIME_SERVICE_TOKEN?: string;
+  MARKET_AGENT_API_URL?: string;
 }
 
 interface PrivateProxyContext {
@@ -10,7 +11,7 @@ interface PrivateProxyContext {
   env: PrivateProxyEnv;
 }
 
-type PrivateService = "runtime" | "signal";
+type PrivateService = "runtime" | "signal" | "market-agent";
 interface PrivateProxyDependencies {
   verifyAccess?: typeof verifyCloudflareAccess;
   fetcher?: typeof fetch;
@@ -30,11 +31,15 @@ const signalPathAllowed = (path: string) =>
   || path.startsWith("/api/memory/")
   || path.startsWith("/api/memory-candidates/");
 
+const marketAgentPathAllowed = (path: string) => path === "/runs" || path === "/today" || path === "/profile" || path === "/export" || /^\/runs\/[^/]+(?:\/feedback)?$/.test(path);
+
 function target(service: PrivateService, rawPath: string, env: PrivateProxyEnv): URL {
   const path = `/${rawPath.replace(/^\/+/, "")}`;
   if (service === "runtime" && !path.startsWith("/api/v1/private/")) throw new RiskReviewError("PRIVATE_ROUTE_NOT_ALLOWED", "Private route is not allowed.", 404);
   if (service === "signal" && !signalPathAllowed(path)) throw new RiskReviewError("PRIVATE_ROUTE_NOT_ALLOWED", "Private route is not allowed.", 404);
+  if (service === "market-agent" && !marketAgentPathAllowed(path)) throw new RiskReviewError("PRIVATE_ROUTE_NOT_ALLOWED", "Private route is not allowed.", 404);
   const base = env.RUNTIME_API_URL?.trim() || "https://runtime-api.zx-dx.xyz";
+  if (service === "market-agent") return new URL(`/api/v1/private/market-agent${path}`, env.MARKET_AGENT_API_URL?.trim() || base);
   return new URL(service === "runtime" ? path : `/api/v1/private/signal${path}`, base);
 }
 

@@ -1,0 +1,10 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import AgentToday from "../../features/market-agent/AgentToday";
+import "../../styles/risk.css";
+import "../../styles/market-agent.css";
+---
+
+<Layout title="Market Agent | zxlab" description="证据约束的个人市场复盘。" lang="zh-CN">
+  <div class="risk-page"><AgentToday client:load /></div>
+</Layout>

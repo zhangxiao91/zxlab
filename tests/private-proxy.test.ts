@@ -65,6 +65,51 @@ test("private Signal requests travel through the Runtime service-binding bridge"
   assert.equal(forwardedAuthorization, "Bearer server-only-token");
 });
 
+test("private Market Agent requests use the dedicated upstream and preserve the allowed path", async () => {
+  let forwardedUrl = "";
+  let forwardedMethod = "";
+  let forwardedAuthorization: string | null = null;
+  const response = await proxyPrivateRequest(
+    {
+      request: new Request("https://beta.zxlab.pages.dev/api/private/market-agent/runs/run-1/feedback?source=today", {
+        method: "POST",
+        body: JSON.stringify({ value: "helpful" }),
+      }),
+      env: { ...env, MARKET_AGENT_API_URL: "https://market-agent.example.com" },
+    },
+    "market-agent",
+    "runs/run-1/feedback",
+    {
+      verifyAccess,
+      fetcher: async (input, init) => {
+        forwardedUrl = String(input);
+        forwardedMethod = init?.method ?? "";
+        forwardedAuthorization = new Headers(init?.headers).get("authorization");
+        return Response.json({ ok: true });
+      },
+    },
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(forwardedUrl, "https://market-agent.example.com/api/v1/private/market-agent/runs/run-1/feedback?source=today");
+  assert.equal(forwardedMethod, "POST");
+  assert.equal(forwardedAuthorization, "Bearer server-only-token");
+});
+
+test("private Market Agent proxy rejects routes outside its narrow allowlist", async () => {
+  let called = false;
+  const response = await proxyPrivateRequest(
+    { request: new Request("https://beta.zxlab.pages.dev/api/private/market-agent/admin"), env },
+    "market-agent",
+    "admin",
+    { verifyAccess, fetcher: async () => { called = true; return new Response(); } },
+  );
+
+  assert.equal(response.status, 404);
+  assert.equal(called, false);
+  assert.match(await response.text(), /PRIVATE_ROUTE_NOT_ALLOWED/);
+});
+
 test("private proxy fails closed before contacting an upstream without Access", async () => {
   let called = false;
   const response = await proxyPrivateRequest(
