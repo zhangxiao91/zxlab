@@ -22,21 +22,29 @@ function originAllowed(request: Request, env: AIEnv): boolean {
   return allowed.includes(origin);
 }
 
-export async function enforceAIAccess(request: Request, env: AIEnv): Promise<void> {
+export type AICaller = "general" | "market-agent" | "same-origin";
+export async function enforceAIAccess(request: Request, env: AIEnv): Promise<AICaller> {
   const expectedToken = env.AI_GATEWAY_ACCESS_TOKEN?.trim();
+  const marketAgentToken = env.MARKET_AGENT_GATEWAY_TOKEN?.trim();
   const authorization = request.headers.get("authorization");
   const suppliedToken = authorization?.startsWith("Bearer ") ? authorization.slice(7) : "";
   const authenticated = Boolean(expectedToken && suppliedToken && await tokenMatches(suppliedToken, expectedToken));
+  const marketAgent = Boolean(marketAgentToken && suppliedToken && await tokenMatches(suppliedToken, marketAgentToken));
   const sameOrigin = originAllowed(request, env);
 
-  if (expectedToken && !authenticated) throw new AIError("UNAUTHORIZED");
-  if (!expectedToken && !sameOrigin) throw new AIError("UNAUTHORIZED");
+  if (expectedToken && !authenticated && !marketAgent) throw new AIError("UNAUTHORIZED");
+  if (!expectedToken && !marketAgent && !sameOrigin) throw new AIError("UNAUTHORIZED");
   if (env.ENVIRONMENT === "production" && !expectedToken && !env.AI_RATE_LIMITER) {
     throw new AIError("MISSING_CONFIGURATION");
   }
   if (env.AI_RATE_LIMITER) {
-    const actor = authenticated ? "authenticated" : request.headers.get("cf-connecting-ip") ?? "unknown";
+    const actor = authenticated ? "authenticated" : marketAgent ? "market-agent" : request.headers.get("cf-connecting-ip") ?? "unknown";
     const result = await env.AI_RATE_LIMITER.limit({ key: `ai-generate:${actor}` });
     if (!result.success) throw new AIError("RATE_LIMITED");
   }
+  return marketAgent ? "market-agent" : authenticated ? "general" : "same-origin";
+}
+
+export function enforceAITaskScope(caller: AICaller, task: string, source?: string): void {
+  if (caller === "market-agent" && (task !== "market-agent-close-review" || source !== "market-agent-worker")) throw new AIError("UNAUTHORIZED");
 }

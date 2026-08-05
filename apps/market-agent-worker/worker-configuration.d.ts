@@ -1,0 +1,12 @@
+interface Env {
+  DB: D1Database;
+  MARKET_AGENT_RUNS: Queue<{ runId: string; generation: number; kind: "initial" | "recovery" }>;
+  MARKET_AGENT_GENERATION_ENABLED?: string;
+  MARKET_AGENT_GATEWAY_URL?: string;
+  MARKET_AGENT_GATEWAY_TOKEN?: string;
+  MARKET_SNAPSHOT_URL?: string;
+  MARKET_SNAPSHOT_SERVICE?: Fetcher;
+  MARKET_AGENT_MAX_RECOVERY_GENERATIONS?: string;
+  ZX_RUNTIME_SERVICE_TOKEN?: string;
+  MARKET_AGENT_PROXY_TOKEN?: string;
+}

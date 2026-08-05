@@ -8,6 +8,10 @@
     "apps/zxtoolkit",
     "apps/signal-worker",
     "apps/runtime-worker",
+    "apps/market-agent-worker",
+    "packages/market-schema",
+    "packages/market-agent-schema",
+    "packages/risk-domain",
     "packages/signal-schema",
     "packages/runtime-schema"
   ],

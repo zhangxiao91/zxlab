@@ -1,0 +1,31 @@
+import type { AgentNarration, AgentObservation, MarketAgentCommand, SealedEvidenceBundle } from "@zxlab/market-agent-schema";
+import { validateAgentNarration } from "@zxlab/market-agent-schema";
+
+export interface Narrator { narrate(input: { workflow: MarketAgentCommand["workflow"]; evidence: SealedEvidenceBundle }): Promise<unknown>; repair?(input: { workflow: MarketAgentCommand["workflow"]; evidence: SealedEvidenceBundle; issues: string[] }): Promise<unknown>; }
+
+export class DeterministicNarrator implements Narrator {
+  async narrate(input: { workflow: MarketAgentCommand["workflow"]; evidence: SealedEvidenceBundle }): Promise<AgentNarration> {
+    const facts = input.evidence.items.filter((item) => item.kind === "market_fact");
+    const events = input.evidence.items.filter((item) => item.kind === "market_event");
+    const observations: AgentObservation[] = events.map((item, index) => {
+      const event = item.value as { instrumentId: string | null; kind: string; actual: number | string | null };
+      const direction = event.kind === "price_rise" ? "上涨" : event.kind === "price_fall" ? "下跌" : "出现变化";
+      return { id: `deterministic-${index}`, class: "fact", importance: Math.abs(Number(event.actual ?? 0)) >= 1000 ? "high" : "medium", title: `${event.instrumentId ?? "标的"} ${direction}`, explanation: `确定性规则检测到 ${String(event.actual ?? "未知")} bps 的价格变化。`, evidenceIds: [item.id] };
+    });
+    const declaredLimitations = input.evidence.items.filter((item) => item.kind === "limitation");
+    const limitations = [...(facts.some((item) => !item.reliable) ? ["部分市场事实不可靠，结果仅供观察，不能视为完整复盘。"] : []), ...declaredLimitations.map((item) => `证据限制：${JSON.stringify(item.value)}`)];
+    return { status: limitations.length ? "partial" : "success", headline: events.length ? `收盘复盘检测到 ${events.length} 个确定性事件` : "收盘复盘没有检测到显著事件", summary: facts.length ? `本次复盘基于 ${facts.length} 条市场事实和 ${events.length} 个规则事件。` : "当前没有可用的市场事实。", observations, portfolioImpacts: [], watchNext: [], limitations, evidenceFingerprint: input.evidence.fingerprint };
+  }
+}
+
+export async function narrateWithRepair(narrator: Narrator, input: { workflow: MarketAgentCommand["workflow"]; evidence: SealedEvidenceBundle; repair?: (issues: string[]) => Promise<unknown> }): Promise<{ result: AgentNarration; repaired: boolean; issues: string[] }> {
+  let candidate: unknown;
+  try { candidate = await narrator.narrate(input); }
+  catch { const fallback = await new DeterministicNarrator().narrate(input); return { result: { ...fallback, status: "partial", limitations: [...fallback.limitations, "Gateway 暂不可用，已降级为确定性结果。"] }, repaired: false, issues: ["gateway unavailable"] }; }
+  let issues = validateAgentNarration(candidate, input.evidence);
+  if (!issues.length) return { result: candidate as AgentNarration, repaired: false, issues };
+  const repair = input.repair ?? (narrator.repair ? (repairIssues: string[]) => narrator.repair!({ ...input, issues: repairIssues }) : undefined);
+  if (repair) { candidate = await repair(issues); issues = validateAgentNarration(candidate, input.evidence); if (!issues.length) return { result: candidate as AgentNarration, repaired: true, issues }; }
+  const fallback = await new DeterministicNarrator().narrate(input);
+  return { result: { ...fallback, status: "partial", limitations: [...fallback.limitations, "叙事输出未通过安全校验，已降级为确定性结果。"] }, repaired: Boolean(repair), issues };
+}

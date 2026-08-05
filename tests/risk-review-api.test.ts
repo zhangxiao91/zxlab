@@ -7,6 +7,7 @@ import { buildPositionsDetailed, reconcilePositions } from "../src/features/risk
 import { instruments, mockPortfolioHistory, mockQuotes, mockRiskRules, mockTradePlans, mockTransactions } from "../src/features/risk/mock.ts";
 import { ApiReviewError, ApiReviewService, fingerprintEvidencePack, LocalReviewRepository } from "../src/features/risk/review.ts";
 import type { EvidencePack, ReviewExecution } from "../src/features/risk/types.ts";
+import { enforceAITaskScope } from "../functions/_lib/ai/abuse.ts";
 
 const reviewMetadata = { provider: "provider1", model: "gpt", fallbackIndex: 0, requestId: "gateway-1", latencyMs: 20, inputTokens: 100, outputTokens: 50, retryCount: 1 };
 
@@ -133,4 +134,10 @@ test("Risk Review Function rejects oversized requests before parsing", async () 
   const response = await handleRiskReview({ request, env: {} }, { verifyAccess: async () => ({}) });
   const payload = await response.json() as { error: { code: string } };
   assert.equal(response.status, 413); assert.equal(payload.error.code, "EVIDENCE_TOO_LARGE");
+});
+
+test("Market Agent gateway identity is restricted to its dedicated task", () => {
+  assert.doesNotThrow(() => enforceAITaskScope("market-agent", "market-agent-close-review", "market-agent-worker"));
+  assert.throws(() => enforceAITaskScope("market-agent", "portfolio-review", "market-agent-worker"));
+  assert.throws(() => enforceAITaskScope("market-agent", "market-agent-close-review", "browser"));
 });

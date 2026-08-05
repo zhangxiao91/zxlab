@@ -1,0 +1,16 @@
+{
+  "name": "market-agent-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --port 8790",
+    "types": "wrangler types --outFile worker-configuration.generated.d.ts",
+    "typecheck": "tsc --noEmit --pretty false",
+    "test": "node --experimental-strip-types --test src/*.test.ts",
+    "db:migrate:local": "wrangler d1 migrations apply market-agent --local",
+    "deploy:dry": "wrangler deploy --dry-run"
+  },
+  "dependencies": { "@zxlab/market-agent-schema": "0.1.0", "@zxlab/market-schema": "0.1.0", "@zxlab/risk-domain": "0.1.0" },
+  "devDependencies": { "typescript": "^6.0.3", "wrangler": "^4.110.0" }
+}

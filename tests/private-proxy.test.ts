@@ -7,8 +7,9 @@ const env: PrivateProxyEnv = {
   RISK_ACCESS_TEAM_DOMAIN: "https://zxdx1.cloudflareaccess.com",
   RISK_ACCESS_AUD: "pages-audience",
   ZX_RUNTIME_SERVICE_TOKEN: "server-only-token",
+  MARKET_AGENT_PROXY_TOKEN: "market-agent-only-token",
 };
-const verifyAccess = async () => ({}) as never;
+const verifyAccess = async () => ({ sub: "access-user-1", email: "owner@example.com" }) as never;
 
 test("private proxy forwards only the server token to Runtime", async () => {
   let forwarded: Request | undefined;
@@ -69,6 +70,7 @@ test("private Market Agent requests use the dedicated upstream and preserve the 
   let forwardedUrl = "";
   let forwardedMethod = "";
   let forwardedAuthorization: string | null = null;
+  let forwardedActor: string | null = null;
   const response = await proxyPrivateRequest(
     {
       request: new Request("https://beta.zxlab.pages.dev/api/private/market-agent/runs/run-1/feedback?source=today", {
@@ -85,6 +87,7 @@ test("private Market Agent requests use the dedicated upstream and preserve the 
         forwardedUrl = String(input);
         forwardedMethod = init?.method ?? "";
         forwardedAuthorization = new Headers(init?.headers).get("authorization");
+        forwardedActor = new Headers(init?.headers).get("x-zx-actor");
         return Response.json({ ok: true });
       },
     },
@@ -93,7 +96,8 @@ test("private Market Agent requests use the dedicated upstream and preserve the 
   assert.equal(response.status, 200);
   assert.equal(forwardedUrl, "https://market-agent.example.com/api/v1/private/market-agent/runs/run-1/feedback?source=today");
   assert.equal(forwardedMethod, "POST");
-  assert.equal(forwardedAuthorization, "Bearer server-only-token");
+  assert.equal(forwardedAuthorization, "Bearer market-agent-only-token");
+  assert.match(forwardedActor ?? "", /^[^.]+\.[^.]+$/);
 });
 
 test("private Market Agent proxy rejects routes outside its narrow allowlist", async () => {

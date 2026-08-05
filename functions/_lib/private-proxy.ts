@@ -1,9 +1,11 @@
 import { RiskReviewError, type RiskReviewEnv, verifyCloudflareAccess } from "./risk/review.ts";
+import { signActorEnvelope } from "@zxlab/market-agent-schema";
 
 export interface PrivateProxyEnv extends RiskReviewEnv {
   RUNTIME_API_URL?: string;
   ZX_RUNTIME_SERVICE_TOKEN?: string;
   MARKET_AGENT_API_URL?: string;
+  MARKET_AGENT_PROXY_TOKEN?: string;
 }
 
 interface PrivateProxyContext {
@@ -31,7 +33,7 @@ const signalPathAllowed = (path: string) =>
   || path.startsWith("/api/memory/")
   || path.startsWith("/api/memory-candidates/");
 
-const marketAgentPathAllowed = (path: string) => path === "/runs" || path === "/today" || path === "/profile" || path === "/export" || /^\/runs\/[^/]+(?:\/feedback)?$/.test(path);
+const marketAgentPathAllowed = (path: string) => path === "/runs" || path === "/today" || path === "/profile" || path === "/watchlist" || path === "/export" || /^\/runs\/[^/]+(?:\/feedback|\/rerun)?$/.test(path);
 
 function target(service: PrivateService, rawPath: string, env: PrivateProxyEnv): URL {
   const path = `/${rawPath.replace(/^\/+/, "")}`;
@@ -45,13 +47,19 @@ function target(service: PrivateService, rawPath: string, env: PrivateProxyEnv):
 
 export async function proxyPrivateRequest(context: PrivateProxyContext, service: PrivateService, rawPath: string, dependencies: PrivateProxyDependencies = {}): Promise<Response> {
   try {
-    await (dependencies.verifyAccess ?? verifyCloudflareAccess)(context.request, context.env);
-    const token = context.env.ZX_RUNTIME_SERVICE_TOKEN?.trim();
+    const actor = await (dependencies.verifyAccess ?? verifyCloudflareAccess)(context.request, context.env);
+    const token = (service === "market-agent" ? context.env.MARKET_AGENT_PROXY_TOKEN : context.env.ZX_RUNTIME_SERVICE_TOKEN)?.trim();
     if (!token) throw new RiskReviewError("PRIVATE_PROXY_UNAVAILABLE", "Private service credentials are unavailable.", 503);
 
     const upstream = target(service, rawPath, context.env);
     upstream.search = new URL(context.request.url).search;
     const headers = new Headers({ Authorization: `Bearer ${token}`, Accept: context.request.headers.get("accept") ?? "application/json" });
+    if (service === "market-agent") {
+      const subject = typeof actor.sub === "string" ? actor.sub : "";
+      if (!subject) throw new RiskReviewError("ACCESS_IDENTITY_MISSING", "Cloudflare Access identity is incomplete.", 403);
+      const email = typeof actor.email === "string" ? actor.email : undefined;
+      headers.set("X-ZX-Actor", await signActorEnvelope({ version: 1, subject, ...(email ? { email } : {}), audience: "market-agent", expiresAt: Math.floor(Date.now() / 1000) + 60 }, token));
+    }
     const contentType = context.request.headers.get("content-type");
     if (contentType) headers.set("Content-Type", contentType);
     const method = context.request.method.toUpperCase();

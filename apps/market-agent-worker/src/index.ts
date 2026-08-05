@@ -1,0 +1,79 @@
+import { subjectHash, validateBrowserRunIntent, verifyActorEnvelope, type MarketAgentCommand } from "@zxlab/market-agent-schema";
+import { MemoryRunRepository } from "./foundation.ts";
+import { D1RunRepository } from "./d1-repository.ts";
+import { CloseReviewService } from "./close-review.ts";
+import { D1ProfileRepository, normalizeWatchlist } from "./profile-repository.ts";
+import { GatewayNarrator } from "./gateway-narrator.ts";
+import { DeterministicNarrator } from "./narration.ts";
+import { MarketSnapshotAdapter } from "./snapshot-reader.ts";
+
+const repository = new MemoryRunRepository();
+type RunMessage = { runId: string; generation: number; kind: "initial" | "recovery" };
+function json(value: unknown, status = 200) { return new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "private, no-store" } }); }
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const url = new URL(request.url); const path = privatePath(url.pathname);
+    if (path === "/health" && request.method === "GET") return json({ ok: true, service: "market-agent", generation: "evidence-bound-gateway" });
+    if (!env.DB) return json({ error: "DATABASE_UNAVAILABLE" }, 503);
+    try {
+      const actor = await resolveActor(request, env); const profiles = new D1ProfileRepository(env.DB); const profile = await profiles.resolve(await subjectHash(actor.subject, serviceSecret(env))); const runs = new D1RunRepository(env.DB);
+      if (path === "/profile" && request.method === "GET") return json(profile);
+      if (path === "/watchlist" && request.method === "GET") return json({ profile, watchlist: await profiles.getWatchlist(profile.profileId) });
+      if (path === "/watchlist" && request.method === "POST") {
+        const body = await request.json() as { revision?: unknown; items?: unknown };
+        if (typeof body.revision !== "string" || !/^[a-zA-Z0-9._:-]{1,120}$/.test(body.revision)) return json({ error: "INVALID_WATCHLIST_REVISION" }, 400);
+        const updated = await profiles.syncWatchlist(profile.profileId, body.revision, normalizeWatchlist(body.items));
+        return json({ profile: updated, watchlist: await profiles.getWatchlist(profile.profileId) });
+      }
+      if (path === "/runs" && request.method === "POST") {
+        let body: unknown; try { body = await request.json(); } catch { return json({ error: "INVALID_JSON" }, 400); }
+        const issues = validateBrowserRunIntent(body); if (issues.length) return json({ error: "INVALID_INTENT", issues }, 400);
+        const intent = body as Omit<MarketAgentCommand, "profileId" | "trigger">; const watchlist = await profiles.getWatchlist(profile.profileId);
+        if (!watchlist && !intent.instrumentId) return json({ error: "WATCHLIST_BOOTSTRAP_REQUIRED" }, 409);
+        const command: MarketAgentCommand = { ...intent, profileId: profile.profileId, trigger: "manual" };
+        const commandHash = await sha256(command); const result = await runs.createQueued(command, { command, actorScope: profile.profileId, commandHash });
+        await relayOutbox(env, runs);
+        return json({ runId: result.run.id, status: result.run.status, created: result.created }, 202);
+      }
+      if (path === "/runs" && request.method === "GET") return json({ runs: await runs.list(profile.profileId) });
+      if (path === "/today" && request.method === "GET") return json({ run: (await runs.list(profile.profileId, 1))[0] ?? null });
+      if (path === "/export" && request.method === "GET") return json({ schemaVersion: "market-agent-export.v1", runs: await runs.list(profile.profileId) });
+      const match = path.match(/^\/runs\/([^/]+)$/); if (match && request.method === "GET") { const run = await runs.get(match[1]); return run?.profileId === profile.profileId ? json(run) : json({ error: "NOT_FOUND" }, 404); }
+      const feedback = path.match(/^\/runs\/([^/]+)\/feedback$/); if (feedback && request.method === "POST") { const run = await runs.get(feedback[1]); if (run?.profileId !== profile.profileId) return json({ error: "NOT_FOUND" }, 404); const body = await request.json() as { value?: unknown }; if (body.value !== "helpful" && body.value !== "fact_error" && body.value !== "missing_factor") return json({ error: "INVALID_FEEDBACK" }, 400); await runs.recordFeedback(feedback[1], profile.profileId, body.value); return json({ ok: true }); }
+      const rerun = path.match(/^\/runs\/([^/]+)\/rerun$/); if (rerun && request.method === "POST") { const prior = await runs.get(rerun[1]); const priorCommand = await runs.getCommand(rerun[1]); if (prior?.profileId !== profile.profileId || !priorCommand) return json({ error: "NOT_FOUND" }, 404); const command = { ...priorCommand, trigger: "manual" as const, idempotencyKey: `rerun:${prior.id}:${crypto.randomUUID()}` }; const created = await runs.createQueued(command, { command, actorScope: profile.profileId, commandHash: await sha256(command), revisionOfRunId: prior.id }); await relayOutbox(env, runs); return json({ runId: created.run.id, status: created.run.status, revisionOfRunId: prior.id }, 202); }
+      return json({ error: "NOT_FOUND" }, 404);
+    } catch (cause) { const code = cause instanceof Error ? cause.message : "INTERNAL_ERROR"; if (code.startsWith("ACTOR_")) return json({ error: code }, 401); if (code === "INVALID_WATCHLIST") return json({ error: code }, 400); if (code === "IDEMPOTENCY_KEY_REUSED") return json({ error: code }, 409); return json({ error: "INTERNAL_ERROR" }, 500); }
+  },
+  async queue(batch: MessageBatch<RunMessage>, env: Env): Promise<void> { if (batch.queue.endsWith("-dlq")) await processDeadLetters(batch, env); else await processQueue(batch, env); },
+  async scheduled(controller: ScheduledController, env: Env): Promise<void> { if (!env.DB) return; const runs = new D1RunRepository(env.DB); const now = new Date(controller.scheduledTime); await runs.sweepExpired(now.toISOString(), Number(env.MARKET_AGENT_MAX_RECOVERY_GENERATIONS ?? 2)); if (isCloseReviewWindow(now)) { const profiles = new D1ProfileRepository(env.DB); const marketDate = chinaDate(now); for (const profileId of await profiles.listBootstrappedProfileIds()) { const command: MarketAgentCommand = { profileId, trigger: "scheduled", workflow: "close_review", marketDate, idempotencyKey: `scheduled:close_review:${marketDate}` }; await runs.createQueued(command, { command, actorScope: profileId, commandHash: await sha256(command) }); } } await relayOutbox(env, runs); },
+} satisfies ExportedHandler<Env, RunMessage>;
+
+export async function processRun(runId: string, env: Env): Promise<"ack" | "retry"> {
+  if (!env.DB) return "retry"; const runs = new D1RunRepository(env.DB); const claim = await runs.claim(runId, "market-agent-consumer", new Date().toISOString(), new Date(Date.now() + 60_000).toISOString());
+  if (claim.kind === "terminal" || claim.kind === "missing") return "ack"; if (claim.kind === "leased") return "retry";
+  const command = await runs.getCommand(runId); if (!command) { await runs.fail(runId, claim.lease.leaseToken, "COMMAND_MISSING"); return "ack"; }
+  const watchlist = await new D1ProfileRepository(env.DB).getWatchlist(command.profileId); if (command.trigger === "scheduled" && !watchlist) { await runs.fail(runId, claim.lease.leaseToken, "WATCHLIST_BOOTSTRAP_REQUIRED"); return "ack"; }
+  const instrumentIds = command.instrumentId ? [command.instrumentId] : (watchlist?.items.map((item) => item.instrumentId) ?? []); if (!instrumentIds.length) { await runs.fail(runId, claim.lease.leaseToken, "INSTRUMENT_SCOPE_EMPTY"); return "ack"; }
+  try {
+    const reader = new MarketSnapshotAdapter({ service: env.MARKET_SNAPSHOT_SERVICE, baseUrl: env.MARKET_SNAPSHOT_URL });
+    const generationEnabled = env.MARKET_AGENT_GENERATION_ENABLED === "true" && env.MARKET_AGENT_GATEWAY_URL && env.MARKET_AGENT_GATEWAY_TOKEN;
+    const narrator = generationEnabled ? new GatewayNarrator({ apiUrl: env.MARKET_AGENT_GATEWAY_URL!, token: env.MARKET_AGENT_GATEWAY_TOKEN! }) : new DeterministicNarrator();
+    const output = await new CloseReviewService(reader, narrator).execute({ runId, command, instrumentIds, watchlistRevision: watchlist?.revision ?? "instrument-only" });
+    await runs.complete(runId, claim.lease.leaseToken, output.evidence, output.result); return "ack";
+  } catch { await runs.defer(runId, claim.lease.leaseToken, "CLOSE_REVIEW_RETRYABLE"); return "retry"; }
+}
+
+export async function processQueue(batch: MessageBatch<RunMessage>, env: Env): Promise<void> { for (const message of batch.messages) { const body = message.body; if (!body || typeof body.runId !== "string") { message.ack(); continue; } const disposition = await processRun(body.runId, env); if (disposition === "ack") message.ack(); else message.retry({ delaySeconds: 30 }); } }
+export async function processDeadLetters(batch: MessageBatch<RunMessage>, env: Env): Promise<void> { if (!env.DB) return; const runs = new D1RunRepository(env.DB); for (const message of batch.messages) { const body = message.body; const run = body?.runId ? await runs.get(body.runId) : null; const status = !run ? "orphaned" : ["success", "partial", "failed"].includes(run.status) ? "resolved_terminal" : "deferred_active_lease"; await runs.recordDeadLetter({ messageId: message.id, runId: body?.runId ?? null, generation: body?.generation ?? 0, status, errorCode: "QUEUE_RETRIES_EXHAUSTED" }); message.ack(); } await runs.sweepExpired(new Date().toISOString(), Number(env.MARKET_AGENT_MAX_RECOVERY_GENERATIONS ?? 2)); await relayOutbox(env, runs); }
+export async function relayOutbox(env: Env, runs = new D1RunRepository(env.DB)): Promise<void> { if (!env.MARKET_AGENT_RUNS) return; for (const item of await runs.pendingDispatches()) { const run = await runs.get(item.runId); if (!run || ["success", "partial", "failed"].includes(run.status)) { await runs.markDispatchSent(item.id); continue; } try { await env.MARKET_AGENT_RUNS.send({ runId: item.runId, generation: item.generation, kind: item.kind }); await runs.markDispatchSent(item.id); } catch { await runs.markDispatchError(item.id, "QUEUE_SEND_FAILED"); } } }
+
+async function resolveActor(request: Request, env: Env) { const expected = serviceSecret(env); if (request.headers.get("authorization") !== `Bearer ${expected}`) throw new Error("ACTOR_ENVELOPE_INVALID"); return verifyActorEnvelope(request.headers.get("x-zx-actor"), expected); }
+function serviceSecret(env: Env): string { const secret = env.MARKET_AGENT_PROXY_TOKEN?.trim(); if (!secret) throw new Error("ACTOR_ENVELOPE_MISSING"); return secret; }
+function privatePath(pathname: string): string { return pathname.replace(/^\/api\/v1\/private\/market-agent/, "") || "/"; }
+function chinaDate(date: Date): string { return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).format(date); }
+function isCloseReviewWindow(date: Date): boolean { const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Shanghai", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(date); const hour = Number(parts.find((part) => part.type === "hour")?.value); const minute = Number(parts.find((part) => part.type === "minute")?.value); return hour === 15 && minute >= 10 && minute < 20; }
+async function sha256(value: unknown): Promise<`sha256:${string}`> { const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(value))); return `sha256:${[...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, "0")).join("")}`; }
+
+export { MemoryRunRepository } from "./foundation.ts";
+export { CloseReviewService } from "./close-review.ts";

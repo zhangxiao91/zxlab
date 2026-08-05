@@ -1,5 +1,5 @@
 import type { GenerateAIErrorResponse, GenerateAISuccessResponse } from "../../../src/lib/ai/types.ts";
-import { enforceAIAccess } from "../../_lib/ai/abuse.ts";
+import { enforceAIAccess, enforceAITaskScope } from "../../_lib/ai/abuse.ts";
 import type { AIEnv } from "../../_lib/ai/config.ts";
 import { AIError, asAIError, httpStatusForAIError } from "../../_lib/ai/errors.ts";
 import { generateAI } from "../../_lib/ai/router.ts";
@@ -30,8 +30,9 @@ export async function onRequest(context: FunctionContext): Promise<Response> {
     }), { status: 405, headers: { ...responseHeaders, Allow: "POST" } });
   }
   try {
-    await enforceAIAccess(context.request, context.env);
+    const caller = await enforceAIAccess(context.request, context.env);
     const input = await readGenerateAIRequest(context.request);
+    enforceAITaskScope(caller, input.task, input.context?.source);
     const data = await generateAI(input, { env: context.env, requestId, telemetryDb: context.env.LLM_USAGE_DB,
       scheduleTelemetry: context.waitUntil ? (task) => context.waitUntil!.call(context, task) : undefined,
       signal: context.request.signal });

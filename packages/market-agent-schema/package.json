@@ -1,0 +1,10 @@
+{
+  "name": "@zxlab/market-agent-schema",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": { "@zxlab/market-schema": "0.1.0" },
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "typecheck": "tsc --noEmit" },
+  "devDependencies": { "typescript": "^6.0.3" }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "@zxlab/risk-domain",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "typecheck": "tsc --noEmit", "test": "node --experimental-strip-types --test src/index.test.ts" },
+  "devDependencies": { "typescript": "^6.0.3" }
+}
