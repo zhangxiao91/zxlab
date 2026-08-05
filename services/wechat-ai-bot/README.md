@@ -1,6 +1,6 @@
 # 微信 AI Bot
 
-一个仅供个人使用的微信 iLink 文本机器人。服务通过 `wechat-ilink-client` 长轮询接收微信消息，调用 OpenAI-compatible Chat Completions API，并用 SQLite 保存所有者和最近对话。它不开放 HTTP 端口，也不包含工具调用、联网搜索或管理后台。
+一个仅供个人使用的微信 iLink 文本机器人。服务通过 `wechat-ilink-client` 长轮询接收微信消息，使用官方 DeepSeek V4 Flash，并在配置 Kimi Key 时自动回退到官方 Kimi K3；SQLite 保存所有者和最近对话。它不开放 HTTP 端口，也不包含工具调用、联网搜索或管理后台。
 
 ## 架构
 
@@ -8,7 +8,8 @@
 微信 iLink Bot
   -> wechat-ilink-client
   -> Node.js 22 + TypeScript
-  -> OpenAI-compatible API
+  -> DeepSeek V4 Flash（主）
+  -> Kimi K3（可选备用）
   -> SQLite + 本地微信凭据
 ```
 
@@ -16,7 +17,7 @@
 
 - Node.js 22；或 Docker 27+ 与 Docker Compose v2
 - 可访问微信 iLink 和所配置模型 API 的网络
-- 一个 OpenAI-compatible API Key、Base URL（可选）和模型名
+- 一个 DeepSeek API Key；Kimi API Key 为可选备用
 
 ## 本地安装
 
@@ -35,9 +36,8 @@ npm run dev
 
 | 变量 | 必填 | 默认值 | 用途 |
 | --- | --- | --- | --- |
-| `OPENAI_API_KEY` | 是 | - | 模型 API Key |
-| `OPENAI_BASE_URL` | 否 | OpenAI SDK 默认地址 | OpenAI-compatible API 地址 |
-| `OPENAI_MODEL` | 是 | - | 模型名称 |
+| `DEEPSEEK_API_KEY` | 是 | - | DeepSeek 官方 API Key，模型固定为 `deepseek-v4-flash` |
+| `KIMI_API_KEY` | 否 | 空 | Kimi 官方 API Key，配置后以 `kimi-k3` 作为备用 |
 | `SYSTEM_PROMPT_FILE` | 否 | `./persona.md` | 人格提示词路径 |
 | `DATABASE_PATH` | 否 | `./data/bot.db` | SQLite 路径 |
 | `WECHAT_CREDENTIALS_DIR` | 否 | `./credentials` | 微信凭据和轮询游标目录 |
@@ -93,7 +93,7 @@ Compose 使用 `restart: unless-stopped`，服务器或 Docker 重启后会自�
 - `data/bot.db`：所有者绑定、消息历史和去重记录
 - `credentials/session.json`：微信 token、账户 ID 和 API 基址
 - `credentials/sync.buf`：长轮询游标
-- `.env`：模型 API 配置
+- `.env`：DeepSeek 主模型与可选 Kimi 备用模型的 API Key
 - `persona.md`：system prompt
 
 `.env`、SQLite 文件和微信凭据均被 Git 忽略。日志只记录脱敏用户 ID和消息字符数，不记录正文、API Key、微信 token、cookie 或二维码 URL。请把远程目录权限限制为当前用户，不要共享 `.env`、`data/` 或 `credentials/`。
@@ -133,7 +133,7 @@ docker compose up
 
 - 没出现二维码：检查 `credentials/session.json` 是否已存在；如需重新登录，按上节步骤删除凭据。
 - 二维码无法识别：扩大终端宽度，执行 `docker compose restart` 后重新跟随日志。
-- 模型服务不可用：检查 `.env` 中的 Key、Base URL、模型名，以及远程机到 API 的网络。
+- 模型服务不可用：检查 `.env` 中的 `DEEPSEEK_API_KEY`，以及可选的 `KIMI_API_KEY`，并确认远程机可访问官方 API。
 - 收到消息但没有回复：检查首位所有者是否绑定错误，以及 `ALLOWED_USER_ID` 是否与发送者一致。
 - 会话过期：服务会清理旧凭据并在日志中生成新二维码；执行 `docker compose logs -f` 完成扫码。
 - 原生 SQLite 构建失败：使用提供的 Dockerfile；构建阶段已包含 `python3`、`make` 和 `g++`。

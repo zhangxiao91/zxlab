@@ -14,9 +14,8 @@ async function main(): Promise<void> {
   const store = new Store(config.databasePath);
   const queue = new PerKeyQueue();
   const llm = new LlmClient({
-    apiKey: config.openaiApiKey,
-    ...(config.openaiBaseUrl ? { baseUrl: config.openaiBaseUrl } : {}),
-    model: config.openaiModel,
+    deepseekApiKey: config.deepseekApiKey,
+    ...(config.kimiApiKey ? { kimiApiKey: config.kimiApiKey } : {}),
     systemPromptFile: config.systemPromptFile,
     timeoutMs: config.llmTimeoutMs,
     maxRetries: config.llmMaxRetries,
@@ -55,7 +54,7 @@ async function main(): Promise<void> {
       ).length;
       await sendReply(message, [
         "运行状态：正常",
-        `当前模型：${config.openaiModel}`,
+        `模型链路：DeepSeek V4 Flash${config.kimiApiKey ? " → Kimi K3（备用）" : ""}`,
         `近期上下文消息：${recentContextCount} 条`,
       ].join("\n"));
       return;
@@ -113,7 +112,7 @@ async function main(): Promise<void> {
 
   wechat = new WeChatService(config.credentialsDir, onText);
   logger.info("database_initialized", { databasePath: config.databasePath });
-  logger.info("bot_started", { model: config.openaiModel });
+  logger.info("bot_started", { primaryModel: "deepseek-v4-flash", fallbackModel: config.kimiApiKey ? "kimi-k3" : undefined });
 
   const runPromise = wechat.run();
   const shutdown = async (signal: string): Promise<void> => {

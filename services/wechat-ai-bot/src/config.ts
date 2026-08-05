@@ -1,9 +1,8 @@
 import path from "node:path";
 
 export interface Config {
-  openaiApiKey: string;
-  openaiBaseUrl?: string;
-  openaiModel: string;
+  deepseekApiKey: string;
+  kimiApiKey?: string;
   systemPromptFile: string;
   databasePath: string;
   credentialsDir: string;
@@ -46,12 +45,11 @@ function boolean(name: string, fallback: boolean): boolean {
 }
 
 export function loadConfig(cwd = process.cwd()): Config {
-  const baseUrl = optional("OPENAI_BASE_URL");
   const allowedUserId = optional("ALLOWED_USER_ID");
+  const kimiApiKey = optional("KIMI_API_KEY");
   return {
-    openaiApiKey: required("OPENAI_API_KEY"),
-    ...(baseUrl ? { openaiBaseUrl: baseUrl } : {}),
-    openaiModel: required("OPENAI_MODEL"),
+    deepseekApiKey: required("DEEPSEEK_API_KEY"),
+    ...(kimiApiKey ? { kimiApiKey } : {}),
     systemPromptFile: path.resolve(cwd, optional("SYSTEM_PROMPT_FILE") ?? "./persona.md"),
     databasePath: path.resolve(cwd, optional("DATABASE_PATH") ?? "./data/bot.db"),
     credentialsDir: path.resolve(cwd, optional("WECHAT_CREDENTIALS_DIR") ?? "./credentials"),
