@@ -6,6 +6,7 @@ export interface PrivateProxyEnv extends RiskReviewEnv {
   ZX_RUNTIME_SERVICE_TOKEN?: string;
   MARKET_AGENT_API_URL?: string;
   MARKET_AGENT_PROXY_TOKEN?: string;
+  MARKET_AGENT_SERVICE?: Fetcher;
 }
 
 interface PrivateProxyContext {
@@ -63,7 +64,10 @@ export async function proxyPrivateRequest(context: PrivateProxyContext, service:
     const contentType = context.request.headers.get("content-type");
     if (contentType) headers.set("Content-Type", contentType);
     const method = context.request.method.toUpperCase();
-    const response = await (dependencies.fetcher ?? fetch)(upstream, {
+    const fetcher = dependencies.fetcher ?? (service === "market-agent" && context.env.MARKET_AGENT_SERVICE
+      ? (input: RequestInfo | URL, init?: RequestInit) => context.env.MARKET_AGENT_SERVICE!.fetch(new Request(input, init))
+      : fetch);
+    const response = await fetcher(upstream, {
       method,
       headers,
       body: method === "GET" || method === "HEAD" ? undefined : context.request.body,

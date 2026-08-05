@@ -114,6 +114,21 @@ test("private Market Agent proxy rejects routes outside its narrow allowlist", a
   assert.match(await response.text(), /PRIVATE_ROUTE_NOT_ALLOWED/);
 });
 
+test("private Market Agent proxy prefers its service binding", async () => {
+  let forwardedPath = "";
+  const response = await proxyPrivateRequest(
+    {
+      request: new Request("https://beta.zxlab.pages.dev/api/private/market-agent/profile"),
+      env: { ...env, MARKET_AGENT_SERVICE: { fetch: async (request: Request) => { forwardedPath = new URL(request.url).pathname; return Response.json({ bootstrap: "required" }); } } as Fetcher },
+    },
+    "market-agent",
+    "profile",
+    { verifyAccess },
+  );
+  assert.equal(response.status, 200);
+  assert.equal(forwardedPath, "/api/v1/private/market-agent/profile");
+});
+
 test("private proxy fails closed before contacting an upstream without Access", async () => {
   let called = false;
   const response = await proxyPrivateRequest(
