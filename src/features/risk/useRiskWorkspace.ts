@@ -4,8 +4,8 @@ import { previewCsv } from "./csv";
 import { ApiHoldingsParseError, ApiHoldingsParseService, brokerSnapshotFromDraft } from "./holdings-parser";
 import { LocalRiskJournalRepository } from "./journal";
 import { LocalPortfolioRepository } from "./ledger";
-import { ApiReviewError, ApiReviewService, LocalReviewRepository, MockReviewService } from "./review";
-import type { CsvFieldMapping, CsvPreview, HoldingParseDraft, MarketProviderMode, ReviewItemFeedback, ReviewResult, ReviewRun, RiskDashboardData } from "./types";
+import { ApiReviewError, ApiReviewService, LocalEvidenceReviewService, LocalReviewRepository } from "./review";
+import type { CsvFieldMapping, CsvPreview, HoldingParseDraft, ReviewItemFeedback, ReviewResult, ReviewRun, RiskDashboardData } from "./types";
 import { EVIDENCE_SCHEMA_VERSION, RISK_RULE_VERSION, RiskWorkspaceService } from "./workspace";
 
 const serverValues = new Map<string, string>();
@@ -30,7 +30,7 @@ function withReview(data: RiskDashboardData, review: ReviewResult, runs = data.r
       ...source,
       status: review.mode === "llm" ? "healthy" : review.fallbackReason ? "degraded" : "healthy",
       latency: review.mode === "llm" ? "项目网关" : "本地",
-      freshness: review.mode === "llm" ? `${review.provider}/${review.model}${review.fallbackIndex ? ` · 第 ${review.fallbackIndex + 1} 候选` : ""}` : review.fallbackReason ? `Mock 降级 · ${review.fallbackReason}` : "Mock / Evidence Pack",
+      freshness: review.mode === "llm" ? `${review.provider}/${review.model}${review.fallbackIndex ? ` · 第 ${review.fallbackIndex + 1} 候选` : ""}` : review.fallbackReason ? `本地降级 · ${review.fallbackReason}` : "Evidence Pack 本地模板",
     } : source),
   };
 }
@@ -94,7 +94,7 @@ export function useRiskWorkspace() {
       setData((current) => current ? { ...withReview(current, execution.result, journal.listRuns()), memoryCandidates: journal.listMemoryCandidates(), diagnostics: { ...current.diagnostics, llm: journal.getOperations().llm } } : current);
     } catch (reason) {
       const code = reason instanceof ApiReviewError ? reason.code : reason instanceof Error ? reason.name : "UNKNOWN";
-      const fallback = await new MockReviewService(code).review(data.evidencePack);
+      const fallback = await new LocalEvidenceReviewService(code).review(data.evidencePack);
       const failed: ReviewRun = { ...pending, status: "failed", result: fallback.result, provider: fallback.provider, model: fallback.model, fallbackPath: fallback.fallbackPath, requestDurationMs: fallback.requestDurationMs, inputTokens: null, outputTokens: null, estimatedCost: null, promptVersion: fallback.promptVersion, warnings: fallback.warnings, errors: [code] };
       journal.saveRun(failed);
       journal.saveLlm({ provider: null, model: null, fallbackPath: fallback.fallbackPath, promptVersion: fallback.promptVersion, requestDurationMs: fallback.requestDurationMs, inputTokens: null, outputTokens: null, estimatedCost: null, schemaValidation: "failed", retryCount: null, finalError: code });
@@ -119,7 +119,12 @@ export function useRiskWorkspace() {
   return {
     data, loading, error, reviewLoading, reviewError, holdingsParseLoading, holdingsParseError, reload, generateReview,
     parseHoldingsDraft,
-    confirmHoldingsDraft: async (draft: HoldingParseDraft) => { service.saveBrokerSnapshot(brokerSnapshotFromDraft(draft)); await reload(); },
+    confirmHoldingsDraft: async (draft: HoldingParseDraft, mode: "snapshot" | "adopt") => {
+      const snapshot = brokerSnapshotFromDraft(draft);
+      if (mode === "adopt") service.adoptBrokerSnapshot(snapshot);
+      else service.saveBrokerSnapshot(snapshot);
+      await reload();
+    },
     previewCsv: (text: string, mapping?: CsvFieldMapping): CsvPreview => previewCsv(text, mapping, data?.transactions ?? []),
     importTransactions: async (preview: CsvPreview) => {
       const result = service.importTransactions(preview.valid);
@@ -128,8 +133,6 @@ export function useRiskWorkspace() {
       await reload(); return result;
     },
     clear: async () => { service.clear(); reviewRepository.clear(); journal.clear(); await reload(); },
-    restoreMock: async () => { service.restoreMock(); reviewRepository.clear(); await reload(); },
-    setMode: async (mode: MarketProviderMode) => { service.setMode(mode); await reload(); },
     saveRiskRules: async (rules: RiskDashboardData["riskRules"]) => { service.saveRiskRules(rules); await reload(); },
     saveTradePlans: async (plans: RiskDashboardData["tradePlans"]) => { service.saveTradePlans(plans); await reload(); },
     saveBrokerQuantity: async (instrumentId: string, quantity: number, averageCost: number | null) => { service.saveBrokerQuantity(instrumentId, quantity, averageCost); await reload(); },

@@ -4,7 +4,7 @@ import { RiskReviewError, validateLLMReview, verifyCloudflareAccess } from "../f
 import { handleRiskReview } from "../functions/api/risk/review.ts";
 import { calculateRisk } from "../src/features/risk/engine.ts";
 import { buildPositionsDetailed, reconcilePositions } from "../src/features/risk/ledger.ts";
-import { instruments, mockPortfolioHistory, mockQuotes, mockRiskRules, mockTradePlans, mockTransactions } from "../src/features/risk/mock.ts";
+import { instruments, mockPortfolioHistory, mockQuotes, mockRiskRules, mockTradePlans, mockTransactions } from "./fixtures/risk.ts";
 import { ApiReviewError, ApiReviewService, fingerprintEvidencePack, LocalReviewRepository } from "../src/features/risk/review.ts";
 import type { EvidencePack, ReviewExecution } from "../src/features/risk/types.ts";
 import { enforceAITaskScope } from "../functions/_lib/ai/abuse.ts";

@@ -1,7 +1,7 @@
 import type { JWTPayload } from "jose";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import type { EvidenceItem, EvidencePack, ReviewExecution, ReviewResult, RiskEvent, RiskMetric, Severity } from "../../../src/features/risk/types.ts";
-import { fingerprintEvidencePack, MockReviewService } from "../../../src/features/risk/review.ts";
+import { fingerprintEvidencePack, LocalEvidenceReviewService } from "../../../src/features/risk/review.ts";
 
 export interface RiskReviewEnv {
   ENVIRONMENT?: string;
@@ -390,4 +390,4 @@ export async function generateGatewayReview(request: Request, env: RiskReviewEnv
   });
 }
 
-export async function fallbackReview(pack: EvidencePack, reason: string): Promise<ReviewExecution> { return new MockReviewService(reason).review(pack); }
+export async function fallbackReview(pack: EvidencePack, reason: string): Promise<ReviewExecution> { return new LocalEvidenceReviewService(reason).review(pack); }

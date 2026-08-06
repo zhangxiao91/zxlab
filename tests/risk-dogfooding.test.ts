@@ -4,8 +4,8 @@ import { createRiskBackup, previewRiskBackup, restoreRiskBackup } from "../src/f
 import { calculateRisk } from "../src/features/risk/engine.ts";
 import { LocalRiskJournalRepository } from "../src/features/risk/journal.ts";
 import { buildPositionsDetailed, LocalPortfolioRepository, reconcilePositions } from "../src/features/risk/ledger.ts";
-import { instruments, mockPortfolioHistory, mockQuotes, mockRiskRules, mockTradePlans, mockTransactions } from "../src/features/risk/mock.ts";
-import { MockReviewService } from "../src/features/risk/review.ts";
+import { instruments, mockPortfolioHistory, mockQuotes, mockRiskRules, mockTradePlans, mockTransactions } from "./fixtures/risk.ts";
+import { LocalEvidenceReviewService } from "../src/features/risk/review.ts";
 import type { Quote, ReviewRun } from "../src/features/risk/types.ts";
 import { RiskWorkspaceService } from "../src/features/risk/workspace.ts";
 
@@ -25,7 +25,7 @@ async function fixture(storage = new MemoryStorage()) {
   const built = buildPositionsDetailed(mockTransactions, instruments);
   const reconciliation = reconcilePositions(built, built.positions.map((item) => ({ instrumentId: item.instrumentId, quantity: item.quantity, averageCost: item.averageCost })));
   const risk = calculateRisk({ transactions: mockTransactions, positions: built.positions, quotes: mockQuotes, tradePlans: mockTradePlans, riskRules: mockRiskRules, portfolioHistory: mockPortfolioHistory, reconciliation, now: "2026-07-18T14:32:11+08:00" });
-  const execution = await new MockReviewService().review(risk.evidencePack);
+  const execution = await new LocalEvidenceReviewService().review(risk.evidencePack);
   const run: ReviewRun = {
     id: "review-run-1", reviewDate: "2026-07-18", createdAt: "2026-07-18T15:00:00+08:00",
     evidencePack: risk.evidencePack,
@@ -83,18 +83,17 @@ test("market provider defaults to API and Mock requires an explicit local choice
   assert.equal(portfolio.getMarketMode(), "api");
 });
 
-test("workspace no longer seeds mock transactions until explicitly restored", async () => {
+test("workspace ignores legacy mock mode and never seeds example transactions", async () => {
   const storage = new MemoryStorage();
   const portfolio = new LocalPortfolioRepository(storage);
   portfolio.setMarketMode("mock");
   const journal = new LocalRiskJournalRepository(storage);
-  const workspace = new RiskWorkspaceService(portfolio, journal, new MockReviewService());
-  const empty = await workspace.load();
-  assert.equal(empty.transactions.length, 0);
-  assert.equal(empty.positions.length, 0);
-  workspace.restoreMock();
-  const restored = await workspace.load();
-  assert.equal(restored.transactions.length, mockTransactions.length);
+  const workspace = new RiskWorkspaceService(portfolio, journal, new LocalEvidenceReviewService());
+  const data = await workspace.load();
+  assert.equal(data.dataMode, "api");
+  assert.equal(data.transactions.length, 0);
+  assert.equal(data.positions.length, 0);
+  assert.equal("restoreMock" in workspace, false);
 });
 
 test("workspace uses persisted rules and realtime polling while exchanges are open", async () => {
@@ -113,7 +112,7 @@ test("workspace uses persisted rules and realtime polling while exchanges are op
     return Response.json({ data: mockQuotes.map((quote) => ({ ...quote, marketTimestamp: "2026-07-20T10:02:00+08:00", receivedAt: "2026-07-20T10:02:01+08:00", stale: false, quality: "live", warnings: [] })) });
   }) as typeof fetch;
   try {
-    const data = await new RiskWorkspaceService(portfolio, journal, new MockReviewService(), () => "2026-07-20T10:02:01+08:00").load();
+    const data = await new RiskWorkspaceService(portfolio, journal, new LocalEvidenceReviewService(), () => "2026-07-20T10:02:01+08:00").load();
     assert.equal(data.riskRules.maxSinglePosition, 0.12);
     assert.equal(data.diagnostics.market.realtimePolling, true);
     assert.equal(data.diagnostics.market.pollIntervalMs, 15_000);
@@ -192,6 +191,32 @@ test("workspace keeps broker snapshots separate from ledger-derived positions", 
   assert.equal(portfolio.listTransactions().length, mockTransactions.length);
 });
 
+test("adopting a broker snapshot replaces stale ledger examples with opening adjustments", async () => {
+  const storage = new MemoryStorage();
+  const portfolio = new LocalPortfolioRepository(storage);
+  portfolio.replaceTransactions(mockTransactions);
+  const journal = new LocalRiskJournalRepository(storage);
+  const workspace = new RiskWorkspaceService(portfolio, journal);
+  const snapshot = {
+    id: "snapshot-real",
+    snapshotAt: "2026-07-20T15:00:00+08:00",
+    accountName: "真实账户",
+    sourceKind: "csv" as const,
+    importedAt: "2026-07-20T15:00:01+08:00",
+    positions: [{ instrumentId: "SSE:512480", quantity: 10000, averageCost: 0.92 }],
+    rawDraftWarnings: [],
+  };
+
+  workspace.adoptBrokerSnapshot(snapshot);
+  const data = await workspace.load();
+
+  assert.deepEqual(data.transactions.map((item) => ({ type: item.type, instrumentId: item.instrumentId, quantity: item.quantity, price: item.price })), [
+    { type: "POSITION_ADJUSTMENT", instrumentId: "SSE:512480", quantity: 10000, price: 0.92 },
+  ]);
+  assert.deepEqual(data.positions.map((item) => [item.instrumentId, item.quantity, item.averageCost]), [["SSE:512480", 10000, 0.92]]);
+  assert.equal(data.brokerSnapshot?.id, "snapshot-real");
+});
+
 test("workspace treats weekend stale quotes as a closed-market snapshot", async () => {
   const storage = new MemoryStorage();
   const portfolio = new LocalPortfolioRepository(storage);
@@ -211,7 +236,7 @@ test("workspace treats weekend stale quotes as a closed-market snapshot", async 
   const previousFetch = globalThis.fetch;
   globalThis.fetch = (async () => Response.json({ data: weekendQuotes })) as typeof fetch;
   try {
-    const data = await new RiskWorkspaceService(portfolio, journal, new MockReviewService(), () => "2026-07-19T14:04:41+08:00").load();
+    const data = await new RiskWorkspaceService(portfolio, journal, new LocalEvidenceReviewService(), () => "2026-07-19T14:04:41+08:00").load();
     const market = data.sourceHealth.find((source) => source.name === "ApiMarketDataProvider");
     assert.equal(data.diagnostics.market.snapshotStatus, "closed-snapshot");
     assert.equal(data.diagnostics.market.stale, false);

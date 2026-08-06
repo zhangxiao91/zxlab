@@ -105,7 +105,7 @@ export class ApiReviewService implements ReviewService {
   }
 }
 
-export class MockReviewService implements ReviewService {
+export class LocalEvidenceReviewService implements ReviewService {
   constructor(private readonly fallbackReason?: string) {}
   async review(pack: EvidencePack): Promise<ReviewExecution> {
     const has = (rule: string) => pack.events.some((item) => item.ruleId === rule);
@@ -131,7 +131,7 @@ export class MockReviewService implements ReviewService {
       counterfactuals: ["如果不持有超出计划的仓位，有效敞口会下降多少？", "如果只使用新鲜且已对账的数据，当前结论是否仍然成立？"],
       unknowns: pack.warnings,
       questionsForUser: ["券商当前数量是否已与交易账本逐项核对？"],
-      limitations: [this.fallbackReason ? `真实 LLM 不可用，已降级：${this.fallbackReason}` : "当前为 Mock Review；文本由 Evidence Pack 中的事件组合生成，不调用真实 LLM。", ...(!pack.reliable ? ["数据质量警告存在，复盘不得视为完全可靠。"] : [])],
+      limitations: [this.fallbackReason ? `真实 LLM 不可用，已降级：${this.fallbackReason}` : "当前使用 Evidence Pack 本地模板生成，不调用真实 LLM。", ...(!pack.reliable ? ["数据质量警告存在，复盘不得视为完全可靠。"] : [])],
     };
     return {
       status: this.fallbackReason ? "partial" : "success",

@@ -1,6 +1,6 @@
-import { stableFingerprint } from "./ledger";
-import { defaultInstruments, defaultRiskRules, defaultTradePlans } from "./config";
-import type { PortfolioHistoryPoint, Quote, Transaction } from "./types";
+import { defaultInstruments, defaultRiskRules, defaultTradePlans } from "../../src/features/risk/config.ts";
+import { stableFingerprint } from "../../src/features/risk/ledger.ts";
+import type { PortfolioHistoryPoint, Quote, Transaction } from "../../src/features/risk/types.ts";
 
 export const instruments = defaultInstruments;
 

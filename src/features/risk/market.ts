@@ -1,6 +1,5 @@
 import { MarketClient, MarketDataError as SharedMarketDataError } from "../market/client";
 import type { MarketBar, MarketNewsItem, MarketProviders, MarketStatus } from "../market/types";
-import { mockQuotes } from "./mock";
 import type { Quote } from "./types";
 
 export interface MarketDataProvider {
@@ -11,13 +10,6 @@ export interface MarketDataProvider {
   getProviders?(): Promise<MarketProviders>;
   getNews?(instrumentIds: string[], limit?: number): Promise<MarketNewsItem[]>;
   getAnnouncements?(instrumentId: string, limit?: number): Promise<MarketNewsItem[]>;
-}
-
-export class MockMarketDataProvider implements MarketDataProvider {
-  readonly name = "MockMarketDataProvider";
-  async getQuotes(instrumentIds: string[]) { return mockQuotes.filter((quote) => instrumentIds.includes(quote.instrumentId)); }
-  async getBars() { return []; }
-  async getStatus(exchange: "SSE" | "SZSE") { return { exchange, open: true, marketTimestamp: "2026-07-18T14:32:10+08:00", source: "mock-market" }; }
 }
 
 export class MarketDataError extends SharedMarketDataError {}

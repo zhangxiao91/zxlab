@@ -3,8 +3,8 @@ import test from "node:test";
 import { previewCsv } from "../src/features/risk/csv.ts";
 import { calculateRisk } from "../src/features/risk/engine.ts";
 import { buildPositionsDetailed, reconcilePositions, stableFingerprint } from "../src/features/risk/ledger.ts";
-import { instruments, mockPortfolioHistory, mockQuotes, mockRiskRules, mockTradePlans, mockTransactions } from "../src/features/risk/mock.ts";
-import { MockReviewService } from "../src/features/risk/review.ts";
+import { instruments, mockPortfolioHistory, mockQuotes, mockRiskRules, mockTradePlans, mockTransactions } from "./fixtures/risk.ts";
+import { LocalEvidenceReviewService } from "../src/features/risk/review.ts";
 import type { Quote, Transaction } from "../src/features/risk/types.ts";
 
 const tx = (input: Omit<Transaction, "fingerprint" | "importedAt">): Transaction => ({ ...input, fingerprint: stableFingerprint(input), importedAt: "2026-07-18T15:00:00+08:00" });
@@ -62,7 +62,7 @@ test("risk engine lowers reliability for stale quotes during trading hours", asy
   assert.ok(result.metrics.every((item) => item.calculation.formula && item.evidenceIds.length));
   const ids = new Set(result.evidencePack.evidence.map((item) => item.id));
   assert.ok(result.events.flatMap((item) => item.evidenceIds).some((id) => ids.has(id)));
-  const review = await new MockReviewService().review(result.evidencePack);
+  const review = await new LocalEvidenceReviewService().review(result.evidencePack);
   assert.match(review.result.summary, /盘中行情过期/);
   assert.ok(review.result.mainRisks.some((item) => item.evidenceIds.length > 0));
 });

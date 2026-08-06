@@ -657,6 +657,9 @@
   color: #506300;
   font-size: .7rem;
 }
+.holdings-adoption { display: grid; margin: 1.2rem 0; padding: 1rem; gap: .7rem; border: 1px solid rgba(24,25,21,.14); border-radius: .7rem; }
+.holdings-adoption legend { padding: 0 .35rem; color: rgba(24,25,21,.55); font-size: .62rem; }
+.holdings-adoption label { display: flex; align-items: center; gap: .55rem; color: rgba(24,25,21,.72); font-size: .7rem; }
 .daily-workflow, .feedback-panel, .review-history, .memory-panel, .diagnostics-panel, .backup-panel { border: 1px solid var(--risk-line); border-radius: .8rem; background: rgba(255,255,255,.025); }
 .daily-workflow { margin-bottom: 1rem; padding: 1.1rem; }
 .daily-workflow > header, .feedback-panel > header, .review-history > header, .memory-panel > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }

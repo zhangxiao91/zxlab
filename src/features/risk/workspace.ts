@@ -1,12 +1,11 @@
 import { calculateRisk } from "./engine";
 import { LocalRiskJournalRepository } from "./journal";
-import { buildPositionsDetailed, reconcilePositions, type PortfolioRepository } from "./ledger";
+import { buildPositionsDetailed, reconcilePositions, stableFingerprint, type PortfolioRepository } from "./ledger";
 import { marketFreshnessText, marketSnapshotStatus } from "./market-clock";
-import { ApiMarketDataProvider, MockMarketDataProvider, type MarketDataProvider } from "./market";
-import { mockTransactions } from "./mock";
+import { ApiMarketDataProvider, type MarketDataProvider } from "./market";
 import { buildPortfolioHistory } from "./portfolio-history";
-import { MockReviewService, type ReviewService } from "./review";
-import type { ActivityItem, BrokerSnapshot, DailyWorkflowStep, MarketDiagnostics, MarketProviderMode, PortfolioDiagnostics, Quote, RiskDashboardData, Transaction } from "./types";
+import { LocalEvidenceReviewService, type ReviewService } from "./review";
+import type { ActivityItem, BrokerSnapshot, DailyWorkflowStep, MarketDiagnostics, PortfolioDiagnostics, Quote, RiskDashboardData, Transaction } from "./types";
 
 export const RISK_RULE_VERSION = "risk-rules.v1.2";
 export const EVIDENCE_SCHEMA_VERSION = "evidence-pack.v1.2";
@@ -14,19 +13,19 @@ export const REALTIME_MARKET_POLL_MS = 15_000;
 export const SNAPSHOT_MARKET_POLL_MS = 60_000;
 
 export class RiskWorkspaceService {
-  constructor(private readonly repository: PortfolioRepository, private readonly journal: LocalRiskJournalRepository, private readonly reviewService: ReviewService = new MockReviewService(), private readonly clock: () => string = () => new Date().toISOString()) {}
+  constructor(private readonly repository: PortfolioRepository, private readonly journal: LocalRiskJournalRepository, private readonly reviewService: ReviewService = new LocalEvidenceReviewService(), private readonly clock: () => string = () => new Date().toISOString()) {}
   ensureSeeded() {}
   async load(): Promise<RiskDashboardData> {
     this.ensureSeeded();
     const transactions = this.repository.listTransactions();
-    const mode = this.repository.getMarketMode();
+    const mode = "api" as const;
     const instruments = this.repository.getInstruments();
     const riskRules = this.repository.getRiskRules();
     const tradePlans = this.repository.getTradePlans();
     const built = buildPositionsDetailed(transactions, instruments);
     const reconciliation = reconcilePositions(built, this.repository.getBrokerPositions());
     let quotes: Quote[] = [], marketError: string | null = null;
-    const provider: MarketDataProvider = mode === "api" ? new ApiMarketDataProvider() : new MockMarketDataProvider();
+    const provider: MarketDataProvider = new ApiMarketDataProvider();
     const instrumentIds = [...new Set(transactions.map((item) => item.instrumentId).filter((item): item is string => Boolean(item)))];
     const exchanges = exchangeList(built.positions.map((item) => item.instrumentId));
     const marketStarted = Date.now();
@@ -98,10 +97,10 @@ export class RiskWorkspaceService {
       asOf: now, receivedAt: now, accountName: "个人交易账户", currency: "CNY", dataMode: mode,
       portfolio: { ...calculated.portfolio, dayReturn: calculated.portfolio.netValue ? calculated.portfolio.dayPnl / calculated.portfolio.netValue : 0, currentDrawdown: history.at(-1)?.drawdown ?? 0, maxDrawdown: history.length ? Math.min(...history.map((item) => item.drawdown)) : 0, riskBudgetUsed: calculated.portfolio.netValue ? Math.abs(Math.min(0, calculated.portfolio.dayPnl)) / (calculated.portfolio.netValue * 0.025) : 0 },
       sourceHealth: [
-        { name: provider.name, status: marketError ? "offline" : unavailableCount || fallbackCount || snapshotStatus === "stale" ? "degraded" : "healthy", latency: mode === "mock" ? "本地" : realtimePolling ? `轮询 ${Math.round(pollIntervalMs / 1000)}s` : "快照刷新", freshness: marketFreshness },
+        { name: provider.name, status: marketError ? "offline" : unavailableCount || fallbackCount || snapshotStatus === "stale" ? "degraded" : "healthy", latency: realtimePolling ? `轮询 ${Math.round(pollIntervalMs / 1000)}s` : "快照刷新", freshness: marketFreshness },
         { name: "本地交易账本", status: built.anomalies.length ? "degraded" : "healthy", latency: "浏览器", freshness: `${transactions.length} 条事件` },
         { name: "持仓对账", status: reconciliation.unresolved ? "degraded" : "healthy", latency: "本地", freshness: reconciliation.unresolved ? "待处理" : "一致" },
-        { name: "Review Service", status: "healthy", latency: "本地", freshness: "Mock / Evidence Pack" },
+        { name: "Review Service", status: "healthy", latency: "本地", freshness: "等待手动生成" },
       ],
       transactions, positions: calculated.positions, reconciliation, riskMetrics: calculated.metrics, riskEvents: calculated.events, activity, equityCurve: history, evidence: calculated.evidencePack.evidence, evidencePack: calculated.evidencePack, review, dataWarnings: calculated.warnings,
       riskRules,
@@ -123,8 +122,6 @@ export class RiskWorkspaceService {
   }
   importTransactions(items: Transaction[]) { return this.repository.appendTransactions(items); }
   clear() { this.repository.clearTransactions(); }
-  restoreMock() { this.repository.replaceTransactions(mockTransactions); }
-  setMode(mode: MarketProviderMode) { this.repository.setMarketMode(mode); }
   saveRiskRules(rules: RiskDashboardData["riskRules"]) { this.repository.saveRiskRules(rules); }
   saveTradePlans(plans: RiskDashboardData["tradePlans"]) { this.repository.saveTradePlans(plans); }
   saveBrokerQuantity(instrumentId: string, quantity: number, averageCost: number | null) {
@@ -134,6 +131,25 @@ export class RiskWorkspaceService {
   saveBrokerSnapshot(snapshot: BrokerSnapshot) {
     this.repository.saveBrokerSnapshot(snapshot);
     this.repository.saveBrokerPositions(snapshot.positions);
+  }
+  adoptBrokerSnapshot(snapshot: BrokerSnapshot) {
+    this.saveBrokerSnapshot(snapshot);
+    const importedAt = snapshot.importedAt;
+    const transactions: Transaction[] = snapshot.positions.map((position) => {
+      const base = {
+        id: `opening:${snapshot.id}:${position.instrumentId}`,
+        account: snapshot.accountName ?? "main",
+        instrumentId: position.instrumentId,
+        type: "POSITION_ADJUSTMENT" as const,
+        side: "BUY" as const,
+        quantity: position.quantity,
+        price: position.averageCost ?? 0,
+        fee: 0,
+        executedAt: snapshot.snapshotAt,
+      };
+      return { ...base, fingerprint: stableFingerprint(base), importedAt };
+    });
+    this.repository.replaceTransactions(transactions);
   }
 }
 
