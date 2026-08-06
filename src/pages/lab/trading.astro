@@ -1,5 +1,6 @@
 ---
 import Layout from "../../layouts/Layout.astro";
+import type { TradingAction } from "../../features/trading/TradingGuidance";
 import TradingWorkbench from "../../features/trading/TradingWorkbench";
 import type { TradingView } from "../../features/trading/TradingNavigation";
 import "../../styles/risk.css";
@@ -8,10 +9,12 @@ import "../../styles/market-agent.css";
 const requestedView = Astro.url.searchParams.get("view");
 const initialView = (['overview', 'positions', 'market', 'activity', 'review', 'settings'].includes(requestedView ?? '') ? requestedView : 'overview') as TradingView;
 const initialReviewMode = Astro.url.searchParams.get("mode") === "market" ? "market" : "risk";
+const requestedAction = Astro.url.searchParams.get("action");
+const initialAction = (requestedAction === "import" || requestedAction === "holdings" ? requestedAction : undefined) as TradingAction | undefined;
 ---
 
 <Layout title="交易工作台 | zxlab" description="统一的持仓、行情、记录与复盘工作台。" lang="zh-CN">
   <div class="risk-page trading-page">
-    <TradingWorkbench client:load initialView={initialView} initialReviewMode={initialReviewMode} />
+    <TradingWorkbench client:load initialView={initialView} initialReviewMode={initialReviewMode} initialAction={initialAction} />
   </div>
 </Layout>

@@ -744,6 +744,14 @@
 .trading-review-switcher__tabs { display: flex; padding: .24rem; gap: .2rem; border: 1px solid var(--risk-line); border-radius: .65rem; background: rgba(255,255,255,.025); }
 .trading-review-switcher__tabs button { padding: .68rem .8rem; border: 0; border-radius: .42rem; background: transparent; color: var(--risk-muted); cursor: pointer; font-size: .67rem; }
 .trading-review-switcher__tabs button.is-active { background: var(--risk-paper); color: var(--risk-ink); }
+.trading-guidance { display: grid; width: min(calc(100% - 3rem), 86rem); margin: 0 auto; padding: .85rem 0; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 1.2rem; border-bottom: 1px solid var(--risk-line); }
+.trading-guidance__lead { display: flex; align-items: baseline; gap: .55rem; white-space: nowrap; }
+.trading-guidance__lead span { color: var(--risk-muted); font-size: .62rem; letter-spacing: .12em; text-transform: uppercase; }
+.trading-guidance__lead strong { color: #efede4; font-size: .7rem; font-weight: 540; }
+.trading-guidance__actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: .45rem; }
+.trading-guidance__actions button { min-height: 2.25rem; padding: .55rem .72rem; border: 1px solid var(--risk-line); border-radius: .45rem; background: transparent; color: #efede4; cursor: pointer; font-size: .66rem; white-space: nowrap; transition: border-color 220ms, color 220ms, background 220ms; }
+.trading-guidance__actions button:hover, .trading-guidance__actions button:focus-visible { border-color: var(--risk-lime); color: var(--risk-lime); }
+.trading-guidance__actions button.is-active { border-color: var(--risk-lime); background: rgba(217,255,116,.1); color: var(--risk-lime); }
 
 @media (max-width: 62rem) {
   .risk-appbar { grid-template-columns: 1fr auto; padding: 0 1rem; }
@@ -765,6 +773,8 @@
   .market-attempts { grid-template-columns: repeat(3, 1fr); }
   .position-fact-grid { grid-template-columns: 1fr; }
   .trading-review-switcher { grid-template-columns: 1fr; align-items: start; }
+  .trading-guidance { grid-template-columns: 1fr; align-items: start; gap: .65rem; }
+  .trading-guidance__actions { justify-content: flex-start; }
 }
 
 @media (prefers-reduced-transparency: reduce) {
@@ -810,6 +820,9 @@
   .trading-review-switcher { width: min(calc(100% - 2rem), 86rem); padding-top: 1.5rem; }
   .trading-review-switcher__tabs { width: 100%; }
   .trading-review-switcher__tabs button { flex: 1; min-width: 0; padding-inline: .55rem; }
+  .trading-guidance { width: min(calc(100% - 2rem), 86rem); }
+  .trading-guidance__actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .trading-guidance__actions button { width: 100%; }
   .trading-nav-hint { display: none; }
   .risk-footer a { justify-self: auto; }
 }

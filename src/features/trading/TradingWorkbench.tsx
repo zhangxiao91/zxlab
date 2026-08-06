@@ -2,9 +2,10 @@ import { useEffect, useState } from "react";
 import AgentToday from "../market-agent/AgentToday";
 import MarketCenter from "../market/MarketCenter";
 import RiskWorkbench, { type RiskView } from "../risk/RiskWorkbench";
+import TradingGuidance, { type TradingAction, type TradingGuidanceTarget, type TradingReviewMode } from "./TradingGuidance";
 import { TradingNavigation, type TradingView } from "./TradingNavigation";
 
-type ReviewMode = "risk" | "market";
+type ReviewMode = TradingReviewMode;
 
 const viewFromLocation = (): TradingView => {
   if (typeof window === "undefined") return "overview";
@@ -17,32 +18,44 @@ const reviewModeFromLocation = (): ReviewMode => {
   return new URL(window.location.href).searchParams.get("mode") === "market" ? "market" : "risk";
 };
 
+const actionFromLocation = (): TradingAction | undefined => {
+  if (typeof window === "undefined") return undefined;
+  const action = new URL(window.location.href).searchParams.get("action");
+  return action === "import" || action === "holdings" ? action : undefined;
+};
+
 const riskViewFor = (view: TradingView): RiskView => view === "positions" ? "positions" : view === "activity" ? "activity" : view === "review" ? "review" : view === "settings" ? "settings" : "dashboard";
 
-export default function TradingWorkbench({ initialView = viewFromLocation(), initialReviewMode = reviewModeFromLocation() }: { initialView?: TradingView; initialReviewMode?: ReviewMode } = {}) {
+export default function TradingWorkbench({ initialView = viewFromLocation(), initialReviewMode = reviewModeFromLocation(), initialAction = actionFromLocation() }: { initialView?: TradingView; initialReviewMode?: ReviewMode; initialAction?: TradingAction } = {}) {
   const [view, setView] = useState<TradingView>(() => typeof window === "undefined" ? initialView : viewFromLocation());
   const [reviewMode, setReviewMode] = useState<ReviewMode>(() => typeof window === "undefined" ? initialReviewMode : reviewModeFromLocation());
+  const [action, setAction] = useState<TradingAction | undefined>(() => typeof window === "undefined" ? initialAction : actionFromLocation());
 
   useEffect(() => {
     const handlePopState = () => {
       setView(viewFromLocation());
       setReviewMode(reviewModeFromLocation());
+      setAction(actionFromLocation());
     };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
 
-  const navigate = (next: TradingView, mode: ReviewMode = next === "review" ? "risk" : reviewMode) => {
+  const navigate = (next: TradingView, mode: ReviewMode = next === "review" ? "risk" : reviewMode, nextAction?: TradingAction) => {
     const url = new URL(window.location.href);
     url.searchParams.set("view", next);
     if (next === "review" && mode === "market") url.searchParams.set("mode", "market");
     else url.searchParams.delete("mode");
+    if (nextAction) url.searchParams.set("action", nextAction);
+    else url.searchParams.delete("action");
     window.history.pushState({}, "", url);
     setView(next);
     setReviewMode(mode);
+    setAction(nextAction);
   };
 
   const changeRiskView = (next: RiskView) => navigate(next === "dashboard" ? "overview" : next);
+  const handleGuidance = (target: TradingGuidanceTarget) => navigate(target.view, target.mode ?? (target.view === "review" ? "risk" : reviewMode), target.action);
   const reviewSwitcher = view === "review" ? <section className="trading-review-switcher" aria-label="复盘类型">
     <div><p>复盘工作流</p><h2>选择今天要解释的事实。</h2><span>账户风险和盘后市场复盘共享入口，数据边界仍然分开。</span></div>
     <div className="trading-review-switcher__tabs" role="tablist" aria-label="复盘类型">
@@ -53,9 +66,10 @@ export default function TradingWorkbench({ initialView = viewFromLocation(), ini
 
   return <div className="risk-app trading-shell">
     <TradingNavigation active={view} onNavigate={(next) => navigate(next)} />
+    <TradingGuidance active={view} reviewMode={reviewMode} onNavigate={handleGuidance} />
     {reviewSwitcher}
     <div className="trading-shell__content">
-      {view === "market" ? <MarketCenter /> : view === "review" && reviewMode === "market" ? <AgentToday /> : <RiskWorkbench embedded initialView={riskViewFor(view)} onViewChange={changeRiskView} />}
+      {view === "market" ? <MarketCenter /> : view === "review" && reviewMode === "market" ? <AgentToday /> : <RiskWorkbench embedded initialView={riskViewFor(view)} initialAction={view === "positions" || view === "activity" ? action : undefined} onViewChange={changeRiskView} />}
     </div>
   </div>;
 }

@@ -120,11 +120,20 @@ function HoldingsParseDialog({ loading, error, onParse, onConfirm, onClose }: { 
 
 function EvidenceDrawer({ evidence, onClose }: { evidence: EvidenceItem | undefined; onClose: () => void }) { if (!evidence) return null; return <div className="evidence-layer" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><aside className="evidence-drawer" role="dialog" aria-modal="true" aria-labelledby="evidence-title"><button className="evidence-close" onClick={onClose}>关闭</button><span>{evidence.type}</span><h2 id="evidence-title">{evidence.title}</h2><p>{evidence.id}</p><dl><div><dt>时间</dt><dd>{evidence.timestamp}</dd></div><div><dt>来源</dt><dd>{evidence.source}</dd></div>{Object.entries(evidence.payload).map(([key, item]) => <div key={key}><dt>{key}</dt><dd>{String(item)}</dd></div>)}</dl></aside></div>; }
 
-export default function RiskWorkbench({ embedded = false, initialView = "dashboard", onViewChange }: { embedded?: boolean; initialView?: RiskView; onViewChange?: (view: RiskView) => void } = {}) {
+export default function RiskWorkbench({ embedded = false, initialView = "dashboard", initialAction, onViewChange }: { embedded?: boolean; initialView?: RiskView; initialAction?: "import" | "holdings"; onViewChange?: (view: RiskView) => void } = {}) {
   const workspace = useRiskWorkspace(); const [view, setView] = useState<View>(initialView); const [selectedEvidence, setSelectedEvidence] = useState<string>(); const [importOpen, setImportOpen] = useState(false); const [holdingsOpen, setHoldingsOpen] = useState(false); const [csvText, setCsvText] = useState(""); const [mapping, setMapping] = useState(DEFAULT_CSV_MAPPING); const preview = useMemo(() => csvText ? workspace.previewCsv(csvText, mapping) : null, [csvText, mapping, workspace.data]);
   const navigate = (next: View) => { setView(next); onViewChange?.(next); };
   useEffect(() => { setView(initialView); }, [initialView]);
   const hasData = Boolean(workspace.data);
+  useEffect(() => {
+    if (!workspace.data || !initialAction) return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("action") !== initialAction) return;
+    if (initialAction === "import") setImportOpen(true);
+    if (initialAction === "holdings") setHoldingsOpen(true);
+    url.searchParams.delete("action");
+    window.history.replaceState({}, "", url);
+  }, [workspace.data, initialAction]);
   useEffect(() => { if (!hasData || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return; let cleanup = () => {}; void Promise.all([import("gsap"), import("gsap/ScrollTrigger")]).then(([module, trigger]) => { const gsap = module.default; gsap.registerPlugin(trigger.ScrollTrigger); const context = gsap.context(() => gsap.from(".risk-hero > div:first-child > *", { y: 32, opacity: 0, duration: 0.8, stagger: 0.08, ease: "power3.out" })); cleanup = () => context.revert(); }); return () => cleanup(); }, [view, hasData]);
   if (workspace.loading && !workspace.data) return <div className="risk-loading">正在从本地账本重建风险工作区…</div>;
   if (!workspace.data) return <div className="risk-loading">{workspace.error ?? "工作区暂不可用"}</div>;
