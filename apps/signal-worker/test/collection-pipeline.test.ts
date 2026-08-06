@@ -93,6 +93,36 @@ describe("Signal collection pipeline", () => {
     expect(second.duplicateCount).toBe(1);
   });
 
+  it("retries a source sync after a transient D1 storage timeout", async () => {
+    let attempts = 0;
+    const batches: D1PreparedStatement[][] = [];
+    const db = {
+      prepare(query: string) {
+        return {
+          bind(...values: unknown[]) { return { query, values }; },
+        } as unknown as D1PreparedStatement;
+      },
+      async batch(statements: D1PreparedStatement[]) {
+        attempts += 1;
+        batches.push(statements);
+        if (attempts === 1) throw new Error("D1_ERROR: D1 DB storage operation exceeded timeout which caused object to be reset.");
+        return [];
+      },
+    } as unknown as D1Database;
+    const repository = new CollectionRepository(db);
+    const source = findSource("cloudflare-developer-platform");
+
+    await repository.syncSources([source!], "2026-08-06T00:00:00.000Z", {
+      maxAttempts: 2,
+      retryDelaysMs: [0],
+      sleep: async () => {},
+    });
+
+    expect(attempts).toBe(2);
+    expect(batches).toHaveLength(2);
+    expect(batches[0]).not.toBe(batches[1]);
+  });
+
   it("skips missing-secret sources by default but rejects explicit requests", async () => {
     const service = new CollectionService(env, new Map());
     await expect(service.run({ sourceTypes: ["producthunt"] }, { runId: "missing-secret-default", now: "2026-07-18T10:00:00.000Z" }))

@@ -11,6 +11,7 @@ import type {
 } from "@zxlab/signal-schema";
 import type { SignalSourceConfig } from "../config/sources";
 import { SignalError } from "../lib/errors";
+import { batchWithD1Retry, type D1BatchRetryOptions } from "../lib/d1-retry";
 
 interface CandidateRow {
   id: string; source_id: string; source_name: string; external_id: string; source_type: SignalSourceType;
@@ -93,14 +94,14 @@ function run(row: RunRow): CollectionRunSummary {
 export class CollectionRepository {
   constructor(private readonly db: D1Database) {}
 
-  async syncSources(sources: readonly SignalSourceConfig[], now: string): Promise<void> {
-    await this.db.batch(sources.map((source) => this.db.prepare(`INSERT INTO signal_sources
+  async syncSources(sources: readonly SignalSourceConfig[], now: string, retryOptions?: D1BatchRetryOptions): Promise<void> {
+    await batchWithD1Retry(this.db, () => sources.map((source) => this.db.prepare(`INSERT INTO signal_sources
       (id, name, type, enabled, category_hint, priority, config_json, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET name=excluded.name, type=excluded.type, enabled=excluded.enabled,
         category_hint=excluded.category_hint, priority=excluded.priority, config_json=excluded.config_json, updated_at=excluded.updated_at`)
       .bind(source.id, source.name, source.type, source.enabled ? 1 : 0, source.categoryHint, source.priority,
-        JSON.stringify(source), now, now)));
+        JSON.stringify(source), now, now)), retryOptions);
   }
 
   async createRun(id: string, triggerType: CollectionRunSummary["triggerType"], sourceCount: number, startedAt: string): Promise<void> {
