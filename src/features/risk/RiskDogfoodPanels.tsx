@@ -5,7 +5,14 @@ import type { DailyWorkflowStep, MemoryCandidate, ReviewFeedbackRating, ReviewIt
 const money = new Intl.NumberFormat("zh-CN", { style: "currency", currency: "CNY", maximumFractionDigits: 0 });
 
 export function DailyWorkflow({ data, onStep }: { data: RiskDashboardData; onStep: (step: DailyWorkflowStep) => void }) {
-  return <section className="daily-workflow"><header><div><span>今日工作台</span><h2>{data.analysisDate}</h2></div><dl><div><dt>数据更新</dt><dd>{new Date(data.receivedAt).toLocaleString("zh-CN")}</dd></div><div><dt>风险计算</dt><dd>{new Date(data.riskCalculatedAt).toLocaleString("zh-CN")}</dd></div><div><dt>复盘生成</dt><dd>{data.review.mode === "llm" ? new Date(data.review.generatedAt).toLocaleString("zh-CN") : "待生成"}</dd></div></dl></header><div className="workflow-rail">{data.workflow.map((step, index) => <button key={step.id} className={`workflow-step workflow-step--${step.status}`} onClick={() => onStep(step)}><span>{index + 1}</span><strong>{step.label}</strong><small>{step.status}</small><p>{step.detail}</p></button>)}</div></section>;
+  const priority: Record<DailyWorkflowStep["status"], number> = { error: 0, warning: 1, "needs-confirmation": 2, running: 3, pending: 4, success: 5 };
+  const nextSteps = data.workflow
+    .filter((step) => step.status !== "success")
+    .sort((left, right) => priority[left.status] - priority[right.status])
+    .slice(0, 3);
+  const statusLabel: Record<DailyWorkflowStep["status"], string> = { error: "需要处理", warning: "需要确认", "needs-confirmation": "等待确认", running: "处理中", pending: "下一步", success: "已完成" };
+
+  return <section className="daily-workflow"><header><div><span>今日工作台</span><h2>{nextSteps.length ? "下一步需要处理" : "今日流程已完成"}</h2></div><dl><div><dt>数据更新</dt><dd>{new Date(data.receivedAt).toLocaleString("zh-CN")}</dd></div><div><dt>风险计算</dt><dd>{new Date(data.riskCalculatedAt).toLocaleString("zh-CN")}</dd></div><div><dt>待办</dt><dd>{nextSteps.length ? `${nextSteps.length} 项` : "无"}</dd></div></dl></header>{nextSteps.length ? <div className="workflow-rail">{nextSteps.map((step) => <button key={step.id} className={`workflow-step workflow-step--${step.status}`} onClick={() => onStep(step)}><small>{statusLabel[step.status]}</small><strong>{step.label}</strong><p>{step.detail}</p></button>)}</div> : <p className="workflow-complete">账本、对账、行情、风险计算和今日复盘均无待处理项。</p>}</section>;
 }
 
 export function ReviewFeedbackEditor({ run, onSave }: { run: ReviewRun; onSave: (runId: string, input: { helpful: boolean | null; hasFactErrors: boolean; missingKeyFactors: boolean; note: string; itemFeedback: ReviewItemFeedback[] }) => Promise<void> }) {

@@ -669,17 +669,17 @@
 .daily-workflow header dl div { display: flex; flex-direction: column; gap: .2rem; }
 .daily-workflow dt { color: var(--risk-muted); font-size: .55rem; }
 .daily-workflow dd { margin: 0; font-size: .62rem; }
-.workflow-rail { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); grid-auto-flow: dense; margin-top: 1rem; gap: .45rem; }
+.workflow-rail { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); grid-auto-flow: dense; margin-top: 1rem; gap: .45rem; }
 .workflow-step { min-height: 7.5rem; padding: .75rem; overflow: hidden; border: 1px solid var(--risk-line); border-radius: .6rem; background: rgba(255,255,255,.025); color: inherit; text-align: left; cursor: pointer; transition: transform 180ms ease, border-color 180ms ease; }
 .workflow-step:hover { transform: translateY(-2px); border-color: rgba(216,255,74,.45); }
-.workflow-step > span { display: grid; width: 1.3rem; height: 1.3rem; place-items: center; border-radius: 50%; background: rgba(255,255,255,.08); font-size: .55rem; }
-.workflow-step strong { display: block; margin-top: .6rem; font-size: .67rem; }
+.workflow-step strong { display: block; margin-top: .35rem; font-size: .67rem; }
 .workflow-step small { color: var(--risk-muted); font-size: .52rem; }
 .workflow-step p { margin-top: .45rem; color: var(--risk-muted); font-size: .58rem; line-height: 1.45; }
 .workflow-step--success { border-color: rgba(216,255,74,.22); }
 .workflow-step--warning, .workflow-step--needs-confirmation { border-color: rgba(255,183,77,.35); }
 .workflow-step--error { border-color: rgba(255,93,93,.4); }
 .workflow-step--running { border-color: var(--risk-lime); }
+.workflow-complete { margin-top: 1rem; padding: .8rem; border: 1px solid rgba(216,255,74,.22); border-radius: .6rem; color: var(--risk-muted); font-size: .64rem; line-height: 1.5; }
 .feedback-panel, .review-history, .memory-panel { margin-top: 1rem; padding: 1.2rem; }
 .feedback-panel header > strong, .review-history header > strong, .memory-panel header > strong { color: var(--risk-lime); font-size: .65rem; }
 .overall-feedback { display: flex; margin-top: 1rem; align-items: center; gap: 1rem; flex-wrap: wrap; }
