@@ -245,6 +245,23 @@ test("OpenAI-compatible adapter parses fragmented provider SSE incrementally", a
   assert.deepEqual(result.usage, { inputTokens: 2, outputTokens: 2, totalTokens: 4 });
 });
 
+test("OpenAI-compatible adapter tolerates large hidden reasoning before visible JSON", async () => {
+  const encoder = new TextEncoder();
+  const reasoning = "x".repeat(540_000);
+  const wire = [
+    `data: ${JSON.stringify({ choices: [{ delta: { content: null, reasoning_content: reasoning } }] })}\n\n`,
+    `data: ${JSON.stringify({ choices: [{ delta: { content: '{"positions":[]}' } }] })}\n\n`,
+    "data: [DONE]\n\n",
+  ].join("");
+  const fetcher = async (): Promise<Response> => new Response(new ReadableStream({
+    start(controller) { controller.enqueue(encoder.encode(wire)); controller.close(); },
+  }), { headers: { "content-type": "text/event-stream" } });
+  const result = await new OpenAICompatibleAdapter().stream(candidates[0], { ...input, responseFormat: { type: "json" } }, {
+    requestId: "large-reasoning-test", timeoutMs: 1_000, fetcher,
+  }, async () => {});
+  assert.equal(result.text, '{"positions":[]}');
+});
+
 test("stream router resets partial output before JSON fallback", async () => {
   const adapter = new ScriptedAdapter([success("{broken"), success("{\"answer\":42}")]);
   const events: Array<{ type: string; value?: string }> = [];

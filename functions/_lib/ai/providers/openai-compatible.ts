@@ -3,7 +3,7 @@ import type { ModelCandidate } from "../config.ts";
 import { AIError, asAIError } from "../errors.ts";
 import type { AIProviderAdapter, ProviderGenerateResult, RequestContext } from "./types.ts";
 
-const MAX_PROVIDER_RESPONSE_BYTES = 512 * 1024;
+const MAX_PROVIDER_RESPONSE_BYTES = 2 * 1024 * 1024;
 const MAX_PROVIDER_ERROR_BYTES = 16 * 1024;
 
 function record(value: unknown): Record<string, unknown> | undefined {
