@@ -13,9 +13,9 @@ import type { CandidateEditorialDecision } from "@zxlab/signal-schema";
 import { GatewayRequestError } from "./gateway-client";
 
 const HISTORY_WINDOW_DAYS = 30;
-const EDITORIAL_FALLBACK_LIMIT = 8;
+const EDITORIAL_FALLBACK_LIMIT = 12;
 const EDITORIAL_FALLBACK_REASON = "Deterministic fallback after a temporary editorial gateway failure.";
-const BRIEFING_FALLBACK_LIMIT = 6;
+const BRIEFING_FALLBACK_LIMIT = 12;
 
 function transientModelFailure(cause: unknown): GatewayRequestError | Error | undefined {
   let current = cause;

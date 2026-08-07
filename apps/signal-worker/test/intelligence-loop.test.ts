@@ -7,7 +7,7 @@ import type {
 } from "@zxlab/signal-schema";
 import { parseGeneratedBriefingDraft } from "@zxlab/signal-schema";
 import { handleAnnotations } from "../src/routes/annotations";
-import { BriefingGenerator } from "../src/services/briefing-generator";
+import { BriefingGenerator, deterministicBriefingFallback, deterministicEditorialFallback } from "../src/services/briefing-generator";
 import type {
   AnnotationReplyInput,
   EditorialFilterInput,
@@ -147,6 +147,48 @@ describe("ZX Signal intelligence loop", () => {
     expect(() => parseGeneratedBriefingDraft({
       title: "Shallow lead", summary: "The lead lacks required depth.", items: [{ ...base, itemType: "lead" }],
     }, sourceIds)).toThrow(/broaderContext/);
+  });
+
+  it("supports twelve-item daily briefings and deterministic fallbacks", () => {
+    const fixture = new BriefingGenerator(env, new MemoryAwareFixtureLLM()).fixture()[0]!;
+    const candidates = Array.from({ length: 12 }, (_, index) => ({
+      ...fixture,
+      id: `daily-candidate-${index}`,
+      title: `Daily signal ${index + 1}`,
+    }));
+    const fallback = deterministicBriefingFallback("2026-08-07", candidates);
+    expect(fallback.items).toHaveLength(12);
+    expect(deterministicEditorialFallback(candidates).filter((decision) => decision.decision === "keep")).toHaveLength(12);
+
+    const item = (index: number) => ({
+      itemType: index === 0 ? "lead" as const : "brief" as const,
+      category: "ai-engineering" as const,
+      title: `Generated signal ${index + 1}`,
+      lede: "A supported daily signal.",
+      nutGraf: "The signal has enough evidence for a concise briefing item.",
+      keyFacts: ["The source provides one verifiable fact."],
+      broaderContext: index === 0 ? "The lead anchors the day's edition." : undefined,
+      implications: "Readers can assess the broader significance from the supplied evidence.",
+      counterpoint: index === 0 ? "The evidence remains limited to the current source set." : undefined,
+      watchNext: index === 0 ? "Track the next confirmed development." : undefined,
+      importance: index === 0 ? 90 : 60,
+      confidence: 80,
+      sourceIds: [fixture.id],
+    });
+    const items = Array.from({ length: 12 }, (_, index) => item(index));
+    const parsed = parseGeneratedBriefingDraft({
+      title: "Twelve-item briefing",
+      summary: "A full daily briefing.",
+      longTermThreads: [],
+      items,
+    }, new Set([fixture.id]));
+    expect(parsed.items).toHaveLength(12);
+    expect(() => parseGeneratedBriefingDraft({
+      title: "Thirteen-item briefing",
+      summary: "Too many items.",
+      longTermThreads: [],
+      items: [...items, item(12)],
+    }, new Set([fixture.id]))).toThrow(/1 to 12 items/);
   });
 
   it("keeps two to four evidenced long-term threads without failing the briefing", () => {

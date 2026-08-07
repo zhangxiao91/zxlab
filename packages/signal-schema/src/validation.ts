@@ -208,7 +208,7 @@ export function parseGeneratedBriefingDraft(
   allowedDossierIds: ReadonlySet<string> = new Set(),
 ): GeneratedBriefingDraft {
   const input = record(value, "briefing");
-  if (!Array.isArray(input.items) || input.items.length === 0 || input.items.length > 6) throw new SignalValidationError("briefing.items must contain 1 to 6 items");
+  if (!Array.isArray(input.items) || input.items.length === 0 || input.items.length > 12) throw new SignalValidationError("briefing.items must contain 1 to 12 items");
   const items = input.items.map((raw, index) => {
     const item = record(raw, `items[${index}]`);
     if (!Array.isArray(item.sourceIds) || item.sourceIds.length === 0 || item.sourceIds.length > 8) throw new SignalValidationError(`items[${index}].sourceIds is invalid`);

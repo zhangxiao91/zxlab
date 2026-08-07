@@ -60,7 +60,9 @@ describe("Signal prompts", () => {
     const briefing = buildBriefingPrompt({ date: "2026-07-25", candidates: [candidate("release")], memories: [] });
     const editorial = buildEditorialPrompt({ candidates: [candidate("release")], memories: [] });
     expect(briefing.system).toContain("never more than one third of the briefing");
+    expect(briefing.system).toContain("aim for 10-12 items");
     expect(editorial.system).toContain("no more than one third of keep decisions");
+    expect(editorial.system).toContain("support a 10-12 item briefing");
     expect(editorial.system).toContain("public significance");
   });
 

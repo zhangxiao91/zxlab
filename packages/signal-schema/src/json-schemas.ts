@@ -8,7 +8,7 @@ export const briefingDraftJsonSchema = {
       category: { type: "string", enum: ["ai-engineering", "markets", "zxlab"] },
       dossierIds: { type: "array", minItems: 1, maxItems: 3, items: { type: "string" } },
     }, required: ["title", "description", "category", "dossierIds"] } },
-    items: { type: "array", minItems: 1, maxItems: 6, items: { type: "object", additionalProperties: false, properties: {
+    items: { type: "array", minItems: 1, maxItems: 12, items: { type: "object", additionalProperties: false, properties: {
       itemType: { type: "string", enum: ["lead", "brief"] },
       category: { type: "string", enum: ["ai-engineering", "markets", "zxlab"] }, title: { type: "string" },
       lede: { type: "string" }, nutGraf: { type: "string" }, keyFacts: { type: "array", minItems: 1, maxItems: 5, items: { type: "string" } },
