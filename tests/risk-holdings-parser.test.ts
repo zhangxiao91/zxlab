@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { handleHoldingsParseDraft } from "../functions/api/holdings/parse-draft.ts";
+import { LocalPortfolioRepository } from "../src/features/risk/ledger.ts";
 import { brokerSnapshotFromDraft, normalizeHoldingParseDraft, parseLocalHoldingText } from "../src/features/risk/holdings-parser.ts";
+import { previewLocalPortfolioSnapshot } from "../src/features/market-agent/portfolio-snapshot.ts";
 
 function gatewayStream(data: unknown, requestId = "holdings-gateway-1"): Response {
   const events = [
@@ -12,6 +14,18 @@ function gatewayStream(data: unknown, requestId = "holdings-gateway-1"): Respons
   return new Response(events.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(""), {
     headers: { "Content-Type": "text/event-stream; charset=utf-8" },
   });
+}
+
+function memoryStorage(): Storage {
+  const values = new Map<string, string>();
+  return {
+    get length() { return values.size; },
+    clear() { values.clear(); },
+    getItem(key) { return values.get(key) ?? null; },
+    key(index) { return [...values.keys()][index] ?? null; },
+    removeItem(key) { values.delete(key); },
+    setItem(key, value) { values.set(key, value); },
+  };
 }
 
 test("holdings parser normalizes codes, preserves low-confidence warnings, and creates broker snapshot", () => {
@@ -51,6 +65,61 @@ test("local holdings parser handles simple CSV and isolates unresolved rows", ()
   assert.equal(draft.positions.length, 1);
   assert.equal(draft.positions[0].instrumentId, "SSE:512480");
   assert.equal(draft.unresolvedRows.length, 1);
+});
+
+test("portfolio snapshot exporter whitelists only confirmed structured fields and blocks unsafe local state", () => {
+  const repository = new LocalPortfolioRepository(memoryStorage());
+  const now = Date.parse("2026-08-07T08:00:00.000Z");
+  repository.saveBrokerSnapshot({
+    id: "confirmed-snapshot-1",
+    snapshotAt: "2026-08-07T07:30:00.000Z",
+    accountName: "账户名称不得上传",
+    sourceKind: "csv",
+    importedAt: "2026-08-07T07:31:00.000Z",
+    positions: [{ instrumentId: "SSE:603156", quantity: 1000, averageCost: 20.5 }],
+    instrumentMetadata: [{ id: "SSE:603156", symbol: "603156", name: "养元饮品", assetClass: "股票", market: "A股", theme: "消费", beta: 1 }],
+    rawDraftWarnings: ["原始行和自由文本不得上传"],
+  });
+
+  const preview = previewLocalPortfolioSnapshot(repository, now);
+  assert.ok(preview.upload);
+  assert.deepEqual(
+    Object.keys(preview.upload).sort(),
+    [
+      "calculatedAt",
+      "cash",
+      "effectiveAt",
+      "expiresAt",
+      "positions",
+      "rulesVersion",
+      "schemaVersion",
+      "sourceRevision",
+    ],
+  );
+  assert.deepEqual(preview.upload.positions, [
+    { instrumentId: "SSE:603156", quantity: 1000, averageCost: 20.5 },
+  ]);
+  assert.equal(
+    preview.upload.expiresAt,
+    "2026-08-08T19:30:00.000Z",
+  );
+  const serialized = JSON.stringify(preview.upload);
+  assert.doesNotMatch(serialized, /账户名称|原始行|instrumentMetadata|accountName|rawDraftWarnings/);
+
+  repository.saveBrokerSnapshot({
+    id: "confirmed-snapshot-2",
+    snapshotAt: "2026-08-05T07:00:00.000Z",
+    accountName: null,
+    sourceKind: "text",
+    importedAt: "2026-08-05T07:01:00.000Z",
+    positions: [{ instrumentId: "SSE:603156", quantity: 1000, averageCost: null }],
+    rawDraftWarnings: ["第 3 行未解析，无法识别证券"],
+  });
+  const blocked = previewLocalPortfolioSnapshot(repository, now);
+  assert.equal(blocked.upload, null);
+  assert.match(blocked.issues.join("\n"), /超过 36 小时/);
+  assert.match(blocked.issues.join("\n"), /缺少有效平均成本/);
+  assert.match(blocked.issues.join("\n"), /未解析持仓/);
 });
 
 test("holdings parse API prefers stream gateway and returns normalized draft", async () => {

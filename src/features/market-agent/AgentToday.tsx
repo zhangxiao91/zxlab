@@ -1,18 +1,30 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import gsap from "gsap";
 import { loadMarketWatchlist } from "../market/watchlist";
+import { LocalPortfolioRepository } from "../risk/ledger";
 import {
   deleteAgentRun,
   exportAgentRuns,
   getAgentProfile,
   getAgentRuns,
+  getPortfolioSnapshotControlState,
+  purgePortfolioSnapshotHistory,
   sendRunFeedback,
   startCloseReview,
+  stopPortfolioSnapshot,
   syncAgentWatchlist,
+  syncPortfolioSnapshot,
   type AgentProfileView,
+  type AgentRunMode,
   type AgentRunView,
   type AgentWatchlistItem,
+  type PortfolioPurgeScope,
+  type PortfolioSnapshotControlState,
 } from "./client";
+import {
+  previewLocalPortfolioSnapshot,
+  type LocalPortfolioSnapshotPreview,
+} from "./portfolio-snapshot";
 
 const date = (value: string) =>
   new Date(value).toLocaleString("zh-CN", {
@@ -35,6 +47,17 @@ export default function AgentToday() {
   const [setupNote, setSetupNote] = useState<string | null>(null);
   const [activeRun, setActiveRun] = useState<string | null>(null);
   const [deletingRunId, setDeletingRunId] = useState<string | null>(null);
+  const [portfolioPreview, setPortfolioPreview] =
+    useState<LocalPortfolioSnapshotPreview | null>(null);
+  const [portfolioState, setPortfolioState] =
+    useState<PortfolioSnapshotControlState | null>(null);
+  const [portfolioStateLoaded, setPortfolioStateLoaded] = useState(false);
+  const [portfolioBusy, setPortfolioBusy] = useState(false);
+  const [portfolioError, setPortfolioError] = useState<string | null>(null);
+  const [portfolioNote, setPortfolioNote] = useState<string | null>(null);
+  const [purgeScope, setPurgeScope] = useState<PortfolioPurgeScope | null>(
+    null,
+  );
   const rail = useRef<HTMLElement>(null);
   useEffect(() => {
     setLocalWatchlist(
@@ -42,6 +65,7 @@ export default function AgentToday() {
         ({ instrumentId, reason }) => ({ instrumentId, reason }),
       ),
     );
+    refreshPortfolioPreview();
     void refresh();
   }, []);
   useEffect(() => {
@@ -67,6 +91,88 @@ export default function AgentToday() {
       setError(cause instanceof Error ? cause.message : "Agent 暂不可用");
     } finally {
       setLoading(false);
+    }
+    try {
+      setPortfolioState(await getPortfolioSnapshotControlState());
+      setPortfolioError(null);
+    } catch (cause) {
+      setPortfolioState(null);
+      setPortfolioError(
+        cause instanceof Error ? cause.message : "持仓快照状态暂不可用",
+      );
+    } finally {
+      setPortfolioStateLoaded(true);
+    }
+  }
+  function refreshPortfolioPreview() {
+    const preview = previewLocalPortfolioSnapshot(
+      new LocalPortfolioRepository(window.localStorage),
+    );
+    setPortfolioPreview(preview);
+    return preview;
+  }
+  async function syncLocalPortfolioSnapshot() {
+    const preview = refreshPortfolioPreview();
+    if (!preview.upload) {
+      setPortfolioError(preview.issues[0] ?? "本机持仓快照尚不能同步。");
+      return;
+    }
+    setPortfolioBusy(true);
+    try {
+      const nextState = await syncPortfolioSnapshot(preview.upload);
+      setPortfolioState(nextState);
+      setPortfolioError(null);
+      setPortfolioNote(
+        `已同步 ${preview.positionCount} 个持仓；将在 ${date(preview.upload.expiresAt)} 后自动失效。`,
+      );
+    } catch (cause) {
+      setPortfolioError(
+        cause instanceof Error ? cause.message : "持仓快照同步失败",
+      );
+    } finally {
+      setPortfolioBusy(false);
+    }
+  }
+  async function stopUsingPortfolioSnapshot() {
+    const snapshot = portfolioState?.snapshot;
+    if (!snapshot) return;
+    setPortfolioBusy(true);
+    try {
+      const nextState = await stopPortfolioSnapshot(snapshot.id);
+      setPortfolioState(nextState);
+      setRuns(await getAgentRuns());
+      setPortfolioError(null);
+      setPortfolioNote(
+        nextState.detachedRunCount
+          ? `已停止后续使用，并将 ${nextState.detachedRunCount} 个排队 Run 切回仅市场模式。`
+          : "已停止后续使用；后续 Run 将保持仅市场模式。",
+      );
+    } catch (cause) {
+      setPortfolioError(
+        cause instanceof Error ? cause.message : "停止使用持仓快照失败",
+      );
+    } finally {
+      setPortfolioBusy(false);
+    }
+  }
+  async function confirmPortfolioPurge() {
+    if (!purgeScope) return;
+    setPortfolioBusy(true);
+    try {
+      const nextState = await purgePortfolioSnapshotHistory(purgeScope);
+      setPortfolioState(nextState);
+      setRuns(await getAgentRuns());
+      setPortfolioError(null);
+      setPortfolioNote(
+        `已清除 ${nextState.snapshots} 份快照及 ${nextState.runs} 条关联 Run；审计墓碑已保留。`,
+      );
+      setPurgeScope(null);
+    } catch (cause) {
+      setPortfolioError(
+        cause instanceof Error ? cause.message : "清除持仓快照历史失败",
+      );
+    } finally {
+      setPortfolioBusy(false);
     }
   }
   async function confirmWatchlist() {
@@ -210,6 +316,178 @@ export default function AgentToday() {
           </section>
         )}
         {setupNote && <p className="agent-setup-note">{setupNote}</p>}
+        <section className="agent-portfolio" aria-label="持仓快照">
+          <header className="agent-portfolio__header">
+            <div>
+              <p>持仓快照</p>
+              <h2>只把确认后的持仓，用于下一次复盘。</h2>
+              <span>
+                原始券商文件、账户名称、备注和交易明细始终保留在本机；服务端只接收结构化持仓、汇总现金和失效时间。
+              </span>
+            </div>
+            <a href="/lab/trading?view=positions&action=holdings">
+              打开持仓风险台
+            </a>
+          </header>
+          {portfolioError && (
+            <p className="review-status review-status--warning">
+              {portfolioError}
+            </p>
+          )}
+          {portfolioNote && (
+            <p className="agent-portfolio__note">{portfolioNote}</p>
+          )}
+          <div className="agent-portfolio__grid">
+            <article className="agent-portfolio__local">
+              <header>
+                <div>
+                  <span>本机预览</span>
+                  <strong>
+                    {portfolioPreview?.upload ? "可同步" : "需要处理"}
+                  </strong>
+                </div>
+                <button
+                  type="button"
+                  onClick={refreshPortfolioPreview}
+                  disabled={portfolioBusy}
+                >
+                  重新检查
+                </button>
+              </header>
+              {portfolioPreview?.upload ? (
+                <>
+                  <dl>
+                    <div>
+                      <dt>确认时间</dt>
+                      <dd>{date(portfolioPreview.upload.calculatedAt)}</dd>
+                    </div>
+                    <div>
+                      <dt>持仓数量</dt>
+                      <dd>{portfolioPreview.positionCount} 个标的</dd>
+                    </div>
+                    <div>
+                      <dt>汇总现金</dt>
+                      <dd>{formatCash(portfolioPreview.cash)}</dd>
+                    </div>
+                    <div>
+                      <dt>失效时间</dt>
+                      <dd>{date(portfolioPreview.upload.expiresAt)}</dd>
+                    </div>
+                  </dl>
+                  <button
+                    type="button"
+                    className="agent-portfolio__primary"
+                    onClick={() => void syncLocalPortfolioSnapshot()}
+                    disabled={portfolioBusy}
+                  >
+                    {portfolioBusy ? "正在同步" : "同步这份持仓快照"}
+                  </button>
+                </>
+              ) : (
+                <div className="agent-portfolio__issues">
+                  {portfolioPreview?.issues.map((issue) => <p key={issue}>{issue}</p>)}
+                  {!portfolioPreview && <p>正在检查本机已确认的券商持仓快照。</p>}
+                </div>
+              )}
+            </article>
+            <article className="agent-portfolio__server">
+              <header>
+                <div>
+                  <span>Agent 使用状态</span>
+                  <strong>
+                    {!portfolioStateLoaded
+                      ? "读取中"
+                      : portfolioError
+                        ? "状态不可用"
+                        : portfolioState?.snapshot
+                          ? "持仓感知"
+                          : "仅市场"}
+                  </strong>
+                </div>
+                {portfolioState?.snapshot && (
+                  <button
+                    type="button"
+                    className="agent-portfolio__stop"
+                    onClick={() => void stopUsingPortfolioSnapshot()}
+                    disabled={portfolioBusy}
+                  >
+                    停止后续使用
+                  </button>
+                )}
+              </header>
+              {portfolioState?.snapshot ? (
+                <dl>
+                  <div>
+                    <dt>已同步标的</dt>
+                    <dd>{portfolioState.snapshot.positions.length} 个</dd>
+                  </div>
+                  <div>
+                    <dt>服务端失效时间</dt>
+                    <dd>{date(portfolioState.snapshot.expiresAt)}</dd>
+                  </div>
+                  <div>
+                    <dt>字段状态</dt>
+                    <dd>{portfolioState.snapshot.reliable ? "完整" : "受限"}</dd>
+                  </div>
+                  <div>
+                    <dt>当前规则</dt>
+                    <dd>{portfolioState.snapshot.rulesVersion}</dd>
+                  </div>
+                </dl>
+              ) : (
+                <p className="agent-portfolio__empty">
+                  {portfolioError
+                    ? "暂时无法确认 Agent 是否正在使用持仓快照；请稍后刷新。"
+                    : "后续 Run 将只读取市场证据，不会使用本机持仓。"}
+                </p>
+              )}
+              <div className="agent-portfolio__history">
+                <span>
+                  历史 {portfolioState?.historicalSnapshotCount ?? 0} 份快照 / {portfolioState?.linkedRunCount ?? 0} 条关联 Run
+                </span>
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => setPurgeScope("expired")}
+                    disabled={portfolioBusy || !(portfolioState?.expiredSnapshotCount ?? 0)}
+                  >
+                    清除已过期
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPurgeScope("all")}
+                    disabled={portfolioBusy || !(portfolioState?.historicalSnapshotCount ?? 0)}
+                  >
+                    清除全部历史
+                  </button>
+                </div>
+              </div>
+            </article>
+          </div>
+          {purgeScope && (
+            <aside className="agent-portfolio__purge" aria-live="polite">
+              <div>
+                <strong>确认清除{purgeScope === "expired" ? "已过期" : "全部"}持仓快照历史</strong>
+                <p>
+                  将删除 {purgeScope === "expired" ? portfolioState?.expiredSnapshotCount ?? 0 : portfolioState?.historicalSnapshotCount ?? 0} 份快照和 {purgeScope === "expired" ? portfolioState?.expiredLinkedRunCount ?? 0 : portfolioState?.linkedRunCount ?? 0} 条关联 Run；此操作不可恢复，审计墓碑会保留。
+                </p>
+              </div>
+              <div>
+                <button type="button" onClick={() => setPurgeScope(null)} disabled={portfolioBusy}>
+                  取消
+                </button>
+                <button
+                  type="button"
+                  className="agent-portfolio__purge-confirm"
+                  onClick={() => void confirmPortfolioPurge()}
+                  disabled={portfolioBusy}
+                >
+                  {portfolioBusy ? "正在清除" : "确认清除"}
+                </button>
+              </div>
+            </aside>
+          )}
+        </section>
         <section className="agent-bento" aria-label="Agent 状态">
           <article className="agent-bento-card agent-bento-card--lead">
             <span>当前状态</span>
@@ -237,6 +515,11 @@ export default function AgentToday() {
               {latest?.evidenceFingerprint?.slice(0, 18) ??
                 "等待 sealed bundle"}
             </p>
+          </article>
+          <article className="agent-bento-card">
+            <span>运行模式</span>
+            <strong>{modeLabel(latest?.result?.mode, latest?.portfolioSnapshotId)}</strong>
+            <p>{modeDescription(latest?.result?.mode, latest?.portfolioSnapshotId)}</p>
           </article>
           <article className="agent-bento-card agent-bento-card--accent">
             <span>观察事件</span>
@@ -358,6 +641,9 @@ function RunRow({
           {statusLabel(run.status)}
         </span>
         <time>{date(run.createdAt)}</time>
+        <span className="agent-run-mode">
+          {modeLabel(run.result?.mode, run.portfolioSnapshotId)}
+        </span>
       </div>
       <div>
         <strong>{run.result?.headline ?? "Deterministic close review"}</strong>
@@ -399,4 +685,38 @@ function statusLabel(status: string) {
       } as Record<string, string>
     )[status] ?? status
   );
+}
+
+function modeLabel(
+  mode?: AgentRunMode,
+  portfolioSnapshotId?: string | null,
+) {
+  if (mode === "portfolio-aware") return "持仓感知";
+  if (mode === "market-only") return "仅市场";
+  return portfolioSnapshotId ? "待持仓校验" : "待市场校验";
+}
+
+function modeDescription(
+  mode?: AgentRunMode,
+  portfolioSnapshotId?: string | null,
+) {
+  if (mode === "portfolio-aware") {
+    return "行情和持仓快照均满足可靠性条件。";
+  }
+  if (mode === "market-only") {
+    return "本次未产生可靠持仓影响结论。";
+  }
+  return portfolioSnapshotId
+    ? "已绑定持仓快照，等待行情与字段校验。"
+    : "未绑定持仓快照，等待市场事实收集。";
+}
+
+function formatCash(value: number | null) {
+  return value === null
+    ? "—"
+    : new Intl.NumberFormat("zh-CN", {
+        style: "currency",
+        currency: "CNY",
+        maximumFractionDigits: 2,
+      }).format(value);
 }

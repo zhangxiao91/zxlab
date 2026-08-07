@@ -35,7 +35,7 @@ const signalPathAllowed = (path: string) =>
   || path.startsWith("/api/memory/")
   || path.startsWith("/api/memory-candidates/");
 
-const marketAgentPathAllowed = (path: string) => path === "/runs" || path === "/today" || path === "/profile" || path === "/watchlist" || path === "/export" || /^\/runs\/[^/]+(?:\/feedback|\/rerun)?$/.test(path);
+const marketAgentPathAllowed = (path: string) => path === "/runs" || path === "/today" || path === "/profile" || path === "/watchlist" || path === "/export" || path === "/portfolio-snapshot" || path === "/portfolio-snapshot/stop" || path === "/portfolio-snapshot/purge" || /^\/runs\/[^/]+(?:\/feedback|\/rerun)?$/.test(path);
 
 function target(service: PrivateService, rawPath: string, env: PrivateProxyEnv): URL {
   const path = `/${rawPath.replace(/^\/+/, "")}`;

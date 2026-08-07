@@ -12,10 +12,18 @@ export class DeterministicNarrator implements Narrator {
       const direction = event.kind === "price_rise" ? "上涨" : event.kind === "price_fall" ? "下跌" : "出现变化";
       return { id: `deterministic-${index}`, class: "fact", importance: Math.abs(Number(event.actual ?? 0)) >= 1000 ? "high" : "medium", title: `${event.instrumentId ?? "标的"} ${direction}`, explanation: `确定性规则检测到 ${String(event.actual ?? "未知")} bps 的价格变化。`, evidenceIds: [item.id] };
     });
+    const portfolioImpacts: AgentObservation[] = input.evidence.items.flatMap((item, index) => {
+      const value = item.value as { type?: unknown; impact?: { marketValue?: unknown; unrealizedPnl?: unknown; concentration?: unknown } };
+      if (item.kind !== "portfolio_impact" || !item.reliable || value.type !== "risk_impact" || !value.impact) return [];
+      const marketValue = Number(value.impact.marketValue);
+      const unrealizedPnl = Number(value.impact.unrealizedPnl);
+      const concentrationCount = Array.isArray(value.impact.concentration) ? value.impact.concentration.length : 0;
+      return [{ id: `deterministic-portfolio-${index}`, class: "fact", importance: "medium", title: "本地持仓风险快照已重估", explanation: `服务端已按当前可靠行情重估 ${concentrationCount} 个持仓；估算市值 ${Number.isFinite(marketValue) ? marketValue.toFixed(2) : "未知"}，未实现盈亏 ${Number.isFinite(unrealizedPnl) ? unrealizedPnl.toFixed(2) : "未知"}。`, evidenceIds: [item.id] }];
+    });
     const declaredLimitations = input.evidence.items.filter((item) => item.kind === "limitation");
     const limitations = [...(facts.some((item) => !item.reliable) ? ["部分市场事实不可靠，结果仅供观察，不能视为完整复盘。"] : []), ...declaredLimitations.map((item) => `证据限制：${JSON.stringify(item.value)}`)];
     const label = input.workflow === "morning_brief" ? "盘前简报" : "收盘复盘";
-    return { status: limitations.length ? "partial" : "success", headline: events.length ? `${label}检测到 ${events.length} 个确定性事件` : `${label}没有检测到显著事件`, summary: facts.length ? `本次简报基于 ${facts.length} 条市场事实和 ${events.length} 个规则事件。` : "当前没有可用的市场事实。", observations, portfolioImpacts: [], watchNext: [], limitations, evidenceFingerprint: input.evidence.fingerprint };
+    return { status: limitations.length ? "partial" : "success", headline: events.length ? `${label}检测到 ${events.length} 个确定性事件` : `${label}没有检测到显著事件`, summary: facts.length ? `本次简报基于 ${facts.length} 条市场事实、${events.length} 个规则事件${portfolioImpacts.length ? "和已重新估值的本地持仓快照" : ""}。` : "当前没有可用的市场事实。", observations, portfolioImpacts, watchNext: [], limitations, evidenceFingerprint: input.evidence.fingerprint };
   }
 }
 

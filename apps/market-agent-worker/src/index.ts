@@ -1,8 +1,9 @@
-import { subjectHash, validateBrowserRunIntent, type MarketAgentCommand } from "@zxlab/market-agent-schema";
+import { normalizePortfolioSnapshotUpload, subjectHash, validateBrowserRunIntent, type MarketAgentCommand } from "@zxlab/market-agent-schema";
 import { MemoryRunRepository } from "./foundation.ts";
 import { D1RunRepository } from "./d1-repository.ts";
 import { CloseReviewService } from "./close-review.ts";
 import { D1ProfileRepository, normalizeWatchlist } from "./profile-repository.ts";
+import { D1PortfolioSnapshotRepository, type PortfolioPurgeScope } from "./portfolio-snapshot-repository.ts";
 import { GatewayNarrator } from "./gateway-narrator.ts";
 import { DeterministicNarrator } from "./narration.ts";
 import { MarketSnapshotAdapter } from "./snapshot-reader.ts";
@@ -22,7 +23,7 @@ export default {
     if (path === "/health" && request.method === "GET") return json({ ok: true, service: "market-agent", generation: "evidence-bound-gateway" });
     if (!env.DB) return json({ error: "DATABASE_UNAVAILABLE" }, 503);
     try {
-      const actor = await resolveMarketAgentActor(request, env); requireMarketAgentScope(actor, request.method); const profiles = new D1ProfileRepository(env.DB); const profile = await profiles.resolve(await subjectHash(actor.ownerSubject, marketAgentProxySecret(env))); const runs = new D1RunRepository(env.DB);
+      const actor = await resolveMarketAgentActor(request, env); requireMarketAgentScope(actor, request.method); const profiles = new D1ProfileRepository(env.DB); const profile = await profiles.resolve(await subjectHash(actor.ownerSubject, marketAgentProxySecret(env))); const runs = new D1RunRepository(env.DB); const snapshots = new D1PortfolioSnapshotRepository(env.DB);
       if (path === "/profile" && request.method === "GET") return json(profile);
       if (path === "/watchlist" && request.method === "GET") return json({ profile, watchlist: await profiles.getWatchlist(profile.profileId) });
       if (path === "/watchlist" && request.method === "POST") {
@@ -31,13 +32,34 @@ export default {
         const updated = await profiles.syncWatchlist(profile.profileId, body.revision, normalizeWatchlist(body.items));
         return json({ profile: updated, watchlist: await profiles.getWatchlist(profile.profileId) });
       }
+      if (path === "/portfolio-snapshot" && request.method === "GET") return json(await snapshots.controlState(profile.profileId));
+      if (path === "/portfolio-snapshot" && request.method === "POST") {
+        let body: unknown; try { body = await request.json(); } catch { return json({ error: "INVALID_JSON" }, 400); }
+        const normalized = normalizePortfolioSnapshotUpload(body);
+        if (!normalized.snapshot) return json({ error: "INVALID_PORTFOLIO_SNAPSHOT", issues: normalized.issues }, 400);
+        const snapshot = await snapshots.sync(profile.profileId, normalized.snapshot);
+        return json({ ...(await snapshots.controlState(profile.profileId)), snapshot }, 201);
+      }
+      if (path === "/portfolio-snapshot/stop" && request.method === "POST") {
+        let body: { snapshotId?: unknown }; try { body = await request.json() as { snapshotId?: unknown }; } catch { return json({ error: "INVALID_JSON" }, 400); }
+        if (body.snapshotId !== undefined && (typeof body.snapshotId !== "string" || body.snapshotId.length > 120)) return json({ error: "INVALID_PORTFOLIO_SNAPSHOT_ID" }, 400);
+        const stopped = await snapshots.stopUse(profile.profileId, body.snapshotId);
+        if (!stopped.stopped) return json({ error: "PORTFOLIO_SNAPSHOT_NOT_CURRENT" }, 409);
+        return json({ ok: true, ...stopped, ...(await snapshots.controlState(profile.profileId)) });
+      }
+      if (path === "/portfolio-snapshot/purge" && request.method === "POST") {
+        let body: { scope?: unknown; confirmation?: unknown }; try { body = await request.json() as { scope?: unknown; confirmation?: unknown }; } catch { return json({ error: "INVALID_JSON" }, 400); }
+        if ((body.scope !== "all" && body.scope !== "expired") || body.confirmation !== "purge-portfolio-history") return json({ error: "INVALID_PORTFOLIO_PURGE" }, 400);
+        const purged = await snapshots.purgeHistory(profile.profileId, body.scope as PortfolioPurgeScope);
+        return json({ ok: true, ...purged, ...(await snapshots.controlState(profile.profileId)) });
+      }
       if (path === "/runs" && request.method === "POST") {
         let body: unknown; try { body = await request.json(); } catch { return json({ error: "INVALID_JSON" }, 400); }
         const issues = validateBrowserRunIntent(body); if (issues.length) return json({ error: "INVALID_INTENT", issues }, 400);
         const intent = body as Omit<MarketAgentCommand, "profileId" | "trigger">; const watchlist = await profiles.getWatchlist(profile.profileId);
         if (!watchlist && !intent.instrumentId) return json({ error: "WATCHLIST_BOOTSTRAP_REQUIRED" }, 409);
         const command: MarketAgentCommand = { ...intent, profileId: profile.profileId, trigger: "manual" };
-        const commandHash = await sha256(command); const result = await runs.createQueued(command, { command, actorScope: profile.profileId, commandHash });
+        const commandHash = await sha256(command); const portfolioSnapshot = await snapshots.getCurrent(profile.profileId); const result = await runs.createQueued(command, { command, actorScope: profile.profileId, commandHash, portfolioSnapshotId: portfolioSnapshot?.id ?? null });
         await relayOutbox(env, runs);
         return json({ runId: result.run.id, status: result.run.status, created: result.created }, 202);
       }
@@ -47,12 +69,12 @@ export default {
       const match = path.match(/^\/runs\/([^/]+)$/); if (match && request.method === "GET") { const run = await runs.get(match[1]); return run?.profileId === profile.profileId ? json(run) : json({ error: "NOT_FOUND" }, 404); }
       if (match && request.method === "DELETE") return await runs.delete(match[1], profile.profileId) ? json({ ok: true }) : json({ error: "NOT_FOUND" }, 404);
       const feedback = path.match(/^\/runs\/([^/]+)\/feedback$/); if (feedback && request.method === "POST") { const run = await runs.get(feedback[1]); if (run?.profileId !== profile.profileId) return json({ error: "NOT_FOUND" }, 404); const body = await request.json() as { value?: unknown }; if (body.value !== "helpful" && body.value !== "fact_error" && body.value !== "missing_factor") return json({ error: "INVALID_FEEDBACK" }, 400); await runs.recordFeedback(feedback[1], profile.profileId, body.value); return json({ ok: true }); }
-      const rerun = path.match(/^\/runs\/([^/]+)\/rerun$/); if (rerun && request.method === "POST") { const prior = await runs.get(rerun[1]); const priorCommand = await runs.getCommand(rerun[1]); if (prior?.profileId !== profile.profileId || !priorCommand) return json({ error: "NOT_FOUND" }, 404); const command = { ...priorCommand, trigger: "manual" as const, idempotencyKey: `rerun:${prior.id}:${crypto.randomUUID()}` }; const created = await runs.createQueued(command, { command, actorScope: profile.profileId, commandHash: await sha256(command), revisionOfRunId: prior.id }); await relayOutbox(env, runs); return json({ runId: created.run.id, status: created.run.status, revisionOfRunId: prior.id }, 202); }
+      const rerun = path.match(/^\/runs\/([^/]+)\/rerun$/); if (rerun && request.method === "POST") { const prior = await runs.get(rerun[1]); const priorCommand = await runs.getCommand(rerun[1]); if (prior?.profileId !== profile.profileId || !priorCommand) return json({ error: "NOT_FOUND" }, 404); const command = { ...priorCommand, trigger: "manual" as const, idempotencyKey: `rerun:${prior.id}:${crypto.randomUUID()}` }; const portfolioSnapshot = await snapshots.getCurrent(profile.profileId); const created = await runs.createQueued(command, { command, actorScope: profile.profileId, commandHash: await sha256(command), revisionOfRunId: prior.id, portfolioSnapshotId: portfolioSnapshot?.id ?? null }); await relayOutbox(env, runs); return json({ runId: created.run.id, status: created.run.status, revisionOfRunId: prior.id }, 202); }
       return json({ error: "NOT_FOUND" }, 404);
-    } catch (cause) { const code = cause instanceof Error ? cause.message : "INTERNAL_ERROR"; if (code === "ACTOR_SCOPE_REQUIRED") return json({ error: code }, 403); if (code.startsWith("ACTOR_")) return json({ error: code }, 401); if (code === "INVALID_WATCHLIST") return json({ error: code }, 400); if (code === "IDEMPOTENCY_KEY_REUSED") return json({ error: code }, 409); return json({ error: "INTERNAL_ERROR" }, 500); }
+    } catch (cause) { const code = cause instanceof Error ? cause.message : "INTERNAL_ERROR"; if (code === "ACTOR_SCOPE_REQUIRED") return json({ error: code }, 403); if (code.startsWith("ACTOR_")) return json({ error: code }, 401); if (code === "INVALID_WATCHLIST" || code.startsWith("INVALID_PORTFOLIO")) return json({ error: code }, 400); if (code === "IDEMPOTENCY_KEY_REUSED" || code === "PORTFOLIO_SNAPSHOT_NOT_CURRENT") return json({ error: code }, 409); return json({ error: "INTERNAL_ERROR" }, 500); }
   },
   async queue(batch: MessageBatch<RunMessage>, env: Env): Promise<void> { if (batch.queue.endsWith("-dlq")) await processDeadLetters(batch, env); else await processQueue(batch, env); },
-  async scheduled(controller: ScheduledController, env: Env): Promise<void> { if (!env.DB) return; const runs = new D1RunRepository(env.DB); const now = new Date(controller.scheduledTime); await runs.sweepExpired(now.toISOString(), Number(env.MARKET_AGENT_MAX_RECOVERY_GENERATIONS ?? 2)); const workflow = scheduledWorkflowAt(now); if (workflow) { const decision = await decideScheduledWorkflow(workflow, now, productionTradingCalendar); if (decision.decision === "run") { const profiles = new D1ProfileRepository(env.DB); for (const profileId of await profiles.listBootstrappedProfileIds()) { const command: MarketAgentCommand = { profileId, trigger: "scheduled", workflow, marketDate: decision.marketDate, idempotencyKey: `scheduled:${workflow}:${decision.marketDate}` }; await runs.createQueued(command, { command, actorScope: profileId, commandHash: await sha256(command) }); } } else await runs.recordScheduleDecision({ workflow, marketDate: decision.marketDate, decision: decision.decision, calendarSource: decision.calendar.source, reason: decision.reason }); } await relayOutbox(env, runs); },
+  async scheduled(controller: ScheduledController, env: Env): Promise<void> { if (!env.DB) return; const runs = new D1RunRepository(env.DB); const now = new Date(controller.scheduledTime); await runs.sweepExpired(now.toISOString(), Number(env.MARKET_AGENT_MAX_RECOVERY_GENERATIONS ?? 2)); const workflow = scheduledWorkflowAt(now); if (workflow) { const decision = await decideScheduledWorkflow(workflow, now, productionTradingCalendar); if (decision.decision === "run") { const profiles = new D1ProfileRepository(env.DB); const snapshots = new D1PortfolioSnapshotRepository(env.DB); for (const profileId of await profiles.listBootstrappedProfileIds()) { const command: MarketAgentCommand = { profileId, trigger: "scheduled", workflow, marketDate: decision.marketDate, idempotencyKey: `scheduled:${workflow}:${decision.marketDate}` }; const portfolioSnapshot = await snapshots.getCurrent(profileId); await runs.createQueued(command, { command, actorScope: profileId, commandHash: await sha256(command), portfolioSnapshotId: portfolioSnapshot?.id ?? null }); } } else await runs.recordScheduleDecision({ workflow, marketDate: decision.marketDate, decision: decision.decision, calendarSource: decision.calendar.source, reason: decision.reason }); } await relayOutbox(env, runs); },
 } satisfies ExportedHandler<Env, RunMessage>;
 
 export async function processRun(runId: string, env: Env): Promise<"ack" | "retry"> {
@@ -60,12 +82,13 @@ export async function processRun(runId: string, env: Env): Promise<"ack" | "retr
   if (claim.kind === "terminal" || claim.kind === "missing") return "ack"; if (claim.kind === "leased") return "retry";
   const command = await runs.getCommand(runId); if (!command) { await runs.fail(runId, claim.lease.leaseToken, "COMMAND_MISSING"); return "ack"; }
   const watchlist = await new D1ProfileRepository(env.DB).getWatchlist(command.profileId); if (command.trigger === "scheduled" && !watchlist) { await runs.fail(runId, claim.lease.leaseToken, "WATCHLIST_BOOTSTRAP_REQUIRED"); return "ack"; }
-  const instrumentIds = command.instrumentId ? [command.instrumentId] : (watchlist?.items.map((item) => item.instrumentId) ?? []); if (!instrumentIds.length) { await runs.fail(runId, claim.lease.leaseToken, "INSTRUMENT_SCOPE_EMPTY"); return "ack"; }
+  const portfolioSnapshot = claim.lease.run.portfolioSnapshotId ? await new D1PortfolioSnapshotRepository(env.DB).getUsableForProfile(command.profileId, claim.lease.run.portfolioSnapshotId) : null;
+  const instrumentIds = [...new Set([...(command.instrumentId ? [command.instrumentId] : (watchlist?.items.map((item) => item.instrumentId) ?? [])), ...(portfolioSnapshot?.positions.map((item) => item.instrumentId) ?? [])])]; if (!instrumentIds.length) { await runs.fail(runId, claim.lease.leaseToken, "INSTRUMENT_SCOPE_EMPTY"); return "ack"; }
   try {
     const reader = new MarketSnapshotAdapter({ service: env.MARKET_SNAPSHOT_SERVICE, baseUrl: env.MARKET_SNAPSHOT_URL });
     const generationEnabled = env.MARKET_AGENT_GENERATION_ENABLED === "true" && env.MARKET_AGENT_GATEWAY_URL && env.MARKET_AGENT_GATEWAY_TOKEN;
     const narrator = generationEnabled ? new GatewayNarrator({ apiUrl: env.MARKET_AGENT_GATEWAY_URL!, token: env.MARKET_AGENT_GATEWAY_TOKEN! }) : new DeterministicNarrator();
-    const output = await new CloseReviewService(reader, narrator).execute({ runId, command, instrumentIds, watchlistRevision: watchlist?.revision ?? "instrument-only" });
+    const output = await new CloseReviewService(reader, narrator).execute({ runId, command, instrumentIds, watchlistRevision: watchlist?.revision ?? "instrument-only", portfolioSnapshot });
     await runs.complete(runId, claim.lease.leaseToken, output.evidence, output.result); return "ack";
   } catch { await runs.defer(runId, claim.lease.leaseToken, "CLOSE_REVIEW_RETRYABLE"); return "retry"; }
 }

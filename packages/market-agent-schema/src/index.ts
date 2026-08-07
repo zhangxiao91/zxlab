@@ -2,6 +2,10 @@ import type { MarketSnapshot } from "@zxlab/market-schema";
 
 export const MARKET_AGENT_SCHEMA_VERSION = "market-agent.v1" as const;
 export const EVENT_RULE_VERSION = "market-event.v1" as const;
+export const PORTFOLIO_SNAPSHOT_SCHEMA_VERSION = "portfolio-snapshot.v1" as const;
+export const PORTFOLIO_SNAPSHOT_MAX_POSITIONS = 200;
+export const PORTFOLIO_SNAPSHOT_MAX_TTL_MS = 36 * 60 * 60 * 1_000;
+export const PORTFOLIO_SNAPSHOT_MAX_AGE_MS = 36 * 60 * 60 * 1_000;
 
 export type AgentWorkflow = "morning_brief" | "close_review" | "inspect_instrument" | "portfolio_impact";
 export type RunTrigger = "manual" | "scheduled" | "bot";
@@ -19,9 +23,30 @@ export interface SealedEvidenceBundle { schemaVersion: typeof MARKET_AGENT_SCHEM
 export interface AgentObservation { id: string; class: ObservationClass; importance: ObservationImportance; title: string; explanation: string; evidenceIds: string[]; }
 export interface AgentNarration { status: "success" | "partial"; headline: string; summary: string; observations: AgentObservation[]; portfolioImpacts: AgentObservation[]; watchNext: Array<{ condition: string; reason: string; evidenceIds: string[] }>; limitations: string[]; evidenceFingerprint: string; }
 export interface AgentResult extends AgentNarration { mode: "market-only" | "portfolio-aware"; }
-export interface AgentRun { id: string; profileId: string; workflow: AgentWorkflow; trigger: RunTrigger; status: RunStatus; idempotencyKey: string; commandHash: string; revisionOfRunId: string | null; attempt: number; recoveryGeneration: number; createdAt: string; updatedAt: string; evidenceFingerprint: string | null; failure: { code: string; retryable: boolean } | null; result?: AgentResult; }
+export interface PortfolioSnapshotPosition { instrumentId: string; quantity: number; averageCost: number; }
+export interface PortfolioSnapshotUpload {
+  schemaVersion: typeof PORTFOLIO_SNAPSHOT_SCHEMA_VERSION;
+  sourceRevision: string;
+  calculatedAt: string;
+  effectiveAt: string;
+  expiresAt: string;
+  positions: PortfolioSnapshotPosition[];
+  cash: number;
+  rulesVersion: string;
+  clientFingerprint?: `sha256:${string}`;
+}
+export interface PortfolioSnapshot extends Omit<PortfolioSnapshotUpload, "clientFingerprint"> {
+  id: string;
+  reliable: boolean;
+  warnings: string[];
+  fingerprint: `sha256:${string}`;
+  createdAt: string;
+  stoppedAt: string | null;
+}
+export interface PortfolioSnapshotUploadValidation { snapshot: PortfolioSnapshotUpload | null; issues: string[]; }
+export interface AgentRun { id: string; profileId: string; workflow: AgentWorkflow; trigger: RunTrigger; status: RunStatus; idempotencyKey: string; commandHash: string; revisionOfRunId: string | null; portfolioSnapshotId: string | null; attempt: number; recoveryGeneration: number; createdAt: string; updatedAt: string; evidenceFingerprint: string | null; failure: { code: string; retryable: boolean } | null; result?: AgentResult; }
 
-export interface RunCreation { command: MarketAgentCommand; actorScope: string; commandHash: `sha256:${string}`; revisionOfRunId?: string; }
+export interface RunCreation { command: MarketAgentCommand; actorScope: string; commandHash: `sha256:${string}`; revisionOfRunId?: string; portfolioSnapshotId?: string | null; }
 export type RunClaimResult = { kind: "claimed"; lease: { run: AgentRun; leaseToken: string; attempt: number; leaseExpiresAt: string } } | { kind: "terminal" } | { kind: "leased"; retryAfter: string } | { kind: "missing" };
 
 export type ActorKind = "human" | "agent";
@@ -82,6 +107,68 @@ export function validateBrowserRunIntent(value: unknown): string[] {
   return issues;
 }
 
+export function normalizePortfolioSnapshotUpload(value: unknown, now = Date.now()): PortfolioSnapshotUploadValidation {
+  const issues: string[] = [];
+  if (!isRecord(value)) return { snapshot: null, issues: ["snapshot must be an object"] };
+  exactKeys(value, ["schemaVersion", "sourceRevision", "calculatedAt", "effectiveAt", "expiresAt", "positions", "cash", "rulesVersion", "clientFingerprint"], "snapshot", issues);
+  if (value.schemaVersion !== PORTFOLIO_SNAPSHOT_SCHEMA_VERSION) issues.push("schemaVersion is invalid");
+  const sourceRevision = normalizedIdentifier(value.sourceRevision, "sourceRevision", issues);
+  const calculatedAt = normalizedIso(value.calculatedAt, "calculatedAt", issues);
+  const effectiveAt = normalizedIso(value.effectiveAt, "effectiveAt", issues);
+  const expiresAt = normalizedIso(value.expiresAt, "expiresAt", issues);
+  const rulesVersion = normalizedIdentifier(value.rulesVersion, "rulesVersion", issues);
+  const cash = finiteNumber(value.cash, "cash", issues, -1_000_000_000_000_000, 1_000_000_000_000_000);
+  const clientFingerprint = value.clientFingerprint === undefined ? undefined : normalizedFingerprint(value.clientFingerprint, "clientFingerprint", issues);
+  const positions = normalizePortfolioPositions(value.positions, issues);
+
+  const calculatedAtMs = calculatedAt ? Date.parse(calculatedAt) : NaN;
+  const effectiveAtMs = effectiveAt ? Date.parse(effectiveAt) : NaN;
+  const expiresAtMs = expiresAt ? Date.parse(expiresAt) : NaN;
+  if (Number.isFinite(calculatedAtMs) && calculatedAtMs > now + 5 * 60 * 1_000) issues.push("calculatedAt cannot be in the future");
+  if (Number.isFinite(calculatedAtMs) && now - calculatedAtMs > PORTFOLIO_SNAPSHOT_MAX_AGE_MS) issues.push("calculatedAt is too old");
+  if (Number.isFinite(effectiveAtMs) && effectiveAtMs > now + 5 * 60 * 1_000) issues.push("effectiveAt cannot be in the future");
+  if (Number.isFinite(calculatedAtMs) && Number.isFinite(effectiveAtMs) && calculatedAtMs > effectiveAtMs) issues.push("calculatedAt must not be after effectiveAt");
+  if (Number.isFinite(effectiveAtMs) && Number.isFinite(expiresAtMs) && expiresAtMs <= effectiveAtMs) issues.push("expiresAt must be after effectiveAt");
+  if (Number.isFinite(expiresAtMs) && expiresAtMs <= now) issues.push("expiresAt must be in the future");
+  if (Number.isFinite(effectiveAtMs) && Number.isFinite(expiresAtMs) && expiresAtMs - effectiveAtMs > PORTFOLIO_SNAPSHOT_MAX_TTL_MS) issues.push("expiresAt exceeds the allowed snapshot lifetime");
+
+  if (issues.length || !sourceRevision || !calculatedAt || !effectiveAt || !expiresAt || !rulesVersion || cash === null) return { snapshot: null, issues };
+  return {
+    snapshot: {
+      schemaVersion: PORTFOLIO_SNAPSHOT_SCHEMA_VERSION,
+      sourceRevision,
+      calculatedAt,
+      effectiveAt,
+      expiresAt,
+      positions,
+      cash,
+      rulesVersion,
+      ...(clientFingerprint ? { clientFingerprint } : {}),
+    },
+    issues,
+  };
+}
+
+export async function calculatePortfolioSnapshotFingerprint(snapshot: Omit<PortfolioSnapshotUpload, "clientFingerprint"> | PortfolioSnapshot): Promise<`sha256:${string}`> {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonicalPortfolioSnapshot(snapshot))));
+  return `sha256:${hex(digest)}`;
+}
+
+export function canonicalPortfolioSnapshot(snapshot: Omit<PortfolioSnapshotUpload, "clientFingerprint"> | PortfolioSnapshot): string {
+  return stableJson({
+    schemaVersion: snapshot.schemaVersion,
+    sourceRevision: snapshot.sourceRevision,
+    calculatedAt: snapshot.calculatedAt,
+    effectiveAt: snapshot.effectiveAt,
+    expiresAt: snapshot.expiresAt,
+    positions: [...snapshot.positions]
+      .map((position) => ({ instrumentId: position.instrumentId, quantity: position.quantity, averageCost: position.averageCost }))
+      .sort((left, right) => left.instrumentId.localeCompare(right.instrumentId)),
+    cash: snapshot.cash,
+    rulesVersion: snapshot.rulesVersion,
+  });
+}
+
 export function validateSealedEvidence(value: unknown): string[] {
   const issues: string[] = [];
   if (!isRecord(value)) return ["evidence must be an object"];
@@ -114,12 +201,54 @@ export function validateAgentNarration(value: unknown, evidence: SealedEvidenceB
 export function eventEvidenceId(runId: string, index: number): string { return `${runId}:event:${index}`; }
 function isRecord(value: unknown): value is Record<string, unknown> { return Boolean(value) && typeof value === "object" && !Array.isArray(value); }
 function oneOf(value: unknown, values: readonly string[]): boolean { return typeof value === "string" && values.includes(value); }
+function exactKeys(value: Record<string, unknown>, allowed: string[], path: string, issues: string[]) { for (const key of Object.keys(value)) if (!allowed.includes(key)) issues.push(`${path}.${key} is not allowed`); }
+function normalizedIdentifier(value: unknown, path: string, issues: string[]): string | null {
+  if (typeof value !== "string") { issues.push(`${path} is invalid`); return null; }
+  const normalized = value.trim();
+  if (!/^[a-zA-Z0-9._:-]{1,120}$/.test(normalized)) { issues.push(`${path} is invalid`); return null; }
+  return normalized;
+}
+function normalizedIso(value: unknown, path: string, issues: string[]): string | null {
+  if (typeof value !== "string" || Number.isNaN(Date.parse(value))) { issues.push(`${path} is invalid`); return null; }
+  return new Date(value).toISOString();
+}
+function finiteNumber(value: unknown, path: string, issues: string[], min: number, max: number): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < min || value > max) { issues.push(`${path} is invalid`); return null; }
+  return Object.is(value, -0) ? 0 : value;
+}
+function normalizedFingerprint(value: unknown, path: string, issues: string[]): `sha256:${string}` | null {
+  if (typeof value !== "string" || !/^sha256:[a-f0-9]{64}$/.test(value)) { issues.push(`${path} is invalid`); return null; }
+  return value as `sha256:${string}`;
+}
+function normalizePortfolioPositions(value: unknown, issues: string[]): PortfolioSnapshotPosition[] {
+  if (!Array.isArray(value) || value.length === 0 || value.length > PORTFOLIO_SNAPSHOT_MAX_POSITIONS) { issues.push("positions are invalid"); return []; }
+  const seen = new Set<string>();
+  const normalized: PortfolioSnapshotPosition[] = [];
+  value.forEach((entry, index) => {
+    const path = `positions[${index}]`;
+    if (!isRecord(entry)) { issues.push(`${path} is invalid`); return; }
+    exactKeys(entry, ["instrumentId", "quantity", "averageCost"], path, issues);
+    const instrumentId = typeof entry.instrumentId === "string" ? entry.instrumentId.trim().toUpperCase() : "";
+    const validInstrumentId = /^(SSE|SZSE):\d{6}$/.test(instrumentId) && !seen.has(instrumentId);
+    if (!validInstrumentId) issues.push(`${path}.instrumentId is invalid`);
+    else seen.add(instrumentId);
+    const quantity = finiteNumber(entry.quantity, `${path}.quantity`, issues, Number.MIN_VALUE, 1_000_000_000_000);
+    const averageCost = finiteNumber(entry.averageCost, `${path}.averageCost`, issues, 0, 1_000_000_000);
+    if (validInstrumentId && quantity !== null && averageCost !== null) normalized.push({ instrumentId, quantity, averageCost });
+  });
+  return normalized.sort((left, right) => left.instrumentId.localeCompare(right.instrumentId));
+}
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson((value as Record<string, unknown>)[key])}`).join(",")}}`;
+  return JSON.stringify(value);
+}
 function validActorEnvelope(value: ActorEnvelopePayload, now: number): boolean {
   if (!isRecord(value) || value.version !== 2 || value.audience !== "market-agent") return false;
   if (value.kind !== "human" && value.kind !== "agent") return false;
   if (!boundedString(value.subject) || !boundedString(value.ownerSubject) || !boundedString(value.actorId) || !boundedString(value.jti)) return false;
   if (!Array.isArray(value.scopes) || value.scopes.length === 0 || value.scopes.length > 32 || new Set(value.scopes).size !== value.scopes.length) return false;
-  if (value.scopes.some((item) => typeof item !== "string" || !/^(?:*|[a-z][a-z0-9-]{0,62}:(?:*|[a-z][a-z0-9-]{0,62}))$/.test(item))) return false;
+  if (value.scopes.some((item) => typeof item !== "string" || !/^(?:\*|[a-z][a-z0-9-]{0,62}:(?:\*|[a-z][a-z0-9-]{0,62}))$/.test(item))) return false;
   if (!Number.isSafeInteger(value.issuedAt) || !Number.isSafeInteger(value.expiresAt)) return false;
   if (value.issuedAt > now + 5 || value.expiresAt <= now || value.expiresAt <= value.issuedAt || value.expiresAt - value.issuedAt > 120) return false;
   return validRequestBinding(value.request);

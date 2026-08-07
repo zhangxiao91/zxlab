@@ -125,6 +125,60 @@ test("private Market Agent deletion stays on the profile-scoped service route", 
   assert.equal(forwardedMethod, "DELETE");
 });
 
+test("private Market Agent allowlist permits only the portfolio snapshot control routes", async () => {
+  const paths = [
+    { path: "portfolio-snapshot", method: "GET" },
+    { path: "portfolio-snapshot", method: "POST" },
+    { path: "portfolio-snapshot/stop", method: "POST" },
+    { path: "portfolio-snapshot/purge", method: "POST" },
+  ] as const;
+
+  for (const item of paths) {
+    let forwardedPath = "";
+    const response = await proxyPrivateRequest(
+      {
+        request: new Request(
+          `https://beta.zxlab.pages.dev/api/private/market-agent/${item.path}`,
+          {
+            method: item.method,
+            body: item.method === "GET" ? undefined : "{}",
+          },
+        ),
+        env: { ...env, MARKET_AGENT_API_URL: "https://market-agent.example.com" },
+      },
+      "market-agent",
+      item.path,
+      {
+        verifyAccess,
+        fetcher: async (input) => {
+          forwardedPath = new URL(String(input)).pathname;
+          return Response.json({ ok: true });
+        },
+      },
+    );
+    assert.equal(response.status, 200, item.path);
+    assert.equal(
+      forwardedPath,
+      `/api/v1/private/market-agent/${item.path}`,
+    );
+  }
+
+  let called = false;
+  const rejected = await proxyPrivateRequest(
+    {
+      request: new Request(
+        "https://beta.zxlab.pages.dev/api/private/market-agent/portfolio-snapshot/raw",
+      ),
+      env,
+    },
+    "market-agent",
+    "portfolio-snapshot/raw",
+    { verifyAccess, fetcher: async () => { called = true; return new Response(); } },
+  );
+  assert.equal(rejected.status, 404);
+  assert.equal(called, false);
+});
+
 test("private Market Agent proxy rejects routes outside its narrow allowlist", async () => {
   let called = false;
   const response = await proxyPrivateRequest(
