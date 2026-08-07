@@ -653,11 +653,6 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
       });
     });
     motion.add("(min-width: 64.01rem) and (prefers-reduced-motion: no-preference)", () => {
-      const lead = document.querySelector<HTMLElement>(".signal-item--lead");
-      const leadHeader = lead?.querySelector<HTMLElement>(".signal-item__header");
-      if (lead && leadHeader) {
-        ScrollTrigger.create({ trigger: lead, start: "top 5rem", end: "bottom 52%", pin: leadHeader, pinSpacing: false });
-      }
       gsap.utils.toArray<HTMLElement>(".signal-item--brief").forEach((item, index) => {
         gsap.fromTo(item, { y: 72, scale: 0.96 }, {
           y: 0,
