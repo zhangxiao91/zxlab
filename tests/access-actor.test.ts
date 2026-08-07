@@ -52,23 +52,46 @@ test("access actor fails closed for an unregistered or malformed machine configu
     (error: unknown) => error instanceof RiskReviewError && error.code === "ACCESS_SERVICE_ACTOR_UNREGISTERED",
   );
   await assert.rejects(
+    () => resolveAccessActor(
+      new Request("https://debug-beta.zxlab.pages.dev/api/private/market-agent/profile"),
+      { RISK_ACCESS_AUD: "human-audience", ZX_PRIVATE_ACCESS_ADDITIONAL_AUDS: JSON.stringify(["debug-audience"]) },
+      { verifyAccess: async () => ({ sub: "debug-human-subject", aud: "debug-audience" }) as never },
+    ),
+    (error: unknown) => error instanceof RiskReviewError && error.code === "ACCESS_SERVICE_ACTOR_IDENTITY_MISSING",
+  );
+  await assert.rejects(
     () => resolveAccessActor(request, { ZX_ACCESS_SERVICE_ACTORS: "not-json" }, { verifyAccess: humanClaims }),
     (error: unknown) => error instanceof RiskReviewError && error.code === "ACCESS_SERVICE_ACTORS_INVALID",
   );
 });
 
-test("private proxy can accept a separately-audienced debug Access application", async () => {
+test("private proxy accepts a separately-audienced registered debug Access service actor", async () => {
   let audiences: readonly string[] | undefined;
   const actor = await resolveAccessActor(
     new Request("https://debug-beta.zxlab.pages.dev/api/private/market-agent/profile"),
-    { RISK_ACCESS_AUD: "human-audience", ZX_PRIVATE_ACCESS_ADDITIONAL_AUDS: JSON.stringify(["debug-audience"]) },
+    {
+      RISK_ACCESS_AUD: "human-audience",
+      ZX_PRIVATE_ACCESS_ADDITIONAL_AUDS: JSON.stringify(["debug-audience"]),
+      ZX_ACCESS_SERVICE_ACTORS: JSON.stringify([{
+        clientId: "debug-service-token-client-id",
+        actorId: "codex-debug-agent",
+        ownerSubject: "debug-owner-subject",
+        scopes: ["market-agent:read"],
+      }]),
+    },
     {
       verifyAccess: async (_request, _env, options) => {
         audiences = options?.audiences;
-        return { sub: "debug-human-subject" } as never;
+        return { sub: "", common_name: "debug-service-token-client-id", aud: "debug-audience" } as never;
       },
     },
   );
   assert.deepEqual(audiences, ["human-audience", "debug-audience"]);
-  assert.equal(actor.ownerSubject, "debug-human-subject");
+  assert.deepEqual(actor, {
+    kind: "agent",
+    subject: "service:debug-service-token-client-id",
+    ownerSubject: "debug-owner-subject",
+    actorId: "codex-debug-agent",
+    scopes: ["market-agent:read"],
+  });
 });
