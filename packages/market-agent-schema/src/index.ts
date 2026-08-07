@@ -24,21 +24,46 @@ export interface AgentRun { id: string; profileId: string; workflow: AgentWorkfl
 export interface RunCreation { command: MarketAgentCommand; actorScope: string; commandHash: `sha256:${string}`; revisionOfRunId?: string; }
 export type RunClaimResult = { kind: "claimed"; lease: { run: AgentRun; leaseToken: string; attempt: number; leaseExpiresAt: string } } | { kind: "terminal" } | { kind: "leased"; retryAfter: string } | { kind: "missing" };
 
-export interface ActorEnvelopePayload { version: 1; subject: string; email?: string; audience: "market-agent"; expiresAt: number; }
+export type ActorKind = "human" | "agent";
+export interface ActorRequestBinding { method: string; path: string; bodyHash: `sha256:${string}`; }
+export interface ActorEnvelopePayload {
+  version: 2;
+  kind: ActorKind;
+  subject: string;
+  ownerSubject: string;
+  actorId: string;
+  scopes: string[];
+  audience: "market-agent";
+  issuedAt: number;
+  expiresAt: number;
+  jti: string;
+  request: ActorRequestBinding;
+}
+export interface ActorEnvelopeVerificationOptions { now?: number; request?: ActorRequestBinding; }
 export async function signActorEnvelope(payload: ActorEnvelopePayload, secret: string): Promise<string> {
   const encoded = base64UrlEncode(new TextEncoder().encode(JSON.stringify(payload)));
   return `${encoded}.${base64UrlEncode(await hmac(encoded, secret))}`;
 }
-export async function verifyActorEnvelope(envelope: string | null, secret: string, now = Date.now()): Promise<ActorEnvelopePayload> {
+export async function verifyActorEnvelope(envelope: string | null, secret: string, options: ActorEnvelopeVerificationOptions = {}): Promise<ActorEnvelopePayload> {
   if (!envelope || !secret) throw new Error("ACTOR_ENVELOPE_MISSING");
+  if (!options.request) throw new Error("ACTOR_ENVELOPE_REQUEST_MISSING");
   const [encoded, supplied, extra] = envelope.split(".");
   if (!encoded || !supplied || extra) throw new Error("ACTOR_ENVELOPE_INVALID");
   const expected = await hmac(encoded, secret); const actual = base64UrlDecode(supplied);
   if (!timingSafeEqual(expected, actual)) throw new Error("ACTOR_ENVELOPE_INVALID");
   let payload: ActorEnvelopePayload;
   try { payload = JSON.parse(new TextDecoder().decode(base64UrlDecode(encoded))) as ActorEnvelopePayload; } catch { throw new Error("ACTOR_ENVELOPE_INVALID"); }
-  if (payload.version !== 1 || payload.audience !== "market-agent" || !payload.subject || payload.expiresAt * 1000 <= now) throw new Error("ACTOR_ENVELOPE_INVALID");
+  const now = Math.floor((options.now ?? Date.now()) / 1_000);
+  if (!validActorEnvelope(payload, now) || !sameRequestBinding(payload.request, options.request)) throw new Error("ACTOR_ENVELOPE_INVALID");
   return payload;
+}
+export async function actorRequestBodyHash(request: Request): Promise<`sha256:${string}`> {
+  const body = await request.clone().arrayBuffer();
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", body));
+  return `sha256:${hex(digest)}`;
+}
+export function createActorRequestBinding(method: string, path: string, bodyHash: `sha256:${string}`): ActorRequestBinding {
+  return { method: method.toUpperCase(), path, bodyHash };
 }
 export async function subjectHash(subject: string, secret: string): Promise<string> {
   const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${secret}:${subject}`));
@@ -89,6 +114,25 @@ export function validateAgentNarration(value: unknown, evidence: SealedEvidenceB
 export function eventEvidenceId(runId: string, index: number): string { return `${runId}:event:${index}`; }
 function isRecord(value: unknown): value is Record<string, unknown> { return Boolean(value) && typeof value === "object" && !Array.isArray(value); }
 function oneOf(value: unknown, values: readonly string[]): boolean { return typeof value === "string" && values.includes(value); }
+function validActorEnvelope(value: ActorEnvelopePayload, now: number): boolean {
+  if (!isRecord(value) || value.version !== 2 || value.audience !== "market-agent") return false;
+  if (value.kind !== "human" && value.kind !== "agent") return false;
+  if (!boundedString(value.subject) || !boundedString(value.ownerSubject) || !boundedString(value.actorId) || !boundedString(value.jti)) return false;
+  if (!Array.isArray(value.scopes) || value.scopes.length === 0 || value.scopes.length > 32 || new Set(value.scopes).size !== value.scopes.length) return false;
+  if (value.scopes.some((item) => typeof item !== "string" || !/^(?:*|[a-z][a-z0-9-]{0,62}:(?:*|[a-z][a-z0-9-]{0,62}))$/.test(item))) return false;
+  if (!Number.isSafeInteger(value.issuedAt) || !Number.isSafeInteger(value.expiresAt)) return false;
+  if (value.issuedAt > now + 5 || value.expiresAt <= now || value.expiresAt <= value.issuedAt || value.expiresAt - value.issuedAt > 120) return false;
+  return validRequestBinding(value.request);
+}
+function validRequestBinding(value: ActorRequestBinding): boolean {
+  if (!isRecord(value) || typeof value.method !== "string" || !/^[A-Z]{1,12}$/.test(value.method)) return false;
+  if (typeof value.path !== "string" || !value.path.startsWith("/api/v1/private/market-agent/")) return false;
+  return typeof value.bodyHash === "string" && /^sha256:[a-f0-9]{64}$/.test(value.bodyHash);
+}
+function sameRequestBinding(left: ActorRequestBinding, right: ActorRequestBinding): boolean {
+  return left.method === right.method && left.path === right.path && left.bodyHash === right.bodyHash;
+}
+function boundedString(value: unknown): boolean { return typeof value === "string" && value.length > 0 && value.length <= 512; }
 function validateObservation(value: unknown, path: string, evidenceIds: Set<string>, issues: string[]) {
   if (!isRecord(value)) { issues.push(`${path} must be an object`); return; }
   if (typeof value.id !== "string" || !value.id) issues.push(`${path}.id is invalid`);

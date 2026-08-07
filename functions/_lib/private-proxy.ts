@@ -1,7 +1,8 @@
-import { RiskReviewError, type RiskReviewEnv, verifyCloudflareAccess } from "./risk/review.ts";
-import { signActorEnvelope } from "@zxlab/market-agent-schema";
+import { RiskReviewError, verifyCloudflareAccess } from "./risk/review.ts";
+import { actorRequestBodyHash, createActorRequestBinding, signActorEnvelope } from "@zxlab/market-agent-schema";
+import { requireActorScope, resolveAccessActor, type AccessActorEnv } from "./access/actor.ts";
 
-export interface PrivateProxyEnv extends RiskReviewEnv {
+export interface PrivateProxyEnv extends AccessActorEnv {
   RUNTIME_API_URL?: string;
   ZX_RUNTIME_SERVICE_TOKEN?: string;
   MARKET_AGENT_API_URL?: string;
@@ -48,22 +49,33 @@ function target(service: PrivateService, rawPath: string, env: PrivateProxyEnv):
 
 export async function proxyPrivateRequest(context: PrivateProxyContext, service: PrivateService, rawPath: string, dependencies: PrivateProxyDependencies = {}): Promise<Response> {
   try {
-    const actor = await (dependencies.verifyAccess ?? verifyCloudflareAccess)(context.request, context.env);
+    const actor = await resolveAccessActor(context.request, context.env, { verifyAccess: dependencies.verifyAccess });
     const token = (service === "market-agent" ? context.env.MARKET_AGENT_PROXY_TOKEN : context.env.ZX_RUNTIME_SERVICE_TOKEN)?.trim();
     if (!token) throw new RiskReviewError("PRIVATE_PROXY_UNAVAILABLE", "Private service credentials are unavailable.", 503);
 
     const upstream = target(service, rawPath, context.env);
     upstream.search = new URL(context.request.url).search;
+    const method = context.request.method.toUpperCase();
+    requireActorScope(actor, privateScope(service, method));
     const headers = new Headers({ Authorization: `Bearer ${token}`, Accept: context.request.headers.get("accept") ?? "application/json" });
     if (service === "market-agent") {
-      const subject = typeof actor.sub === "string" ? actor.sub : "";
-      if (!subject) throw new RiskReviewError("ACCESS_IDENTITY_MISSING", "Cloudflare Access identity is incomplete.", 403);
-      const email = typeof actor.email === "string" ? actor.email : undefined;
-      headers.set("X-ZX-Actor", await signActorEnvelope({ version: 1, subject, ...(email ? { email } : {}), audience: "market-agent", expiresAt: Math.floor(Date.now() / 1000) + 60 }, token));
+      const issuedAt = Math.floor(Date.now() / 1_000);
+      headers.set("X-ZX-Actor", await signActorEnvelope({
+        version: 2,
+        kind: actor.kind,
+        subject: actor.subject,
+        ownerSubject: actor.ownerSubject,
+        actorId: actor.actorId,
+        scopes: actor.scopes,
+        audience: "market-agent",
+        issuedAt,
+        expiresAt: issuedAt + 60,
+        jti: crypto.randomUUID(),
+        request: createActorRequestBinding(method, `${upstream.pathname}${upstream.search}`, await actorRequestBodyHash(context.request)),
+      }, token));
     }
     const contentType = context.request.headers.get("content-type");
     if (contentType) headers.set("Content-Type", contentType);
-    const method = context.request.method.toUpperCase();
     const fetcher = dependencies.fetcher ?? (service === "market-agent" && context.env.MARKET_AGENT_SERVICE
       ? (input: RequestInfo | URL, init?: RequestInit) => context.env.MARKET_AGENT_SERVICE!.fetch(new Request(input, init))
       : fetch);
@@ -83,4 +95,9 @@ export async function proxyPrivateRequest(context: PrivateProxyContext, service:
     const error = cause instanceof RiskReviewError ? cause : new RiskReviewError("PRIVATE_PROXY_UNAVAILABLE", "Private service is temporarily unavailable.", 502, { cause });
     return new Response(JSON.stringify({ error: { code: error.code, message: error.safeMessage } }), { status: error.status, headers: jsonHeaders });
   }
+}
+
+function privateScope(service: PrivateService, method: string): string {
+  const action = method === "GET" || method === "HEAD" ? "read" : "write";
+  return `${service}:${action}`;
 }

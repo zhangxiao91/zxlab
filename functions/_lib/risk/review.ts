@@ -10,6 +10,10 @@ export interface RiskReviewEnv {
   RISK_ACCESS_AUD?: string;
 }
 
+export interface CloudflareAccessVerificationOptions {
+  audiences?: readonly string[];
+}
+
 export class RiskReviewError extends Error {
   constructor(readonly code: string, readonly safeMessage: string, readonly status: number, options?: { cause?: unknown }) {
     super(safeMessage, options);
@@ -182,19 +186,24 @@ function reviewItemId(kind: string, label: string, evidenceIds: string[]): strin
   return `review:${kind}:${(hash >>> 0).toString(16).padStart(8, "0")}`;
 }
 
-export async function verifyCloudflareAccess(request: Request, env: RiskReviewEnv): Promise<JWTPayload> {
+export async function verifyCloudflareAccess(request: Request, env: RiskReviewEnv, options: CloudflareAccessVerificationOptions = {}): Promise<JWTPayload> {
   const teamDomain = env.RISK_ACCESS_TEAM_DOMAIN?.replace(/\/$/, "");
-  const audience = env.RISK_ACCESS_AUD?.trim();
-  if (!teamDomain || !audience || !teamDomain.startsWith("https://") || !teamDomain.endsWith(".cloudflareaccess.com")) throw new RiskReviewError("MISSING_ACCESS_CONFIGURATION", "Risk Access 尚未完成配置。", 503);
+  const configuredAudience = env.RISK_ACCESS_AUD?.trim();
+  const audiences = options.audiences ? [...options.audiences] : configuredAudience ? [configuredAudience] : [];
+  if (!teamDomain || !configuredAudience || !validAccessAudiences(audiences) || !audiences.includes(configuredAudience) || !teamDomain.startsWith("https://") || !teamDomain.endsWith(".cloudflareaccess.com")) throw new RiskReviewError("MISSING_ACCESS_CONFIGURATION", "Risk Access 尚未完成配置。", 503);
   const token = request.headers.get("cf-access-jwt-assertion") ?? accessCookie(request.headers.get("cookie"));
   if (!token) throw new RiskReviewError("ACCESS_REQUIRED", "需要通过 Cloudflare Access 登录。", 401);
   try {
     const jwks = createRemoteJWKSet(new URL(`${teamDomain}/cdn-cgi/access/certs`));
-    const result = await jwtVerify(token, jwks, { issuer: teamDomain, audience });
+    const result = await jwtVerify(token, jwks, { issuer: teamDomain, audience: audiences });
     return result.payload;
   } catch (cause) {
     throw new RiskReviewError("INVALID_ACCESS_TOKEN", "Cloudflare Access 身份校验失败。", 403, { cause });
   }
+}
+
+function validAccessAudiences(value: string[]): boolean {
+  return value.length > 0 && value.length <= 16 && new Set(value).size === value.length && value.every((item) => item.length > 0 && item.length <= 512 && !/\s/.test(item));
 }
 
 /**

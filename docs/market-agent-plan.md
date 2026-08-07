@@ -934,7 +934,7 @@ Browser
 -> Market Agent Worker verifies envelope and ownership
 ```
 
-Service binding 只证明请求走内部路由，不自动携带或证明最终用户身份。Pages 不转发浏览器可伪造的 `profileId`/actor header；它用验证后的 Access subject 在 server-side mapping 中解析 profile，并以 server-only `MARKET_AGENT_PROXY_TOKEN` 派生短时效签名 envelope。Worker 同时验证 proxy service identity、signature、issuer/audience、expiry、requestId 和 actor scope。原始 Access token、email、proxy token 与 envelope signature 不写日志。Bot 使用独立 identity 并固定映射 owner profile；scheduler 只读取配置中的 profile，不能接受请求参数覆盖。
+Service binding 只证明请求走内部路由，不自动携带或证明最终用户身份。Pages 不转发浏览器可伪造的 `profileId`/actor header；人类身份以验证后的 Access `sub` 解析，Service Token 则以已签名的 `common_name` Client ID 在 server-side mapping 中委托明确的 owner subject，并以 server-only `MARKET_AGENT_PROXY_TOKEN` 派生短时效签名 envelope。Worker 同时验证 transport secret、envelope signature/version/audience/expiry、精确 HTTP method/path/query/body digest 和 actor scope。原始 Access token、email、proxy token 与 envelope signature 不写日志。Bot 使用独立 identity 并固定映射 owner profile；scheduler 只读取配置中的 profile，不能接受请求参数覆盖。
 
 服务端调用：
 

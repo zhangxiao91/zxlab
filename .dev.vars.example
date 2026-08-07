@@ -22,3 +22,13 @@ AI_GATEWAY_ALLOWED_ORIGINS=http://localhost:4321
 # session used by LLM telemetry and the /api/private/* same-origin proxies.
 RISK_ACCESS_TEAM_DOMAIN=https://your-team.cloudflareaccess.com
 RISK_ACCESS_AUD=
+
+# Optional Pages secret. Map a verified Cloudflare Access service-token Client ID
+# to a delegated owner subject and the exact private-route scopes it may use.
+# Never place the Cloudflare client secret, CF_Authorization cookie, or a real
+# subject value in this file.
+ZX_ACCESS_SERVICE_ACTORS=
+
+# Optional JSON array of audiences for a separate private debug Access app.
+# The normal RISK_ACCESS_AUD is always required as the primary audience.
+ZX_PRIVATE_ACCESS_ADDITIONAL_AUDS=

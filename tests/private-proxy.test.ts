@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { actorRequestBodyHash, createActorRequestBinding, verifyActorEnvelope } from "@zxlab/market-agent-schema";
 import { proxyPrivateRequest, type PrivateProxyEnv } from "../functions/_lib/private-proxy.ts";
 import { RiskReviewError } from "../functions/_lib/risk/review.ts";
 
@@ -151,6 +152,54 @@ test("private Market Agent proxy prefers its service binding", async () => {
   );
   assert.equal(response.status, 200);
   assert.equal(forwardedPath, "/api/v1/private/market-agent/profile");
+});
+
+test("private Market Agent maps a registered machine identity to its delegated owner and rejects missing write scope", async () => {
+  const serviceEnv: PrivateProxyEnv = {
+    ...env,
+    ZX_ACCESS_SERVICE_ACTORS: JSON.stringify([{
+      clientId: "service-token-client-id",
+      actorId: "codex-side-debug",
+      ownerSubject: "debug-owner-subject",
+      scopes: ["market-agent:read"],
+    }]),
+  };
+  let forwarded: Request | undefined;
+  const response = await proxyPrivateRequest(
+    { request: new Request("https://beta.zxlab.pages.dev/api/private/market-agent/profile?source=debug", { headers: { "cf-access-client-id": "service-token-client-id", "cf-access-client-secret": "client-secret" } }), env: serviceEnv },
+    "market-agent",
+    "profile",
+    {
+      verifyAccess: async () => ({ sub: "", common_name: "service-token-client-id" }) as never,
+      fetcher: async (input, init) => {
+        forwarded = new Request(input, init);
+        return Response.json({ ok: true });
+      },
+    },
+  );
+  assert.equal(response.status, 200);
+  assert.ok(forwarded);
+  const url = new URL(forwarded.url);
+  const binding = createActorRequestBinding(forwarded.method, `${url.pathname}${url.search}`, await actorRequestBodyHash(forwarded));
+  const actor = await verifyActorEnvelope(forwarded.headers.get("x-zx-actor"), "market-agent-only-token", { request: binding });
+  assert.equal(actor.kind, "agent");
+  assert.equal(actor.subject, "service:service-token-client-id");
+  assert.equal(actor.ownerSubject, "debug-owner-subject");
+  assert.deepEqual(actor.scopes, ["market-agent:read"]);
+
+  let called = false;
+  const denied = await proxyPrivateRequest(
+    { request: new Request("https://beta.zxlab.pages.dev/api/private/market-agent/watchlist", { method: "POST", body: "{}", headers: { "cf-access-client-id": "service-token-client-id", "cf-access-client-secret": "client-secret" } }), env: serviceEnv },
+    "market-agent",
+    "watchlist",
+    {
+      verifyAccess: async () => ({ sub: "", common_name: "service-token-client-id" }) as never,
+      fetcher: async () => { called = true; return Response.json({ ok: true }); },
+    },
+  );
+  assert.equal(denied.status, 403);
+  assert.equal(called, false);
+  assert.match(await denied.text(), /ACCESS_SCOPE_REQUIRED/);
 });
 
 test("private proxy fails closed before contacting an upstream without Access", async () => {
