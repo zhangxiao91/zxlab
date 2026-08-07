@@ -5,7 +5,7 @@ import { marketFreshnessText, marketSnapshotStatus } from "./market-clock";
 import { ApiMarketDataProvider, type MarketDataProvider } from "./market";
 import { buildPortfolioHistory } from "./portfolio-history";
 import { LocalEvidenceReviewService, type ReviewService } from "./review";
-import type { ActivityItem, BrokerSnapshot, DailyWorkflowStep, MarketDiagnostics, PortfolioDiagnostics, Quote, RiskDashboardData, Transaction } from "./types";
+import type { ActivityItem, BrokerSnapshot, DailyWorkflowStep, Instrument, MarketDiagnostics, PortfolioDiagnostics, Quote, RiskDashboardData, Transaction } from "./types";
 
 export const RISK_RULE_VERSION = "risk-rules.v1.2";
 export const EVIDENCE_SCHEMA_VERSION = "evidence-pack.v1.2";
@@ -15,11 +15,29 @@ export const SNAPSHOT_MARKET_POLL_MS = 60_000;
 export class RiskWorkspaceService {
   constructor(private readonly repository: PortfolioRepository, private readonly journal: LocalRiskJournalRepository, private readonly reviewService: ReviewService = new LocalEvidenceReviewService(), private readonly clock: () => string = () => new Date().toISOString()) {}
   ensureSeeded() {}
+  private ensureInstrumentMetadata(transactions: Transaction[]): Instrument[] {
+    const current = this.repository.getInstruments();
+    const byId = new Map(current.map((item) => [item.id, item]));
+    const snapshot = this.repository.getBrokerSnapshot();
+    for (const item of snapshot?.instrumentMetadata ?? []) byId.set(item.id, item);
+    const ids = [...new Set([
+      ...transactions.map((item) => item.instrumentId),
+      ...(snapshot?.positions ?? []).map((item) => item.instrumentId),
+    ])].filter((item): item is string => Boolean(item));
+    for (const id of ids) {
+      if (byId.has(id) || !/^(SSE|SZSE):\d{6}$/.test(id)) continue;
+      const [, symbol] = id.split(":");
+      byId.set(id, { id, symbol, name: id, assetType: "stock", industry: "未分类", themes: [], leverageMultiplier: 1 });
+    }
+    const instruments = [...byId.values()];
+    if (instruments.length !== current.length) this.repository.saveInstruments(instruments);
+    return instruments;
+  }
   async load(): Promise<RiskDashboardData> {
     this.ensureSeeded();
     const transactions = this.repository.listTransactions();
     const mode = "api" as const;
-    const instruments = this.repository.getInstruments();
+    const instruments = this.ensureInstrumentMetadata(transactions);
     const riskRules = this.repository.getRiskRules();
     const tradePlans = this.repository.getTradePlans();
     const built = buildPositionsDetailed(transactions, instruments);
