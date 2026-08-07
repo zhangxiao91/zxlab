@@ -6,7 +6,7 @@
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
   "d1_databases": [{ "binding": "DB", "database_name": "market-agent", "database_id": "288332b4-0f5e-43c4-95a9-11201c229799", "migrations_dir": "migrations" }],
-  "services": [{ "binding": "MARKET_SNAPSHOT_SERVICE", "service": "zxlab-risk-market" }],
+  "services": [{ "binding": "MARKET_SNAPSHOT_SERVICE", "service": "zxlab-risk-market", "environment": "production" }],
   "queues": { "producers": [{ "binding": "MARKET_AGENT_RUNS", "queue": "market-agent-runs" }], "consumers": [{ "queue": "market-agent-runs", "max_retries": 3, "dead_letter_queue": "market-agent-runs-dlq" }, { "queue": "market-agent-runs-dlq", "max_retries": 0 }] },
   "triggers": { "crons": ["*/5 * * * *"] },
   "vars": { "MARKET_AGENT_GENERATION_ENABLED": "true", "MARKET_AGENT_GATEWAY_URL": "https://beta.zxlab.pages.dev/api/ai/generate", "MARKET_AGENT_MAX_RECOVERY_GENERATIONS": "2" },
