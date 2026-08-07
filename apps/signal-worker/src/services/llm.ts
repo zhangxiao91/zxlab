@@ -21,6 +21,7 @@ import { SignalError } from "../lib/errors";
 import { ModelInvocationRepository, type InvocationTask } from "../repositories/model-invocation-repository";
 import {
   BRIEFING_PROMPT_VERSION,
+  briefingItemRange,
   EDITORIAL_PROMPT_VERSION,
   MEMORY_PROMPT_VERSION,
   REPLY_PROMPT_VERSION,
@@ -132,13 +133,29 @@ export class ProjectApiSignalLLM implements SignalLLM {
 
   async generateBriefing(input: GenerateBriefingInput): Promise<GeneratedBriefingDraft> {
     const allowedSources = new Set(input.candidates.map((candidate) => candidate.id));
+    const itemRange = briefingItemRange(input.candidates.length);
     const allowedThreadDossiers = new Set(input.storyDossiers
       .filter((dossier) => dossier.historicalSignals.length > 0 || dossier.priorCoverage.length > 0)
       .map((dossier) => dossier.id));
+    const schema = itemRange.minItems > 1
+      ? {
+        ...briefingDraftJsonSchema,
+        properties: {
+          ...briefingDraftJsonSchema.properties,
+          items: { ...briefingDraftJsonSchema.properties.items, minItems: itemRange.minItems },
+        },
+      }
+      : briefingDraftJsonSchema;
     const options = {
       task: "briefing" as const, gatewayTask: "signal-briefing" as const, promptVersion: BRIEFING_PROMPT_VERSION,
-      prompt: buildBriefingPrompt(input), schema: briefingDraftJsonSchema,
-      validate: (value: unknown) => parseGeneratedBriefingDraft(value, allowedSources, allowedThreadDossiers), runId: input.runId, repair: true,
+      prompt: buildBriefingPrompt(input), schema,
+      validate: (value: unknown) => {
+        const draft = parseGeneratedBriefingDraft(value, allowedSources, allowedThreadDossiers);
+        if (draft.items.length < itemRange.minItems) {
+          throw new SignalValidationError(`Briefing must contain at least ${itemRange.minItems} items for this candidate set`);
+        }
+        return draft;
+      }, runId: input.runId, repair: true,
     };
     return this.runJson(options);
   }

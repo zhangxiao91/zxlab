@@ -166,8 +166,8 @@ ZX Signal task policies are intentionally separate from generic callers:
 
 | Task | Output cap | Candidate timeout | Total budget |
 | --- | ---: | ---: | ---: |
-| `signal-editorial-filter` | 4,000 | 30 s | 75 s |
-| `signal-briefing` | 4,000 | 60 s | 150 s |
+| `signal-editorial-filter` | 8,000 | 60 s | 120 s |
+| `signal-briefing` | 12,000 | 60 s | 150 s |
 | `signal-annotation-reply` | 1,200 | 20 s | 40 s |
 | `signal-memory-extraction` | 800 | 20 s | 40 s |
 | `signal-memory-consolidation` | 1,600 | 30 s | 60 s |

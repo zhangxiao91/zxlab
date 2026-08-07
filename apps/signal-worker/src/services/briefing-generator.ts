@@ -3,7 +3,7 @@ import fixtureCandidates from "../../fixtures/candidates.json";
 import { parseCandidateSignal, parseGeneratedBriefingDraft } from "@zxlab/signal-schema";
 import { SignalError } from "../lib/errors";
 import { BriefingRepository } from "../repositories/briefing-repository";
-import { BRIEFING_PROMPT_VERSION } from "./prompts";
+import { BRIEFING_PROMPT_VERSION, briefingItemRange } from "./prompts";
 import type { SignalLLM } from "./llm";
 import { MemoryService } from "../memory/service/memory-service";
 import { CollectionRepository } from "../repositories/collection-repository";
@@ -91,7 +91,22 @@ export function selectSynthesisCandidates(candidates: CandidateSignal[], decisio
   const supporting = new Set(decisions
     .filter((decision) => decision.decision === "merge" && decision.mergeTargetCandidateId && kept.has(decision.mergeTargetCandidateId))
     .map((decision) => decision.candidateId));
-  return candidates.filter((candidate) => kept.has(candidate.id) || supporting.has(candidate.id));
+  const selected = candidates.filter((candidate) => kept.has(candidate.id) || supporting.has(candidate.id));
+  const minimumItems = briefingItemRange(candidates.length).minItems;
+  if (selected.length >= minimumItems) return selected;
+
+  const decisionsByCandidateId = new Map(decisions.map((decision) => [decision.candidateId, decision]));
+  const editorialScore = (candidate: CandidateSignal): number => {
+    const decision = decisionsByCandidateId.get(candidate.id);
+    if (!decision) return 0;
+    return decision.relevance + decision.novelty + decision.actionability + decision.sourceQuality;
+  };
+  const needed = minimumItems - selected.length;
+  const supplemental = candidates
+    .filter((candidate) => !kept.has(candidate.id) && !supporting.has(candidate.id))
+    .sort((left, right) => editorialScore(right) - editorialScore(left) || left.id.localeCompare(right.id))
+    .slice(0, needed);
+  return [...selected, ...supplemental];
 }
 
 export class BriefingGenerator {

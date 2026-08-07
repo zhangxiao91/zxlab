@@ -22,7 +22,7 @@ RSS / arXiv / Hacker News / GitHub Releases / fixture
 
 采集既可由受保护的管理 API 手动触发，也可由生产 Cron 每日执行；支持 RSS、arXiv、Hacker News 与可选 GitHub Releases。当前仍未加入 Workflow、Queue、Vectorize、embedding、自动接受 Memory 或多用户系统。fixture 全部标记为 `TEST MATERIAL`，不能视为实时事实。
 
-日报输出采用编辑部结构：第一条必须是且只能是一个 `lead`，包含导语、核心意义、关键事实、背景、影响、反方观点或不确定性以及后续观察；其后按证据充足度生成 3–5 条 `brief`，材料不足时宁可少发。共享 schema 在写入 D1 前强制验证这一形态。
+日报输出采用编辑部结构：第一条必须是且只能是一个 `lead`，包含导语、核心意义、关键事实、背景、影响、反方观点或不确定性以及后续观察；当候选池至少有 10 条可用信号时，日报必须生成 10–12 条（其后为 9–11 条 `brief`）；候选不足时才允许少发。共享 schema 与 Signal 的上下文校验会在写入 D1 前强制验证这一形态。
 
 ## Workspace
 

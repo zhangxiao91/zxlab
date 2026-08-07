@@ -58,4 +58,22 @@ describe("Signal story context", () => {
     ]);
     expect(selected.map((item) => item.id)).toEqual(["primary", "supporting"]);
   });
+
+  it("supplements a full daily set to ten synthesis candidates by editorial score", () => {
+    const candidates = Array.from({ length: 12 }, (_, index) => candidate(`daily-${index + 1}`, `Daily candidate ${index + 1}`));
+    const decisions = candidates.map((item, index) => ({
+      candidateId: item.id,
+      decision: index < 9 ? "keep" as const : "drop" as const,
+      category: "ai-engineering" as const,
+      relevance: index === 11 ? 95 : 50,
+      novelty: index === 11 ? 95 : 50,
+      actionability: 50,
+      sourceQuality: index === 11 ? 95 : 50,
+      reason: "Editorial test decision",
+      relatedMemoryIds: [],
+    }));
+    const selected = selectSynthesisCandidates(candidates, decisions);
+    expect(selected).toHaveLength(10);
+    expect(selected.at(-1)?.id).toBe("daily-12");
+  });
 });

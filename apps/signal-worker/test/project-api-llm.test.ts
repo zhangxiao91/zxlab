@@ -1,6 +1,6 @@
 import { env } from "cloudflare:test";
 import { describe, expect, it, vi } from "vitest";
-import type { BriefingItem } from "@zxlab/signal-schema";
+import type { BriefingItem, CandidateSignal } from "@zxlab/signal-schema";
 import { ProjectApiSignalLLM } from "../src/services/llm";
 
 const item: BriefingItem = {
@@ -32,6 +32,49 @@ function gatewayStream(data: unknown, requestId = "gateway-request-1", deltas: s
   return new Response(events.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(""), {
     headers: { "Content-Type": "text/event-stream; charset=utf-8" },
   });
+}
+
+function briefingCandidate(id: string): CandidateSignal {
+  return {
+    id,
+    source: { sourceId: `source-${id}`, sourceName: `Source ${id}`, sourceType: "rss", externalId: id },
+    categoryHint: "ai-engineering",
+    title: `Candidate ${id}`,
+    url: `https://example.com/${id}`,
+    canonicalUrl: `https://example.com/${id}`,
+    summary: `Summary for ${id}`,
+    fetchedAt: "2026-08-07T00:00:00.000Z",
+    tags: ["test"],
+    contentHash: id,
+    metadata: {},
+    collectionRunId: "project-api-llm-test",
+    status: "eligible",
+  };
+}
+
+function briefingDraft(candidates: CandidateSignal[], count: number) {
+  return {
+    title: "Daily briefing",
+    summary: "A valid test briefing.",
+    longTermThreads: [],
+    items: candidates.slice(0, count).map((candidate, index) => ({
+      itemType: index === 0 ? "lead" : "brief",
+      category: "ai-engineering",
+      title: candidate.title,
+      lede: candidate.summary,
+      nutGraf: "The candidate has enough evidence for a concise briefing item.",
+      keyFacts: ["A verifiable fact."],
+      ...(index === 0 ? {
+        broaderContext: "The lead anchors the full daily briefing.",
+        counterpoint: "The evidence remains limited to the supplied sources.",
+        watchNext: "Track the next verified development.",
+      } : {}),
+      implications: "The reader can evaluate the wider significance from the source.",
+      importance: index === 0 ? 90 : 60,
+      confidence: 80,
+      sourceIds: [candidate.id],
+    })),
+  };
 }
 
 describe("ProjectApiSignalLLM", () => {
@@ -133,5 +176,41 @@ describe("ProjectApiSignalLLM", () => {
 
     expect(result).toEqual({ reply: "流式回应已经可见。" });
     expect(streamed).toBe("流式回应已经可见。");
+  });
+
+  it("repairs a full daily briefing that returns fewer than ten items", async () => {
+    const candidates = Array.from({ length: 12 }, (_, index) => briefingCandidate(`daily-${index + 1}`));
+    const runId = "daily-minimum-test";
+    const startedAt = new Date().toISOString();
+    await env.DB.prepare(`INSERT INTO briefing_runs
+      (id, briefing_date, status, trigger_type, prompt_version, model, started_at)
+      VALUES (?, '2026-08-07', 'running', 'manual', 'test', 'test', ?)`)
+      .bind(runId, startedAt).run();
+    let attempt = 0;
+    const fetcher = vi.fn<typeof fetch>(async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { messages: Array<{ content: string }> };
+      expect(body.messages[0]?.content).toContain('"minItems":10');
+      const draft = briefingDraft(candidates, attempt === 0 ? 9 : 10);
+      attempt += 1;
+      return gatewayStream({
+        text: JSON.stringify(draft),
+        json: draft,
+        provider: "deepseek",
+        model: "deepseek-v4-flash",
+        fallbackIndex: 0,
+        latencyMs: 10,
+      }, `gateway-daily-${attempt}`);
+    });
+    const llm = new ProjectApiSignalLLM(env, fetcher);
+    const result = await llm.generateBriefing({
+      date: "2026-08-07",
+      candidates,
+      memories: [],
+      storyDossiers: [],
+      runId,
+    });
+
+    expect(result.items).toHaveLength(10);
+    expect(fetcher).toHaveBeenCalledTimes(2);
   });
 });
