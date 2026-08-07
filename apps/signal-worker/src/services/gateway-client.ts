@@ -1,8 +1,8 @@
 import { SignalValidationError } from "@zxlab/signal-schema";
 
 const MAX_GATEWAY_RESPONSE_BYTES = 512 * 1024;
-const STREAM_TIMEOUT_MS = 90_000;
-const GENERATE_TIMEOUT_MS = 120_000;
+const STREAM_TIMEOUT_MS = 120_000;
+const GENERATE_TIMEOUT_MS = 180_000;
 
 export interface GatewaySuccess {
   ok: true;

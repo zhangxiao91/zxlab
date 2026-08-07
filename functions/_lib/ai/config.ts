@@ -8,9 +8,11 @@ export interface AIEnv {
   DEEPSEEK_BASE_URL?: string;
   DEEPSEEK_API_KEY?: string;
   DEEPSEEK_MODEL?: string;
+  DEEPSEEK_FLASH_MODEL?: string;
   KIMI_BASE_URL?: string;
   KIMI_API_KEY?: string;
   KIMI_MODEL?: string;
+  KIMI_K3_MODEL?: string;
   AI_GATEWAY_ACCESS_TOKEN?: string;
   MARKET_AGENT_GATEWAY_TOKEN?: string;
   AI_GATEWAY_ALLOWED_ORIGINS?: string;
@@ -74,7 +76,7 @@ export function getDefaultModelChain(env: AIEnv): ModelCandidate[] {
     candidates.push({
       ...OFFICIAL_MODELS.deepseek,
       adapter: "openai-compatible",
-      model: configured(env, "DEEPSEEK_MODEL") ?? OFFICIAL_MODELS.deepseek.model,
+      model: configured(env, "DEEPSEEK_MODEL") ?? configured(env, "DEEPSEEK_FLASH_MODEL") ?? OFFICIAL_MODELS.deepseek.model,
       baseUrl: officialBaseUrl(env, "DEEPSEEK_BASE_URL", OFFICIAL_MODELS.deepseek.baseUrl),
       apiKey: deepseekKey,
     });
@@ -85,7 +87,7 @@ export function getDefaultModelChain(env: AIEnv): ModelCandidate[] {
     candidates.push({
       ...OFFICIAL_MODELS.kimi,
       adapter: "openai-compatible",
-      model: configured(env, "KIMI_MODEL") ?? OFFICIAL_MODELS.kimi.model,
+      model: configured(env, "KIMI_MODEL") ?? configured(env, "KIMI_K3_MODEL") ?? OFFICIAL_MODELS.kimi.model,
       baseUrl: officialBaseUrl(env, "KIMI_BASE_URL", OFFICIAL_MODELS.kimi.baseUrl),
       apiKey: kimiKey,
     });

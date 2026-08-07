@@ -178,7 +178,8 @@ export class ProjectApiSignalLLM implements SignalLLM {
             { role: "user", content: options.prompt.user },
           ],
           temperature: 0,
-          maxOutputTokens: options.gatewayTask === "signal-briefing" || options.gatewayTask === "signal-editorial-filter" ? 4_000
+          maxOutputTokens: options.gatewayTask === "signal-briefing" ? 12_000
+            : options.gatewayTask === "signal-editorial-filter" ? 8_000
             : options.gatewayTask === "signal-memory-extraction" ? 800 : 1_200,
           responseFormat: { type: "json" },
         },

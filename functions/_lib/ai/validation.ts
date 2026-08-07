@@ -7,7 +7,7 @@ export const AI_REQUEST_LIMITS = {
   maxMessageChars: 24_000,
   maxTotalMessageChars: 96_000,
   maxTaskChars: 80,
-  maxOutputTokens: 4_000,
+  maxOutputTokens: 12_000,
 } as const;
 
 const allowedInputKeys = new Set(["task", "messages", "temperature", "maxOutputTokens", "responseFormat", "context"]);

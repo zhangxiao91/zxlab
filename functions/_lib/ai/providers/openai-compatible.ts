@@ -10,6 +10,16 @@ function record(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
 }
 
+function textContent(value: unknown): string | undefined {
+  if (typeof value === "string") return value;
+  if (!Array.isArray(value)) return undefined;
+  const parts = value.flatMap((part) => {
+    const text = record(part)?.text;
+    return typeof text === "string" ? [text] : [];
+  });
+  return parts.length > 0 ? parts.join("") : undefined;
+}
+
 async function readBoundedText(response: Response, maxBytes: number): Promise<string> {
   if (!response.body) return "";
   const reader = response.body.getReader();
@@ -93,6 +103,7 @@ function requestBody(candidate: ModelCandidate, input: GenerateAIInput, streamin
     messages: input.messages,
     temperature: input.temperature,
     max_tokens: input.maxOutputTokens,
+    ...(candidate.provider === "deepseek" && input.responseFormat?.type === "json" ? { thinking: { type: "disabled" } } : {}),
     ...(input.responseFormat?.type === "json" ? { response_format: { type: "json_object" } } : {}),
     ...(streaming ? { stream: true, stream_options: { include_usage: true } } : {}),
   });
@@ -132,8 +143,8 @@ async function readOpenAIStream(
     streamUsage = usage(root) ?? streamUsage;
     const choices = Array.isArray(root.choices) ? root.choices : [];
     const delta = record(record(choices[0])?.delta);
-    const content = delta?.content;
-    if (typeof content === "string" && content.length > 0) {
+    const content = textContent(delta?.content);
+    if (content) {
       text += content;
       await onDelta(content);
     }
@@ -203,8 +214,8 @@ export class OpenAICompatibleAdapter implements AIProviderAdapter {
       const root = record(value);
       const choices = Array.isArray(root?.choices) ? root.choices : [];
       const message = record(record(choices[0])?.message);
-      const content = message?.content;
-      if (typeof content !== "string" || !content.trim()) {
+      const content = textContent(message?.content);
+      if (!content?.trim()) {
         throw new AIError("INVALID_PROVIDER_RESPONSE", { statusCode: response.status, fallbackAllowed: true });
       }
       return { text: content.trim(), usage: root ? usage(root) : undefined, statusCode: response.status };

@@ -102,9 +102,10 @@ test("Signal editorial filtering allows DeepSeek enough time for reasoning outpu
   assert.deepEqual(resolveTaskPolicy({ ...input, task: "signal-editorial-filter" }), {
     timeoutMs: 60_000,
     totalBudgetMs: 120_000,
-    maxOutputTokens: 4_000,
+    maxOutputTokens: 8_000,
     temperature: 0,
   });
+  assert.equal(resolveTaskPolicy({ ...input, task: "signal-briefing" }).maxOutputTokens, 12_000);
 });
 
 test("429 retries once, then falls back to Kimi K3", async () => {
@@ -221,6 +222,21 @@ test("OpenAI-compatible adapter preserves the native fetch receiver", async () =
   });
   assert.equal(receiver, globalThis);
   assert.equal(result.text, "receiver-ok");
+});
+
+test("DeepSeek structured requests disable hidden thinking and accept text parts", async () => {
+  let requestBody: Record<string, unknown> | undefined;
+  const fetcher = async (_url: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return Response.json({ choices: [{ message: { content: [{ type: "text", text: "{\"ok\":true}" }] } }] });
+  };
+  const result = await new OpenAICompatibleAdapter().generate(candidates[0], {
+    ...input,
+    responseFormat: { type: "json" },
+  }, { requestId: "deepseek-json-test", timeoutMs: 1_000, fetcher });
+  assert.deepEqual(requestBody?.thinking, { type: "disabled" });
+  assert.deepEqual(requestBody?.response_format, { type: "json_object" });
+  assert.equal(result.text, "{\"ok\":true}");
 });
 
 test("OpenAI-compatible adapter parses fragmented provider SSE incrementally", async () => {
