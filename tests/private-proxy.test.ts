@@ -100,6 +100,30 @@ test("private Market Agent requests use the dedicated upstream and preserve the 
   assert.match(forwardedActor ?? "", /^[^.]+\.[^.]+$/);
 });
 
+test("private Market Agent deletion stays on the profile-scoped service route", async () => {
+  let forwardedUrl = "";
+  let forwardedMethod = "";
+  const response = await proxyPrivateRequest(
+    {
+      request: new Request("https://beta.zxlab.pages.dev/api/private/market-agent/runs/run-1", { method: "DELETE" }),
+      env: { ...env, MARKET_AGENT_API_URL: "https://market-agent.example.com" },
+    },
+    "market-agent",
+    "runs/run-1",
+    {
+      verifyAccess,
+      fetcher: async (input, init) => {
+        forwardedUrl = String(input);
+        forwardedMethod = init?.method ?? "";
+        return Response.json({ ok: true });
+      },
+    },
+  );
+  assert.equal(response.status, 200);
+  assert.equal(forwardedUrl, "https://market-agent.example.com/api/v1/private/market-agent/runs/run-1");
+  assert.equal(forwardedMethod, "DELETE");
+});
+
 test("private Market Agent proxy rejects routes outside its narrow allowlist", async () => {
   let called = false;
   const response = await proxyPrivateRequest(

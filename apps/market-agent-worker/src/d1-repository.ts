@@ -1,7 +1,8 @@
 import type { AgentResult, AgentRun, MarketAgentCommand, RunClaimResult, RunCreation, SealedEvidenceBundle } from "@zxlab/market-agent-schema";
 
 export class D1RunRepository {
-  constructor(private readonly db: D1Database) {}
+  private readonly db: D1Database;
+  constructor(db: D1Database) { this.db = db; }
   async createQueued(command: MarketAgentCommand, request: RunCreation): Promise<{ run: AgentRun; created: boolean }> {
     const existing = await this.db.prepare("SELECT * FROM agent_runs WHERE profile_id = ? AND idempotency_key = ?").bind(command.profileId, command.idempotencyKey).first<Record<string, unknown>>();
     if (existing) { if (existing.command_hash !== request.commandHash) throw new Error("IDEMPOTENCY_KEY_REUSED"); return { run: rowToRun(existing), created: false }; }
@@ -15,6 +16,17 @@ export class D1RunRepository {
   async get(id: string): Promise<AgentRun | null> { const row = await this.db.prepare("SELECT * FROM agent_runs WHERE id = ?").bind(id).first<Record<string, unknown>>(); return row ? rowToRun(row) : null; }
   async getCommand(id: string): Promise<MarketAgentCommand | null> { const row = await this.db.prepare("SELECT command_json FROM agent_runs WHERE id = ?").bind(id).first<{ command_json: string | null }>(); return row?.command_json ? JSON.parse(row.command_json) as MarketAgentCommand : null; }
   async list(profileId: string, limit = 50): Promise<AgentRun[]> { const result = await this.db.prepare("SELECT * FROM agent_runs WHERE profile_id = ? ORDER BY created_at DESC LIMIT ?").bind(profileId, limit).all<Record<string, unknown>>(); return result.results.map(rowToRun); }
+  async delete(runId: string, profileId: string): Promise<boolean> {
+    const deleted = await this.db.batch([
+      this.db.prepare("DELETE FROM agent_feedback WHERE run_id = ? AND profile_id = ?").bind(runId, profileId),
+      this.db.prepare("DELETE FROM market_events WHERE run_id = ? AND EXISTS (SELECT 1 FROM agent_runs WHERE id = ? AND profile_id = ?)").bind(runId, runId, profileId),
+      this.db.prepare("DELETE FROM run_market_snapshots WHERE run_id = ? AND EXISTS (SELECT 1 FROM agent_runs WHERE id = ? AND profile_id = ?)").bind(runId, runId, profileId),
+      this.db.prepare("DELETE FROM run_dispatch_outbox WHERE run_id = ? AND EXISTS (SELECT 1 FROM agent_runs WHERE id = ? AND profile_id = ?)").bind(runId, runId, profileId),
+      this.db.prepare("DELETE FROM dead_letter_records WHERE run_id = ? AND EXISTS (SELECT 1 FROM agent_runs WHERE id = ? AND profile_id = ?)").bind(runId, runId, profileId),
+      this.db.prepare("DELETE FROM agent_runs WHERE id = ? AND profile_id = ?").bind(runId, profileId),
+    ]);
+    return Boolean(deleted.at(-1)?.meta.changes);
+  }
   async recordFeedback(runId: string, profileId: string, value: string): Promise<void> { await this.db.prepare("INSERT INTO agent_feedback (id, run_id, profile_id, value, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(run_id, profile_id) DO UPDATE SET value = excluded.value, created_at = excluded.created_at").bind(crypto.randomUUID(), runId, profileId, value, new Date().toISOString()).run(); }
   async findByIdempotencyKey(key: string): Promise<AgentRun | null> { const row = await this.db.prepare("SELECT * FROM agent_runs WHERE idempotency_key = ?").bind(key).first<Record<string, unknown>>(); return row ? rowToRun(row) : null; }
   async claim(runId: string, workerId: string, now: string, leaseExpiresAt: string): Promise<RunClaimResult> {

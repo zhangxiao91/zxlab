@@ -51,6 +51,11 @@ html:has(.agent-app), body:has(.agent-app) { overflow-x: clip; }
 .agent-runs > header { display: flex; align-items: end; justify-content: space-between; gap: 2rem; }
 .agent-runs header h2 { max-width: 48rem; }
 .agent-runs header button { margin: 0; padding: .8rem 1rem; background: var(--risk-lime); color: var(--risk-ink); border-color: transparent; font-weight: 600; }
+.agent-runs__actions { display: flex; gap: .5rem; }
+.agent-runs__actions button:first-child { background: transparent; color: #f0eee5; border-color: var(--risk-line); }
+.agent-feedback button:last-child { border-color: rgba(255,112,92,.5); color: #ffb0a1; }
+.agent-feedback button:last-child:hover { border-color: #ff705c; color: #ff705c; }
+.agent-feedback button:disabled, .agent-runs__actions button:disabled { cursor: wait; opacity: .55; }
 .agent-run-list { margin-top: 2.5rem; border-top: 1px solid var(--risk-line); }
 .agent-run-row { display: grid; grid-template-columns: 10rem minmax(0, 1fr) auto; padding: 1.3rem 0; align-items: start; gap: 2rem; border-bottom: 1px solid var(--risk-line); }
 .agent-run-row strong { font-size: .88rem; font-weight: 540; }
