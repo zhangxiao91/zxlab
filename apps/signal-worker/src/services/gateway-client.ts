@@ -32,6 +32,17 @@ class GatewayStreamUnavailableError extends Error {
   }
 }
 
+function shouldFallbackToGenerate(error: unknown, apiUrl: string): boolean {
+  if (error instanceof GatewayStreamUnavailableError) return true;
+  if (error instanceof DOMException && error.name === "TimeoutError") return true;
+  if (error instanceof TypeError && streamEndpoint(apiUrl) !== generateEndpoint(apiUrl)) return true;
+  return error instanceof GatewayRequestError && [
+    "GATEWAY_STREAM_ALL_CANDIDATES_FAILED",
+    "GATEWAY_STREAM_INVALID_PROVIDER_RESPONSE",
+    "GATEWAY_STREAM_INCOMPLETE",
+  ].includes(error.failureCode);
+}
+
 function object(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
 }
@@ -221,9 +232,7 @@ export async function requestGatewayJson(params: {
   try {
     return await requestStream(params);
   } catch (cause) {
-    const streamTimedOut = cause instanceof DOMException && cause.name === "TimeoutError";
-    if (cause instanceof GatewayStreamUnavailableError || streamTimedOut
-      || (cause instanceof TypeError && streamEndpoint(params.apiUrl) !== generateEndpoint(params.apiUrl))) {
+    if (shouldFallbackToGenerate(cause, params.apiUrl)) {
       return requestGenerate(params);
     }
     throw cause;
