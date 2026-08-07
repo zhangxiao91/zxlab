@@ -5,6 +5,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { z } from "zod";
 import { formatLatestSignal } from "./format.js";
 import { runGatewayTask } from "./gateway.js";
+import { askMarketAgent, marketAgentAskScopes } from "./market-agent.js";
 import { fetchMarketQuotes, fetchMarketStatus } from "./market.js";
 import { memoryKinds, memoryNamespaces, saveConfirmedMemory, searchCanonicalMemory } from "./memory.js";
 import { calculateRiskSnapshot, parseRiskReview } from "./risk.js";
@@ -20,6 +21,9 @@ const gatewayToken = process.env.AI_GATEWAY_ACCESS_TOKEN?.trim() || "";
 const gatewayTimeoutMs = Number(process.env.AI_GATEWAY_REQUEST_TIMEOUT_MS || "90000");
 const marketBaseUrl = process.env.MARKET_API_BASE_URL?.trim() || "https://beta.zxlab.pages.dev";
 const marketTimeoutMs = Number(process.env.MARKET_REQUEST_TIMEOUT_MS || "15000");
+const marketAgentBaseUrl = process.env.MARKET_AGENT_API_BASE_URL?.trim() || marketBaseUrl;
+const marketAgentTimeoutMs = Number(process.env.MARKET_AGENT_REQUEST_TIMEOUT_MS || "15000");
+const marketAgentRunWaitMs = Number(process.env.MARKET_AGENT_RUN_WAIT_MS || "120000");
 const memoryBaseUrl = process.env.CANONICAL_MEMORY_API_BASE_URL?.trim() || signalBaseUrl;
 const memoryToken = process.env.CANONICAL_MEMORY_API_TOKEN?.trim() || "";
 const memoryTimeoutMs = Number(process.env.CANONICAL_MEMORY_REQUEST_TIMEOUT_MS || "15000");
@@ -38,6 +42,7 @@ const historySchema = z.object({
   date: z.string().trim().min(1).max(40),
   value: z.number().finite().positive(),
 });
+const marketAgentInstrumentId = z.string().trim().regex(/^(?:SSE|SZSE):\d{6}$/i);
 
 function jsonText(value: unknown): { content: Array<{ type: "text"; text: string }> } {
   return { content: [{ type: "text", text: JSON.stringify(value, null, 2) }] };
@@ -109,6 +114,23 @@ function createServer(): McpServer {
     baseUrl: marketBaseUrl,
     timeoutMs: marketTimeoutMs,
   }, [...new Set(instruments)])));
+  server.registerTool("market_agent_ask", {
+    title: "Evidence-bound Market Agent Ask",
+    description: "Start one fixed-scope Market Agent Run and return its terminal structured result with the sealed Evidence bundle. It cannot browse arbitrary sources, plan tools, or place trades.",
+    inputSchema: {
+      scope: z.enum(marketAgentAskScopes),
+      instrumentId: marketAgentInstrumentId.optional(),
+      question: z.string().trim().min(1).max(800).optional(),
+      priorRunId: z.string().trim().regex(/^[A-Za-z0-9._:-]{1,120}$/).optional(),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  }, async (input) => jsonText(await askMarketAgent({
+    baseUrl: marketAgentBaseUrl,
+    accessClientId: memoryAccessClientId,
+    accessClientSecret: memoryAccessClientSecret,
+    timeoutMs: marketAgentTimeoutMs,
+    runWaitMs: marketAgentRunWaitMs,
+  }, input)));
   server.registerTool("risk_snapshot", {
     title: "Read-only portfolio risk snapshot",
     description: "Calculate a deterministic, read-only risk snapshot from user-supplied positions and ZXLab quotes. It does not connect to a broker or place orders. Reliability and freshness warnings are mandatory.",

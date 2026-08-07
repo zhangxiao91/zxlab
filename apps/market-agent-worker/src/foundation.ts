@@ -1,7 +1,8 @@
 import type { MarketSnapshot } from "@zxlab/market-schema";
 import type { RiskImpact } from "@zxlab/risk-domain";
-import type { AgentRun, EvidenceItem, MarketAgentCommand, MarketEvent, PortfolioSnapshot, RunClaimResult, RunCreation, SealedEvidenceBundle } from "@zxlab/market-agent-schema";
-import { EVENT_RULE_VERSION, MARKET_AGENT_SCHEMA_VERSION, eventEvidenceId } from "@zxlab/market-agent-schema";
+import type { AgentResult, AgentRun, EvidenceItem, MarketAgentAskCommand, MarketAgentCommand, MarketEvent, PortfolioSnapshot, RunClaimResult, RunCreation, SealedEvidenceBundle } from "@zxlab/market-agent-schema";
+import { EVENT_RULE_VERSION, MARKET_AGENT_SCHEMA_VERSION, eventEvidenceId, isMarketAgentAskCommand } from "@zxlab/market-agent-schema";
+import type { AskEvidencePlan } from "./ask-plan.ts";
 
 export interface EventDetectionRules { absoluteMoveBps: number; }
 
@@ -56,9 +57,89 @@ export async function buildDeterministicCloseReview(command: MarketAgentCommand,
     for (const limitation of portfolio.limitations) items.push({ id: `${runId}:portfolio:limitation:${items.length}`, kind: "limitation", origin: "server-observed", value: { type: "portfolio_snapshot", snapshotId: portfolio.snapshot.id, limitation }, reliable: true });
   }
   for (const event of events) items.push({ id: event.evidenceId, kind: "market_event", origin: "server-observed", value: event, reliable: event.reliable });
-  const canonical = stableFingerprint({ command: { workflow: command.workflow, profileId: command.profileId, instrumentId: command.instrumentId ?? null, marketDate: command.marketDate ?? null }, snapshot, events, watchlistRevision, portfolio: portfolio ? portfolio.reliable ? { snapshot: portfolio.snapshot, impact: portfolio.impact, limitations: portfolio.limitations } : { snapshotId: portfolio.snapshot.id, reliable: false, limitations: portfolio.limitations } : null });
+  const commandForFingerprint = isMarketAgentAskCommand(command)
+    ? { workflow: command.workflow, profileId: command.profileId, scope: command.scope, instrumentId: command.instrumentId ?? null, priorRunId: command.priorRunId ?? null, resolvedInstrumentIds: command.resolvedInstrumentIds }
+    : { workflow: command.workflow, profileId: command.profileId, instrumentId: command.instrumentId ?? null, marketDate: command.marketDate ?? null };
+  const canonical = stableFingerprint({ command: commandForFingerprint, snapshot, events, watchlistRevision, portfolio: portfolio ? portfolio.reliable ? { snapshot: portfolio.snapshot, impact: portfolio.impact, limitations: portfolio.limitations } : { snapshotId: portfolio.snapshot.id, reliable: false, limitations: portfolio.limitations } : null });
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical)));
   return { schemaVersion: MARKET_AGENT_SCHEMA_VERSION, eventRuleVersion: EVENT_RULE_VERSION, profileId: command.profileId, workflow: command.workflow, watchlistRevision, instrumentIds: snapshot.request.instrumentIds, items, contextUses: [], fingerprint: `sha256:${[...digest].map((byte) => byte.toString(16).padStart(2, "0")).join("")}`, sealedAt: new Date().toISOString() };
+}
+
+export async function buildDeterministicAskEvidence(input: {
+  command: MarketAgentAskCommand;
+  snapshot: MarketSnapshot;
+  events: MarketEvent[];
+  runId: string;
+  watchlistRevision: string;
+  plan: AskEvidencePlan;
+  portfolio?: PortfolioEvidenceInput;
+  previous?: { runId: string; workflow: string; createdAt: string; evidenceFingerprint: string; result: AgentResult };
+}): Promise<SealedEvidenceBundle> {
+  const base = await buildDeterministicCloseReview(
+    input.command,
+    input.snapshot,
+    input.events,
+    input.runId,
+    input.watchlistRevision,
+    input.portfolio,
+  );
+  const items: EvidenceItem[] = [
+    ...base.items,
+    {
+      id: `${input.runId}:ask:plan`,
+      kind: "execution_plan",
+      origin: "server-observed",
+      value: {
+        type: "ask_plan",
+        version: "ask-plan.v1",
+        scope: input.command.scope,
+        intervals: input.plan.intervals,
+        include: input.plan.include,
+        quoteMode: input.plan.quoteMode,
+      },
+      reliable: true,
+    },
+  ];
+  if (input.previous) {
+    items.push({
+      id: `${input.runId}:ask:previous-run`,
+      kind: "prior_run",
+      origin: "server-observed",
+      value: {
+        type: "previous_run",
+        runId: input.previous.runId,
+        workflow: input.previous.workflow,
+        createdAt: input.previous.createdAt,
+        evidenceFingerprint: input.previous.evidenceFingerprint,
+        result: input.previous.result,
+      },
+      reliable: true,
+    });
+  }
+  const canonical = stableFingerprint({
+    baseFingerprint: base.fingerprint,
+    ask: {
+      scope: input.command.scope,
+      planVersion: "ask-plan.v1",
+      priorRunId: input.command.priorRunId ?? null,
+      previous: input.previous ? {
+        runId: input.previous.runId,
+        evidenceFingerprint: input.previous.evidenceFingerprint,
+        result: input.previous.result,
+      } : null,
+    },
+  });
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical)));
+  return {
+    ...base,
+    items,
+    ask: {
+      scope: input.command.scope,
+      planVersion: "ask-plan.v1",
+      ...(input.command.priorRunId ? { priorRunId: input.command.priorRunId } : {}),
+    },
+    fingerprint: `sha256:${[...digest].map((byte) => byte.toString(16).padStart(2, "0")).join("")}`,
+  };
 }
 
 export class MemoryRunRepository {

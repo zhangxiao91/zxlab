@@ -1,4 +1,4 @@
-import type { AgentResult, AgentRun, MarketAgentCommand, RunClaimResult, RunCreation, SealedEvidenceBundle } from "@zxlab/market-agent-schema";
+import { validateSealedEvidence, type AgentResult, type AgentRun, type MarketAgentCommand, type RunClaimResult, type RunCreation, type SealedEvidenceBundle } from "@zxlab/market-agent-schema";
 
 export class D1RunRepository {
   private readonly db: D1Database;
@@ -15,6 +15,16 @@ export class D1RunRepository {
   }
   async get(id: string): Promise<AgentRun | null> { const row = await this.db.prepare("SELECT * FROM agent_runs WHERE id = ?").bind(id).first<Record<string, unknown>>(); return row ? rowToRun(row) : null; }
   async getCommand(id: string): Promise<MarketAgentCommand | null> { const row = await this.db.prepare("SELECT command_json FROM agent_runs WHERE id = ?").bind(id).first<{ command_json: string | null }>(); return row?.command_json ? JSON.parse(row.command_json) as MarketAgentCommand : null; }
+  async getEvidence(id: string, profileId: string): Promise<SealedEvidenceBundle | null> {
+    const row = await this.db.prepare("SELECT evidence_json FROM agent_runs WHERE id = ? AND profile_id = ? AND status IN ('success', 'partial')").bind(id, profileId).first<{ evidence_json: string | null }>();
+    if (!row?.evidence_json) return null;
+    try {
+      const evidence = JSON.parse(row.evidence_json) as unknown;
+      return validateSealedEvidence(evidence).length ? null : evidence as SealedEvidenceBundle;
+    } catch {
+      return null;
+    }
+  }
   async list(profileId: string, limit = 50): Promise<AgentRun[]> { const result = await this.db.prepare("SELECT * FROM agent_runs WHERE profile_id = ? ORDER BY created_at DESC LIMIT ?").bind(profileId, limit).all<Record<string, unknown>>(); return result.results.map(rowToRun); }
   async delete(runId: string, profileId: string): Promise<boolean> {
     const deleted = await this.db.batch([

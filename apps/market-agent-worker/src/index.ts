@@ -1,7 +1,9 @@
-import { normalizePortfolioSnapshotUpload, subjectHash, validateBrowserRunIntent, type MarketAgentCommand } from "@zxlab/market-agent-schema";
+import { isMarketAgentAskCommand, normalizePortfolioSnapshotUpload, subjectHash, validateBrowserAskIntent, validateBrowserRunIntent, type BrowserAskIntent, type BrowserRunIntent, type MarketAgentCommand } from "@zxlab/market-agent-schema";
 import { MemoryRunRepository } from "./foundation.ts";
 import { D1RunRepository } from "./d1-repository.ts";
 import { CloseReviewService } from "./close-review.ts";
+import { AskService, type AskPreviousRun } from "./ask-service.ts";
+import { askEvidencePlan, resolveAskScope } from "./ask-plan.ts";
 import { D1ProfileRepository, normalizeWatchlist } from "./profile-repository.ts";
 import { D1PortfolioSnapshotRepository, type PortfolioPurgeScope } from "./portfolio-snapshot-repository.ts";
 import { GatewayNarrator } from "./gateway-narrator.ts";
@@ -53,10 +55,49 @@ export default {
         const purged = await snapshots.purgeHistory(profile.profileId, body.scope as PortfolioPurgeScope);
         return json({ ok: true, ...purged, ...(await snapshots.controlState(profile.profileId)) });
       }
+      if (path === "/ask" && request.method === "POST") {
+        let body: unknown; try { body = await request.json(); } catch { return json({ error: "INVALID_JSON" }, 400); }
+        const issues = validateBrowserAskIntent(body); if (issues.length) return json({ error: "INVALID_ASK_INTENT", issues }, 400);
+        const rawIntent = body as BrowserAskIntent;
+        const intent: BrowserAskIntent = {
+          scope: rawIntent.scope,
+          idempotencyKey: rawIntent.idempotencyKey,
+          ...(rawIntent.instrumentId?.trim() ? { instrumentId: rawIntent.instrumentId.trim().toUpperCase() } : {}),
+          ...(rawIntent.question?.trim() ? { question: rawIntent.question.trim() } : {}),
+          ...(rawIntent.priorRunId?.trim() ? { priorRunId: rawIntent.priorRunId.trim() } : {}),
+        };
+        const watchlist = await profiles.getWatchlist(profile.profileId);
+        const portfolioSnapshot = await snapshots.getCurrent(profile.profileId);
+        const prior = intent.priorRunId ? await runs.get(intent.priorRunId) : null;
+        const previousEvidence = prior?.profileId === profile.profileId && terminalWithEvidence(prior)
+          ? await runs.getEvidence(prior.id, profile.profileId)
+          : null;
+        if (intent.scope === "compare_previous_run" && (!prior || !previousEvidence || !prior.result || prior.evidenceFingerprint !== previousEvidence.fingerprint)) {
+          return json({ error: "ASK_CLARIFICATION_REQUIRED", clarification: "请选择一条属于当前 profile、已完成且仍保留 Evidence 的历史运行。" }, 422);
+        }
+        const resolution = resolveAskScope(intent, watchlist, portfolioSnapshot, previousEvidence);
+        if (resolution.clarification) return json({ error: "ASK_CLARIFICATION_REQUIRED", clarification: resolution.clarification }, 422);
+        const command: MarketAgentCommand = {
+          workflow: "ask",
+          ...intent,
+          profileId: profile.profileId,
+          trigger: actor.kind === "agent" ? "bot" : "manual",
+          resolvedInstrumentIds: resolution.instrumentIds,
+        };
+        const plan = askEvidencePlan(command.scope);
+        const result = await runs.createQueued(command, {
+          command,
+          actorScope: profile.profileId,
+          commandHash: await sha256(command),
+          portfolioSnapshotId: plan.requiresPortfolioSnapshot ? portfolioSnapshot?.id ?? null : null,
+        });
+        await relayOutbox(env, runs);
+        return json({ runId: result.run.id, status: result.run.status, created: result.created, scope: command.scope }, 202);
+      }
       if (path === "/runs" && request.method === "POST") {
         let body: unknown; try { body = await request.json(); } catch { return json({ error: "INVALID_JSON" }, 400); }
         const issues = validateBrowserRunIntent(body); if (issues.length) return json({ error: "INVALID_INTENT", issues }, 400);
-        const intent = body as Omit<MarketAgentCommand, "profileId" | "trigger">; const watchlist = await profiles.getWatchlist(profile.profileId);
+        const intent = body as BrowserRunIntent; const watchlist = await profiles.getWatchlist(profile.profileId);
         if (!watchlist && !intent.instrumentId) return json({ error: "WATCHLIST_BOOTSTRAP_REQUIRED" }, 409);
         const command: MarketAgentCommand = { ...intent, profileId: profile.profileId, trigger: "manual" };
         const commandHash = await sha256(command); const portfolioSnapshot = await snapshots.getCurrent(profile.profileId); const result = await runs.createQueued(command, { command, actorScope: profile.profileId, commandHash, portfolioSnapshotId: portfolioSnapshot?.id ?? null });
@@ -66,10 +107,15 @@ export default {
       if (path === "/runs" && request.method === "GET") return json({ runs: await runs.list(profile.profileId) });
       if (path === "/today" && request.method === "GET") return json({ run: (await runs.list(profile.profileId, 1))[0] ?? null });
       if (path === "/export" && request.method === "GET") return json({ schemaVersion: "market-agent-export.v1", runs: await runs.list(profile.profileId) });
+      const evidenceMatch = path.match(/^\/runs\/([^/]+)\/evidence$/);
+      if (evidenceMatch && request.method === "GET") {
+        const evidence = await runs.getEvidence(evidenceMatch[1], profile.profileId);
+        return evidence ? json({ runId: evidenceMatch[1], evidence }) : json({ error: "NOT_FOUND" }, 404);
+      }
       const match = path.match(/^\/runs\/([^/]+)$/); if (match && request.method === "GET") { const run = await runs.get(match[1]); return run?.profileId === profile.profileId ? json(run) : json({ error: "NOT_FOUND" }, 404); }
       if (match && request.method === "DELETE") return await runs.delete(match[1], profile.profileId) ? json({ ok: true }) : json({ error: "NOT_FOUND" }, 404);
       const feedback = path.match(/^\/runs\/([^/]+)\/feedback$/); if (feedback && request.method === "POST") { const run = await runs.get(feedback[1]); if (run?.profileId !== profile.profileId) return json({ error: "NOT_FOUND" }, 404); const body = await request.json() as { value?: unknown }; if (body.value !== "helpful" && body.value !== "fact_error" && body.value !== "missing_factor") return json({ error: "INVALID_FEEDBACK" }, 400); await runs.recordFeedback(feedback[1], profile.profileId, body.value); return json({ ok: true }); }
-      const rerun = path.match(/^\/runs\/([^/]+)\/rerun$/); if (rerun && request.method === "POST") { const prior = await runs.get(rerun[1]); const priorCommand = await runs.getCommand(rerun[1]); if (prior?.profileId !== profile.profileId || !priorCommand) return json({ error: "NOT_FOUND" }, 404); const command = { ...priorCommand, trigger: "manual" as const, idempotencyKey: `rerun:${prior.id}:${crypto.randomUUID()}` }; const portfolioSnapshot = await snapshots.getCurrent(profile.profileId); const created = await runs.createQueued(command, { command, actorScope: profile.profileId, commandHash: await sha256(command), revisionOfRunId: prior.id, portfolioSnapshotId: portfolioSnapshot?.id ?? null }); await relayOutbox(env, runs); return json({ runId: created.run.id, status: created.run.status, revisionOfRunId: prior.id }, 202); }
+      const rerun = path.match(/^\/runs\/([^/]+)\/rerun$/); if (rerun && request.method === "POST") { const prior = await runs.get(rerun[1]); const priorCommand = await runs.getCommand(rerun[1]); if (prior?.profileId !== profile.profileId || !priorCommand) return json({ error: "NOT_FOUND" }, 404); const command = { ...priorCommand, trigger: "manual" as const, idempotencyKey: `rerun:${prior.id}:${crypto.randomUUID()}` }; const portfolioSnapshot = await snapshots.getCurrent(profile.profileId); const created = await runs.createQueued(command, { command, actorScope: profile.profileId, commandHash: await sha256(command), revisionOfRunId: prior.id, portfolioSnapshotId: isMarketAgentAskCommand(command) && !askEvidencePlan(command.scope).requiresPortfolioSnapshot ? null : portfolioSnapshot?.id ?? null }); await relayOutbox(env, runs); return json({ runId: created.run.id, status: created.run.status, revisionOfRunId: prior.id }, 202); }
       return json({ error: "NOT_FOUND" }, 404);
     } catch (cause) { const code = cause instanceof Error ? cause.message : "INTERNAL_ERROR"; if (code === "ACTOR_SCOPE_REQUIRED") return json({ error: code }, 403); if (code.startsWith("ACTOR_")) return json({ error: code }, 401); if (code === "INVALID_WATCHLIST" || code.startsWith("INVALID_PORTFOLIO")) return json({ error: code }, 400); if (code === "IDEMPOTENCY_KEY_REUSED" || code === "PORTFOLIO_SNAPSHOT_NOT_CURRENT") return json({ error: code }, 409); return json({ error: "INTERNAL_ERROR" }, 500); }
   },
@@ -81,14 +127,43 @@ export async function processRun(runId: string, env: Env): Promise<"ack" | "retr
   if (!env.DB) return "retry"; const runs = new D1RunRepository(env.DB); const claim = await runs.claim(runId, "market-agent-consumer", new Date().toISOString(), new Date(Date.now() + 60_000).toISOString());
   if (claim.kind === "terminal" || claim.kind === "missing") return "ack"; if (claim.kind === "leased") return "retry";
   const command = await runs.getCommand(runId); if (!command) { await runs.fail(runId, claim.lease.leaseToken, "COMMAND_MISSING"); return "ack"; }
-  const watchlist = await new D1ProfileRepository(env.DB).getWatchlist(command.profileId); if (command.trigger === "scheduled" && !watchlist) { await runs.fail(runId, claim.lease.leaseToken, "WATCHLIST_BOOTSTRAP_REQUIRED"); return "ack"; }
-  const portfolioSnapshot = claim.lease.run.portfolioSnapshotId ? await new D1PortfolioSnapshotRepository(env.DB).getUsableForProfile(command.profileId, claim.lease.run.portfolioSnapshotId) : null;
+  const profiles = new D1ProfileRepository(env.DB);
+  const snapshots = new D1PortfolioSnapshotRepository(env.DB);
+  const watchlist = await profiles.getWatchlist(command.profileId); if (command.trigger === "scheduled" && !watchlist) { await runs.fail(runId, claim.lease.leaseToken, "WATCHLIST_BOOTSTRAP_REQUIRED"); return "ack"; }
+  if (isMarketAgentAskCommand(command)) {
+    const plan = askEvidencePlan(command.scope);
+    if (!validResolvedAskScope(command.resolvedInstrumentIds)) { await runs.fail(runId, claim.lease.leaseToken, "ASK_SCOPE_INVALID"); return "ack"; }
+    const portfolioSnapshot = plan.requiresPortfolioSnapshot && claim.lease.run.portfolioSnapshotId
+      ? await snapshots.getUsableForProfile(command.profileId, claim.lease.run.portfolioSnapshotId)
+      : null;
+    if (plan.requiresPortfolioSnapshot && !portfolioSnapshot) { await runs.fail(runId, claim.lease.leaseToken, "PORTFOLIO_SNAPSHOT_NOT_CURRENT"); return "ack"; }
+    let previous: AskPreviousRun | undefined;
+    if (plan.requiresPreviousRun) {
+      const prior = command.priorRunId ? await runs.get(command.priorRunId) : null;
+      const evidence = prior?.profileId === command.profileId && terminalWithEvidence(prior)
+        ? await runs.getEvidence(prior.id, command.profileId)
+        : null;
+      if (!prior || !evidence || !prior.result || prior.evidenceFingerprint !== evidence.fingerprint || !sameInstrumentScope(evidence.instrumentIds, command.resolvedInstrumentIds)) {
+        await runs.fail(runId, claim.lease.leaseToken, "PREVIOUS_RUN_EVIDENCE_UNAVAILABLE");
+        return "ack";
+      }
+      previous = { runId: prior.id, workflow: prior.workflow, createdAt: prior.createdAt, evidenceFingerprint: evidence.fingerprint, result: prior.result };
+    }
+    try {
+      const reader = new MarketSnapshotAdapter({ service: env.MARKET_SNAPSHOT_SERVICE, baseUrl: env.MARKET_SNAPSHOT_URL });
+      const output = await new AskService(reader, narratorFor(env)).execute({ runId, command, watchlistRevision: watchlist?.revision ?? "ask-without-watchlist", portfolioSnapshot, previous });
+      await runs.complete(runId, claim.lease.leaseToken, output.evidence, output.result);
+      return "ack";
+    } catch {
+      await runs.defer(runId, claim.lease.leaseToken, "ASK_RETRYABLE");
+      return "retry";
+    }
+  }
+  const portfolioSnapshot = claim.lease.run.portfolioSnapshotId ? await snapshots.getUsableForProfile(command.profileId, claim.lease.run.portfolioSnapshotId) : null;
   const instrumentIds = [...new Set([...(command.instrumentId ? [command.instrumentId] : (watchlist?.items.map((item) => item.instrumentId) ?? [])), ...(portfolioSnapshot?.positions.map((item) => item.instrumentId) ?? [])])]; if (!instrumentIds.length) { await runs.fail(runId, claim.lease.leaseToken, "INSTRUMENT_SCOPE_EMPTY"); return "ack"; }
   try {
     const reader = new MarketSnapshotAdapter({ service: env.MARKET_SNAPSHOT_SERVICE, baseUrl: env.MARKET_SNAPSHOT_URL });
-    const generationEnabled = env.MARKET_AGENT_GENERATION_ENABLED === "true" && env.MARKET_AGENT_GATEWAY_URL && env.MARKET_AGENT_GATEWAY_TOKEN;
-    const narrator = generationEnabled ? new GatewayNarrator({ apiUrl: env.MARKET_AGENT_GATEWAY_URL!, token: env.MARKET_AGENT_GATEWAY_TOKEN! }) : new DeterministicNarrator();
-    const output = await new CloseReviewService(reader, narrator).execute({ runId, command, instrumentIds, watchlistRevision: watchlist?.revision ?? "instrument-only", portfolioSnapshot });
+    const output = await new CloseReviewService(reader, narratorFor(env)).execute({ runId, command, instrumentIds, watchlistRevision: watchlist?.revision ?? "instrument-only", portfolioSnapshot });
     await runs.complete(runId, claim.lease.leaseToken, output.evidence, output.result); return "ack";
   } catch { await runs.defer(runId, claim.lease.leaseToken, "CLOSE_REVIEW_RETRYABLE"); return "retry"; }
 }
@@ -108,6 +183,10 @@ async function runtimeHealth(request: Request, env: Env): Promise<Response> {
   catch { return json({ schemaVersion: "1", serviceId: "market-agent", status: "offline", version: "market-agent-worker", generatedAt, checks: [{ id: "d1", status: "offline", errorCode: "D1_QUERY_FAILED" }] }, 503); }
 }
 async function sha256(value: unknown): Promise<`sha256:${string}`> { const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(value))); return `sha256:${[...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, "0")).join("")}`; }
+function terminalWithEvidence(run: { status: string; evidenceFingerprint: string | null }): boolean { return (run.status === "success" || run.status === "partial") && Boolean(run.evidenceFingerprint); }
+function validResolvedAskScope(ids: unknown): ids is string[] { return Array.isArray(ids) && ids.length > 0 && ids.length <= 200 && ids.every((id) => typeof id === "string" && /^(SSE|SZSE):\d{6}$/.test(id)) && new Set(ids).size === ids.length; }
+function sameInstrumentScope(left: string[], right: string[]): boolean { return left.length === right.length && [...left].sort().every((value, index) => value === [...right].sort()[index]); }
+function narratorFor(env: Env): GatewayNarrator | DeterministicNarrator { return env.MARKET_AGENT_GENERATION_ENABLED === "true" && env.MARKET_AGENT_GATEWAY_URL && env.MARKET_AGENT_GATEWAY_TOKEN ? new GatewayNarrator({ apiUrl: env.MARKET_AGENT_GATEWAY_URL, token: env.MARKET_AGENT_GATEWAY_TOKEN }) : new DeterministicNarrator(); }
 
 export { MemoryRunRepository } from "./foundation.ts";
 export { CloseReviewService } from "./close-review.ts";

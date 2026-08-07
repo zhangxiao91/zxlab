@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import gsap from "gsap";
 import { loadMarketWatchlist } from "../market/watchlist";
 import { LocalPortfolioRepository } from "../risk/ledger";
+import AskPanel from "./AskPanel";
 import {
   deleteAgentRun,
   exportAgentRuns,
@@ -238,8 +239,28 @@ export default function AgentToday() {
       setDeletingRunId(null);
     }
   }
+  const updateRun = useCallback((run: AgentRunView) => {
+    setRuns((current) => {
+      const index = current.findIndex((item) => item.id === run.id);
+      if (index < 0) return [run, ...current];
+      const existing = current[index];
+      if (
+        existing.status === run.status
+        && existing.updatedAt === run.updatedAt
+        && existing.evidenceFingerprint === run.evidenceFingerprint
+      ) return current;
+      return current.map((item) => item.id === run.id ? run : item);
+    });
+  }, []);
   const latest = runs[0];
   const events = useMemo(() => latest?.result?.observations ?? [], [latest]);
+  const askInstruments = useMemo(
+    () => [...new Set([
+      ...localWatchlist.map((item) => item.instrumentId),
+      ...(portfolioState?.snapshot?.positions.map((item) => item.instrumentId) ?? []),
+    ])].sort(),
+    [localWatchlist, portfolioState?.snapshot?.positions],
+  );
   return (
     <div className="risk-app agent-app">
       <header className="risk-appbar">
@@ -488,6 +509,11 @@ export default function AgentToday() {
             </aside>
           )}
         </section>
+        <AskPanel
+          runs={runs}
+          instruments={askInstruments}
+          onRunUpdate={updateRun}
+        />
         <section className="agent-bento" aria-label="Agent 状态">
           <article className="agent-bento-card agent-bento-card--lead">
             <span>当前状态</span>
@@ -533,7 +559,7 @@ export default function AgentToday() {
             <h2>每个结论都能回到一条事实。</h2>
             <span>Bundle 封存后，叙事只能读取，不能改写。</span>
           </div>
-          <div className="agent-event-stack">
+          <div className="agent-event-stack" ref={rail}>
             {events.length ? (
               events.map((event) => (
                 <article className="agent-run-card" key={event.id}>

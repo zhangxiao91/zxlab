@@ -1,7 +1,20 @@
-import type { PortfolioSnapshotUpload } from "@zxlab/market-agent-schema";
+import type {
+  AskScope,
+  PortfolioSnapshotUpload,
+  SealedEvidenceBundle,
+} from "@zxlab/market-agent-schema";
 
 export type AgentRunMode = "market-only" | "portfolio-aware";
 export type PortfolioPurgeScope = "all" | "expired";
+
+export interface AgentObservationView {
+  id: string;
+  class: "fact" | "inference" | "unknown";
+  importance: "high" | "medium" | "low";
+  title: string;
+  explanation: string;
+  evidenceIds: string[];
+}
 
 export interface AgentRunView {
   id: string;
@@ -12,18 +25,23 @@ export interface AgentRunView {
   evidenceFingerprint: string | null;
   portfolioSnapshotId?: string | null;
   result?: {
+    status: "success" | "partial";
     headline: string;
     summary: string;
     mode?: AgentRunMode;
-    observations: Array<{
-      id: string;
-      class: string;
-      title: string;
-      explanation: string;
-      evidenceIds: string[];
-    }>;
+    askScope?: AskScope;
+    observations: AgentObservationView[];
+    portfolioImpacts: AgentObservationView[];
+    watchNext: Array<{ condition: string; reason: string; evidenceIds: string[] }>;
     limitations: string[];
   };
+}
+
+export interface AgentAskIntent {
+  scope: AskScope;
+  instrumentId?: string;
+  question?: string;
+  priorRunId?: string;
 }
 
 export interface AgentProfileView {
@@ -83,6 +101,34 @@ export async function getAgentRuns(): Promise<AgentRunView[]> {
     : Array.isArray((data as { runs?: unknown })?.runs)
       ? (data as { runs: AgentRunView[] }).runs
       : [];
+}
+
+export async function getAgentRun(runId: string): Promise<AgentRunView> {
+  const response = await fetch(
+    `/api/private/market-agent/runs/${encodeURIComponent(runId)}`,
+    { headers: { accept: "application/json" } },
+  );
+  if (!response.ok) throw await apiError(response, "Agent Run 暂不可用");
+  return (await response.json()) as AgentRunView;
+}
+
+export async function getAgentRunEvidence(
+  runId: string,
+): Promise<SealedEvidenceBundle> {
+  const response = await fetch(
+    `/api/private/market-agent/runs/${encodeURIComponent(runId)}/evidence`,
+    { headers: { accept: "application/json" } },
+  );
+  if (!response.ok) throw await apiError(response, "Evidence 暂不可用");
+  const data = (await response.json()) as { evidence?: unknown };
+  if (!data.evidence || typeof data.evidence !== "object") {
+    throw new MarketAgentApiError(
+      "EVIDENCE_INVALID",
+      "Evidence 响应格式无效",
+      response.status,
+    );
+  }
+  return data.evidence as SealedEvidenceBundle;
 }
 
 export async function getAgentProfile(): Promise<AgentProfileView> {
@@ -174,6 +220,32 @@ export async function startCloseReview(
   return (await response.json()) as { runId: string; status: string };
 }
 
+export async function startAgentAsk(
+  intent: AgentAskIntent,
+  idempotencyKey = crypto.randomUUID(),
+): Promise<{ runId: string; status: string; created: boolean; scope: AskScope }> {
+  const response = await fetch("/api/private/market-agent/ask", {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({
+      scope: intent.scope,
+      idempotencyKey,
+      ...(intent.instrumentId?.trim()
+        ? { instrumentId: intent.instrumentId.trim().toUpperCase() }
+        : {}),
+      ...(intent.question?.trim() ? { question: intent.question.trim() } : {}),
+      ...(intent.priorRunId?.trim() ? { priorRunId: intent.priorRunId.trim() } : {}),
+    }),
+  });
+  if (!response.ok) throw await apiError(response, "受限问答暂不可用");
+  return (await response.json()) as {
+    runId: string;
+    status: string;
+    created: boolean;
+    scope: AskScope;
+  };
+}
+
 export async function sendRunFeedback(
   runId: string,
   value: "helpful" | "fact_error" | "missing_factor",
@@ -208,14 +280,18 @@ export async function deleteAgentRun(runId: string): Promise<void> {
 async function apiError(response: Response, fallback: string): Promise<MarketAgentApiError> {
   let value: unknown;
   try { value = await response.json(); } catch { value = null; }
-  const error = value && typeof value === "object" ? (value as { error?: unknown }).error : null;
+  const record = value && typeof value === "object" ? value as { error?: unknown; clarification?: unknown } : null;
+  const error = record?.error ?? null;
+  const clarification = typeof record?.clarification === "string" ? record.clarification : null;
   const code = typeof error === "string" ? error : error && typeof error === "object" && typeof (error as { code?: unknown }).code === "string" ? String((error as { code: string }).code) : "MARKET_AGENT_UNAVAILABLE";
-  const message = (
+  const mappedMessage = (
     {
       WATCHLIST_BOOTSTRAP_REQUIRED: "请先确认并同步观察列表。",
       PORTFOLIO_SNAPSHOT_NOT_CURRENT: "这份持仓快照已不再用于后续运行。",
       INVALID_PORTFOLIO_SNAPSHOT: "持仓快照未通过服务端字段校验。",
+      ASK_CLARIFICATION_REQUIRED: "当前问题需要补充范围后才能运行。",
     } as Record<string, string>
-  )[code] ?? fallback;
+  )[code];
+  const message = clarification ?? mappedMessage ?? fallback;
   return new MarketAgentApiError(code, message, response.status);
 }

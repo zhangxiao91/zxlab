@@ -46,5 +46,11 @@ export async function enforceAIAccess(request: Request, env: AIEnv): Promise<AIC
 }
 
 export function enforceAITaskScope(caller: AICaller, task: string, source?: string): void {
-  if (caller === "market-agent" && (task !== "market-agent-close-review" || source !== "market-agent-worker")) throw new AIError("UNAUTHORIZED");
+  if (
+    caller === "market-agent"
+    && (
+      !["market-agent-close-review", "market-agent-answer"].includes(task)
+      || source !== "market-agent-worker"
+    )
+  ) throw new AIError("UNAUTHORIZED");
 }

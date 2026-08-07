@@ -11,6 +11,7 @@ import { generateAI, streamAI } from "../functions/_lib/ai/router.ts";
 import { validateGenerateAIInput } from "../functions/_lib/ai/validation.ts";
 import { estimateLLMCost, normalizeUsage, type LLMUsageDatabase } from "../functions/_lib/ai/telemetry.ts";
 import { resolveTaskPolicy } from "../functions/_lib/ai/task-policies.ts";
+import { enforceAITaskScope } from "../functions/_lib/ai/abuse.ts";
 
 const candidates: ModelCandidate[] = [
   { id: "deepseek-v4-flash-official", tier: "deepseek-flash", provider: "deepseek", providerInstance: "deepseek-official", adapter: "openai-compatible", model: "deepseek-v4-flash", baseUrl: "https://api.deepseek.com", apiKey: "deep-secret" },
@@ -96,6 +97,29 @@ test("Yuzi uses its bounded generation policy", () => {
     temperature: 0.72,
   });
   assert.equal(resolveTaskPolicy({ ...input, task: "yuzi-turn", maxOutputTokens: 2_000 }).maxOutputTokens, 700);
+});
+
+test("Market Agent may use only its bounded Gateway tasks", () => {
+  assert.deepEqual(resolveTaskPolicy({ ...input, task: "market-agent-answer" }), {
+    timeoutMs: 45_000,
+    totalBudgetMs: 90_000,
+    maxOutputTokens: 1_600,
+    temperature: 0.2,
+  });
+  assert.doesNotThrow(() =>
+    enforceAITaskScope("market-agent", "market-agent-close-review", "market-agent-worker"),
+  );
+  assert.doesNotThrow(() =>
+    enforceAITaskScope("market-agent", "market-agent-answer", "market-agent-worker"),
+  );
+  assert.throws(
+    () => enforceAITaskScope("market-agent", "portfolio-review", "market-agent-worker"),
+    (error: unknown) => error instanceof AIError && error.code === "UNAUTHORIZED",
+  );
+  assert.throws(
+    () => enforceAITaskScope("market-agent", "market-agent-answer", "other-service"),
+    (error: unknown) => error instanceof AIError && error.code === "UNAUTHORIZED",
+  );
 });
 
 test("Signal editorial filtering allows DeepSeek enough time for reasoning output", () => {

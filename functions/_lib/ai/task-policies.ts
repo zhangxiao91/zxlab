@@ -12,6 +12,7 @@ export const TASK_POLICIES: Record<string, Partial<AITaskPolicy>> = {
   "notes-summary": { maxOutputTokens: 1_200, temperature: 0.3 },
   "portfolio-review": { maxOutputTokens: 3_000, temperature: 0.2 },
   "market-agent-close-review": { timeoutMs: 45_000, totalBudgetMs: 90_000, maxOutputTokens: 2_400, temperature: 0 },
+  "market-agent-answer": { timeoutMs: 45_000, totalBudgetMs: 90_000, maxOutputTokens: 1_600, temperature: 0.2 },
   "holdings-parse": { maxOutputTokens: 2_400, temperature: 0 },
   "signal-editorial-filter": { timeoutMs: 60_000, totalBudgetMs: 120_000, maxOutputTokens: 8_000, temperature: 0 },
   "signal-briefing": { timeoutMs: 60_000, totalBudgetMs: 150_000, maxOutputTokens: 12_000, temperature: 0 },

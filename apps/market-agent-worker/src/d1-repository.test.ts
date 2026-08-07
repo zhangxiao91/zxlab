@@ -32,3 +32,38 @@ test("schedule decisions never create an Agent Run", async () => {
   assert.match(statement, /INSERT INTO agent_schedule_decisions/);
   assert.doesNotMatch(statement, /agent_runs/);
 });
+
+test("Evidence lookup remains terminal and profile-scoped", async () => {
+  let statement = "";
+  const db = {
+    prepare(sql: string) {
+      statement = sql;
+      return {
+        bind() {
+          return {
+            async first() {
+              return {
+                evidence_json: JSON.stringify({
+                  schemaVersion: "market-agent.v1",
+                  eventRuleVersion: "market-event.v1",
+                  profileId: "profile-owner",
+                  workflow: "close_review",
+                  watchlistRevision: "w1",
+                  instrumentIds: [],
+                  items: [],
+                  contextUses: [],
+                  fingerprint: "sha256:evidence",
+                  sealedAt: "2026-08-07T00:00:00.000Z",
+                }),
+              };
+            },
+          };
+        },
+      };
+    },
+  } as unknown as D1Database;
+  const evidence = await new D1RunRepository(db).getEvidence("run-1", "profile-owner");
+  assert.equal(evidence?.fingerprint, "sha256:evidence");
+  assert.match(statement, /profile_id = \?/);
+  assert.match(statement, /status IN \('success', 'partial'\)/);
+});

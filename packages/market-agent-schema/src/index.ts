@@ -7,22 +7,53 @@ export const PORTFOLIO_SNAPSHOT_MAX_POSITIONS = 200;
 export const PORTFOLIO_SNAPSHOT_MAX_TTL_MS = 36 * 60 * 60 * 1_000;
 export const PORTFOLIO_SNAPSHOT_MAX_AGE_MS = 36 * 60 * 60 * 1_000;
 
-export type AgentWorkflow = "morning_brief" | "close_review" | "inspect_instrument" | "portfolio_impact";
+export const ASK_SCOPES = [
+  "today_change",
+  "relative_performance",
+  "news_and_announcements",
+  "data_quality",
+  "portfolio_impact",
+  "compare_previous_run",
+] as const;
+
+export type AskScope = typeof ASK_SCOPES[number];
+export type AgentWorkflow = "morning_brief" | "close_review" | "inspect_instrument" | "portfolio_impact" | "ask";
 export type RunTrigger = "manual" | "scheduled" | "bot";
 export type RunStatus = "queued" | "collecting" | "evidence_sealed" | "generating" | "validating" | "retry_wait" | "success" | "partial" | "failed";
-export type EvidenceKind = "market_fact" | "market_event" | "portfolio_impact" | "confirmed_context" | "limitation";
+export type EvidenceKind = "market_fact" | "market_event" | "portfolio_impact" | "confirmed_context" | "limitation" | "execution_plan" | "prior_run";
 export type ObservationClass = "fact" | "inference" | "unknown";
 export type ObservationImportance = "high" | "medium" | "low";
 
-export interface BrowserRunIntent { workflow: AgentWorkflow; instrumentId?: string; question?: string; marketDate?: string; idempotencyKey: string; }
-export interface MarketAgentCommand extends BrowserRunIntent { profileId: string; trigger: RunTrigger; }
+export interface BrowserRunIntent { workflow: Exclude<AgentWorkflow, "ask">; instrumentId?: string; question?: string; marketDate?: string; idempotencyKey: string; }
+export interface BrowserAskIntent { scope: AskScope; instrumentId?: string; question?: string; priorRunId?: string; idempotencyKey: string; }
+export interface MarketAgentRunCommand extends BrowserRunIntent { profileId: string; trigger: RunTrigger; }
+export interface MarketAgentAskCommand extends BrowserAskIntent {
+  workflow: "ask";
+  profileId: string;
+  trigger: Extract<RunTrigger, "manual" | "bot">;
+  /** Resolved by the server when the request is queued; never browser-controlled. */
+  resolvedInstrumentIds: string[];
+}
+export type MarketAgentCommand = MarketAgentRunCommand | MarketAgentAskCommand;
 export interface MarketEvent { id: string; ruleId: string; instrumentId: string | null; kind: string; observedAt: string; actual: number | string | null; threshold: number | string | null; reliable: boolean; evidenceId: string; dedupeKey: string; }
 export interface ConfirmedContextUse { memoryId: string; role: string; revisionHash: string; usedAt: string; }
 export interface EvidenceItem { id: string; kind: EvidenceKind; origin: "server-observed" | "user-supplied-risk-snapshot" | "canonical-context"; value: unknown; reliable: boolean; }
-export interface SealedEvidenceBundle { schemaVersion: typeof MARKET_AGENT_SCHEMA_VERSION; eventRuleVersion: typeof EVENT_RULE_VERSION; profileId: string; workflow: AgentWorkflow; watchlistRevision: string; instrumentIds: string[]; items: EvidenceItem[]; contextUses: ConfirmedContextUse[]; fingerprint: `sha256:${string}`; sealedAt: string; }
+export interface SealedEvidenceBundle {
+  schemaVersion: typeof MARKET_AGENT_SCHEMA_VERSION;
+  eventRuleVersion: typeof EVENT_RULE_VERSION;
+  profileId: string;
+  workflow: AgentWorkflow;
+  watchlistRevision: string;
+  instrumentIds: string[];
+  items: EvidenceItem[];
+  contextUses: ConfirmedContextUse[];
+  fingerprint: `sha256:${string}`;
+  sealedAt: string;
+  ask?: { scope: AskScope; planVersion: "ask-plan.v1"; priorRunId?: string };
+}
 export interface AgentObservation { id: string; class: ObservationClass; importance: ObservationImportance; title: string; explanation: string; evidenceIds: string[]; }
 export interface AgentNarration { status: "success" | "partial"; headline: string; summary: string; observations: AgentObservation[]; portfolioImpacts: AgentObservation[]; watchNext: Array<{ condition: string; reason: string; evidenceIds: string[] }>; limitations: string[]; evidenceFingerprint: string; }
-export interface AgentResult extends AgentNarration { mode: "market-only" | "portfolio-aware"; }
+export interface AgentResult extends AgentNarration { mode: "market-only" | "portfolio-aware"; askScope?: AskScope; }
 export interface PortfolioSnapshotPosition { instrumentId: string; quantity: number; averageCost: number; }
 export interface PortfolioSnapshotUpload {
   schemaVersion: typeof PORTFOLIO_SNAPSHOT_SCHEMA_VERSION;
@@ -101,10 +132,28 @@ export function validateBrowserRunIntent(value: unknown): string[] {
   if (!oneOf(value.workflow, ["morning_brief", "close_review", "inspect_instrument", "portfolio_impact"])) issues.push("workflow is invalid");
   if (typeof value.idempotencyKey !== "string" || value.idempotencyKey.length < 8 || value.idempotencyKey.length > 180) issues.push("idempotencyKey is invalid");
   if (value.instrumentId !== undefined && (typeof value.instrumentId !== "string" || value.instrumentId.length > 32)) issues.push("instrumentId is invalid");
-  if (value.question !== undefined && (typeof value.question !== "string" || value.question.length > 4000)) issues.push("question is invalid");
+  if (value.question !== undefined && (typeof value.question !== "string" || value.question.length > 4000 || value.workflow !== "inspect_instrument")) issues.push("question is invalid");
   if (value.marketDate !== undefined && (typeof value.marketDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value.marketDate))) issues.push("marketDate is invalid");
   if ("profileId" in value || "trigger" in value) issues.push("profileId and trigger are server-only");
   return issues;
+}
+
+export function validateBrowserAskIntent(value: unknown): string[] {
+  const issues: string[] = [];
+  if (!isRecord(value)) return ["ask intent must be an object"];
+  exactKeys(value, ["scope", "instrumentId", "question", "priorRunId", "idempotencyKey"], "ask", issues);
+  if (!oneOf(value.scope, ASK_SCOPES)) issues.push("scope is invalid");
+  if (typeof value.idempotencyKey !== "string" || value.idempotencyKey.length < 8 || value.idempotencyKey.length > 180) issues.push("idempotencyKey is invalid");
+  if (value.instrumentId !== undefined && (typeof value.instrumentId !== "string" || !/^(SSE|SZSE):\d{6}$/i.test(value.instrumentId.trim()))) issues.push("instrumentId is invalid");
+  if (value.question !== undefined && (typeof value.question !== "string" || value.question.trim().length > 800)) issues.push("question is invalid");
+  if (value.priorRunId !== undefined && (typeof value.priorRunId !== "string" || !/^[A-Za-z0-9._:-]{1,120}$/.test(value.priorRunId))) issues.push("priorRunId is invalid");
+  if (value.scope !== "compare_previous_run" && value.priorRunId !== undefined) issues.push("priorRunId is only valid for compare_previous_run");
+  if ("profileId" in value || "trigger" in value || "workflow" in value || "resolvedInstrumentIds" in value) issues.push("server-only fields are not allowed");
+  return issues;
+}
+
+export function isMarketAgentAskCommand(command: MarketAgentCommand): command is MarketAgentAskCommand {
+  return command.workflow === "ask";
 }
 
 export function normalizePortfolioSnapshotUpload(value: unknown, now = Date.now()): PortfolioSnapshotUploadValidation {

@@ -179,6 +179,44 @@ test("private Market Agent allowlist permits only the portfolio snapshot control
   assert.equal(called, false);
 });
 
+test("private Market Agent allowlist admits the bounded Ask lifecycle only", async () => {
+  const paths = [
+    { path: "ask", method: "POST" },
+    { path: "runs/run-1/evidence", method: "GET" },
+  ] as const;
+
+  for (const item of paths) {
+    let forwardedPath = "";
+    const response = await proxyPrivateRequest(
+      {
+        request: new Request(
+          `https://beta.zxlab.pages.dev/api/private/market-agent/${item.path}`,
+          {
+            method: item.method,
+            body: item.method === "GET" ? undefined : JSON.stringify({
+              scope: "today_change",
+              instrumentId: "SSE:600000",
+              idempotencyKey: "ask-proxy-1",
+            }),
+          },
+        ),
+        env: { ...env, MARKET_AGENT_API_URL: "https://market-agent.example.com" },
+      },
+      "market-agent",
+      item.path,
+      {
+        verifyAccess,
+        fetcher: async (input) => {
+          forwardedPath = new URL(String(input)).pathname;
+          return Response.json({ ok: true });
+        },
+      },
+    );
+    assert.equal(response.status, 200, item.path);
+    assert.equal(forwardedPath, `/api/v1/private/market-agent/${item.path}`);
+  }
+});
+
 test("private Market Agent proxy rejects routes outside its narrow allowlist", async () => {
   let called = false;
   const response = await proxyPrivateRequest(

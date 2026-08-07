@@ -14,6 +14,10 @@ Tools:
   fallback.
 - `market_status` and `market_quotes`: normalized market data including source,
   timestamp, quality and freshness.
+- `market_agent_ask`: a fixed-scope Market Agent Run through the Access-protected
+  Pages private proxy. It waits for the terminal Run and returns the same
+  structured result and sealed Evidence bundle as the Agent page; it does not
+  reproduce any market collection or model orchestration in the bridge.
 - `risk_snapshot`: deterministic read-only exposure, concentration and drawdown
   review from user-supplied positions. It never connects to a broker.
 - `risk_review`: the same snapshot plus an evidence-bound Gateway explanation.
@@ -32,6 +36,9 @@ SIGNAL_API_BASE_URL=https://signal-api.zx-dx.xyz
 AI_GATEWAY_BASE_URL=https://beta.zxlab.pages.dev
 AI_GATEWAY_ACCESS_TOKEN=
 MARKET_API_BASE_URL=https://beta.zxlab.pages.dev
+MARKET_AGENT_API_BASE_URL=https://beta.zxlab.pages.dev
+MARKET_AGENT_REQUEST_TIMEOUT_MS=15000
+MARKET_AGENT_RUN_WAIT_MS=120000
 CANONICAL_MEMORY_API_BASE_URL=https://signal-api.zx-dx.xyz
 CANONICAL_MEMORY_API_TOKEN=
 CF_ACCESS_CLIENT_ID=
@@ -43,6 +50,12 @@ service-token fields belong only in the bridge's mode `0600` environment file.
 They must not be copied into Memoh Workspace files, prompts, or chat memory.
 `CANONICAL_MEMORY_API_TOKEN` must match the Signal Worker's encrypted
 `ZX_MEMORY_BRIDGE_TOKEN` secret.
+
+`market_agent_ask` uses the same `CF_ACCESS_CLIENT_ID` and
+`CF_ACCESS_CLIENT_SECRET`, but that service token must also be registered in
+Pages as a delegated Market Agent actor with `market-agent:read` and
+`market-agent:write`. The bridge never accepts an Access cookie or a profile
+identifier from the bot tool input.
 
 ## Local verification
 

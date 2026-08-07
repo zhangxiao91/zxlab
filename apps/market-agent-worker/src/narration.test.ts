@@ -19,3 +19,25 @@ test("forbidden trade instruction falls back deterministically", async () => {
   const result = await narrateWithRepair(narrator, { workflow: command.workflow, evidence });
   assert.equal(result.result.status, "partial"); assert.match(result.result.limitations.at(-1) ?? "", /降级/);
 });
+
+test("a failed repair falls back without starting another generation", async () => {
+  let generations = 0;
+  let repairs = 0;
+  const narrator: Narrator = {
+    async narrate() {
+      generations += 1;
+      return { status: "success", headline: "bad", summary: "bad", observations: [{ id: "x", class: "fact", importance: "high", title: "x", explanation: "x", evidenceIds: ["missing"] }], portfolioImpacts: [], watchNext: [], limitations: [], evidenceFingerprint: evidence.fingerprint };
+    },
+    async repair() {
+      repairs += 1;
+      throw new Error("gateway timeout");
+    },
+  };
+
+  const result = await narrateWithRepair(narrator, { workflow: command.workflow, evidence });
+
+  assert.equal(generations, 1);
+  assert.equal(repairs, 1);
+  assert.equal(result.result.status, "partial");
+  assert.match(result.issues.join("\n"), /repair unavailable/);
+});
