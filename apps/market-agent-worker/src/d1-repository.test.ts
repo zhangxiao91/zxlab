@@ -24,3 +24,11 @@ test("run deletion scopes every evidence-related delete to the owning profile", 
     assert.ok(statement.values.includes("profile-owner"));
   }
 });
+
+test("schedule decisions never create an Agent Run", async () => {
+  let statement = "";
+  const db = { prepare(sql: string) { statement = sql; return { bind() { return { async run() { return {}; } }; } }; } } as unknown as D1Database;
+  await new D1RunRepository(db).recordScheduleDecision({ workflow: "morning_brief", marketDate: "2026-10-05", decision: "skipped", calendarSource: "official", reason: "MARKET_CLOSED" });
+  assert.match(statement, /INSERT INTO agent_schedule_decisions/);
+  assert.doesNotMatch(statement, /agent_runs/);
+});

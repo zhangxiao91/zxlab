@@ -14,7 +14,7 @@ export class CloseReviewService {
     const snapshot = await this.reader.getCurrentSnapshot({ instrumentIds: input.instrumentIds, intervals: ["1d"], include: ["quotes", "bars", "news", "announcements"], quoteMode: "corroborated" });
     const events = new DeterministicMarketEventDetector().detect({ runId: input.runId, current: snapshot, previous: input.previous });
     const evidence = await buildDeterministicCloseReview(input.command, snapshot, events, input.runId, input.watchlistRevision);
-    const narration = await narrateWithRepair(this.narrator, { workflow: "close_review", evidence });
+    const narration = await narrateWithRepair(this.narrator, { workflow: input.command.workflow, evidence });
     return { evidence, repaired: narration.repaired, result: { ...narration.result, mode: "market-only" } };
   }
 }

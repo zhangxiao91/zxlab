@@ -14,7 +14,8 @@
   "services": [
     { "binding": "SIGNAL", "service": "zx-signal" },
     { "binding": "ZXTOOLKIT", "service": "zxdrop-api" },
-    { "binding": "MARKET", "service": "zxlab-risk-market" }
+    { "binding": "MARKET", "service": "zxlab-risk-market" },
+    { "binding": "MARKET_AGENT", "service": "zxlab-market-agent" }
   ],
   "triggers": { "crons": ["* * * * *", "17 3 * * *"] },
   "vars": {

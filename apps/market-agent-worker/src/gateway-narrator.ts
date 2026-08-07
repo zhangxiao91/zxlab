@@ -18,7 +18,7 @@ export class GatewayNarrator implements Narrator {
 
   private async request(input: { workflow: MarketAgentCommand["workflow"]; evidence: SealedEvidenceBundle }, repairIssues?: string[]): Promise<unknown> {
     if (!this.options.apiUrl || !this.options.token) throw new Error("MARKET_AGENT_GATEWAY_NOT_CONFIGURED");
-    const body = { task: MARKET_AGENT_GATEWAY_TASK, context: { source: "market-agent-worker", operation: "close-review" }, messages: [
+    const body = { task: MARKET_AGENT_GATEWAY_TASK, context: { source: "market-agent-worker", operation: input.workflow }, messages: [
       { role: "system", content: "Return JSON only. Describe the sealed evidence without changing facts, events, rules, or memory. Cite only evidence IDs in the bundle. Never provide trading instructions." },
       { role: "user", content: JSON.stringify({ workflow: input.workflow, evidence: input.evidence, ...(repairIssues ? { repair: { validationIssues: repairIssues, instruction: "Correct only these validation failures and return the full JSON object." } } : {}) }) }
     ], temperature: 0, maxOutputTokens: 2400, responseFormat: { type: "json" } };

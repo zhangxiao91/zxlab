@@ -6,6 +6,8 @@ import { D1ProfileRepository, normalizeWatchlist } from "./profile-repository.ts
 import { GatewayNarrator } from "./gateway-narrator.ts";
 import { DeterministicNarrator } from "./narration.ts";
 import { MarketSnapshotAdapter } from "./snapshot-reader.ts";
+import { productionTradingCalendar } from "@zxlab/market-schema/calendar";
+import { decideScheduledWorkflow, scheduledWorkflowAt } from "./schedule.ts";
 
 const repository = new MemoryRunRepository();
 type RunMessage = { runId: string; generation: number; kind: "initial" | "recovery" };
@@ -13,7 +15,9 @@ function json(value: unknown, status = 200) { return new Response(JSON.stringify
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url); const path = privatePath(url.pathname);
+    const url = new URL(request.url);
+    if (url.pathname === "/internal/runtime/health" && request.method === "GET") return await runtimeHealth(request, env);
+    const path = privatePath(url.pathname);
     if (path === "/health" && request.method === "GET") return json({ ok: true, service: "market-agent", generation: "evidence-bound-gateway" });
     if (!env.DB) return json({ error: "DATABASE_UNAVAILABLE" }, 503);
     try {
@@ -47,7 +51,7 @@ export default {
     } catch (cause) { const code = cause instanceof Error ? cause.message : "INTERNAL_ERROR"; if (code.startsWith("ACTOR_")) return json({ error: code }, 401); if (code === "INVALID_WATCHLIST") return json({ error: code }, 400); if (code === "IDEMPOTENCY_KEY_REUSED") return json({ error: code }, 409); return json({ error: "INTERNAL_ERROR" }, 500); }
   },
   async queue(batch: MessageBatch<RunMessage>, env: Env): Promise<void> { if (batch.queue.endsWith("-dlq")) await processDeadLetters(batch, env); else await processQueue(batch, env); },
-  async scheduled(controller: ScheduledController, env: Env): Promise<void> { if (!env.DB) return; const runs = new D1RunRepository(env.DB); const now = new Date(controller.scheduledTime); await runs.sweepExpired(now.toISOString(), Number(env.MARKET_AGENT_MAX_RECOVERY_GENERATIONS ?? 2)); if (isCloseReviewWindow(now)) { const profiles = new D1ProfileRepository(env.DB); const marketDate = chinaDate(now); for (const profileId of await profiles.listBootstrappedProfileIds()) { const command: MarketAgentCommand = { profileId, trigger: "scheduled", workflow: "close_review", marketDate, idempotencyKey: `scheduled:close_review:${marketDate}` }; await runs.createQueued(command, { command, actorScope: profileId, commandHash: await sha256(command) }); } } await relayOutbox(env, runs); },
+  async scheduled(controller: ScheduledController, env: Env): Promise<void> { if (!env.DB) return; const runs = new D1RunRepository(env.DB); const now = new Date(controller.scheduledTime); await runs.sweepExpired(now.toISOString(), Number(env.MARKET_AGENT_MAX_RECOVERY_GENERATIONS ?? 2)); const workflow = scheduledWorkflowAt(now); if (workflow) { const decision = await decideScheduledWorkflow(workflow, now, productionTradingCalendar); if (decision.decision === "run") { const profiles = new D1ProfileRepository(env.DB); for (const profileId of await profiles.listBootstrappedProfileIds()) { const command: MarketAgentCommand = { profileId, trigger: "scheduled", workflow, marketDate: decision.marketDate, idempotencyKey: `scheduled:${workflow}:${decision.marketDate}` }; await runs.createQueued(command, { command, actorScope: profileId, commandHash: await sha256(command) }); } } else await runs.recordScheduleDecision({ workflow, marketDate: decision.marketDate, decision: decision.decision, calendarSource: decision.calendar.source, reason: decision.reason }); } await relayOutbox(env, runs); },
 } satisfies ExportedHandler<Env, RunMessage>;
 
 export async function processRun(runId: string, env: Env): Promise<"ack" | "retry"> {
@@ -72,8 +76,14 @@ export async function relayOutbox(env: Env, runs = new D1RunRepository(env.DB)):
 async function resolveActor(request: Request, env: Env) { const expected = serviceSecret(env); if (request.headers.get("authorization") !== `Bearer ${expected}`) throw new Error("ACTOR_ENVELOPE_INVALID"); return verifyActorEnvelope(request.headers.get("x-zx-actor"), expected); }
 function serviceSecret(env: Env): string { const secret = env.MARKET_AGENT_PROXY_TOKEN?.trim(); if (!secret) throw new Error("ACTOR_ENVELOPE_MISSING"); return secret; }
 function privatePath(pathname: string): string { return pathname.replace(/^\/api\/v1\/private\/market-agent/, "") || "/"; }
-function chinaDate(date: Date): string { return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).format(date); }
-function isCloseReviewWindow(date: Date): boolean { const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Shanghai", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(date); const hour = Number(parts.find((part) => part.type === "hour")?.value); const minute = Number(parts.find((part) => part.type === "minute")?.value); return hour === 15 && minute >= 10 && minute < 20; }
+async function runtimeHealth(request: Request, env: Env): Promise<Response> {
+  const supplied = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
+  if (!env.ZX_RUNTIME_SERVICE_TOKEN || supplied !== env.ZX_RUNTIME_SERVICE_TOKEN) return json({ error: "UNAUTHORIZED" }, 401);
+  const generatedAt = new Date().toISOString();
+  if (!env.DB) return json({ schemaVersion: "1", serviceId: "market-agent", status: "offline", version: "market-agent-worker", generatedAt, checks: [{ id: "d1", status: "offline", errorCode: "D1_UNAVAILABLE" }] }, 503);
+  try { const counts = await new D1RunRepository(env.DB).runtimeHealth(); const status = counts.retryWait > 0 || counts.pendingDispatches > 0 ? "degraded" : "operational"; return json({ schemaVersion: "1", serviceId: "market-agent", status, version: "market-agent-worker", generatedAt, checks: [{ id: "d1", status: "operational", lastSuccessAt: generatedAt }, { id: "dispatch", status: counts.pendingDispatches > 0 ? "degraded" : "operational" }] }); }
+  catch { return json({ schemaVersion: "1", serviceId: "market-agent", status: "offline", version: "market-agent-worker", generatedAt, checks: [{ id: "d1", status: "offline", errorCode: "D1_QUERY_FAILED" }] }, 503); }
+}
 async function sha256(value: unknown): Promise<`sha256:${string}`> { const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(value))); return `sha256:${[...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, "0")).join("")}`; }
 
 export { MemoryRunRepository } from "./foundation.ts";

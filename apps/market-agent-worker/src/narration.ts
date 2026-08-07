@@ -14,7 +14,8 @@ export class DeterministicNarrator implements Narrator {
     });
     const declaredLimitations = input.evidence.items.filter((item) => item.kind === "limitation");
     const limitations = [...(facts.some((item) => !item.reliable) ? ["部分市场事实不可靠，结果仅供观察，不能视为完整复盘。"] : []), ...declaredLimitations.map((item) => `证据限制：${JSON.stringify(item.value)}`)];
-    return { status: limitations.length ? "partial" : "success", headline: events.length ? `收盘复盘检测到 ${events.length} 个确定性事件` : "收盘复盘没有检测到显著事件", summary: facts.length ? `本次复盘基于 ${facts.length} 条市场事实和 ${events.length} 个规则事件。` : "当前没有可用的市场事实。", observations, portfolioImpacts: [], watchNext: [], limitations, evidenceFingerprint: input.evidence.fingerprint };
+    const label = input.workflow === "morning_brief" ? "盘前简报" : "收盘复盘";
+    return { status: limitations.length ? "partial" : "success", headline: events.length ? `${label}检测到 ${events.length} 个确定性事件` : `${label}没有检测到显著事件`, summary: facts.length ? `本次简报基于 ${facts.length} 条市场事实和 ${events.length} 个规则事件。` : "当前没有可用的市场事实。", observations, portfolioImpacts: [], watchNext: [], limitations, evidenceFingerprint: input.evidence.fingerprint };
   }
 }
 

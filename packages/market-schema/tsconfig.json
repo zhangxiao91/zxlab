@@ -8,6 +8,6 @@
     "noEmit": true,
     "skipLibCheck": true
   },
-  "include": ["src/index.ts", "src/fixtures.ts"],
+  "include": ["src/index.ts", "src/fixtures.ts", "src/calendar.ts"],
   "exclude": ["src/**/*.test.ts"]
 }

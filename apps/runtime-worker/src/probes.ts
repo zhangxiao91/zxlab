@@ -21,6 +21,7 @@ const probes: ProbeDefinition[] = [
   { id: "signal", load: (env, signal) => env.SIGNAL.fetch("https://signal.internal/internal/runtime/health", { headers: internalHeaders(env), signal }) },
   { id: "zxtoolkit", load: (env, signal) => env.ZXTOOLKIT.fetch("https://zxtoolkit.internal/internal/runtime/health", { headers: internalHeaders(env), signal }) },
   { id: "market", load: (env, signal) => env.MARKET.fetch("https://market.internal/internal/runtime/health", { headers: internalHeaders(env), signal }) },
+  { id: "market-agent", load: (env, signal) => env.MARKET_AGENT.fetch("https://market-agent.internal/internal/runtime/health", { headers: internalHeaders(env), signal }) },
   { id: "codex-usage", load: (env, signal) => fetch(env.PAGES_USAGE_URL, { headers: internalHeaders(env), signal }) },
 ];
 
