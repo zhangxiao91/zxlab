@@ -98,6 +98,15 @@ test("Yuzi uses its bounded generation policy", () => {
   assert.equal(resolveTaskPolicy({ ...input, task: "yuzi-turn", maxOutputTokens: 2_000 }).maxOutputTokens, 700);
 });
 
+test("Signal editorial filtering allows DeepSeek enough time for reasoning output", () => {
+  assert.deepEqual(resolveTaskPolicy({ ...input, task: "signal-editorial-filter" }), {
+    timeoutMs: 60_000,
+    totalBudgetMs: 120_000,
+    maxOutputTokens: 4_000,
+    temperature: 0,
+  });
+});
+
 test("429 retries once, then falls back to Kimi K3", async () => {
   const adapter = new ScriptedAdapter([rateLimit(), rateLimit(), success("second")]);
   const result = await generateAI(input, { candidates, adapters: adapters(adapter), sleep: async () => {}, jitterMs: () => 0 });
