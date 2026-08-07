@@ -8,7 +8,5 @@ export const defaultInstruments: Instrument[] = [
 
 export const defaultRiskRules: RiskRules = { maxSinglePosition: 0.35, maxThemeConcentration: 0.45, maxEffectiveExposure: 1.2, quoteStaleSeconds: 120 };
 
-export const defaultTradePlans: TradePlan[] = [
-  { instrumentId: "SSE:512480", maxWeight: 0.32, evidenceId: "trade-plan:SSE:512480:v1" },
-  { instrumentId: "SZSE:159995", maxWeight: 0.24, evidenceId: "trade-plan:SZSE:159995:v1" },
-];
+// Trade plans are user-owned settings and must not be implied for a new workspace.
+export const defaultTradePlans: TradePlan[] = [];

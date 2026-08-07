@@ -2,10 +2,8 @@ import { defaultInstruments } from "../risk/config";
 import type { MarketWatchlistItem } from "./types";
 
 const WATCHLIST_KEY = "zxlab.market.watchlist.v1";
-const DEFAULT_IDS = ["SSE:512480", "SZSE:159995", "SSE:513100"];
-
 export function defaultMarketWatchlist(): MarketWatchlistItem[] {
-  return DEFAULT_IDS.map((instrumentId) => toWatchlistItem(instrumentId, "当前 Risk 账本默认标的")).filter((item): item is MarketWatchlistItem => Boolean(item));
+  return [];
 }
 
 export function loadMarketWatchlist(storage: Storage): MarketWatchlistItem[] {
@@ -14,12 +12,17 @@ export function loadMarketWatchlist(storage: Storage): MarketWatchlistItem[] {
     if (Array.isArray(parsed)) {
       const items = parsed.map((item) => item && typeof item === "object" ? item as Partial<MarketWatchlistItem> : null).filter((item): item is Partial<MarketWatchlistItem> => Boolean(item));
       const normalized = items.flatMap((item) => typeof item.instrumentId === "string" ? [toWatchlistItem(item.instrumentId, item.reason || "自选标的", item.label)] : []);
-      if (normalized.length) return dedup(normalized);
+      if (normalized.length) {
+        const migrated = dedup(normalized);
+        const oldDefaults = new Set(["SSE:512480", "SZSE:159995", "SSE:513100"]);
+        if (migrated.length === oldDefaults.size && migrated.every((item) => oldDefaults.has(item.instrumentId) && item.reason === "当前 Risk 账本默认标的")) return [];
+        return migrated;
+      }
     }
   } catch {
     return defaultMarketWatchlist();
   }
-  return defaultMarketWatchlist();
+  return [];
 }
 
 export function saveMarketWatchlist(storage: Storage, items: MarketWatchlistItem[]): void {

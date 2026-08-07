@@ -93,6 +93,7 @@ test("workspace ignores legacy mock mode and never seeds example transactions", 
   assert.equal(data.dataMode, "api");
   assert.equal(data.transactions.length, 0);
   assert.equal(data.positions.length, 0);
+  assert.deepEqual(portfolio.getTradePlans(), []);
   assert.equal("restoreMock" in workspace, false);
 });
 

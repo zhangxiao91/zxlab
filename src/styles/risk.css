@@ -433,6 +433,20 @@
   cursor: pointer;
   font-size: .62rem;
 }
+.market-add__holdings {
+  border: 1px solid var(--risk-line) !important;
+  background: transparent !important;
+  color: var(--risk-paper) !important;
+}
+.market-add__holdings:hover, .market-add__holdings:focus-visible {
+  border-color: var(--risk-lime) !important;
+  color: var(--risk-lime) !important;
+}
+.market-empty-row td {
+  padding: 2rem 1rem;
+  color: var(--risk-muted);
+  text-align: center;
+}
 .market-auto-button.is-active {
   border-color: rgba(217,255,116,.5);
   color: var(--risk-lime);
