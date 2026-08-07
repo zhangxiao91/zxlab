@@ -1,5 +1,5 @@
 import { defaultInstruments } from "./config";
-import type { BrokerPosition, BrokerSnapshot, HoldingParseDraft, HoldingParsePosition, HoldingParseUnresolvedRow } from "./types";
+import type { BrokerPosition, BrokerSnapshot, HoldingParseDraft, HoldingParsePosition, HoldingParseUnresolvedRow, Instrument } from "./types";
 
 export type HoldingSourceKind = "csv" | "text";
 
@@ -70,7 +70,7 @@ export function parseLocalHoldingText(text: string, sourceKind: HoldingSourceKin
       return cells[headerIndex >= 0 ? headerIndex : fallbackIndex]?.trim() ?? "";
     };
     const rawSymbol = lookup([/代码|symbol|instrument/], 0);
-    const rawName = lookup([/名称|证券|name/], 1);
+    const rawName = lookup([/名称|证券(?!代码)|name/], 1);
     const quantity = parseNumber(lookup([/数量|持仓|股份|份额|quantity/], 2));
     const averageCost = parseNumber(lookup([/成本|均价|cost/], 3));
     const marketValue = parseNumber(lookup([/市值|market/], 4));
@@ -95,6 +95,11 @@ export function brokerSnapshotFromDraft(draft: HoldingParseDraft, importedAt = n
     sourceKind: draft.sourceKind,
     importedAt,
     positions,
+    instrumentMetadata: draft.positions.flatMap((item): Instrument[] => {
+      if (!item.instrumentId || !/^((SSE)|(SZSE)):\d{6}$/.test(item.instrumentId)) return [];
+      const [, symbol] = item.instrumentId.split(":");
+      return [{ id: item.instrumentId, symbol, name: item.rawName?.trim() || item.instrumentId, assetType: "stock", industry: "未分类", themes: [], leverageMultiplier: 1 }];
+    }),
     rawDraftWarnings: [
       ...draft.warnings,
       ...draft.positions.filter((item) => item.confidence < 0.75 || item.warnings.length).map((item) => `${item.instrumentId ?? item.rawSymbol ?? "未知标的"}: ${item.warnings.join("；") || `低置信度 ${item.confidence.toFixed(2)}`}`),

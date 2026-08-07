@@ -102,6 +102,7 @@ export interface BrokerSnapshot {
   sourceKind: "csv" | "text";
   importedAt: string;
   positions: BrokerPosition[];
+  instrumentMetadata?: Instrument[];
   rawDraftWarnings: string[];
 }
 export interface HoldingParsePosition {

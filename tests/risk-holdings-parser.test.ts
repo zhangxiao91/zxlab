@@ -33,7 +33,16 @@ test("holdings parser normalizes codes, preserves low-confidence warnings, and c
   const snapshot = brokerSnapshotFromDraft(draft, "2026-07-20T08:00:00.000Z");
   assert.equal(snapshot.positions.length, 1);
   assert.deepEqual(snapshot.positions[0], { instrumentId: "SSE:512480", quantity: 10000, averageCost: 0.92 });
+  assert.equal(snapshot.instrumentMetadata?.[0]?.id, "SSE:512480");
   assert.equal(snapshot.rawDraftWarnings.some((item) => item.includes("第 4 行未解析")), true);
+});
+
+test("holdings parser preserves arbitrary exchange-listed instruments", () => {
+  const draft = parseLocalHoldingText("证券代码,证券名称,持仓数量,成本价\nSSE:603156,养元饮品,1000,20.5", "csv", "2026-08-07T08:00:00.000Z");
+  const snapshot = brokerSnapshotFromDraft(draft, "2026-08-07T08:00:01.000Z");
+  assert.equal(draft.positions[0]?.instrumentId, "SSE:603156");
+  assert.equal(snapshot.positions[0]?.instrumentId, "SSE:603156");
+  assert.equal(snapshot.instrumentMetadata?.[0]?.name, "养元饮品");
 });
 
 test("local holdings parser handles simple CSV and isolates unresolved rows", () => {

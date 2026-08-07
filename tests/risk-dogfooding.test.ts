@@ -192,6 +192,23 @@ test("workspace keeps broker snapshots separate from ledger-derived positions", 
   assert.equal(portfolio.listTransactions().length, mockTransactions.length);
 });
 
+test("workspace registers imported instruments before reconciling them", () => {
+  const storage = new MemoryStorage();
+  const portfolio = new LocalPortfolioRepository(storage);
+  const workspace = new RiskWorkspaceService(portfolio, new LocalRiskJournalRepository(storage));
+  workspace.saveBrokerSnapshot({
+    id: "snapshot-arbitrary-instrument",
+    snapshotAt: "2026-08-07T15:00:00+08:00",
+    accountName: "真实账户",
+    sourceKind: "csv",
+    importedAt: "2026-08-07T15:00:01+08:00",
+    positions: [{ instrumentId: "SSE:603156", quantity: 1000, averageCost: 20.5 }],
+    instrumentMetadata: [{ id: "SSE:603156", symbol: "603156", name: "养元饮品", assetType: "stock", industry: "未分类", themes: [], leverageMultiplier: 1 }],
+    rawDraftWarnings: [],
+  });
+  assert.equal(portfolio.getInstruments().find((item) => item.id === "SSE:603156")?.name, "养元饮品");
+});
+
 test("adopting a broker snapshot replaces stale ledger examples with opening adjustments", async () => {
   const storage = new MemoryStorage();
   const portfolio = new LocalPortfolioRepository(storage);

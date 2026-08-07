@@ -129,6 +129,10 @@ export class RiskWorkspaceService {
     this.repository.saveBrokerPositions([...current, { instrumentId, quantity, averageCost }]);
   }
   saveBrokerSnapshot(snapshot: BrokerSnapshot) {
+    if (snapshot.instrumentMetadata?.length) {
+      const known = new Set(this.repository.getInstruments().map((item) => item.id));
+      this.repository.saveInstruments([...this.repository.getInstruments(), ...snapshot.instrumentMetadata.filter((item) => !known.has(item.id))]);
+    }
     this.repository.saveBrokerSnapshot(snapshot);
     this.repository.saveBrokerPositions(snapshot.positions);
   }
