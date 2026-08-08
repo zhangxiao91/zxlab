@@ -57,6 +57,14 @@ const askScopes: AskScopeOption[] = [
 
 const terminalStatuses = new Set(["success", "partial", "failed"]);
 
+const runStages = [
+  { id: "queued", label: "建立 Run", tool: "Run Orchestrator", detail: "固定问题范围与幂等键" },
+  { id: "collecting", label: "收集事实", tool: "Market Snapshot", detail: "读取允许范围内的行情与公告" },
+  { id: "evidence_sealed", label: "封存证据", tool: "Evidence Assembler", detail: "冻结引用范围并计算指纹" },
+  { id: "generating", label: "形成回答", tool: "Agent Narrator", detail: "只读取本次 Evidence" },
+  { id: "validating", label: "校验输出", tool: "Result Validator", detail: "检查引用、结构与限制项" },
+] as const;
+
 interface AskPanelProps {
   runs: AgentRunView[];
   instruments: string[];
@@ -236,6 +244,7 @@ export default function AskPanel({
         </div>
         <span>范围由服务端封存</span>
       </header>
+      <RunActivity status={answer?.status} runId={answer?.id} />
       <div className="agent-ask__grid">
         <form
           className="agent-ask__form"
@@ -403,6 +412,59 @@ export default function AskPanel({
       )}
     </section>
   );
+}
+
+function RunActivity({ status, runId }: { status?: string; runId?: string }) {
+  const activeIndex = runStageIndex(status);
+  const finished = status === "success" || status === "partial";
+  const failed = status === "failed";
+  return (
+    <section className="agent-activity" aria-live="polite" aria-label="Agent 执行过程">
+      <header>
+        <div>
+          <span className={`agent-activity__pulse${status && !terminalStatuses.has(status) ? " is-live" : ""}`} />
+          <strong>{status ? statusLabel(status) : "等待任务"}</strong>
+          <small>{runId ? `Run ${runId.slice(0, 8)}` : "提交后将在这里显示实时阶段"}</small>
+        </div>
+        <p>展示可验证的执行阶段，不展示或伪造模型私密思维。</p>
+      </header>
+      <ol>
+        {runStages.map((stage, index) => {
+          const state = failed && index === activeIndex
+            ? "failed"
+            : finished || index < activeIndex
+              ? "complete"
+              : index === activeIndex && status
+                ? "active"
+                : "waiting";
+          return (
+            <li key={stage.id} data-state={state}>
+              <span className="agent-activity__node" aria-hidden="true" />
+              <div>
+                <span>{stage.label}</span>
+                <strong>{stage.tool}</strong>
+                <small>{stage.detail}</small>
+              </div>
+              <em>{activityStateLabel(state)}</em>
+            </li>
+          );
+        })}
+      </ol>
+    </section>
+  );
+}
+
+function runStageIndex(status?: string) {
+  if (!status) return -1;
+  if (status === "retry_wait") return 1;
+  if (status === "success" || status === "partial") return runStages.length - 1;
+  if (status === "failed") return 0;
+  const index = runStages.findIndex((stage) => stage.id === status);
+  return index < 0 ? 0 : index;
+}
+
+function activityStateLabel(state: "complete" | "active" | "failed" | "waiting") {
+  return ({ complete: "完成", active: "进行中", failed: "中止", waiting: "等待" } as const)[state];
 }
 
 function ObservationGroup({

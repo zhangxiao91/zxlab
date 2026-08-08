@@ -337,6 +337,11 @@ export default function AgentToday() {
           </section>
         )}
         {setupNote && <p className="agent-setup-note">{setupNote}</p>}
+        <AskPanel
+          runs={runs}
+          instruments={askInstruments}
+          onRunUpdate={updateRun}
+        />
         <section className="agent-portfolio" aria-label="持仓快照">
           <header className="agent-portfolio__header">
             <div>
@@ -509,11 +514,6 @@ export default function AgentToday() {
             </aside>
           )}
         </section>
-        <AskPanel
-          runs={runs}
-          instruments={askInstruments}
-          onRunUpdate={updateRun}
-        />
         <section className="agent-bento" aria-label="Agent 状态">
           <article className="agent-bento-card agent-bento-card--lead">
             <span>当前状态</span>
