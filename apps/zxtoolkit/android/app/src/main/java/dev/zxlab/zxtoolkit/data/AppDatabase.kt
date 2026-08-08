@@ -51,6 +51,10 @@ interface TransferDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE) suspend fun insertInbox(items: List<InboxEntity>)
     @Query("UPDATE inbox SET senderName = :senderName, payloadJson = :payloadJson, status = :status, createdAt = :createdAt, expiresAt = :expiresAt WHERE id = :id")
     suspend fun updateInbox(id: String, senderName: String, payloadJson: String, status: String, createdAt: String, expiresAt: String)
+    @Transaction suspend fun mergeInbox(item: InboxEntity) {
+        insertInbox(listOf(item))
+        updateInbox(item.id, item.senderName, item.payloadJson, item.status, item.createdAt, item.expiresAt)
+    }
     @Query("UPDATE inbox SET status = :status WHERE id = :id") suspend fun updateInboxStatus(id: String, status: String)
     @Query("SELECT id FROM inbox WHERE notified = 0") suspend fun unnotifiedIds(): List<String>
     @Query("UPDATE inbox SET notified = 1 WHERE id IN (:ids)") suspend fun markNotified(ids: List<String>)

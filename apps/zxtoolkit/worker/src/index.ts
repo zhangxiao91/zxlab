@@ -1,5 +1,5 @@
 import { TransferSession } from "./session";
-import { MAX_FILE_BYTES, SESSION_TTL_MS, validateUploadMetadata, type TransferRecord } from "./protocol";
+import { MAX_FILE_BYTES, SESSION_TTL_MS, parseByteRange, validateUploadMetadata, type TransferRecord } from "./protocol";
 import { hashToken, randomToken } from "./security";
 import { PairingSession } from "./pairing";
 import { DeviceMailbox } from "./device-mailbox";
@@ -11,7 +11,7 @@ import { PulseHub } from "./pulse-hub";
 import { currentPlayback, ingestPlaybackBatch, playbackSummary } from "./music-store";
 import { decryptPulseEnvelope } from "./encrypted-envelope";
 import { UploadQuota } from "./upload-quota";
-import { BodyTooLargeError, declaredBodySize, hasImageSignature, readBodyWithLimit, readJsonWithLimit } from "./request-body";
+import { BodyTooLargeError, declaredBodySize, guardedBodyStream, hasImageSignature, readJsonWithLimit } from "./request-body";
 import { verifyTurnstile } from "./turnstile";
 import {
   authenticateDevice,
@@ -380,14 +380,16 @@ async function createDrop(request: Request, env: Env, cors: Headers): Promise<Re
   const receiverDeviceId = typeof body?.receiverDeviceId === "string" ? body.receiverDeviceId : "";
   const payload = validateDropPayload(body?.payload);
   if (!receiverDeviceId || !payload) return problem("INVALID_DROP", "投递内容或目标设备无效", 400, cors);
+  const idempotencyKey = request.headers.get("x-idempotency-key")?.trim() || undefined;
+  if (idempotencyKey && !/^[A-Za-z0-9_-]{8,100}$/.test(idempotencyKey)) return problem("INVALID_IDEMPOTENCY_KEY", "投递请求标识无效", 400, cors);
   const startOfDay = new Date();
   startOfDay.setUTCHours(0, 0, 0, 0);
   const used = await env.DB.prepare("SELECT COUNT(*) AS count FROM transfers WHERE sender_device_id = ?1 AND created_at >= ?2").bind(auth.device.id, startOfDay.toISOString()).first<{ count: number }>();
   if ((used?.count ?? 0) >= positiveInteger(env.DAILY_DROP_LIMIT, 200)) return problem("DAILY_QUOTA_EXCEEDED", "今日投递次数已用完，请明天再试", 429, cors);
-  const item = await createTransfer(env.DB, auth.device, receiverDeviceId, payload, positiveInteger(env.DROP_TTL_SECONDS, 86400) * 1000);
-  if (!item) return problem("DROP_FORBIDDEN", "目标设备未与当前设备绑定或已被吊销", 403, cors);
-  if (item.status === "delivered") await env.DEVICES.getByName(receiverDeviceId).notifyInbox(item);
-  return json({ item }, 201, cors);
+  const created = await createTransfer(env.DB, auth.device, receiverDeviceId, payload, positiveInteger(env.DROP_TTL_SECONDS, 86400) * 1000, idempotencyKey);
+  if (!created) return problem("DROP_FORBIDDEN", "目标设备未与当前设备绑定或已被吊销", 403, cors);
+  if (created.created && created.item.status === "delivered") await env.DEVICES.getByName(receiverDeviceId).notifyInbox(created.item);
+  return json({ item: created.item }, created.created ? 201 : 200, cors);
 }
 
 async function inbox(request: Request, env: Env, cors: Headers): Promise<Response> {
@@ -448,40 +450,50 @@ async function uploadTransferContent(request: Request, env: Env, transferId: str
   const quotaKey = now.toISOString().slice(0, 10);
   const resetAt = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
   const quota = env.UPLOAD_QUOTAS.getByName(`upload-${quotaKey}`);
-  const reservation = await quota.reserve(maxBytes, positiveInteger(env.DAILY_UPLOAD_LIMIT, 500), positiveInteger(env.DAILY_UPLOAD_BYTES, 2 * 1024 * 1024 * 1024), resetAt);
+  const reservedBytes = declaredSize ?? stored.item.payload.size;
+  const reservation = await quota.reserve(reservedBytes, positiveInteger(env.DAILY_UPLOAD_LIMIT, 500), positiveInteger(env.DAILY_UPLOAD_BYTES, 2 * 1024 * 1024 * 1024), resetAt);
   if (!reservation.accepted) return problem("DAILY_QUOTA_EXCEEDED", reservation.reason === "bytes" ? "今日传输容量已用完，请明天再试" : "今日上传次数已用完，请明天再试", 429, cors);
 
   const objectKey = `drops/${auth.device.id}/${randomToken(18)}`;
-  let body: Uint8Array;
   let item: DropItem;
   try {
-    body = await readBodyWithLimit(request.body, maxBytes);
-    if (!body.byteLength) throw new Error("EMPTY_FILE");
-    if (stored.item.payload.type === "image" && !hasImageSignature(body, mimeType)) {
-      await quota.rollback(maxBytes);
+    const guarded = await guardedBodyStream(request.body, maxBytes);
+    if (!guarded.prefix.byteLength) throw new Error("EMPTY_FILE");
+    if (stored.item.payload.type === "image" && !hasImageSignature(guarded.prefix, mimeType)) {
+      await quota.rollback(reservedBytes);
       await failTransfer(env.DB, transferId, auth.device.id, "INVALID_FILE_SIGNATURE");
       return problem("INVALID_FILE_SIGNATURE", "图片内容与文件类型不匹配", 400, cors);
     }
-    await env.FILES.put(objectKey, body, {
+    const fixed = new FixedLengthStream(stored.item.payload.size);
+    const forwarding = guarded.body.pipeTo(fixed.writable);
+    const uploaded = await env.FILES.put(objectKey, fixed.readable, {
       httpMetadata: { contentType: mimeType },
       customMetadata: { transferId, senderDeviceId: auth.device.id, receiverDeviceId: stored.item.receiverDeviceId }
     });
-    const completedItem = await completeBinaryTransfer(env.DB, transferId, auth.device.id, objectKey, body.byteLength);
+    await forwarding;
+    const streamed = await guarded.completed;
+    if (!uploaded || streamed.size !== stored.item.payload.size) {
+      await env.FILES.delete(objectKey);
+      await quota.rollback(reservedBytes);
+      await failTransfer(env.DB, transferId, auth.device.id, "FILE_SIZE_MISMATCH");
+      return problem("FILE_SIZE_MISMATCH", "文件大小与投递信息不一致，请重新选择文件", 409, cors);
+    }
+    const completedItem = await completeBinaryTransfer(env.DB, transferId, auth.device.id, objectKey, streamed.size);
     if (!completedItem) {
       await env.FILES.delete(objectKey);
-      await quota.rollback(maxBytes);
+      await quota.rollback(reservedBytes);
       return problem("TRANSFER_UNAVAILABLE", "投递已失效，请重新发送", 409, cors);
     }
     item = completedItem;
   } catch (cause) {
     await env.FILES.delete(objectKey);
-    await quota.rollback(maxBytes);
+    await quota.rollback(reservedBytes);
     await failTransfer(env.DB, transferId, auth.device.id, cause instanceof BodyTooLargeError ? "FILE_TOO_LARGE" : "UPLOAD_FAILED");
     if (cause instanceof BodyTooLargeError) return problem("FILE_TOO_LARGE", "单个文件不能超过 100 MB", 413, cors);
     if (cause instanceof Error && cause.message === "EMPTY_FILE") return problem("EMPTY_FILE", "文件内容为空", 400, cors);
     throw cause;
   }
-  await quota.commit(maxBytes, body.byteLength).catch((error) => {
+  await quota.commit(reservedBytes, item.payload.type === "image" || item.payload.type === "file" ? item.payload.size : 0).catch((error) => {
     console.error(JSON.stringify({ event: "upload_quota_commit_failed", transferId, error: error instanceof Error ? error.message : "unknown" }));
   });
   await env.DEVICES.getByName(item.receiverDeviceId).notifyInbox(item).catch((error) => {
@@ -497,15 +509,26 @@ async function downloadTransfer(request: Request, env: Env, transferId: string, 
   const stored = await getTransfer(env.DB, transferId);
   if (!stored || stored.item.receiverDeviceId !== auth.device.id || !isBinaryDropPayload(stored.item.payload)) return problem("TRANSFER_UNAVAILABLE", "文件不存在或无权访问", 404, cors);
   if (!stored.objectKey || stored.item.status === "claimed" || stored.item.status === "expired" || Date.parse(stored.item.expiresAt) <= Date.now()) return problem("FILE_UNAVAILABLE", "文件已领取或已过期", 410, cors);
-  const object = await env.FILES.get(stored.objectKey);
+  const rangeHeader = request.headers.get("range");
+  const range = rangeHeader ? parseByteRange(rangeHeader, stored.item.payload.size) : null;
+  if (rangeHeader && !range) {
+    const headers = new Headers(cors);
+    headers.set("content-range", `bytes */${stored.item.payload.size}`);
+    headers.set("accept-ranges", "bytes");
+    return new Response(null, { status: 416, headers });
+  }
+  const object = await env.FILES.get(stored.objectKey, range ? { range: { offset: range.offset, length: range.length } } : undefined);
   if (!object?.body) return problem("FILE_MISSING", "临时文件已被清理", 410, cors);
   const headers = new Headers(cors);
   object.writeHttpMetadata(headers);
   headers.set("content-type", stored.item.payload.mimeType);
-  headers.set("content-length", String(object.size));
+  headers.set("content-length", String(range?.length ?? object.size));
+  headers.set("accept-ranges", "bytes");
+  if (range) headers.set("content-range", range.contentRange);
+  headers.set("etag", object.httpEtag);
   headers.set("cache-control", "private, no-store");
   headers.set("content-disposition", `${stored.item.payload.type === "image" ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(stored.item.payload.fileName)}`);
-  return new Response(object.body, { headers });
+  return new Response(object.body, { status: range ? 206 : 200, headers });
 }
 
 async function updateDropStatus(request: Request, env: Env, transferId: string, cors: Headers): Promise<Response> {
@@ -517,6 +540,9 @@ async function updateDropStatus(request: Request, env: Env, transferId: string, 
   const updated = await updateTransferStatus(env.DB, transferId, auth.device.id, status);
   if (!updated) return problem("TRANSFER_UNAVAILABLE", "投递不存在、无权操作或状态无效", 404, cors);
   if (status === "claimed" && updated.objectKey) await env.FILES.delete(updated.objectKey);
+  await env.DEVICES.getByName(updated.item.senderDeviceId).notifyTransferUpdate(updated.item).catch((error) => {
+    console.error(JSON.stringify({ event: "sender_receipt_notification_failed", transferId, error: error instanceof Error ? error.message : "unknown" }));
+  });
   return json({ item: updated.item }, 200, cors);
 }
 
@@ -530,6 +556,7 @@ async function uploadFile(request: Request, env: Env, sessionId: string, cors: H
   const maxBytes = Math.min(MAX_FILE_BYTES, positiveInteger(env.MAX_FILE_BYTES, MAX_FILE_BYTES));
   const error = validateUploadMetadata(mimeType, declaredSize, maxBytes);
   if (error) return problem("INVALID_FILE", error, 400, cors);
+  if (declaredSize === null) return problem("LENGTH_REQUIRED", "上传图片时必须提供文件大小", 411, cors);
   if (!request.body) return problem("EMPTY_FILE", "没有读取到图片内容", 400, cors);
 
   const stub = env.SESSIONS.getByName(sessionId);
@@ -560,8 +587,9 @@ async function uploadFile(request: Request, env: Env, sessionId: string, cors: H
   const quotaKey = now.toISOString().slice(0, 10);
   const resetAt = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
   const quota = env.UPLOAD_QUOTAS.getByName(`upload-${quotaKey}`);
+  const reservedBytes = declaredSize ?? maxBytes;
   const reservation = await quota.reserve(
-    maxBytes,
+    reservedBytes,
     positiveInteger(env.DAILY_UPLOAD_LIMIT, 500),
     positiveInteger(env.DAILY_UPLOAD_BYTES, 2 * 1024 * 1024 * 1024),
     resetAt
@@ -571,36 +599,41 @@ async function uploadFile(request: Request, env: Env, sessionId: string, cors: H
     return problem("DAILY_QUOTA_EXCEEDED", reservation.reason === "bytes" ? "今日传输容量已用完，请明天再试" : "今日上传次数已用完，请明天再试", 429, cors);
   }
 
-  let body: Uint8Array;
   let completed: TransferRecord;
+  let actualSize = 0;
   try {
-    body = await readBodyWithLimit(request.body, maxBytes);
-    if (!body.byteLength) throw new Error("EMPTY_FILE");
-    if (!hasImageSignature(body, mimeType)) {
-      await quota.rollback(maxBytes);
+    const guarded = await guardedBodyStream(request.body, maxBytes);
+    if (!guarded.prefix.byteLength) throw new Error("EMPTY_FILE");
+    if (!hasImageSignature(guarded.prefix, mimeType)) {
+      await quota.rollback(reservedBytes);
       await stub.failTransfer(token, transferId);
       return problem("INVALID_FILE_SIGNATURE", "图片内容与文件类型不匹配", 400, cors);
     }
-    await env.FILES.put(objectKey, body, {
+    const fixed = new FixedLengthStream(declaredSize);
+    const forwarding = guarded.body.pipeTo(fixed.writable);
+    const uploaded = await env.FILES.put(objectKey, fixed.readable, {
       httpMetadata: { contentType: mimeType },
       customMetadata: { fileName, sessionId, transferId }
     });
-    const result = await stub.completeTransfer(token, transferId, body.byteLength);
+    await forwarding;
+    actualSize = (await guarded.completed).size;
+    if (!uploaded) throw new Error("UPLOAD_FAILED");
+    const result = await stub.completeTransfer(token, transferId, actualSize);
     if (!result) {
       await env.FILES.delete(objectKey);
-      await quota.rollback(maxBytes);
+      await quota.rollback(reservedBytes);
       return problem("TRANSFER_REJECTED", "会话已失效，请创建新会话", 409, cors);
     }
     completed = result;
   } catch (cause) {
     await env.FILES.delete(objectKey);
-    await quota.rollback(maxBytes);
+    await quota.rollback(reservedBytes);
     await stub.failTransfer(token, transferId);
     if (cause instanceof BodyTooLargeError) return problem("FILE_TOO_LARGE", "单个文件不能超过 100 MB", 413, cors);
     if (cause instanceof Error && cause.message === "EMPTY_FILE") return problem("EMPTY_FILE", "文件为空", 400, cors);
     throw cause;
   }
-  await quota.commit(maxBytes, body.byteLength).catch((error) => {
+  await quota.commit(reservedBytes, actualSize).catch((error) => {
     console.error(JSON.stringify({ event: "upload_quota_commit_failed", transferId, error: error instanceof Error ? error.message : "unknown" }));
   });
   return json({ transfer: completed }, 201, cors);
@@ -710,8 +743,8 @@ function corsHeaders(request: Request, env: Env): Headers {
   const allowed = new Set([env.APP_ORIGIN, env.ZXLAB_ORIGIN, "http://localhost:4173", "http://127.0.0.1:4173", "http://localhost:4174", "http://localhost:4321", "http://tauri.localhost", "tauri://localhost"]);
   const headers = new Headers({
     "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS",
-    "access-control-allow-headers": "authorization,content-type,content-length,x-file-name,x-device-id",
-    "access-control-expose-headers": "content-length,content-type,content-disposition,x-request-id",
+    "access-control-allow-headers": "authorization,content-type,content-length,x-file-name,x-device-id,x-idempotency-key,range",
+    "access-control-expose-headers": "content-length,content-type,content-disposition,content-range,accept-ranges,etag,x-request-id",
     "x-request-id": crypto.randomUUID(),
     "vary": "Origin"
   });

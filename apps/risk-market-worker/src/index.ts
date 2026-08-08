@@ -159,14 +159,59 @@ function parseJsonOrJsonp(value: string): unknown {
 
 function quoteFreshness(marketTimestamp: string | null, receivedAt: string) {
   const ageSeconds = marketTimestamp ? Math.max(0, (Date.parse(receivedAt) - Date.parse(marketTimestamp)) / 1000) : Number.POSITIVE_INFINITY;
-  return { stale: ageSeconds > 120, ageSeconds };
+  const closedSnapshot = marketTimestamp ? isCurrentClosedMarketSnapshot(marketTimestamp, receivedAt) : false;
+  return { stale: ageSeconds > 120 && !closedSnapshot, ageSeconds };
 }
 
-function quoteWarnings(price: number | null, marketTimestamp: string | null, ageSeconds: number): string[] {
+function isCurrentClosedMarketSnapshot(marketTimestamp: string, receivedAt: string) {
+  const market = shanghaiClock(marketTimestamp);
+  const received = shanghaiClock(receivedAt);
+  if (!market || !received) return false;
+  const receivedMinutes = received.hour * 60 + received.minute;
+  const marketMinutes = market.hour * 60 + market.minute;
+  const sessionOpen = received.weekday >= 1 && received.weekday <= 5
+    && ((receivedMinutes >= 570 && receivedMinutes < 690) || (receivedMinutes >= 780 && receivedMinutes < 900));
+  if (sessionOpen) return false;
+  if (market.date === received.date) return receivedMinutes >= 900 && marketMinutes >= 900;
+  const expectedPreviousCloseDate = previousWeekday(received.date);
+  const acceptsPreviousClose = received.weekday === 0
+    || received.weekday === 6
+    || (received.weekday >= 1 && received.weekday <= 5 && receivedMinutes < 570);
+  return acceptsPreviousClose && market.date === expectedPreviousCloseDate && marketMinutes >= 900;
+}
+
+function shanghaiClock(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.valueOf())) return null;
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    weekday: "short",
+    hourCycle: "h23",
+  }).formatToParts(date).map((part) => [part.type, part.value]));
+  return {
+    date: `${parts.year}-${parts.month}-${parts.day}`,
+    hour: Number(parts.hour),
+    minute: Number(parts.minute),
+    weekday: ({ Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 } as Record<string, number>)[parts.weekday] ?? -1,
+  };
+}
+
+function previousWeekday(value: string) {
+  const date = new Date(`${value}T00:00:00Z`);
+  do date.setUTCDate(date.getUTCDate() - 1); while (date.getUTCDay() === 0 || date.getUTCDay() === 6);
+  return date.toISOString().slice(0, 10);
+}
+
+function quoteWarnings(price: number | null, marketTimestamp: string | null, ageSeconds: number, stale: boolean): string[] {
   return [
     price == null ? "上游缺少现价" : null,
     marketTimestamp == null ? "上游缺少市场时间" : null,
-    ageSeconds > 120 && Number.isFinite(ageSeconds) ? `报价已过期 ${Math.round(ageSeconds)} 秒` : null,
+    stale && Number.isFinite(ageSeconds) ? `报价已过期 ${Math.round(ageSeconds)} 秒` : null,
   ].filter((item): item is string => Boolean(item));
 }
 
@@ -179,7 +224,7 @@ export function parseTencentQuote(instrumentId: string, body: string, receivedAt
   const price = finite(fields[3]);
   if (price == null) throw new GatewayError("EMPTY_PRICE", `腾讯 ${instrumentId} 现价为空`, 502);
   const freshness = quoteFreshness(marketTimestamp, receivedAt);
-  return { instrumentId, price, previousClose: finite(fields[4]), open: finite(fields[5]), high: finite(fields[33]), low: finite(fields[34]), volume: multiplied(fields[6], 100), turnover: multiplied(fields[37], 10_000), marketTimestamp, receivedAt, source: "tencent-qt", quality: freshness.stale ? "stale" : "live", stale: freshness.stale, warnings: quoteWarnings(price, marketTimestamp, freshness.ageSeconds), fallbackUsed: false, providerAttempts: [] };
+  return { instrumentId, price, previousClose: finite(fields[4]), open: finite(fields[5]), high: finite(fields[33]), low: finite(fields[34]), volume: multiplied(fields[6], 100), turnover: multiplied(fields[37], 10_000), marketTimestamp, receivedAt, source: "tencent-qt", quality: freshness.stale ? "stale" : "live", stale: freshness.stale, warnings: quoteWarnings(price, marketTimestamp, freshness.ageSeconds, freshness.stale), fallbackUsed: false, providerAttempts: [] };
 }
 
 export function parseTencentSecurityName(body: string): string {
@@ -198,7 +243,7 @@ export function parseSinaQuote(instrumentId: string, body: string, receivedAt = 
   const price = finite(fields[3]);
   if (price == null) throw new GatewayError("EMPTY_PRICE", `新浪 ${instrumentId} 现价为空`, 502);
   const freshness = quoteFreshness(marketTimestamp, receivedAt);
-  return { instrumentId, price, previousClose: finite(fields[2]), open: finite(fields[1]), high: finite(fields[4]), low: finite(fields[5]), volume: finite(fields[8]), turnover: finite(fields[9]), marketTimestamp, receivedAt, source: "sina-hq", quality: freshness.stale ? "stale" : "live", stale: freshness.stale, warnings: quoteWarnings(price, marketTimestamp, freshness.ageSeconds), fallbackUsed: true, providerAttempts: [] };
+  return { instrumentId, price, previousClose: finite(fields[2]), open: finite(fields[1]), high: finite(fields[4]), low: finite(fields[5]), volume: finite(fields[8]), turnover: finite(fields[9]), marketTimestamp, receivedAt, source: "sina-hq", quality: freshness.stale ? "stale" : "live", stale: freshness.stale, warnings: quoteWarnings(price, marketTimestamp, freshness.ageSeconds, freshness.stale), fallbackUsed: true, providerAttempts: [] };
 }
 
 export function parseEastmoneyQuote(instrumentId: string, payload: unknown, receivedAt = new Date().toISOString()): StandardQuote {
@@ -212,7 +257,7 @@ export function parseEastmoneyQuote(instrumentId: string, payload: unknown, rece
   const price = scaled(data.f43);
   if (price == null) throw new GatewayError("EMPTY_PRICE", `东财 ${instrumentId} 现价为空`, 502);
   const freshness = quoteFreshness(marketTimestamp, receivedAt);
-  return { instrumentId, price, previousClose: scaled(data.f60), open: scaled(data.f46), high: scaled(data.f44), low: scaled(data.f45), volume: multiplied(data.f47, 100), turnover: finite(data.f48), marketTimestamp, receivedAt, source: "eastmoney-push2", quality: freshness.stale ? "stale" : "live", stale: freshness.stale, warnings: quoteWarnings(price, marketTimestamp, freshness.ageSeconds), fallbackUsed: true, providerAttempts: [] };
+  return { instrumentId, price, previousClose: scaled(data.f60), open: scaled(data.f46), high: scaled(data.f44), low: scaled(data.f45), volume: multiplied(data.f47, 100), turnover: finite(data.f48), marketTimestamp, receivedAt, source: "eastmoney-push2", quality: freshness.stale ? "stale" : "live", stale: freshness.stale, warnings: quoteWarnings(price, marketTimestamp, freshness.ageSeconds, freshness.stale), fallbackUsed: true, providerAttempts: [] };
 }
 
 export function parseEastmoneySecurityName(payload: unknown): string {

@@ -4,7 +4,7 @@ import { ArrowLeft, Check, ChevronDown, Clipboard, Copy, Download, ExternalLink,
 import type { Device, DeviceCredential, DropItem, PairingSessionResponse, PublicStatusResponse } from "../../shared/types";
 import { ApiError } from "../../src/lib/api";
 import { payloadForFile } from "../../shared/payload";
-import { cancelPairingSession, createAddDevicePairingSession, createPairingSession, fetchDropFile, getDevices, getInboxPage, getPairingStatus, getPublicStatus, getRecentDrops, inboxSocket, markDropStatus, removeDevice, renameCurrentDevice, rotateDeviceCredential, sendDrop, uploadDropFile } from "../../src/lib/device-api";
+import { cancelPairingSession, createAddDevicePairingSession, createPairingSession, fetchDropFile, getDevices, getInboxPage, getPairingStatus, getPublicStatus, getRecentDrops, inboxSocket, markDropStatus, removeDevice, renameCurrentDevice, rotateDeviceCredential, sendDrop, uploadDropFile, type UploadPhase } from "../../src/lib/device-api";
 import { createCredentialStore, listenForNotificationActions, listenForScreenshots, notifyDelivery, openExternal, quitApp, readClipboardDrop, registerSendShortcut, resolveDefaultDeviceId, saveReceivedFile, screenshotDrop, writeClipboardText, type ClipboardDrop } from "./platform";
 
 const store = createCredentialStore();
@@ -21,7 +21,8 @@ export default function DesktopApp() {
   const [status, setStatus] = useState<"idle" | "reading" | "sending" | "success" | "error">("idle");
   const [message, setMessage] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
-  const [lastAttempt, setLastAttempt] = useState<ClipboardDrop | null>(null);
+  const [uploadPhase, setUploadPhase] = useState<"preparing" | UploadPhase>("preparing");
+  const [lastAttempt, setLastAttempt] = useState<{ drop: ClipboardDrop; idempotencyKey: string } | null>(null);
   const [connected, setConnected] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [deviceName, setDeviceName] = useState("");
@@ -30,6 +31,7 @@ export default function DesktopApp() {
   const [autoCopy, setAutoCopy] = useState(() => localStorage.getItem("zxtoolkit.auto-copy") === "1");
   const fileInput = useRef<HTMLInputElement>(null);
   const sendClipboardRef = useRef<() => void>(() => undefined);
+  const abortUpload = useRef<(() => void) | null>(null);
 
   const refresh = useCallback(async (active: DeviceCredential) => {
     const [deviceResult, recentResult, publicResult] = await Promise.all([getDevices(active), getRecentDrops(active), getPublicStatus().catch(() => null)]);
@@ -110,7 +112,8 @@ export default function DesktopApp() {
         setInbox((current) => [item, ...current.filter((entry) => entry.id !== item.id)].slice(0, 20));
         void notifyDelivery(`${item.senderDeviceName} 发来${kindLabel(item)}`, item.id);
         if (autoCopy && item.payload.type === "text") void claimText(item);
-      }
+      },
+      onUpdate: (item) => setRecent((current) => current.map((entry) => entry.id === item.id ? item : entry))
     });
     const fallback = window.setInterval(() => void refreshInbox(credential), 30_000);
     return () => { stop(); window.clearInterval(fallback); };
@@ -172,21 +175,27 @@ export default function DesktopApp() {
     setStatus("reading"); setMessage(null);
     try {
       const drop = await readClipboardDrop();
-      setLastAttempt(drop);
-      await deliver(drop);
+      const idempotencyKey = crypto.randomUUID();
+      setLastAttempt({ drop, idempotencyKey });
+      await deliver(drop, idempotencyKey);
     } catch (cause) {
       await handleSendError(cause);
     }
   }
   sendClipboardRef.current = () => void sendClipboard();
 
-  async function deliver(drop: ClipboardDrop) {
+  async function deliver(drop: ClipboardDrop, idempotencyKey: string = crypto.randomUUID()) {
     if (!credential || !targetId) return;
-    setStatus("sending"); setProgress(0); setMessage(null);
-    const created = await sendDrop(credential, targetId, drop.payload);
-    const item = (drop.payload.type === "image" || drop.payload.type === "file") && drop.blob
-      ? await uploadDropFile(credential, created, drop.blob, setProgress).promise
-      : created;
+    setStatus("sending"); setProgress(0); setUploadPhase("preparing"); setMessage(null);
+    const created = await sendDrop(credential, targetId, drop.payload, idempotencyKey);
+    let item = created;
+    if ((drop.payload.type === "image" || drop.payload.type === "file") && drop.blob) {
+      const upload = uploadDropFile(credential, created, drop.blob, setProgress, setUploadPhase);
+      abortUpload.current = upload.abort;
+      try { item = await upload.promise; } finally { abortUpload.current = null; }
+    } else {
+      setUploadPhase("finalizing");
+    }
     setRecent((current) => [item, ...current.filter((entry) => entry.id !== item.id)].slice(0, 20));
     setStatus("success"); setProgress(100);
     const deliveredMessage = drop.payload.type === "url" ? "链接已投递" : drop.payload.type === "image" ? "图片已投递" : drop.payload.type === "file" ? "文件已投递" : "文字已投递";
@@ -197,7 +206,7 @@ export default function DesktopApp() {
 
   async function retryLast() {
     if (!lastAttempt || status === "sending") return;
-    try { await deliver(lastAttempt); } catch (cause) { await handleSendError(cause); }
+    try { await deliver(lastAttempt.drop, lastAttempt.idempotencyKey); } catch (cause) { await handleSendError(cause); }
   }
 
   async function handleSendError(cause: unknown) {
@@ -263,17 +272,19 @@ export default function DesktopApp() {
     const payload = payloadForFile(file);
     if (!payload) { setStatus("error"); setMessage("文件无效或超过 100 MB"); return; }
     const drop: ClipboardDrop = { payload, blob: file };
-    setLastAttempt(drop);
-    try { await deliver(drop); } catch (cause) { await handleSendError(cause); }
+    const idempotencyKey = crypto.randomUUID();
+    setLastAttempt({ drop, idempotencyKey });
+    try { await deliver(drop, idempotencyKey); } catch (cause) { await handleSendError(cause); }
   }
 
   async function sendScreenshot() {
     if (!screenshotPath) return;
     try {
       const drop = await screenshotDrop(screenshotPath);
+      const idempotencyKey = crypto.randomUUID();
       setScreenshotPath(null);
-      setLastAttempt(drop);
-      await deliver(drop);
+      setLastAttempt({ drop, idempotencyKey });
+      await deliver(drop, idempotencyKey);
     } catch (cause) { await handleSendError(cause); }
   }
 
@@ -338,7 +349,7 @@ export default function DesktopApp() {
     </section> : <>
       <section className="target-row"><span>投递到</span><label><Smartphone size={16} /><select value={targetId} onChange={(event) => { setTargetId(event.target.value); void store.saveDefaultDeviceId(event.target.value); }}>{devices.map((device) => <option value={device.id} key={device.id}>{device.name}</option>)}</select><ChevronDown size={15} /></label></section>
       {screenshotPath && <section className="screenshot-prompt"><span><strong>检测到新截图</strong><small>{screenshotPath.split("/").pop()}</small></span><button onClick={() => void sendScreenshot()}>投递到 {selectedDevice?.name}</button><button className="dismiss" onClick={() => setScreenshotPath(null)}>忽略</button></section>}
-      <section className="send-actions"><button className={`send-clipboard ${status === "success" ? "is-success" : ""}`} onClick={() => void sendClipboard()} disabled={status === "reading" || status === "sending"}>{status === "reading" || status === "sending" ? <LoaderCircle className="spin" size={19} /> : status === "success" ? <Check size={19} /> : <Clipboard size={19} />}<span><strong>{status === "reading" ? "正在读取" : status === "sending" ? progress ? `正在上传 ${progress}%` : "正在投递" : status === "success" ? "投递成功" : "发送剪贴板"}</strong><small>⌘⇧D · 文字、链接和图片</small></span></button><button className="file-action" onClick={() => fileInput.current?.click()}><FileUp size={18} /> 选择文件</button><input ref={fileInput} hidden type="file" onChange={(event) => void chooseFile(event.target.files?.[0])} /></section>
+      <section className="send-actions"><button className={`send-clipboard ${status === "success" ? "is-success" : ""}`} onClick={() => void sendClipboard()} disabled={status === "reading" || status === "sending"}>{status === "reading" || status === "sending" ? <LoaderCircle className="spin" size={19} /> : status === "success" ? <Check size={19} /> : <Clipboard size={19} />}<span><strong>{status === "reading" ? "正在读取" : status === "sending" ? uploadPhase === "finalizing" ? "正在完成投递" : progress ? `正在上传 ${progress}%` : "正在准备" : status === "success" ? "投递成功" : "发送剪贴板"}</strong><small>⌘⇧D · 文字、链接和图片</small></span></button>{status === "sending" && abortUpload.current ? <button className="file-action" onClick={() => abortUpload.current?.()}><X size={18} /> 取消</button> : <button className="file-action" onClick={() => fileInput.current?.click()}><FileUp size={18} /> 选择文件</button>}<input ref={fileInput} hidden type="file" onChange={(event) => void chooseFile(event.target.files?.[0])} /></section>
       <section className="drop-placeholder" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); void chooseFile(event.dataTransfer.files[0]); }}>将文件拖到这里发送<span>100 MB</span></section>
       {message && <p className={`desktop-message ${status === "error" ? "error" : "success"}`}>{message}{status === "error" && lastAttempt && <button onClick={() => void retryLast()}>重试</button>}</p>}
       <section className="desktop-inbox"><div className="panel-title"><span><Inbox size={13} /> 收到的内容</span><label><input type="checkbox" checked={autoCopy} onChange={(event) => { setAutoCopy(event.target.checked); localStorage.setItem("zxtoolkit.auto-copy", event.target.checked ? "1" : "0"); }} /> 自动复制文字</label></div>{inbox.length ? inbox.slice(0,3).map((item) => <div className="desktop-inbox-item" id={`desktop-drop-${item.id}`} key={item.id}><span><strong>{summary(item)}</strong><small>{item.senderDeviceName} · {formatTime(item.createdAt)}</small></span>{item.status === "claimed" ? <small>已领取</small> : item.payload.type === "text" ? <button onClick={() => void claimText(item)}><Copy size={14} /> 复制</button> : item.payload.type === "url" ? <button onClick={() => void claimUrl(item)}><ExternalLink size={14} /> 打开</button> : <button onClick={() => void claimFile(item)}><Download size={14} /> 保存</button>}</div>) : <div className="recent-empty">手机发送的内容会出现在这里</div>}</section>

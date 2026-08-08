@@ -43,6 +43,13 @@ export class DeviceMailbox extends DurableObject<Env> {
     }
   }
 
+  async notifyTransferUpdate(item: DropItem): Promise<void> {
+    const message = JSON.stringify({ type: "drop_updated", item });
+    for (const socket of this.ctx.getWebSockets("inbox")) {
+      try { socket.send(message); } catch { /* closed sockets are removed by the runtime */ }
+    }
+  }
+
   async webSocketMessage(socket: WebSocket, message: string | ArrayBuffer): Promise<void> {
     if (typeof message !== "string") return;
     try {

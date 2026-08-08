@@ -20,6 +20,7 @@ interface DeviceRow {
 interface CredentialRow extends DeviceRow {
   token_hash: string;
   credential_status: "active" | "revoked";
+  last_used_at: string | null;
 }
 
 interface TransferRow {
@@ -52,6 +53,19 @@ export interface StoredTransfer {
   objectKey: string | null;
 }
 
+export interface TransferCreation {
+  item: DropItem;
+  created: boolean;
+}
+
+const DEVICE_TOUCH_INTERVAL_MS = 5 * 60 * 1000;
+
+export function shouldTouchDevice(lastSeenAt: string | null, now = Date.now()): boolean {
+  if (!lastSeenAt) return true;
+  const previous = Date.parse(lastSeenAt);
+  return !Number.isFinite(previous) || now - previous >= DEVICE_TOUCH_INTERVAL_MS;
+}
+
 export async function hasDeviceRecord(db: D1Database, deviceId: string): Promise<boolean> {
   return Boolean(await db.prepare("SELECT 1 AS ok FROM devices WHERE id = ?1").bind(deviceId).first<{ ok: number }>());
 }
@@ -67,11 +81,13 @@ export async function authenticateDevice(db: D1Database, deviceId: string, token
   if (!row || row.revoked_at || row.credential_status !== "active") return null;
   const providedHash = await hashToken(token);
   if (!constantTimeEqual(providedHash, row.token_hash)) return null;
-  const now = new Date().toISOString();
-  await db.batch([
-    db.prepare("UPDATE devices SET last_seen_at = ?1 WHERE id = ?2").bind(now, deviceId),
-    db.prepare("UPDATE device_credentials SET last_used_at = ?1 WHERE device_id = ?2").bind(now, deviceId)
-  ]);
+  if (shouldTouchDevice(row.last_seen_at)) {
+    const now = new Date().toISOString();
+    await db.batch([
+      db.prepare("UPDATE devices SET last_seen_at = ?1 WHERE id = ?2").bind(now, deviceId),
+      db.prepare("UPDATE device_credentials SET last_used_at = ?1 WHERE device_id = ?2").bind(now, deviceId)
+    ]);
+  }
   return { device: deviceFromRow(row), tokenHash: row.token_hash };
 }
 
@@ -221,8 +237,9 @@ export async function createTransfer(
   sender: Device,
   receiverDeviceId: string,
   payload: DropPayload,
-  ttlMs = DROP_TTL_MS
-): Promise<DropItem | null> {
+  ttlMs = DROP_TTL_MS,
+  clientRequestId?: string
+): Promise<TransferCreation | null> {
   const linked = await db.prepare(`
     SELECT d.id FROM device_links l
     JOIN devices d ON d.id = l.paired_device_id
@@ -231,6 +248,24 @@ export async function createTransfer(
       AND d.revoked_at IS NULL AND c.status = 'active'
   `).bind(sender.id, receiverDeviceId).first<{ id: string }>();
   if (!linked) return null;
+
+  if (clientRequestId) {
+    const existing = await db.prepare(transferSelect("t.sender_device_id = ?1 AND t.client_request_id = ?2"))
+      .bind(sender.id, clientRequestId).first<TransferRow>();
+    if (existing) {
+      let stored = transferFromRow(existing);
+      if (stored.item.receiverDeviceId !== receiverDeviceId) return null;
+      if (stored.item.status === "failed" && (payload.type === "image" || payload.type === "file")) {
+        const now = new Date().toISOString();
+        await db.batch([
+          db.prepare("UPDATE transfers SET status = 'pending', failure_code = NULL, status_updated_at = ?1 WHERE id = ?2 AND status = 'failed' AND expires_at > ?1").bind(now, stored.item.id),
+          db.prepare("INSERT INTO transfer_events (transfer_id, actor_device_id, status, created_at) SELECT ?1, ?2, 'pending', ?3 WHERE changes() > 0").bind(stored.item.id, sender.id, now)
+        ]);
+        stored = (await getTransfer(db, stored.item.id)) ?? stored;
+      }
+      return { item: stored.item, created: false };
+    }
+  }
 
   const nowMs = Date.now();
   const createdAt = new Date(nowMs).toISOString();
@@ -241,8 +276,8 @@ export async function createTransfer(
     db.prepare(`
       INSERT INTO transfers (
         id, sender_device_id, receiver_device_id, type, text_content, url, title,
-        file_name, mime_type, size, status, created_at, expires_at, status_updated_at
-      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?12)
+        file_name, mime_type, size, status, created_at, expires_at, status_updated_at, client_request_id
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?12, ?14)
     `).bind(
       id, sender.id, receiverDeviceId, payload.type,
       payload.type === "text" ? payload.text : null,
@@ -251,11 +286,11 @@ export async function createTransfer(
       payload.type === "image" || payload.type === "file" ? payload.fileName : null,
       payload.type === "image" || payload.type === "file" ? payload.mimeType : null,
       payload.type === "image" || payload.type === "file" ? payload.size : 0,
-      status, createdAt, expiresAt
+      status, createdAt, expiresAt, clientRequestId ?? null
     ),
     db.prepare("INSERT INTO transfer_events (transfer_id, actor_device_id, status, created_at) VALUES (?1, ?2, ?3, ?4)").bind(id, sender.id, status, createdAt)
   ]);
-  return { id, senderDeviceId: sender.id, senderDeviceName: sender.name, receiverDeviceId, payload, status, createdAt, expiresAt, statusUpdatedAt: createdAt };
+  return { item: { id, senderDeviceId: sender.id, senderDeviceName: sender.name, receiverDeviceId, payload, status, createdAt, expiresAt, statusUpdatedAt: createdAt }, created: true };
 }
 
 export async function getTransfer(db: D1Database, transferId: string): Promise<StoredTransfer | null> {

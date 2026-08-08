@@ -34,6 +34,17 @@ class AppDatabaseTest {
         assertEquals("opened", rows.single().status)
     }
 
+    @Test fun realtimeDeliveryUpsertsOneItemWithoutResettingNotificationState() = runTest {
+        val first = InboxEntity("drop-live", "Mac", "{\"type\":\"text\"}", "delivered", "2026-08-03", "2026-08-04")
+        db.transfers().mergeInbox(first)
+        db.transfers().markNotified(listOf(first.id))
+        db.transfers().mergeInbox(first.copy(status = "opened"))
+
+        val stored = db.transfers().inboxItem(first.id)
+        assertEquals("opened", stored?.status)
+        assertTrue(stored?.notified == true)
+    }
+
     @Test fun migrationRequeuesPlaybackEventsRejectedByTheOldWireContract() = runTest {
         val dao = db.playbackEvents()
         dao.insert(

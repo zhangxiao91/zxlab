@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_FILE_SIZE, MAX_TOTAL_SIZE, formatBytes, validateFiles } from "./files";
+import { MAX_FILE_SIZE, MAX_TOTAL_SIZE, formatBytes, shouldAutoLoadImagePreview, validateFiles } from "./files";
 
 function fileOfSize(size: number): File {
   const file = new File([new Uint8Array(1)], "sample.png", { type: "image/png" });
@@ -23,5 +23,12 @@ describe("file limits", () => {
 
   it("formats bytes for the transfer UI", () => {
     expect(formatBytes(1024 * 1024)).toBe("1.0 MB");
+  });
+
+  it("only auto-loads visible, reasonably sized image previews on normal connections", () => {
+    expect(shouldAutoLoadImagePreview(2_000_000, true, false)).toBe(true);
+    expect(shouldAutoLoadImagePreview(2_000_000, false, false)).toBe(false);
+    expect(shouldAutoLoadImagePreview(2_000_000, true, true)).toBe(false);
+    expect(shouldAutoLoadImagePreview(12_000_000, true, false)).toBe(false);
   });
 });

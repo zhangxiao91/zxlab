@@ -263,29 +263,6 @@ export default function AgentToday() {
   );
   return (
     <div className="risk-app agent-app">
-      <header className="risk-appbar">
-        <a href="/lab" className="risk-brand">
-          <span className="risk-brand__mark">Z</span>
-          <span>
-            <strong>Market Agent</strong>
-            <small>Evidence-bound review</small>
-          </span>
-        </a>
-        <nav aria-label="Market Agent 导航">
-          <a href="/lab/market">行情中心</a>
-          <button className="is-active">Today</button>
-          <a href="#runs">Runs</a>
-        </nav>
-        <div className="risk-appbar__actions">
-          <button onClick={() => void refresh()} disabled={loading}>
-            {loading ? "读取中" : "刷新"}
-          </button>
-          <span
-            className="agent-health-dot"
-            aria-label="Agent health operational"
-          />
-        </div>
-      </header>
       <main className="risk-main agent-main">
         <header className="agent-hero">
           <div>
@@ -299,6 +276,13 @@ export default function AgentToday() {
             <span>盘后工作流</span>
             <button onClick={() => void runReview()} disabled={busy}>
               {busy ? "正在排队" : "开始盘后复盘"}
+            </button>
+            <button
+              className="agent-hero__refresh"
+              onClick={() => void refresh()}
+              disabled={loading}
+            >
+              {loading ? "读取中" : "刷新数据"}
             </button>
             <small>
               {latest ? `最近一次 ${date(latest.updatedAt)}` : "尚未有运行记录"}
@@ -342,19 +326,27 @@ export default function AgentToday() {
           instruments={askInstruments}
           onRunUpdate={updateRun}
         />
-        <section className="agent-portfolio" aria-label="持仓快照">
-          <header className="agent-portfolio__header">
+        <details className="agent-context">
+          <summary>
             <div>
-              <p>持仓快照</p>
-              <h2>只把确认后的持仓，用于下一次复盘。</h2>
-              <span>
-                原始券商文件、账户名称、备注和交易明细始终保留在本机；服务端只接收结构化持仓、汇总现金和失效时间。
-              </span>
+              <strong>上下文与持仓</strong>
+              <span>{portfolioState?.snapshot ? "持仓感知" : "仅市场"}</span>
             </div>
-            <a href="/lab/trading?view=positions&action=holdings">
-              打开持仓风险台
-            </a>
-          </header>
+            <small>管理观察范围、持仓快照和历史清理</small>
+          </summary>
+          <section className="agent-portfolio" aria-label="持仓快照">
+            <header className="agent-portfolio__header">
+              <div>
+                <p>持仓快照</p>
+                <h2>只把确认后的持仓，用于下一次复盘。</h2>
+                <span>
+                  原始券商文件、账户名称、备注和交易明细始终保留在本机；服务端只接收结构化持仓、汇总现金和失效时间。
+                </span>
+              </div>
+              <a href="/lab/trading?view=positions&action=holdings">
+                打开持仓风险台
+              </a>
+            </header>
           {portfolioError && (
             <p className="review-status review-status--warning">
               {portfolioError}
@@ -513,55 +505,16 @@ export default function AgentToday() {
               </div>
             </aside>
           )}
-        </section>
-        <section className="agent-bento" aria-label="Agent 状态">
-          <article className="agent-bento-card agent-bento-card--lead">
-            <span>当前状态</span>
-            <strong>
-              {latest ? statusLabel(latest.status) : "等待第一次运行"}
-            </strong>
-            <p>
-              {latest?.result?.summary ??
-                "当可靠的 Market Snapshot 到达后，盘后复盘会在这里留下可追溯结果。"}
-            </p>
-          </article>
-          <article className="agent-bento-card">
-            <span>最近运行</span>
-            <strong>{latest ? date(latest.createdAt) : "—"}</strong>
-            <p>
-              {latest?.workflow === "close_review"
-                ? "盘后复盘"
-                : (latest?.workflow ?? "—")}
-            </p>
-          </article>
-          <article className="agent-bento-card">
-            <span>Evidence</span>
-            <strong>{latest?.evidenceFingerprint ? "已封存" : "—"}</strong>
-            <p className="agent-mono">
-              {latest?.evidenceFingerprint?.slice(0, 18) ??
-                "等待 sealed bundle"}
-            </p>
-          </article>
-          <article className="agent-bento-card">
-            <span>运行模式</span>
-            <strong>{modeLabel(latest?.result?.mode, latest?.portfolioSnapshotId)}</strong>
-            <p>{modeDescription(latest?.result?.mode, latest?.portfolioSnapshotId)}</p>
-          </article>
-          <article className="agent-bento-card agent-bento-card--accent">
-            <span>观察事件</span>
-            <strong>{events.length}</strong>
-            <p>只显示服务端确定性结果。</p>
-          </article>
-        </section>
-        <section className="agent-desire">
+          </section>
+        </details>
+        {events.length > 0 && <section className="agent-desire">
           <div className="agent-pin">
             <p>证据链</p>
             <h2>每个结论都能回到一条事实。</h2>
             <span>Bundle 封存后，叙事只能读取，不能改写。</span>
           </div>
           <div className="agent-event-stack" ref={rail}>
-            {events.length ? (
-              events.map((event) => (
+            {events.map((event) => (
                 <article className="agent-run-card" key={event.id}>
                   <div>
                     <span
@@ -588,29 +541,22 @@ export default function AgentToday() {
                     </div>
                   )}
                 </article>
-              ))
-            ) : (
-              <article className="agent-empty">
-                暂无可展示事件。运行一次盘后复盘后，Evidence 会在这里展开。
-              </article>
-            )}
+              ))}
           </div>
-        </section>
-        <section className="agent-runs" id="runs">
-          <header>
+        </section>}
+        <details className="agent-runs" id="runs">
+          <summary>
             <div>
-              <p>运行记录</p>
-              <h2>Runs 保留事实，反馈只改变下一次排序。</h2>
+              <strong>运行记录</strong>
+              <span>{latest ? `${statusLabel(latest.status)} · ${runs.length} 条` : "暂无记录"}</span>
             </div>
-            <div className="agent-runs__actions">
-              <button onClick={() => void downloadRuns()} disabled={!runs.length}>
-                导出全部记录
-              </button>
-              <button onClick={() => void runReview()} disabled={busy}>
-                {busy ? "排队中" : "再次复盘"}
-              </button>
-            </div>
-          </header>
+            <small>查看证据、反馈或导出已封存结果</small>
+          </summary>
+          <div className="agent-runs__toolbar">
+            <button onClick={() => void downloadRuns()} disabled={!runs.length}>
+              导出全部记录
+            </button>
+          </div>
           <div className="agent-run-list">
             {runs.length ? (
               runs.slice(0, 8).map((run) => (
@@ -636,7 +582,7 @@ export default function AgentToday() {
               </p>
             )}
           </div>
-        </section>
+        </details>
       </main>
       <footer className="risk-footer">
         <span>zxlab / agent</span>
@@ -720,21 +666,6 @@ function modeLabel(
   if (mode === "portfolio-aware") return "持仓感知";
   if (mode === "market-only") return "仅市场";
   return portfolioSnapshotId ? "待持仓校验" : "待市场校验";
-}
-
-function modeDescription(
-  mode?: AgentRunMode,
-  portfolioSnapshotId?: string | null,
-) {
-  if (mode === "portfolio-aware") {
-    return "行情和持仓快照均满足可靠性条件。";
-  }
-  if (mode === "market-only") {
-    return "本次未产生可靠持仓影响结论。";
-  }
-  return portfolioSnapshotId
-    ? "已绑定持仓快照，等待行情与字段校验。"
-    : "未绑定持仓快照，等待市场事实收集。";
 }
 
 function formatCash(value: number | null) {

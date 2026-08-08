@@ -1,6 +1,11 @@
 export const MAX_FILE_SIZE = 100_000_000;
 export const MAX_FILES = 10;
 export const MAX_TOTAL_SIZE = 100_000_000;
+export const AUTO_PREVIEW_MAX_BYTES = 10_000_000;
+
+export function shouldAutoLoadImagePreview(size: number, visible: boolean, saveData: boolean): boolean {
+  return visible && !saveData && size > 0 && size <= AUTO_PREVIEW_MAX_BYTES;
+}
 export const ALLOWED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
 
 export function formatBytes(bytes: number): string {

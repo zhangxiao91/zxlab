@@ -1,0 +1,48 @@
+/* Hallmark · component: desktop companion · genre: playful-soft · theme: ZX quiet utility
+ * states: default · hover · focus · active · disabled · loading · error · success
+ * contrast: warm paper and deep ink
+ */
+:root {
+  --font-display: "Geist", "Avenir Next", ui-sans-serif, sans-serif;
+  --font-body: "Geist", "Avenir Next", ui-sans-serif, sans-serif;
+  --font-outlier: "Geist Mono", ui-monospace, monospace;
+
+  --color-paper: oklch(96% 0.012 85);
+  --color-paper-raised: oklch(98% 0.009 85);
+  --color-ink: oklch(20% 0.014 75);
+  --color-muted: oklch(43% 0.018 78);
+  --color-rule: oklch(78% 0.018 82);
+  --color-focus: oklch(53% 0.16 255);
+  --color-accent: oklch(62% 0.15 118);
+  --color-accent-ink: oklch(18% 0.018 118);
+  --color-error: oklch(48% 0.17 28);
+  --color-error-paper: oklch(94% 0.035 28);
+  --color-success: oklch(45% 0.11 142);
+  --color-success-paper: oklch(94% 0.035 142);
+
+  --space-3xs: 0.125rem;
+  --space-2xs: 0.25rem;
+  --space-xs: 0.5rem;
+  --space-sm: 0.75rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-micro: 120ms;
+  --dur-short: 220ms;
+  --dur-long: 420ms;
+
+  --radius-status: 0.7rem;
+  --rule-hairline: 1px;
+  --shadow-status: 0 0.45rem 1.2rem oklch(20% 0.014 75 / 0.12);
+  --shadow-pet: drop-shadow(0 0.55rem 0.45rem oklch(20% 0.014 75 / 0.16));
+
+  --z-base: 1;
+  --z-raised: 10;
+}

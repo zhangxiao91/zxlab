@@ -38,6 +38,10 @@ class Repository(
         }
     }
 
+    suspend fun acceptRealtime(item: DropItem) {
+        database.transfers().mergeInbox(toEntity(item))
+    }
+
     suspend fun pairedMac(): Device? {
         val credential = credentials.credential() ?: return null
         val response = withUnauthorizedHandling { api.devices(credential) }

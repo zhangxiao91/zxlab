@@ -1,0 +1,15 @@
+{
+  "date": "2026-07-30",
+  "scope": "apps/boopi-desktop",
+  "font_stack": "Geist with Avenir Next fallback; Geist Mono for the single status register",
+  "palette": "zxlab warm paper, deep ink, restrained leaf accent",
+  "motion": "GSAP for finite status transitions; sprite timing remains state-specific",
+  "spacing": "4pt semantic scale",
+  "framework": "React 19, Vite 7, Tauri 2",
+  "preserved": [
+    "zxlab warm neutral palette",
+    "existing Boopi v2 atlas and row semantics",
+    "finite working and review sequences",
+    "reduced-motion behavior"
+  ]
+}

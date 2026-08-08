@@ -8,11 +8,15 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
+import java.io.FileOutputStream
 import java.io.IOException
 import java.time.LocalDate
 import okio.BufferedSink
@@ -42,8 +46,8 @@ class ApiClient(
     suspend fun inbox(credential: DeviceCredential, cursor: String? = null): InboxPage =
         call("/api/inbox?limit=50${cursor?.let { "&cursor=${java.net.URLEncoder.encode(it, "UTF-8")}" } ?: ""}", credential = credential)
 
-    suspend fun createDrop(credential: DeviceCredential, receiverId: String, payload: DropPayload): DropItem =
-        call<ItemResponse>("/api/transfers", "POST", CreateDropBody(receiverId, payload), credential).item
+    suspend fun createDrop(credential: DeviceCredential, receiverId: String, payload: DropPayload, idempotencyKey: String): DropItem =
+        call<ItemResponse>("/api/transfers", "POST", CreateDropBody(receiverId, payload), credential, mapOf("X-Idempotency-Key" to idempotencyKey)).item
 
     suspend fun upload(credential: DeviceCredential, transferId: String, file: File, mimeType: String, onProgress: (Int) -> Unit = {}): DropItem = withContext(Dispatchers.IO) {
         execute<ItemResponse>(Request.Builder()
@@ -54,10 +58,22 @@ class ApiClient(
     }
 
     suspend fun download(credential: DeviceCredential, transferId: String, destination: File): File = withContext(Dispatchers.IO) {
-        val response = http.newCall(Request.Builder().url(url("/api/transfers/$transferId/download")).headers(authHeaders(credential)).build()).execute()
-        if (!response.isSuccessful) throw problem(response)
-        response.body?.byteStream()?.use { input -> destination.outputStream().use(input::copyTo) }
-            ?: throw ApiException("EMPTY_BODY", "没有读取到文件", response.code)
+        val partial = File(destination.parentFile, "${destination.name}.part")
+        val existing = partial.takeIf(File::exists)?.length() ?: 0L
+        val request = Request.Builder().url(url("/api/transfers/$transferId/download")).headers(authHeaders(credential)).apply {
+            if (existing > 0L) header("Range", "bytes=$existing-")
+        }.build()
+        http.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw problem(response)
+            val append = existing > 0L && response.code == 206
+            response.body?.byteStream()?.use { input -> FileOutputStream(partial, append).use(input::copyTo) }
+                ?: throw ApiException("EMPTY_BODY", "没有读取到文件", response.code)
+        }
+        if (destination.exists() && !destination.delete()) throw ApiException("FILE_REPLACE_FAILED", "无法替换本地文件", 0)
+        if (!partial.renameTo(destination)) {
+            partial.inputStream().use { input -> destination.outputStream().use(input::copyTo) }
+            partial.delete()
+        }
         destination
     }
 
@@ -66,6 +82,13 @@ class ApiClient(
 
     suspend fun ticket(credential: DeviceCredential): TicketResponse =
         call("/api/inbox/events/ticket", "POST", UnitBody(), credential)
+
+    fun parseInboxEvent(value: String): DropItem? {
+        val event = runCatching { json.parseToJsonElement(value).jsonObject }.getOrNull() ?: return null
+        if (event["type"]?.jsonPrimitive?.contentOrNull != "drop_ready") return null
+        val item = event["item"] ?: return null
+        return runCatching { json.decodeFromJsonElement(DropItem.serializer(), item) }.getOrNull()
+    }
 
     suspend fun rename(credential: DeviceCredential, name: String): Device =
         call<DeviceResponse>("/api/devices/${credential.device.id}", "PATCH", RenameBody(name), credential).device
@@ -96,9 +119,11 @@ class ApiClient(
         method: String = "GET",
         body: Any? = null,
         credential: DeviceCredential? = null,
+        headers: Map<String, String> = emptyMap(),
     ): T = withContext(Dispatchers.IO) {
         val builder = Request.Builder().url(url(path))
         if (credential != null) builder.headers(authHeaders(credential))
+        headers.forEach(builder::addHeader)
         val requestBody = body?.let { json.encodeToString(serializerFor(it), it).toRequestBody(JSON) }
         builder.method(method, if (method == "GET" || method == "DELETE") null else requestBody ?: EMPTY)
         execute(builder.build())

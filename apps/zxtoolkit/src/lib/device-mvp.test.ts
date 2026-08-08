@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { canAdvanceDropStatus, classifyClipboard, isBinaryDropPayload, payloadForFile, validateDropPayload } from "../../shared/payload";
 import { credentialMetadata, resolveDefaultDeviceId } from "../../desktop/src/platform";
+import { parseInboxSocketMessage } from "./device-api";
 import type { Device } from "../../shared/types";
 
 describe("desktop clipboard payloads", () => {
@@ -46,6 +47,13 @@ describe("desktop clipboard payloads", () => {
     expect(canAdvanceDropStatus("expired", "claimed")).toBe(false);
   });
 
+  it("distinguishes new deliveries from sender receipt updates", () => {
+    const item = { id: "drop-1", senderDeviceId: "mac-1", senderDeviceName: "Mac", receiverDeviceId: "phone-1", payload: { type: "text", text: "hello" }, status: "claimed", createdAt: "2026-08-03T12:00:00Z", expiresAt: "2026-08-04T12:00:00Z" };
+    expect(parseInboxSocketMessage(JSON.stringify({ type: "drop_ready", item }))).toMatchObject({ type: "ready", item: { id: "drop-1" } });
+    expect(parseInboxSocketMessage(JSON.stringify({ type: "drop_updated", item }))).toMatchObject({ type: "updated", item: { status: "claimed" } });
+    expect(parseInboxSocketMessage(JSON.stringify({ type: "pong" }))).toBeNull();
+  });
+
   it("keeps the long-lived token out of Tauri Store metadata", () => {
     const device: Device = { id: "mac-1", name: "My Mac", platform: "macos", capabilities: ["drop.send"], createdAt: "2026-07-19T00:00:00.000Z", credentialVersion: 1 };
     expect(credentialMetadata({ device, token: "secret-token" })).toEqual({ device });
@@ -61,4 +69,5 @@ describe("desktop clipboard payloads", () => {
     expect(resolveDefaultDeviceId(devices, "revoked-device")).toBe("phone-1");
     expect(resolveDefaultDeviceId([], "tablet-1")).toBe("");
   });
+
 });

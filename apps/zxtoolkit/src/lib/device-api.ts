@@ -67,9 +67,9 @@ export async function rotateDeviceCredential(credential: DeviceCredential): Prom
   return result.credential;
 }
 
-export async function sendDrop(credential: DeviceCredential, receiverDeviceId: string, payload: DropPayload): Promise<DropItem> {
+export async function sendDrop(credential: DeviceCredential, receiverDeviceId: string, payload: DropPayload, idempotencyKey: string = crypto.randomUUID()): Promise<DropItem> {
   const result = await request<{ item: DropItem }>("/api/drops", {
-    method: "POST", headers: { ...auth(credential), "content-type": "application/json" }, body: JSON.stringify({ receiverDeviceId, payload })
+    method: "POST", headers: { ...auth(credential), "content-type": "application/json", "x-idempotency-key": idempotencyKey }, body: JSON.stringify({ receiverDeviceId, payload })
   });
   return result.item;
 }
@@ -100,7 +100,15 @@ export async function markDropStatus(credential: DeviceCredential, dropId: strin
   return result.item;
 }
 
-export function uploadDropFile(credential: DeviceCredential, item: DropItem, file: Blob, onProgress: (value: number) => void): { promise: Promise<DropItem>; abort: () => void } {
+export type UploadPhase = "uploading" | "finalizing";
+
+export function uploadDropFile(
+  credential: DeviceCredential,
+  item: DropItem,
+  file: Blob,
+  onProgress: (value: number) => void,
+  onPhase?: (phase: UploadPhase) => void
+): { promise: Promise<DropItem>; abort: () => void } {
   const xhr = new XMLHttpRequest();
   const promise = new Promise<DropItem>((resolve, reject) => {
     xhr.open("POST", `${API_BASE_URL}/api/transfers/${item.id}/content`);
@@ -110,7 +118,9 @@ export function uploadDropFile(credential: DeviceCredential, item: DropItem, fil
       ? item.payload.mimeType
       : file.type || "application/octet-stream";
     xhr.setRequestHeader("content-type", contentType);
+    xhr.upload.onloadstart = () => onPhase?.("uploading");
     xhr.upload.onprogress = (event) => event.lengthComputable && onProgress(Math.round((event.loaded / event.total) * 100));
+    xhr.upload.onload = () => onPhase?.("finalizing");
     xhr.onerror = () => reject(new ApiError("文件上传中断，请检查网络后重试", "NETWORK_ERROR", 0));
     xhr.onabort = () => reject(new ApiError("文件上传已取消", "ABORTED", 0));
     xhr.onload = () => {
@@ -159,7 +169,7 @@ export async function getPublicStatus(): Promise<PublicStatusResponse> {
 
 export function inboxSocket(
   credential: DeviceCredential,
-  handlers: { onItem: (item: DropItem) => void; onState: (state: "connecting" | "connected" | "disconnected") => void; onReconnect: () => void }
+  handlers: { onItem: (item: DropItem) => void; onUpdate?: (item: DropItem) => void; onState: (state: "connecting" | "connected" | "disconnected") => void; onReconnect: () => void }
 ): () => void {
   let stopped = false;
   let socket: WebSocket | null = null;
@@ -185,8 +195,9 @@ export function inboxSocket(
         heartbeat = window.setInterval(() => socket?.readyState === WebSocket.OPEN && socket.send(JSON.stringify({ type: "ping" })), 25_000);
       };
       socket.onmessage = (event) => {
-        const body = parseBody(String(event.data));
-        if (body?.type === "drop_ready" && body.item && typeof body.item === "object") handlers.onItem(body.item as DropItem);
+        const message = parseInboxSocketMessage(String(event.data));
+        if (message?.type === "ready") handlers.onItem(message.item);
+        if (message?.type === "updated") handlers.onUpdate?.(message.item);
       };
       socket.onclose = scheduleReconnect;
       socket.onerror = () => socket?.close();
@@ -216,6 +227,14 @@ export function inboxSocket(
     if (heartbeat) window.clearInterval(heartbeat);
     socket?.close(1000, "Page closed");
   };
+}
+
+export function parseInboxSocketMessage(value: string): { type: "ready" | "updated"; item: DropItem } | null {
+  const body = parseBody(value);
+  if (!body?.item || typeof body.item !== "object") return null;
+  if (body.type === "drop_ready") return { type: "ready", item: body.item as DropItem };
+  if (body.type === "drop_updated") return { type: "updated", item: body.item as DropItem };
+  return null;
 }
 
 function auth(credential: DeviceCredential): Record<string, string> {

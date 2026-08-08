@@ -1,6 +1,14 @@
 [
   {
     "date": "2026-07-30",
+    "scope": "component-app",
+    "macrostructure": "Native Desktop Companion",
+    "theme": "ZX quiet utility",
+    "enrichment": "existing Boopi v2 atlas",
+    "brief": "A quiet but useful macOS desktop companion for zxlab"
+  },
+  {
+    "date": "2026-07-30",
     "scope": "app",
     "macrostructure": "Portfolio Grid / Letter / Ecosystem Index / Workbench / Compact Cinematic Hero / Narrative Workflow",
     "theme": "ZXLab editorial-technical",

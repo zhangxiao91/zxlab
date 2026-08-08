@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Check, ChevronDown, Copy, Download, ExternalLink, File as FileIcon, ImageIcon, Inbox, LoaderCircle, RefreshCw, Send, Share2, Smartphone, X } from "lucide-react";
 import type { DeviceCredential, DropItem } from "../shared/types";
 import { ApiError } from "./lib/api";
 import { clearWebCredential, fetchDropFile, getInboxPage, loadWebCredential, markDropStatus } from "./lib/device-api";
-import { downloadFile, formatBytes, shareFile } from "./lib/files";
+import { downloadFile, formatBytes, shareFile, shouldAutoLoadImagePreview } from "./lib/files";
 import { startInboxRealtime } from "./lib/inbox-realtime";
 import { SendPanel } from "./SendPanel";
 
@@ -97,10 +97,21 @@ export default function InboxApp() {
 
 function BinaryDropCard({ credential, item, onUpdate, onError, onNotice, onPreview }: { credential: DeviceCredential; item: DropItem; onUpdate: (item: DropItem) => void; onError: (message: string) => void; onNotice: (message: string) => void; onPreview: (url: string) => void }) {
   const [blob, setBlob] = useState<Blob | null>(null);
-  const [loading, setLoading] = useState(item.payload.type === "image");
+  const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [visible, setVisible] = useState(false);
+  const [previewRequested, setPreviewRequested] = useState(false);
+  const cardRef = useRef<HTMLDivElement>(null);
   const url = useMemo(() => blob ? URL.createObjectURL(blob) : null, [blob]);
   useEffect(() => () => { if (url) URL.revokeObjectURL(url); }, [url]);
+
+  useEffect(() => {
+    const element = cardRef.current;
+    if (!element || !("IntersectionObserver" in window)) { setVisible(true); return; }
+    const observer = new IntersectionObserver(([entry]) => setVisible(entry.isIntersecting), { rootMargin: "160px 0px" });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
 
   const load = useCallback(async () => {
     if (item.status === "claimed" || item.status === "expired") { setLoading(false); return; }
@@ -112,9 +123,10 @@ function BinaryDropCard({ credential, item, onUpdate, onError, onNotice, onPrevi
     finally { setLoading(false); }
   }, [credential, item.id, item.status, onError]);
   useEffect(() => {
-    if (item.payload.type === "image") void load();
-    else setLoading(false);
-  }, [item.payload.type, load]);
+    if (item.payload.type !== "image" || blob || loading || failed) return;
+    const connection = typeof navigator === "undefined" ? undefined : (navigator as Navigator & { connection?: { saveData?: boolean } }).connection;
+    if (previewRequested || shouldAutoLoadImagePreview(item.payload.size, visible, Boolean(connection?.saveData))) void load();
+  }, [blob, failed, item.payload, load, loading, previewRequested, visible]);
 
   if (item.payload.type !== "image" && item.payload.type !== "file") return null;
   const fileName = item.payload.fileName;
@@ -144,13 +156,14 @@ function BinaryDropCard({ credential, item, onUpdate, onError, onNotice, onPrevi
   }
 
   async function previewImage() {
-    if (!url || item.payload.type !== "image") return;
+    if (item.payload.type !== "image") return;
+    if (!url) { setPreviewRequested(true); return; }
     onPreview(url);
     if (item.status === "delivered") onUpdate(await markDropStatus(credential, item.id, "opened").catch(() => item));
   }
 
-  return <div className="inbox-image-block">
-    {item.payload.type === "image" ? <button className="inbox-image-preview" onClick={() => void previewImage()} disabled={!url}>{loading ? <LoaderCircle className="spin" size={28} /> : failed ? <><ImageIcon size={28} /><span>图片加载失败</span></> : url ? <img src={url} alt={item.payload.fileName} /> : null}</button> : <div className="inbox-file-preview">{loading ? <LoaderCircle className="spin" size={28} /> : <FileIcon size={30} />}<span>{failed ? "文件加载失败" : "点击下方操作后加载"}</span></div>}
+  return <div className="inbox-image-block" ref={cardRef}>
+    {item.payload.type === "image" ? <button className="inbox-image-preview" onClick={() => void previewImage()} disabled={loading}>{loading ? <LoaderCircle className="spin" size={28} /> : failed ? <><ImageIcon size={28} /><span>图片加载失败</span></> : url ? <img src={url} alt={item.payload.fileName} /> : <><ImageIcon size={28} /><span>点击加载预览</span></>}</button> : <div className="inbox-file-preview">{loading ? <LoaderCircle className="spin" size={28} /> : <FileIcon size={30} />}<span>{failed ? "文件加载失败" : "点击下方操作后加载"}</span></div>}
     <div className="image-detail"><span>{item.payload.fileName}</span><small>{formatBytes(item.payload.size)} · {item.payload.mimeType}</small></div>
     {failed && item.payload.type === "image" ? <button className="inbox-action" onClick={() => void load()}><RefreshCw size={16} /> 重新加载</button> : <div className="inbox-actions"><button className="inbox-action" onClick={() => void claim("share")} disabled={loading}><Share2 size={16} /> 分享</button><button className="inbox-action secondary" onClick={() => void claim("download")} disabled={loading}><Download size={16} /> 下载</button></div>}
   </div>;

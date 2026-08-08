@@ -37,6 +37,81 @@ export async function readBodyWithLimit(stream: ReadableStream<Uint8Array>, maxB
   return body;
 }
 
+export interface GuardedBodyStream {
+  body: ReadableStream<Uint8Array>;
+  prefix: Uint8Array;
+  completed: Promise<{ size: number }>;
+}
+
+export async function guardedBodyStream(
+  source: ReadableStream<Uint8Array>,
+  maxBytes: number,
+  prefixBytes = 12
+): Promise<GuardedBodyStream> {
+  const reader = source.getReader();
+  const buffered: Uint8Array[] = [];
+  const prefix = new Uint8Array(Math.max(0, prefixBytes));
+  let prefixLength = 0;
+  let size = 0;
+
+  try {
+    while (prefixLength < prefix.length) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > maxBytes) {
+        await reader.cancel("size limit exceeded");
+        throw new BodyTooLargeError();
+      }
+      buffered.push(value);
+      const take = Math.min(value.byteLength, prefix.length - prefixLength);
+      prefix.set(value.subarray(0, take), prefixLength);
+      prefixLength += take;
+    }
+  } catch (error) {
+    reader.releaseLock();
+    throw error;
+  }
+
+  let resolveCompleted!: (value: { size: number }) => void;
+  let rejectCompleted!: (reason: unknown) => void;
+  const completed = new Promise<{ size: number }>((resolve, reject) => {
+    resolveCompleted = resolve;
+    rejectCompleted = reject;
+  });
+
+  const body = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      try {
+        for (const chunk of buffered) controller.enqueue(chunk);
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          size += value.byteLength;
+          if (size > maxBytes) {
+            await reader.cancel("size limit exceeded");
+            throw new BodyTooLargeError();
+          }
+          controller.enqueue(value);
+        }
+        controller.close();
+        resolveCompleted({ size });
+      } catch (error) {
+        controller.error(error);
+        rejectCompleted(error);
+      } finally {
+        reader.releaseLock();
+      }
+    },
+    async cancel(reason) {
+      await reader.cancel(reason).catch(() => undefined);
+      rejectCompleted(reason instanceof Error ? reason : new Error("UPLOAD_CANCELLED"));
+    }
+  });
+
+  return { body, prefix: prefix.subarray(0, prefixLength), completed };
+}
+
 export async function readJsonWithLimit(request: Request, maxBytes = 64 * 1024): Promise<Record<string, unknown> | null> {
   if (!request.body) return null;
   try {

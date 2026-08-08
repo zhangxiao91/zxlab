@@ -85,6 +85,39 @@ test("parses Tencent quote without coercing empty values to zero", () => {
   assert.equal(parseTencentSecurityName('v_sh512480="1~半导体ETF~512480";'), "半导体ETF");
 });
 
+test("keeps the latest Friday close current over the weekend", () => {
+  const fields = Array(38).fill("");
+  fields[3] = "11.19"; fields[4] = "11.27"; fields[5] = "11.23"; fields[6] = "882977"; fields[30] = "20260807150000"; fields[33] = "11.26"; fields[34] = "11.10";
+  const quote = parseTencentQuote("SZSE:000001", `v_sz000001="${fields.join("~")}";`, "2026-08-08T07:15:35.000Z");
+  assert.equal(quote.stale, false);
+  assert.equal(quote.quality, "live");
+  assert.doesNotMatch(quote.warnings.join(" "), /过期/);
+});
+
+test("keeps the same-day close current after the market closes", () => {
+  const fields = Array(38).fill("");
+  fields[3] = "11.19"; fields[4] = "11.27"; fields[5] = "11.23"; fields[6] = "882977"; fields[30] = "20260807150000"; fields[33] = "11.26"; fields[34] = "11.10";
+  const quote = parseTencentQuote("SZSE:000001", `v_sz000001="${fields.join("~")}";`, "2026-08-07T12:30:00.000Z");
+  assert.equal(quote.stale, false);
+  assert.equal(quote.quality, "live");
+});
+
+test("still rejects delayed quotes while the market is open", () => {
+  const fields = Array(38).fill("");
+  fields[3] = "11.19"; fields[4] = "11.27"; fields[5] = "11.23"; fields[6] = "882977"; fields[30] = "20260807100000"; fields[33] = "11.26"; fields[34] = "11.10";
+  const quote = parseTencentQuote("SZSE:000001", `v_sz000001="${fields.join("~")}";`, "2026-08-07T02:05:00.000Z");
+  assert.equal(quote.stale, true);
+  assert.equal(quote.quality, "stale");
+});
+
+test("does not treat a delayed morning quote as a close during lunch break", () => {
+  const fields = Array(38).fill("");
+  fields[3] = "11.19"; fields[4] = "11.27"; fields[5] = "11.23"; fields[6] = "882977"; fields[30] = "20260807110000"; fields[33] = "11.26"; fields[34] = "11.10";
+  const quote = parseTencentQuote("SZSE:000001", `v_sz000001="${fields.join("~")}";`, "2026-08-07T03:45:00.000Z");
+  assert.equal(quote.stale, true);
+  assert.equal(quote.quality, "stale");
+});
+
 test("normalizes Sina and Eastmoney backup quotes", () => {
   const fields = Array(33).fill("");
   fields[1] = "0.904"; fields[2] = "0.906"; fields[3] = "0.899"; fields[4] = "0.910"; fields[5] = "0.892"; fields[8] = "812"; fields[9] = "730"; fields[30] = "2026-07-18"; fields[31] = "14:32:05";

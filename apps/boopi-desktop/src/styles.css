@@ -1,0 +1,173 @@
+/* Hallmark · component: desktop companion · tone: quiet-playful · anchor hue: warm oat
+ * Pre-emit critique: Philosophy 5 · Hierarchy 4 · Execution 4 · Specificity 5 · Restraint 5 · Variety 4
+ */
+@import "../tokens.css";
+
+:root {
+  font-family: var(--font-body);
+  color: var(--color-ink);
+  background: transparent;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: clip;
+  background: transparent;
+}
+
+button {
+  font: inherit;
+}
+
+.pet-shell {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-auto-flow: dense;
+  isolation: isolate;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.status-ribbon {
+  position: relative;
+  z-index: var(--z-raised);
+  align-self: start;
+  justify-self: center;
+  display: inline-grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-xs);
+  width: max-content;
+  max-width: calc(100% - var(--space-xs));
+  min-height: 2.25rem;
+  margin-top: var(--space-2xs);
+  padding: var(--space-2xs) var(--space-xs);
+  border: var(--rule-hairline) solid var(--color-rule);
+  border-radius: var(--radius-status);
+  background-color: var(--color-paper-raised);
+  color: var(--color-ink);
+  box-shadow: var(--shadow-status);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.status-ribbon[data-visible="true"] {
+  visibility: visible;
+}
+
+.status-anchor {
+  width: var(--space-sm);
+  height: var(--space-sm);
+  border-radius: 50%;
+  background-color: var(--color-accent);
+  color: var(--color-accent-ink);
+}
+
+.status-copy {
+  min-width: 0;
+  overflow: hidden;
+  color: inherit;
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stage-anchor {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 192px;
+  height: 208px;
+  transform: translateX(-50%) scale(var(--pet-scale));
+  transform-origin: bottom center;
+}
+
+.pet-stage {
+  position: relative;
+  display: block;
+  width: 192px;
+  height: 208px;
+  padding: 0;
+  border: 0;
+  border-radius: 46%;
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  background-color: transparent;
+  color: var(--color-ink);
+  cursor: grab;
+  touch-action: none;
+  transition:
+    opacity var(--dur-short) var(--ease-out),
+    transform var(--dur-micro) var(--ease-out);
+}
+
+.pet-stage:focus-visible {
+  outline-color: var(--color-focus);
+}
+
+.pet-stage:active {
+  cursor: grabbing;
+  transform: translateY(1px);
+}
+
+.pet-stage:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.pet-sprite {
+  display: block;
+  width: 192px;
+  height: 208px;
+  background-image: url("/spritesheet.webp");
+  background-repeat: no-repeat;
+  background-size: 1536px 2288px;
+  image-rendering: auto;
+  filter: var(--shadow-pet);
+}
+
+.pet-shell[data-ui-state="loading"] .pet-sprite {
+  opacity: 0.58;
+}
+
+.pet-shell[data-ui-state="error"] .status-ribbon {
+  border-color: var(--color-error);
+  background-color: var(--color-error-paper);
+  color: var(--color-error);
+}
+
+.pet-shell[data-ui-state="success"] .status-ribbon {
+  border-color: var(--color-success);
+  background-color: var(--color-success-paper);
+  color: var(--color-success);
+}
+
+@media (hover: hover) {
+  .pet-stage:hover:not(:disabled) {
+    transform: translateY(-1px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pet-stage {
+    transition-duration: 120ms;
+  }
+}

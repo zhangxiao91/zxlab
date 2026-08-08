@@ -119,7 +119,7 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
             var transferId = queued.transferId
             val payload = app.container.api.json.decodeFromString<DropPayload>(queued.payloadJson)
             if (transferId == null) {
-                transferId = app.container.api.createDrop(credential, queued.targetId, payload).id
+                transferId = app.container.api.createDrop(credential, queued.targetId, payload, queued.localId).id
                 dao.updateOutbox(id, transferId, "created")
             }
             if (queued.cachePath != null) {
@@ -132,7 +132,7 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
                     }
                 } catch (error: ApiException) {
                     if (error.status == 409 || error.status == 410) {
-                        transferId = app.container.api.createDrop(credential, queued.targetId, payload).id
+                        transferId = app.container.api.createDrop(credential, queued.targetId, payload, queued.localId).id
                         dao.updateOutbox(id, transferId, "created")
                         app.container.api.upload(credential, transferId, file, queued.mimeType ?: "application/octet-stream") { progress ->
                             setProgressAsync(workDataOf("progress" to progress))

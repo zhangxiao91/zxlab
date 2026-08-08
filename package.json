@@ -3,6 +3,7 @@
   "type": "module",
   "version": "0.0.1",
   "workspaces": [
+    "apps/boopi-desktop",
     "apps/stonks",
     "apps/yuzi",
     "apps/zxtoolkit",
@@ -20,7 +21,11 @@
   },
   "scripts": {
     "dev": "astro dev",
+    "dev:boopi": "npm run dev --workspace boopi-desktop",
     "build": "npm run build:stonks && npm run build:yuzi && npm run verify:pages-routes && astro build && node scripts/check-internal-links.mjs",
+    "build:boopi": "npm run build:desktop --workspace boopi-desktop",
+    "check:boopi": "npm run check --workspace boopi-desktop",
+    "test:boopi": "npm run test --workspace boopi-desktop",
     "generate:yuragi": "node scripts/generate-yuragi.mjs",
     "build:zxtoolkit": "npm run build --workspace zxtoolkit",
     "build:stonks": "npm run build --workspace stonks-wip",

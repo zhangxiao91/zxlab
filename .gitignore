@@ -27,6 +27,9 @@ pnpm-debug.log*
 !.dev.vars.example
 .note-cover-cache/
 
+# generated evaluation materials
+outputs/kai-html-eval-package/
+
 # macOS-specific files
 .DS_Store
 

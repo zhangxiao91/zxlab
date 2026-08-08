@@ -249,7 +249,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 heartbeat?.cancel()
                                 heartbeat = viewModelScope.launch { while (isActive) { delay(25_000); webSocket.send("{\"type\":\"ping\"}") } }
                             }
-                            override fun onMessage(webSocket: WebSocket, text: String) { if (text.contains("\"drop_ready\"")) refresh() }
+                            override fun onMessage(webSocket: WebSocket, text: String) {
+                                val item = app.container.api.parseInboxEvent(text) ?: return
+                                viewModelScope.launch { repository.acceptRealtime(item) }
+                            }
                             override fun onMessage(webSocket: WebSocket, bytes: ByteString) = Unit
                             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) { webSocket.close(code, reason) }
                             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) { closed.complete(Unit) }

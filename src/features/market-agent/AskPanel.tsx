@@ -253,21 +253,21 @@ export default function AskPanel({
             void submit();
           }}
         >
-          <div className="agent-ask__scopes" aria-label="问题范围">
-            {askScopes.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                className={item.id === scope ? "is-selected" : undefined}
-                aria-pressed={item.id === scope}
-                disabled={submitting || pending}
-                onClick={() => chooseScope(item.id)}
-              >
-                <strong>{item.label}</strong>
-                <span>{item.description}</span>
-              </button>
-            ))}
-          </div>
+          <label className="agent-ask__scope">
+            <span>问题范围</span>
+            <select
+              value={scope}
+              disabled={submitting || pending}
+              onChange={(event) => chooseScope(event.target.value as AskScope)}
+            >
+              {askScopes.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.label}
+                </option>
+              ))}
+            </select>
+            <small>{selectedScope.description}</small>
+          </label>
           <div className="agent-ask__fields">
             {!selectedScope.requiresPreviousRun && (
               <label>

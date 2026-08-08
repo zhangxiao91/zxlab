@@ -94,9 +94,15 @@ ensure(siblingDrop.status === 403, "Android could send directly to a sibling Web
 
 const textDrop = await request("/api/drops", {
   method: "POST",
-  headers: jsonAuth(desktop),
+  headers: { ...jsonAuth(desktop), "x-idempotency-key": "smoke-text-drop" },
   body: JSON.stringify({ receiverDeviceId: mobile.device.id, payload: { type: "text", text: "smoke test" } })
 });
+const repeatedTextDrop = await request("/api/drops", {
+  method: "POST",
+  headers: { ...jsonAuth(desktop), "x-idempotency-key": "smoke-text-drop" },
+  body: JSON.stringify({ receiverDeviceId: mobile.device.id, payload: { type: "text", text: "smoke test" } })
+});
+ensure(repeatedTextDrop.item.id === textDrop.item.id, "idempotent text retry created a duplicate transfer");
 const urlDrop = await request("/api/drops", {
   method: "POST",
   headers: jsonAuth(desktop),
@@ -128,6 +134,9 @@ await request(`/api/transfers/${imageDrop.item.id}/content`, {
   headers: { ...auth(desktop), "content-type": "image/png" },
   body: png
 });
+const rangedResponse = await fetch(`${baseUrl}/api/transfers/${imageDrop.item.id}/download`, { headers: { ...auth(mobile), range: "bytes=4-7" } });
+ensure(rangedResponse.status === 206 && rangedResponse.headers.get("content-range") === `bytes 4-7/${png.byteLength}`, "range download response is invalid");
+ensure((await rangedResponse.arrayBuffer()).byteLength === 4, "range download returned the wrong number of bytes");
 const downloaded = await request(`/api/transfers/${imageDrop.item.id}/download`, { headers: auth(mobile) });
 ensure(downloaded.byteLength === png.byteLength, "downloaded image size does not match");
 const crossDeviceDownload = await fetch(`${baseUrl}/api/transfers/${imageDrop.item.id}/download`, { headers: auth(desktop) });
@@ -248,6 +257,8 @@ console.log(JSON.stringify({
   addDevicePairing: true,
   starTopology: true,
   textDelivered: true,
+  deliveryIdempotency: true,
+  rangeDownload: true,
   bidirectionalText: true,
   bidirectionalFile: true,
   imageClaimDeleted: true,
