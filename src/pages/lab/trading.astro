@@ -15,6 +15,6 @@ const initialAction = (requestedAction === "import" || requestedAction === "hold
 
 <Layout title="交易工作台 | zxlab" description="统一的持仓、行情、记录与复盘工作台。" lang="zh-CN">
   <div class="risk-page trading-page">
-    <TradingWorkbench client:load initialView={initialView} initialReviewMode={initialReviewMode} initialAction={initialAction} />
+    <TradingWorkbench client:only="react" initialView={initialView} initialReviewMode={initialReviewMode} initialAction={initialAction} />
   </div>
 </Layout>
