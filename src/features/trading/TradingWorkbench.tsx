@@ -56,7 +56,8 @@ export default function TradingWorkbench({ initialView = viewFromLocation(), ini
 
   const changeRiskView = (next: RiskView) => navigate(next === "dashboard" ? "overview" : next);
   const handleGuidance = (target: TradingGuidanceTarget) => navigate(target.view, target.mode ?? (target.view === "review" ? "risk" : reviewMode), target.action);
-  const reviewSwitcher = view === "review" ? <section className="trading-review-switcher" aria-label="复盘类型">
+  const marketReview = view === "review" && reviewMode === "market";
+  const reviewSwitcher = view === "review" && !marketReview ? <section className="trading-review-switcher" aria-label="复盘类型">
     <div><p>复盘工作流</p><h2>选择今天要解释的事实。</h2><span>账户风险和盘后市场复盘共享入口，数据边界仍然分开。</span></div>
     <div className="trading-review-switcher__tabs" role="tablist" aria-label="复盘类型">
       <button type="button" role="tab" aria-selected={reviewMode === "risk"} className={reviewMode === "risk" ? "is-active" : ""} onClick={() => navigate("review", "risk")}>账户风险复盘</button>
@@ -66,7 +67,7 @@ export default function TradingWorkbench({ initialView = viewFromLocation(), ini
 
   return <div className="risk-app trading-shell">
     <TradingNavigation active={view} onNavigate={(next) => navigate(next)} />
-    <TradingGuidance active={view} reviewMode={reviewMode} onNavigate={handleGuidance} />
+    {!marketReview && <TradingGuidance active={view} reviewMode={reviewMode} onNavigate={handleGuidance} />}
     {reviewSwitcher}
     <div className="trading-shell__content">
       {view === "market" ? <MarketCenter /> : view === "review" && reviewMode === "market" ? <AgentToday /> : <RiskWorkbench embedded initialView={riskViewFor(view)} initialAction={view === "positions" || view === "activity" ? action : undefined} onViewChange={changeRiskView} />}
