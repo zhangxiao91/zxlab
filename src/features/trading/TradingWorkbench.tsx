@@ -19,7 +19,10 @@ const riskViewFor = (view: TradingView): RiskView => view === "positions" ? "pos
 const defaultLocation: TradingLocationState = { view: "overview", mode: "risk" };
 
 export default function TradingWorkbench({ initialLocation = defaultLocation }: { initialLocation?: TradingLocationState } = {}) {
-  const [location, setLocation] = useState<TradingLocationState>(initialLocation);
+  const [location, setLocation] = useState<TradingLocationState>(() => {
+    if (typeof window === "undefined") return initialLocation;
+    return parseTradingLocation(new URL(window.location.href));
+  });
 
   useEffect(() => {
     const handlePopState = () => {
