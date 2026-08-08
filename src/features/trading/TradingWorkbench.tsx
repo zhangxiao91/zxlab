@@ -2,75 +2,74 @@ import { useEffect, useState } from "react";
 import AgentToday from "../market-agent/AgentToday";
 import MarketCenter from "../market/MarketCenter";
 import RiskWorkbench, { type RiskView } from "../risk/RiskWorkbench";
-import TradingGuidance, { type TradingAction, type TradingGuidanceTarget, type TradingReviewMode } from "./TradingGuidance";
-import { TradingNavigation, type TradingView } from "./TradingNavigation";
-
-type ReviewMode = TradingReviewMode;
-
-const viewFromLocation = (): TradingView => {
-  if (typeof window === "undefined") return "overview";
-  const view = new URL(window.location.href).searchParams.get("view");
-  return ["overview", "positions", "market", "activity", "review", "settings"].includes(view ?? "") ? view as TradingView : "overview";
-};
-
-const reviewModeFromLocation = (): ReviewMode => {
-  if (typeof window === "undefined") return "risk";
-  return new URL(window.location.href).searchParams.get("mode") === "market" ? "market" : "risk";
-};
-
-const actionFromLocation = (): TradingAction | undefined => {
-  if (typeof window === "undefined") return undefined;
-  const action = new URL(window.location.href).searchParams.get("action");
-  return action === "import" || action === "holdings" ? action : undefined;
-};
+import TradingGuidance from "./TradingGuidance";
+import { TradingNavigation } from "./TradingNavigation";
+import {
+  clearTradingAction,
+  parseTradingLocation,
+  updateTradingLocation,
+  type TradingAction,
+  type TradingLocationState,
+  type TradingTarget,
+  type TradingView,
+} from "./route";
 
 const riskViewFor = (view: TradingView): RiskView => view === "positions" ? "positions" : view === "activity" ? "activity" : view === "review" ? "review" : view === "settings" ? "settings" : "dashboard";
 
-export default function TradingWorkbench({ initialView = viewFromLocation(), initialReviewMode = reviewModeFromLocation(), initialAction = actionFromLocation() }: { initialView?: TradingView; initialReviewMode?: ReviewMode; initialAction?: TradingAction } = {}) {
-  const [view, setView] = useState<TradingView>(() => typeof window === "undefined" ? initialView : viewFromLocation());
-  const [reviewMode, setReviewMode] = useState<ReviewMode>(() => typeof window === "undefined" ? initialReviewMode : reviewModeFromLocation());
-  const [action, setAction] = useState<TradingAction | undefined>(() => typeof window === "undefined" ? initialAction : actionFromLocation());
+const defaultLocation: TradingLocationState = { view: "overview", mode: "risk" };
+
+export default function TradingWorkbench({ initialLocation = defaultLocation }: { initialLocation?: TradingLocationState } = {}) {
+  const [location, setLocation] = useState<TradingLocationState>(initialLocation);
 
   useEffect(() => {
     const handlePopState = () => {
-      setView(viewFromLocation());
-      setReviewMode(reviewModeFromLocation());
-      setAction(actionFromLocation());
+      setLocation(parseTradingLocation(new URL(window.location.href)));
     };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
 
-  const navigate = (next: TradingView, mode: ReviewMode = next === "review" ? "risk" : reviewMode, nextAction?: TradingAction) => {
-    const url = new URL(window.location.href);
-    url.searchParams.set("view", next);
-    if (next === "review" && mode === "market") url.searchParams.set("mode", "market");
-    else url.searchParams.delete("mode");
-    if (nextAction) url.searchParams.set("action", nextAction);
-    else url.searchParams.delete("action");
+  const navigate = (target: TradingTarget) => {
+    const url = updateTradingLocation(new URL(window.location.href), target);
     window.history.pushState({}, "", url);
-    setView(next);
-    setReviewMode(mode);
-    setAction(nextAction);
+    setLocation(parseTradingLocation(url));
   };
 
-  const changeRiskView = (next: RiskView) => navigate(next === "dashboard" ? "overview" : next);
-  const handleGuidance = (target: TradingGuidanceTarget) => navigate(target.view, target.mode ?? (target.view === "review" ? "risk" : reviewMode), target.action);
-  const marketReview = view === "review" && reviewMode === "market";
-  const reviewSwitcher = view === "review" && !marketReview ? <section className="trading-review-switcher" aria-label="复盘类型">
+  const navigateView = (view: TradingView) => navigate({
+    view,
+    mode: view === "review" ? "risk" : undefined,
+  });
+  const changeRiskView = (next: RiskView) => navigateView(next === "dashboard" ? "overview" : next);
+  const handleActionChange = (action: TradingAction | undefined) => {
+    if (action) {
+      navigate({
+        view: action === "import" ? "activity" : "positions",
+        action,
+      });
+      return;
+    }
+
+    const url = clearTradingAction(new URL(window.location.href));
+    window.history.replaceState({}, "", url);
+    setLocation(parseTradingLocation(url));
+  };
+  const { view, mode: reviewMode, action } = location;
+  const inReview = view === "review";
+  const marketReview = inReview && reviewMode === "market";
+  const reviewSwitcher = inReview ? <section className="trading-review-switcher" aria-label="复盘类型">
     <div><p>复盘工作流</p><h2>选择今天要解释的事实。</h2><span>账户风险和盘后市场复盘共享入口，数据边界仍然分开。</span></div>
     <div className="trading-review-switcher__tabs" role="tablist" aria-label="复盘类型">
-      <button type="button" role="tab" aria-selected={reviewMode === "risk"} className={reviewMode === "risk" ? "is-active" : ""} onClick={() => navigate("review", "risk")}>账户风险复盘</button>
-      <button type="button" role="tab" aria-selected={reviewMode === "market"} className={reviewMode === "market" ? "is-active" : ""} onClick={() => navigate("review", "market")}>盘后市场复盘</button>
+      <button type="button" role="tab" aria-selected={reviewMode === "risk"} className={reviewMode === "risk" ? "is-active" : ""} onClick={() => navigate({ view: "review", mode: "risk" })}>账户风险复盘</button>
+      <button type="button" role="tab" aria-selected={reviewMode === "market"} className={reviewMode === "market" ? "is-active" : ""} onClick={() => navigate({ view: "review", mode: "market" })}>盘后市场复盘</button>
     </div>
   </section> : null;
 
   return <div className="risk-app trading-shell">
-    <TradingNavigation active={view} onNavigate={(next) => navigate(next)} />
-    {!marketReview && <TradingGuidance active={view} reviewMode={reviewMode} onNavigate={handleGuidance} />}
+    <TradingNavigation active={view} onNavigate={navigateView} />
+    {!marketReview && <TradingGuidance active={view} reviewMode={reviewMode} onNavigate={navigate} />}
     {reviewSwitcher}
     <div className="trading-shell__content">
-      {view === "market" ? <MarketCenter /> : view === "review" && reviewMode === "market" ? <AgentToday /> : <RiskWorkbench embedded initialView={riskViewFor(view)} initialAction={view === "positions" || view === "activity" ? action : undefined} onViewChange={changeRiskView} />}
+      {view === "market" ? <MarketCenter embedded /> : marketReview ? <AgentToday embedded /> : <RiskWorkbench embedded initialView={riskViewFor(view)} action={action} onViewChange={changeRiskView} onActionChange={handleActionChange} />}
     </div>
   </div>;
 }

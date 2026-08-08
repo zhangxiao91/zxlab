@@ -1,15 +1,6 @@
-import type { TradingView } from "./TradingNavigation";
+import type { TradingReviewMode, TradingTarget, TradingView } from "./route";
 
-export type TradingReviewMode = "risk" | "market";
-export type TradingAction = "import" | "holdings";
-
-export interface TradingGuidanceTarget {
-  view: TradingView;
-  mode?: TradingReviewMode;
-  action?: TradingAction;
-}
-
-const entries: Array<{ id: string; label: string; target: TradingGuidanceTarget }> = [
+const entries: Array<{ id: string; label: string; target: TradingTarget }> = [
   { id: "transactions", label: "导入交易 CSV", target: { view: "activity", action: "import" } },
   { id: "holdings", label: "导入券商持仓", target: { view: "positions", action: "holdings" } },
   { id: "market", label: "查看行情", target: { view: "market" } },
@@ -17,7 +8,7 @@ const entries: Array<{ id: string; label: string; target: TradingGuidanceTarget 
   { id: "market-review", label: "盘后市场复盘", target: { view: "review", mode: "market" } },
 ];
 
-export default function TradingGuidance({ active, reviewMode, onNavigate }: { active: TradingView; reviewMode: TradingReviewMode; onNavigate: (target: TradingGuidanceTarget) => void }) {
+export default function TradingGuidance({ active, reviewMode, onNavigate }: { active: TradingView; reviewMode: TradingReviewMode; onNavigate: (target: TradingTarget) => void }) {
   return <section className="trading-guidance" aria-label="交易快捷入口">
     <div className="trading-guidance__lead"><span>下一步</span><strong>交易工作流</strong></div>
     <div className="trading-guidance__actions">

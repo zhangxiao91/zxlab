@@ -35,7 +35,7 @@ const date = (value: string) =>
     minute: "2-digit",
   });
 
-export default function AgentToday() {
+export default function AgentToday({ embedded = false }: { embedded?: boolean } = {}) {
   const [runs, setRuns] = useState<AgentRunView[]>([]);
   const [profile, setProfile] = useState<AgentProfileView | null>(null);
   const [localWatchlist, setLocalWatchlist] = useState<AgentWatchlistItem[]>(
@@ -262,7 +262,7 @@ export default function AgentToday() {
     [localWatchlist, portfolioState?.snapshot?.positions],
   );
   return (
-    <div className="risk-app agent-app">
+    <div className={embedded ? "agent-app agent-app--embedded" : "risk-app agent-app"}>
       <main className="risk-main agent-main">
         <header className="agent-hero">
           <div>
@@ -584,11 +584,11 @@ export default function AgentToday() {
           </div>
         </details>
       </main>
-      <footer className="risk-footer">
+      {!embedded && <footer className="risk-footer">
         <span>zxlab / agent</span>
         <p>Market Agent 只读市场事实，不连接交易执行。</p>
         <a href="/lab/market">Market Center</a>
-      </footer>
+      </footer>}
     </div>
   );
 }

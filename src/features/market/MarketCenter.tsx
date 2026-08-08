@@ -77,7 +77,7 @@ const emptyState = (): MarketCenterState => ({
   quality: emptyQuality(),
 });
 
-export default function MarketCenter() {
+export default function MarketCenter({ embedded = false }: { embedded?: boolean } = {}) {
   const storage = typeof window === "undefined" ? null : window.localStorage;
   const client = useMemo(() => new MarketClient(), []);
   const [watchlist, setWatchlist] = useState<MarketWatchlistItem[]>(() =>
@@ -321,9 +321,43 @@ export default function MarketCenter() {
       : state.quality.status === "degraded"
         ? "is-mock"
         : "is-offline";
+  const refreshControls = (
+    <>
+      <button
+        type="button"
+        className={
+          autoRefresh
+            ? "market-auto-button is-active"
+            : "market-auto-button"
+        }
+        aria-pressed={autoRefresh}
+        onClick={() => setAutoRefresh((value) => !value)}
+      >
+        {autoRefresh ? `自动刷新 ${pollIntervalMs / 1000}s` : "自动刷新关"}
+      </button>
+      <button
+        type="button"
+        disabled={loading}
+        onClick={() => void refresh({ slow: true })}
+      >
+        {loading ? "刷新中" : "刷新"}
+      </button>
+      <div className="risk-appbar__status market-refresh-status" role="status" aria-live="polite">
+        <span className={healthClass} />
+        <div>
+          <strong>{healthLabel}</strong>
+          <small>
+            {lastUpdatedAt
+              ? `更新 ${new Date(lastUpdatedAt).toLocaleTimeString("zh-CN")} · ${state.quality.freshness}`
+              : (state.providers?.strategy ?? "sequential-fallback")}
+          </small>
+        </div>
+      </div>
+    </>
+  );
   return (
-    <div className="risk-app market-app">
-      <header className="risk-appbar">
+    <div className={embedded ? "market-app market-app--embedded" : "risk-app market-app"}>
+      {!embedded && <header className="risk-appbar">
         <a href="/lab" className="risk-brand">
           <span className="risk-brand__mark">Z</span>
           <span>
@@ -336,35 +370,14 @@ export default function MarketCenter() {
           <button className="is-active">行情中心</button>
         </nav>
         <div className="risk-appbar__actions">
-          <button
-            className={
-              autoRefresh
-                ? "market-auto-button is-active"
-                : "market-auto-button"
-            }
-            onClick={() => setAutoRefresh((value) => !value)}
-          >
-            {autoRefresh ? `自动刷新 ${pollIntervalMs / 1000}s` : "自动刷新关"}
-          </button>
-          <button
-            disabled={loading}
-            onClick={() => void refresh({ slow: true })}
-          >
-            {loading ? "刷新中" : "刷新"}
-          </button>
-          <div className="risk-appbar__status">
-            <span className={healthClass} />
-            <div>
-              <strong>{healthLabel}</strong>
-              <small>
-                {lastUpdatedAt
-                  ? `更新 ${new Date(lastUpdatedAt).toLocaleTimeString("zh-CN")} · ${state.quality.freshness}`
-                  : (state.providers?.strategy ?? "sequential-fallback")}
-              </small>
-            </div>
-          </div>
+          {refreshControls}
         </div>
-      </header>
+      </header>}
+      {embedded && (
+        <div className="market-utilitybar" role="group" aria-label="行情刷新与数据状态">
+          {refreshControls}
+        </div>
+      )}
       <main className="risk-main market-main">
         <header className="market-hero">
           <div>
@@ -646,11 +659,11 @@ export default function MarketCenter() {
           </article>
         </section>
       </main>
-      <footer className="risk-footer">
+      {!embedded && <footer className="risk-footer">
         <span>zxlab / market</span>
         <p>Market Center 是只读行情层；交易账本仍由 Risk 本地维护。</p>
         <a href="/lab/risk">Risk</a>
-      </footer>
+      </footer>}
     </div>
   );
 }

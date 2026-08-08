@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
-
-export type TradingView = "overview" | "positions" | "market" | "activity" | "review" | "settings";
+import type { TradingView } from "./route";
 
 const navigationItems: Array<{ id: TradingView; label: string }> = [
   { id: "overview", label: "总览" },
