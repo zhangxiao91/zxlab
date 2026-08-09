@@ -2,8 +2,10 @@
 import Layout from "../../layouts/Layout.astro";
 import TradingWorkbench from "../../features/trading/TradingWorkbench";
 import { parseTradingLocation } from "../../features/trading/route";
+import "../../../tokens.css";
 import "../../styles/risk.css";
 import "../../styles/market-agent.css";
+import "../../styles/trading-workbench.css";
 
 const initialLocation = parseTradingLocation(Astro.url);
 ---

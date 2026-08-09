@@ -1,0 +1,49 @@
+/* Hallmark · tokens: zxlab trading workbench · genre: modern-minimal · tone: technical-austere */
+:root {
+  --color-paper: oklch(17% 0.012 118);
+  --color-paper-2: oklch(20% 0.014 118);
+  --color-paper-3: oklch(24% 0.016 118);
+  --color-ink: oklch(94% 0.015 100);
+  --color-ink-2: oklch(76% 0.018 105);
+  --color-muted: oklch(64% 0.014 108);
+  --color-rule: oklch(34% 0.015 112);
+  --color-rule-2: oklch(42% 0.018 112);
+  --color-accent: oklch(91% 0.18 118);
+  --color-accent-ink: oklch(20% 0.025 118);
+  --color-focus: oklch(88% 0.19 116);
+  --color-positive: oklch(78% 0.15 150);
+  --color-negative: oklch(70% 0.19 29);
+  --color-warning: oklch(82% 0.14 78);
+
+  --font-display: "Geist", "Helvetica Neue", sans-serif;
+  --font-body: "Geist", "Helvetica Neue", sans-serif;
+  --font-data: "Geist Mono", "SFMono-Regular", monospace;
+
+  --space-3xs: 0.25rem;
+  --space-2xs: 0.5rem;
+  --space-xs: 0.75rem;
+  --space-sm: 1rem;
+  --space-md: 1.5rem;
+  --space-lg: 2rem;
+  --space-xl: 3rem;
+  --space-2xl: 4.5rem;
+  --space-3xl: 7rem;
+
+  --text-xs: 0.6875rem;
+  --text-sm: 0.8125rem;
+  --text-md: 1rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.75rem;
+  --text-display: clamp(2.5rem, 4vw, 4.5rem);
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-short: 140ms;
+  --dur-medium: 320ms;
+  --dur-long: 700ms;
+  --rule-thin: 1px;
+  --radius-card: 0.75rem;
+  --radius-control: 0.45rem;
+  --radius-pill: 999px;
+}

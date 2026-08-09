@@ -239,10 +239,10 @@ export default function AskPanel({
     <section className="agent-ask" aria-labelledby="agent-ask-title" ref={panel}>
       <header className="agent-ask__header">
         <div>
-          <p>受限 Ask</p>
-          <h2 id="agent-ask-title">用固定范围，回答一个市场问题。</h2>
+          <span>只读问答</span>
+          <h2 id="agent-ask-title">问一个可由证据回答的问题。</h2>
         </div>
-        <span>范围由服务端封存</span>
+        <span>服务端封存范围</span>
       </header>
       <RunActivity status={answer?.status} runId={answer?.id} />
       <div className="agent-ask__grid">
@@ -330,21 +330,6 @@ export default function AskPanel({
             </button>
           </footer>
         </form>
-        <aside className="agent-ask__boundary">
-          <span>本次范围</span>
-          <strong>{selectedScope.label}</strong>
-          <p>{scopeBoundary(selectedScope, instrumentId, priorRunId)}</p>
-          <dl>
-            <div>
-              <dt>模型</dt>
-              <dd>最多一次生成和一次修复</dd>
-            </div>
-            <div>
-              <dt>数据</dt>
-              <dd>仅使用本次封存 Evidence</dd>
-            </div>
-          </dl>
-        </aside>
       </div>
       {error && <p className="review-status review-status--warning">{error}</p>}
       {answer && (
@@ -415,6 +400,7 @@ export default function AskPanel({
 }
 
 function RunActivity({ status, runId }: { status?: string; runId?: string }) {
+  if (!status || terminalStatuses.has(status)) return null;
   const activeIndex = runStageIndex(status);
   const finished = status === "success" || status === "partial";
   const failed = status === "failed";

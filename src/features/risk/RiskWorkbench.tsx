@@ -4,9 +4,11 @@ import { DEFAULT_CSV_MAPPING } from "./csv";
 import { BackupPanel, DailyWorkflow, DiagnosticsPanel, MemoryCandidates, ReviewFeedbackEditor, ReviewHistory } from "./RiskDogfoodPanels";
 import { useRiskWorkspace } from "./useRiskWorkspace";
 import type { CsvFieldMapping, CsvPreview, DailyWorkflowStep, EvidenceItem, HoldingParseDraft, Position, ReviewItemFeedback, RiskDashboardData, RiskEvent, RiskRules, TradePlan } from "./types";
+import { TradingDialog } from "../trading/TradingDialog";
 
 export type RiskView = "dashboard" | "positions" | "activity" | "review" | "settings";
 type View = RiskView;
+type RiskAction = "import" | "holdings";
 const navItems: Array<{ id: View; label: string }> = [{ id: "dashboard", label: "总览" }, { id: "positions", label: "持仓" }, { id: "activity", label: "记录" }, { id: "review", label: "复盘" }, { id: "settings", label: "设置" }];
 const money = new Intl.NumberFormat("zh-CN", { style: "currency", currency: "CNY", maximumFractionDigits: 0 });
 const number = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 3 });
@@ -62,7 +64,8 @@ function Review({ data, onEvidence, onGenerate, onSaveFeedback, onMemoryStatus, 
   const review = data.review;
   const source = review.mode === "llm" ? `${review.provider}/${review.model}` : review.fallbackReason ? "本地降级" : "本地 Evidence 模板";
   const currentRun = data.reviewRuns.find((run) => run.reviewDate === data.analysisDate && run.result?.evidencePackFingerprint === review.evidencePackFingerprint);
-  return <div className="risk-view"><header className="view-intro review-intro"><div><p>Evidence Pack 驱动复盘</p><h2>{review.mode === "llm" ? "真实 LLM 只解释本轮结构化证据。" : "先确定性计算，再按需生成真实复盘。"}</h2><span>{source} · {new Date(review.generatedAt).toLocaleString("zh-CN")} · {data.evidencePack.reliable ? "可靠" : "可信度降低"}</span></div><button disabled={loading} onClick={() => void onGenerate()}>{loading ? "正在生成…" : review.mode === "llm" ? "重新生成真实复盘" : "生成真实复盘"}</button></header>{error && <p className="review-status review-status--warning" role="status">{error}</p>}{review.mode === "llm" && <p className="review-status" role="status">已通过项目 LLM 网关生成{review.fallbackIndex ? `，使用第 ${review.fallbackIndex + 1} 个候选模型` : "，主候选模型成功"}。完整运行已冻结到本地存档。</p>}<section className="review-summary"><span>今日摘要</span><p>{review.summary}</p></section><div className="review-columns"><section><header><span>主要风险</span><strong>{review.mainRisks.length}</strong></header>{review.mainRisks.map((risk) => <article key={risk.id} className={`review-risk review-risk--${risk.severity}`}><h3>{risk.title}</h3><p>{risk.explanation}</p><div>{risk.evidenceIds.map((id) => <button key={id} onClick={() => onEvidence(id)}>{id}</button>)}</div></article>)}</section><section><header><span>计划与操作偏离</span><strong>{review.planViolations.length + review.operationReview.length}</strong></header>{[...review.planViolations.map((item) => ({ id: item.id, title: item.title, detail: item.detail, evidenceIds: item.evidenceIds })), ...review.operationReview.map((item) => ({ id: item.id, title: item.category, detail: item.observation, evidenceIds: item.evidenceIds }))].map((item) => <article key={item.id}><h3>{item.title}</h3><p>{item.detail}</p><div>{item.evidenceIds.map((id) => <button key={id} onClick={() => onEvidence(id)}>{id}</button>)}</div></article>)}</section></div><div className="review-footer-grid"><section><span>反事实问题</span>{review.counterfactuals.map((item) => <p key={item}>{item}</p>)}</section><section><span>未知与限制</span>{[...review.unknowns, ...review.limitations].map((item) => <p key={item}>{item}</p>)}</section></div>{currentRun && <ReviewFeedbackEditor key={`${currentRun.id}-${currentRun.userFeedback?.updatedAt ?? "new"}`} run={currentRun} onSave={onSaveFeedback}/>}<MemoryCandidates items={data.memoryCandidates} onStatus={onMemoryStatus}/><ReviewHistory runs={data.reviewRuns}/></div>;
+  const unknownsAndLimitations = [...new Set([...review.unknowns, ...review.limitations])];
+  return <div className="risk-view"><header className="view-intro review-intro"><div><p>Evidence Pack 驱动复盘</p><h2>{review.mode === "llm" ? "真实 LLM 只解释本轮结构化证据。" : "先确定性计算，再按需生成真实复盘。"}</h2><span>{source} · {new Date(review.generatedAt).toLocaleString("zh-CN")} · {data.evidencePack.reliable ? "可靠" : "可信度降低"}</span></div><button disabled={loading} onClick={() => void onGenerate()}>{loading ? "正在生成…" : review.mode === "llm" ? "重新生成真实复盘" : "生成真实复盘"}</button></header>{error && <p className="review-status review-status--warning" role="status">{error}</p>}{review.mode === "llm" && <p className="review-status" role="status">已通过项目 LLM 网关生成{review.fallbackIndex ? `，使用第 ${review.fallbackIndex + 1} 个候选模型` : "，主候选模型成功"}。完整运行已冻结到本地存档。</p>}<section className="review-summary"><span>今日摘要</span><p>{review.summary}</p></section><div className="review-columns"><section><header><span>主要风险</span><strong>{review.mainRisks.length}</strong></header>{review.mainRisks.map((risk) => <article key={risk.id} className={`review-risk review-risk--${risk.severity}`}><h3>{risk.title}</h3><p>{risk.explanation}</p><div>{risk.evidenceIds.map((id) => <button key={id} onClick={() => onEvidence(id)}>{id}</button>)}</div></article>)}</section><section><header><span>计划与操作偏离</span><strong>{review.planViolations.length + review.operationReview.length}</strong></header>{[...review.planViolations.map((item) => ({ id: item.id, title: item.title, detail: item.detail, evidenceIds: item.evidenceIds })), ...review.operationReview.map((item) => ({ id: item.id, title: item.category, detail: item.observation, evidenceIds: item.evidenceIds }))].map((item) => <article key={item.id}><h3>{item.title}</h3><p>{item.detail}</p><div>{item.evidenceIds.map((id) => <button key={id} onClick={() => onEvidence(id)}>{id}</button>)}</div></article>)}</section></div><div className="review-footer-grid"><section><span>反事实问题</span>{review.counterfactuals.map((item) => <p key={item}>{item}</p>)}</section><section><span>未知与限制</span>{unknownsAndLimitations.map((item) => <p key={item}>{item}</p>)}</section></div>{currentRun && <ReviewFeedbackEditor key={`${currentRun.id}-${currentRun.userFeedback?.updatedAt ?? "new"}`} run={currentRun} onSave={onSaveFeedback}/>}<MemoryCandidates items={data.memoryCandidates} onStatus={onMemoryStatus}/><ReviewHistory runs={data.reviewRuns}/></div>;
 }
 
 function riskRuleRows(data: RiskDashboardData) {
@@ -104,23 +107,25 @@ function TradePlansEditor({ data, onSave }: { data: RiskDashboardData; onSave: (
 
 function Settings({ data, onRiskRules, onTradePlans, onImport, onClear, onExportBackup, onPreviewBackup, onRestoreBackup }: { data: RiskDashboardData; onRiskRules: (rules: RiskRules) => Promise<void>; onTradePlans: (plans: TradePlan[]) => Promise<void>; onImport: () => void; onClear: () => Promise<void>; onExportBackup: () => { filename: string; content: string }; onPreviewBackup: (text: string) => BackupPreview; onRestoreBackup: (preview: BackupPreview, mode: "merge" | "overwrite") => Promise<void> }) { return <div className="risk-view"><header className="view-intro"><p>数据与运行边界</p><h2>真实服务负责分析，账本始终留在浏览器本地。</h2><span>LLM 仅在手动生成复盘时读取结构化 Evidence Pack；不会获得交易权限。</span></header><div className="settings-grid"><RiskRulesEditor data={data} onSave={onRiskRules}/><TradePlansEditor data={data} onSave={onTradePlans}/><section><h3>数据源</h3>{data.sourceHealth.map((source) => <div className="setting-row" key={source.name}><span><i className={`source-dot source-dot--${source.status}`}/>{source.name}</span><strong>{source.freshness}</strong></div>)}</section><section><h3>服务状态</h3><div className="setting-row"><span>行情 Provider</span><strong>{marketUnavailable(data) ? "ApiMarketDataProvider（不可用）" : "ApiMarketDataProvider（真实）"}</strong></div><div className="setting-row"><span>Review Service</span><strong>{data.review.mode === "llm" ? "Project AI Gateway" : data.review.fallbackReason ? "本地降级" : "等待手动生成"}</strong></div></section><section className="data-actions"><h3>CSV 数据管理</h3><button className="primary-action" onClick={onImport}>导入交易 CSV</button><button className="danger-action" onClick={() => window.confirm("确认清空浏览器本地交易、对账、复盘、反馈和候选记录？") && void onClear()}>清空本地数据</button></section><BackupPanel onExport={onExportBackup} onPreview={onPreviewBackup} onRestore={onRestoreBackup}/></div><DiagnosticsPanel data={data}/></div>; }
 
-function CsvImportDialog({ existingCount, preview, mapping, onMapping, onPreview, onImport, onClose }: { existingCount: number; preview: CsvPreview | null; mapping: CsvFieldMapping; onMapping: (mapping: CsvFieldMapping) => void; onPreview: (text: string) => void; onImport: () => Promise<void>; onClose: () => void }) {
-  const [fileName, setFileName] = useState(""); const fields = Object.keys(mapping) as Array<keyof CsvFieldMapping>;
-  return <div className="evidence-layer" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><aside className="import-drawer" role="dialog" aria-modal="true" aria-labelledby="import-title"><button className="evidence-close" onClick={onClose}>关闭</button><span>浏览器本地解析</span><h2 id="import-title">导入交易 CSV</h2><p>当前账本 {existingCount} 条。合法行追加保存，错误行不会阻止导入。</p><label className="file-picker"><strong>{fileName || "选择 CSV 文件"}</strong><input type="file" accept=".csv,text/csv" onChange={(event) => { const file = event.target.files?.[0]; if (!file) return; setFileName(file.name); void file.text().then(onPreview); }}/></label>{preview && <><div className="mapping-grid">{fields.map((field) => <label key={field}><span>{field}</span><select value={mapping[field]} onChange={(event) => onMapping({ ...mapping, [field]: event.target.value })}>{preview.headers.map((header) => <option key={header}>{header}</option>)}</select></label>)}</div><div className="import-stats"><span>可导入 <strong>{preview.valid.length}</strong></span><span>错误 <strong>{preview.invalid.length}</strong></span><span>重复 <strong>{preview.duplicates.length}</strong></span></div><div className="import-preview"><table><thead><tr><th>ID</th><th>事件</th><th>标的</th><th>数量</th><th>时间</th></tr></thead><tbody>{preview.valid.slice(0, 8).map((item) => <tr key={item.id}><td>{item.id}</td><td>{item.type}</td><td>{item.instrumentId ?? "—"}</td><td>{item.quantity}</td><td>{item.executedAt}</td></tr>)}</tbody></table>{preview.invalid.map((item) => <p className="data-warning" key={item.rowNumber}>第 {item.rowNumber} 行：{item.errors.join("；")}</p>)}{preview.duplicates.map((item) => <p className="duplicate-note" key={`${item.rowNumber}-${item.id}`}>第 {item.rowNumber} 行 {item.id}：{item.reason}</p>)}</div><button className="primary-action" disabled={!preview.valid.length} onClick={() => void onImport()}>追加导入 {preview.valid.length} 条</button></>}</aside></div>;
+function CsvImportPanel({ existingCount, preview, mapping, onMapping, onPreview, onImport }: { existingCount: number; preview: CsvPreview | null; mapping: CsvFieldMapping; onMapping: (mapping: CsvFieldMapping) => void; onPreview: (text: string) => void; onImport: () => Promise<void> }) {
+  const [fileName, setFileName] = useState("");
+  const fields = Object.keys(mapping) as Array<keyof CsvFieldMapping>;
+  return <div className="import-drawer import-drawer--content"><p>当前账本 {existingCount} 条。合法行追加保存，错误行不会阻止导入。</p><label className="file-picker"><strong>{fileName || "选择 CSV 文件"}</strong><input type="file" accept=".csv,text/csv" onChange={(event) => { const file = event.target.files?.[0]; if (!file) return; setFileName(file.name); void file.text().then(onPreview); }}/></label>{preview && <><div className="mapping-grid">{fields.map((field) => <label key={field}><span>{field}</span><select value={mapping[field]} onChange={(event) => onMapping({ ...mapping, [field]: event.target.value })}>{preview.headers.map((header) => <option key={header}>{header}</option>)}</select></label>)}</div><div className="import-stats"><span>可导入 <strong>{preview.valid.length}</strong></span><span>错误 <strong>{preview.invalid.length}</strong></span><span>重复 <strong>{preview.duplicates.length}</strong></span></div><div className="import-preview"><table><thead><tr><th>ID</th><th>事件</th><th>标的</th><th>数量</th><th>时间</th></tr></thead><tbody>{preview.valid.slice(0, 8).map((item) => <tr key={item.id}><td>{item.id}</td><td>{item.type}</td><td>{item.instrumentId ?? "—"}</td><td>{item.quantity}</td><td>{item.executedAt}</td></tr>)}</tbody></table>{preview.invalid.map((item) => <p className="data-warning" key={item.rowNumber}>第 {item.rowNumber} 行：{item.errors.join("；")}</p>)}{preview.duplicates.map((item) => <p className="duplicate-note" key={`${item.rowNumber}-${item.id}`}>第 {item.rowNumber} 行 {item.id}：{item.reason}</p>)}</div><button className="primary-action" disabled={!preview.valid.length} onClick={() => void onImport()}>追加导入 {preview.valid.length} 条</button></>}</div>;
 }
 
-function HoldingsParseDialog({ loading, error, onParse, onConfirm, onClose }: { loading: boolean; error: string | null; onParse: (text: string, sourceKind: "csv" | "text") => Promise<HoldingParseDraft | null>; onConfirm: (draft: HoldingParseDraft, mode: "snapshot" | "adopt") => Promise<void>; onClose: () => void }) {
+function HoldingsParsePanel({ loading, error, onParse, onConfirm }: { loading: boolean; error: string | null; onParse: (text: string, sourceKind: "csv" | "text") => Promise<HoldingParseDraft | null>; onConfirm: (draft: HoldingParseDraft, mode: "snapshot" | "adopt") => Promise<void> }) {
   const [text, setText] = useState("");
   const [sourceKind, setSourceKind] = useState<"csv" | "text">("text");
   const [draft, setDraft] = useState<HoldingParseDraft | null>(null);
   const [mode, setMode] = useState<"snapshot" | "adopt">("snapshot");
   const confirmable = draft?.positions.filter((item) => item.instrumentId && item.quantity != null && item.confidence >= 0.55) ?? [];
-  return <div className="evidence-layer" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><aside className="import-drawer holdings-drawer" role="dialog" aria-modal="true" aria-labelledby="holdings-title"><button className="evidence-close" onClick={onClose}>关闭</button><span>LLM 草稿解析</span><h2 id="holdings-title">粘贴券商持仓</h2><p>输入文本或 CSV 后生成可确认草稿。确认时选择数据用途。</p><div className="holdings-source"><button className={sourceKind === "text" ? "is-active" : ""} onClick={() => setSourceKind("text")}>文本</button><button className={sourceKind === "csv" ? "is-active" : ""} onClick={() => setSourceKind("csv")}>CSV</button></div><textarea className="holdings-textarea" value={text} placeholder={"示例：\n证券代码,证券名称,持仓数量,成本价,市值\n512480,半导体ETF,10000,0.92,9300"} onChange={(event) => setText(event.target.value)}/><button className="primary-action" disabled={loading || !text.trim()} onClick={async () => setDraft(await onParse(text, sourceKind))}>{loading ? "解析中…" : "生成解析草稿"}</button>{error && <p className="data-warning">{error}</p>}{draft && <section className="holdings-draft"><header><div><span>解析草稿</span><h3>{draft.accountName ?? "未命名账户"} · {new Date(draft.snapshotAt).toLocaleString("zh-CN")}</h3></div><strong>{confirmable.length} 个可确认</strong></header><div className="import-preview"><table><thead><tr><th>标的</th><th>数量</th><th>成本</th><th>置信度</th><th>提示</th></tr></thead><tbody>{draft.positions.map((item, index) => <tr key={`${item.instrumentId ?? item.rawSymbol ?? "row"}-${index}`}><td>{item.instrumentId ?? item.rawSymbol ?? item.rawName ?? "未知"}</td><td>{item.quantity == null ? "—" : number.format(item.quantity)}</td><td>{item.averageCost == null ? "—" : value(item.averageCost)}</td><td>{confidence(item.confidence)} · {Math.round(item.confidence * 100)}%</td><td>{item.warnings.join("；") || "—"}</td></tr>)}</tbody></table></div>{draft.unresolvedRows.map((item) => <p className="data-warning" key={`${item.rowNumber}-${item.raw}`}>第 {item.rowNumber ?? "?"} 行：{item.reason}</p>)}{draft.warnings.map((item) => <p className="duplicate-note" key={item}>{item}</p>)}<fieldset className="holdings-adoption"><legend>确认后的用途</legend><label><input type="radio" name="holdings-adoption" checked={mode === "snapshot"} onChange={() => setMode("snapshot")} /> 仅保存券商快照（保留现有交易账本）</label><label><input type="radio" name="holdings-adoption" checked={mode === "adopt"} onChange={() => setMode("adopt")} /> 采用为期初持仓（替换现有账本）</label></fieldset><button className="primary-action" disabled={!confirmable.length} onClick={async () => { await onConfirm(draft, mode); onClose(); }}>{mode === "adopt" ? "采用并替换现有账本" : "确认保存券商快照"}</button></section>}</aside></div>;
+  return <div className="import-drawer import-drawer--content holdings-drawer"><p>输入文本或 CSV 后生成可确认草稿。确认时选择数据用途。</p><div className="holdings-source"><button className={sourceKind === "text" ? "is-active" : ""} onClick={() => setSourceKind("text")}>文本</button><button className={sourceKind === "csv" ? "is-active" : ""} onClick={() => setSourceKind("csv")}>CSV</button></div><textarea className="holdings-textarea" value={text} placeholder={"示例：\n证券代码,证券名称,持仓数量,成本价,市值\n512480,半导体ETF,10000,0.92,9300"} onChange={(event) => setText(event.target.value)}/><button className="primary-action" disabled={loading || !text.trim()} onClick={async () => setDraft(await onParse(text, sourceKind))}>{loading ? "解析中…" : "生成解析草稿"}</button>{error && <p className="data-warning">{error}</p>}{draft && <section className="holdings-draft"><header><div><span>解析草稿</span><h3>{draft.accountName ?? "未命名账户"} · {new Date(draft.snapshotAt).toLocaleString("zh-CN")}</h3></div><strong>{confirmable.length} 个可确认</strong></header><div className="import-preview"><table><thead><tr><th>标的</th><th>数量</th><th>成本</th><th>置信度</th><th>提示</th></tr></thead><tbody>{draft.positions.map((item, index) => <tr key={`${item.instrumentId ?? item.rawSymbol ?? "row"}-${index}`}><td>{item.instrumentId ?? item.rawSymbol ?? item.rawName ?? "未知"}</td><td>{item.quantity == null ? "—" : number.format(item.quantity)}</td><td>{item.averageCost == null ? "—" : value(item.averageCost)}</td><td>{confidence(item.confidence)} · {Math.round(item.confidence * 100)}%</td><td>{item.warnings.join("；") || "—"}</td></tr>)}</tbody></table></div>{draft.unresolvedRows.map((item) => <p className="data-warning" key={`${item.rowNumber}-${item.raw}`}>第 {item.rowNumber ?? "?"} 行：{item.reason}</p>)}{draft.warnings.map((item) => <p className="duplicate-note" key={item}>{item}</p>)}<fieldset className="holdings-adoption"><legend>确认后的用途</legend><label><input type="radio" name="holdings-adoption" checked={mode === "snapshot"} onChange={() => setMode("snapshot")} /> 仅保存券商快照（保留现有交易账本）</label><label><input type="radio" name="holdings-adoption" checked={mode === "adopt"} onChange={() => setMode("adopt")} /> 采用为期初持仓（替换现有账本）</label></fieldset><button className="primary-action" disabled={!confirmable.length} onClick={() => void onConfirm(draft, mode)}>{mode === "adopt" ? "采用并替换现有账本" : "确认保存券商快照"}</button></section>}</div>;
 }
 
-function EvidenceDrawer({ evidence, onClose }: { evidence: EvidenceItem | undefined; onClose: () => void }) { if (!evidence) return null; return <div className="evidence-layer" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><aside className="evidence-drawer" role="dialog" aria-modal="true" aria-labelledby="evidence-title"><button className="evidence-close" onClick={onClose}>关闭</button><span>{evidence.type}</span><h2 id="evidence-title">{evidence.title}</h2><p>{evidence.id}</p><dl><div><dt>时间</dt><dd>{evidence.timestamp}</dd></div><div><dt>来源</dt><dd>{evidence.source}</dd></div>{Object.entries(evidence.payload).map(([key, item]) => <div key={key}><dt>{key}</dt><dd>{String(item)}</dd></div>)}</dl></aside></div>; }
-
-type RiskAction = "import" | "holdings";
+function EvidencePanel({ evidence }: { evidence: EvidenceItem | undefined }) {
+  if (!evidence) return <p className="trading-dialog__empty">这条证据不在当前账本快照中。</p>;
+  return <div className="evidence-drawer evidence-drawer--content"><span>{evidence.type}</span><dl><div><dt>时间</dt><dd>{evidence.timestamp}</dd></div><div><dt>来源</dt><dd>{evidence.source}</dd></div>{Object.entries(evidence.payload).map(([key, item]) => <div key={key}><dt>{key}</dt><dd>{String(item)}</dd></div>)}</dl></div>;
+}
 
 interface RiskWorkbenchProps {
   embedded?: boolean;
@@ -262,31 +267,54 @@ export default function RiskWorkbench({
           <a href="/lab">返回 Lab</a>
         </footer>
       )}
-      <EvidenceDrawer evidence={evidence} onClose={() => setSelectedEvidence(undefined)}/>
+      {evidence && (
+        <TradingDialog
+          title={evidence.title}
+          description={evidence.id}
+          onClose={() => setSelectedEvidence(undefined)}
+        >
+          <EvidencePanel evidence={evidence}/>
+        </TradingDialog>
+      )}
       {importOpen && (
-        <CsvImportDialog
-          existingCount={data.transactions.length}
-          preview={preview}
-          mapping={mapping}
-          onMapping={setMapping}
-          onPreview={setCsvText}
-          onImport={async () => {
-            if (!preview) return;
-            await workspace.importTransactions(preview);
-            setCsvText("");
-            changeAction(undefined);
-          }}
+        <TradingDialog
+          title="导入交易 CSV"
+          description="文件仅在浏览器本地解析；合法行追加写入账本。"
           onClose={() => changeAction(undefined)}
-        />
+          size="wide"
+        >
+          <CsvImportPanel
+            existingCount={data.transactions.length}
+            preview={preview}
+            mapping={mapping}
+            onMapping={setMapping}
+            onPreview={setCsvText}
+            onImport={async () => {
+              if (!preview) return;
+              await workspace.importTransactions(preview);
+              setCsvText("");
+              changeAction(undefined);
+            }}
+          />
+        </TradingDialog>
       )}
       {holdingsOpen && (
-        <HoldingsParseDialog
-          loading={workspace.holdingsParseLoading}
-          error={workspace.holdingsParseError}
-          onParse={workspace.parseHoldingsDraft}
-          onConfirm={workspace.confirmHoldingsDraft}
+        <TradingDialog
+          title="粘贴券商持仓"
+          description="先生成草稿，再明确选择快照或期初持仓用途。"
           onClose={() => changeAction(undefined)}
-        />
+          size="wide"
+        >
+          <HoldingsParsePanel
+            loading={workspace.holdingsParseLoading}
+            error={workspace.holdingsParseError}
+            onParse={workspace.parseHoldingsDraft}
+            onConfirm={async (draft, mode) => {
+              await workspace.confirmHoldingsDraft(draft, mode);
+              changeAction(undefined);
+            }}
+          />
+        </TradingDialog>
       )}
     </div>
   );

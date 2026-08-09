@@ -1,31 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import gsap from "gsap";
-import { loadMarketWatchlist } from "../market/watchlist";
-import { LocalPortfolioRepository } from "../risk/ledger";
+import { useEffect } from "react";
+import type { TradingScreenAction, TradingScreenStatus } from "../trading/screen";
 import AskPanel from "./AskPanel";
 import {
-  deleteAgentRun,
-  exportAgentRuns,
-  getAgentProfile,
-  getAgentRuns,
-  getPortfolioSnapshotControlState,
-  purgePortfolioSnapshotHistory,
-  sendRunFeedback,
-  startCloseReview,
-  stopPortfolioSnapshot,
-  syncAgentWatchlist,
-  syncPortfolioSnapshot,
-  type AgentProfileView,
+  type AgentObservationView,
   type AgentRunMode,
   type AgentRunView,
-  type AgentWatchlistItem,
-  type PortfolioPurgeScope,
-  type PortfolioSnapshotControlState,
 } from "./client";
-import {
-  previewLocalPortfolioSnapshot,
-  type LocalPortfolioSnapshotPreview,
-} from "./portfolio-snapshot";
+import { useMarketAgentWorkspace } from "./useMarketAgentWorkspace";
 
 const date = (value: string) =>
   new Date(value).toLocaleString("zh-CN", {
@@ -35,264 +16,95 @@ const date = (value: string) =>
     minute: "2-digit",
   });
 
-export default function AgentToday({ embedded = false }: { embedded?: boolean } = {}) {
-  const [runs, setRuns] = useState<AgentRunView[]>([]);
-  const [profile, setProfile] = useState<AgentProfileView | null>(null);
-  const [localWatchlist, setLocalWatchlist] = useState<AgentWatchlistItem[]>(
-    [],
-  );
-  const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [syncBusy, setSyncBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [setupNote, setSetupNote] = useState<string | null>(null);
-  const [activeRun, setActiveRun] = useState<string | null>(null);
-  const [deletingRunId, setDeletingRunId] = useState<string | null>(null);
-  const [portfolioPreview, setPortfolioPreview] =
-    useState<LocalPortfolioSnapshotPreview | null>(null);
-  const [portfolioState, setPortfolioState] =
-    useState<PortfolioSnapshotControlState | null>(null);
-  const [portfolioStateLoaded, setPortfolioStateLoaded] = useState(false);
-  const [portfolioBusy, setPortfolioBusy] = useState(false);
-  const [portfolioError, setPortfolioError] = useState<string | null>(null);
-  const [portfolioNote, setPortfolioNote] = useState<string | null>(null);
-  const [purgeScope, setPurgeScope] = useState<PortfolioPurgeScope | null>(
-    null,
-  );
-  const rail = useRef<HTMLElement>(null);
+export interface AgentScreenChrome {
+  status: TradingScreenStatus;
+  primaryAction: TradingScreenAction;
+}
+
+export default function AgentToday({
+  embedded = false,
+  onScreenChange,
+}: {
+  embedded?: boolean;
+  onScreenChange?: (chrome: AgentScreenChrome) => void;
+} = {}) {
+  const { agent, watchlist, portfolio, commands } = useMarketAgentWorkspace();
+  const {
+    runs,
+    latest,
+    events,
+    askInstruments,
+    bootstrap,
+    loading,
+    reviewBusy: busy,
+    error,
+    setupNote,
+    deletingRunId,
+    activeEvidenceId: activeRun,
+  } = agent;
+  const { items: localWatchlist, syncing: syncBusy } = watchlist;
+  const {
+    preview: portfolioPreview,
+    state: portfolioState,
+    stateLoaded: portfolioStateLoaded,
+    busy: portfolioBusy,
+    error: portfolioError,
+    note: portfolioNote,
+    purgeScope,
+  } = portfolio;
+  const {
+    refresh,
+    runReview,
+    confirmWatchlist,
+    downloadRuns,
+    removeRun,
+    saveFeedback,
+    updateRun,
+    toggleEvidence,
+    refreshPortfolioPreview,
+    syncLocalPortfolioSnapshot,
+    stopUsingPortfolioSnapshot,
+    requestPortfolioPurge,
+    cancelPortfolioPurge,
+    confirmPortfolioPurge,
+  } = commands;
   useEffect(() => {
-    setLocalWatchlist(
-      loadMarketWatchlist(window.localStorage).map(
-        ({ instrumentId, reason }) => ({ instrumentId, reason }),
-      ),
-    );
-    refreshPortfolioPreview();
-    void refresh();
-  }, []);
-  useEffect(() => {
-    if (!rail.current) return;
-    const cards = rail.current.querySelectorAll(".agent-run-card");
-    gsap.fromTo(
-      cards,
-      { y: 26, opacity: 0 },
-      { y: 0, opacity: 1, duration: 0.65, stagger: 0.08, ease: "power3.out" },
-    );
-  }, [runs]);
-  async function refresh() {
-    setLoading(true);
-    try {
-      const [nextRuns, nextProfile] = await Promise.all([
-        getAgentRuns(),
-        getAgentProfile(),
-      ]);
-      setRuns(nextRuns);
-      setProfile(nextProfile);
-      setError(null);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Agent 暂不可用");
-    } finally {
-      setLoading(false);
-    }
-    try {
-      setPortfolioState(await getPortfolioSnapshotControlState());
-      setPortfolioError(null);
-    } catch (cause) {
-      setPortfolioState(null);
-      setPortfolioError(
-        cause instanceof Error ? cause.message : "持仓快照状态暂不可用",
-      );
-    } finally {
-      setPortfolioStateLoaded(true);
-    }
-  }
-  function refreshPortfolioPreview() {
-    const preview = previewLocalPortfolioSnapshot(
-      new LocalPortfolioRepository(window.localStorage),
-    );
-    setPortfolioPreview(preview);
-    return preview;
-  }
-  async function syncLocalPortfolioSnapshot() {
-    const preview = refreshPortfolioPreview();
-    if (!preview.upload) {
-      setPortfolioError(preview.issues[0] ?? "本机持仓快照尚不能同步。");
-      return;
-    }
-    setPortfolioBusy(true);
-    try {
-      const nextState = await syncPortfolioSnapshot(preview.upload);
-      setPortfolioState(nextState);
-      setPortfolioError(null);
-      setPortfolioNote(
-        `已同步 ${preview.positionCount} 个持仓；将在 ${date(preview.upload.expiresAt)} 后自动失效。`,
-      );
-    } catch (cause) {
-      setPortfolioError(
-        cause instanceof Error ? cause.message : "持仓快照同步失败",
-      );
-    } finally {
-      setPortfolioBusy(false);
-    }
-  }
-  async function stopUsingPortfolioSnapshot() {
-    const snapshot = portfolioState?.snapshot;
-    if (!snapshot) return;
-    setPortfolioBusy(true);
-    try {
-      const nextState = await stopPortfolioSnapshot(snapshot.id);
-      setPortfolioState(nextState);
-      setRuns(await getAgentRuns());
-      setPortfolioError(null);
-      setPortfolioNote(
-        nextState.detachedRunCount
-          ? `已停止后续使用，并将 ${nextState.detachedRunCount} 个排队 Run 切回仅市场模式。`
-          : "已停止后续使用；后续 Run 将保持仅市场模式。",
-      );
-    } catch (cause) {
-      setPortfolioError(
-        cause instanceof Error ? cause.message : "停止使用持仓快照失败",
-      );
-    } finally {
-      setPortfolioBusy(false);
-    }
-  }
-  async function confirmPortfolioPurge() {
-    if (!purgeScope) return;
-    setPortfolioBusy(true);
-    try {
-      const nextState = await purgePortfolioSnapshotHistory(purgeScope);
-      setPortfolioState(nextState);
-      setRuns(await getAgentRuns());
-      setPortfolioError(null);
-      setPortfolioNote(
-        `已清除 ${nextState.snapshots} 份快照及 ${nextState.runs} 条关联 Run；审计墓碑已保留。`,
-      );
-      setPurgeScope(null);
-    } catch (cause) {
-      setPortfolioError(
-        cause instanceof Error ? cause.message : "清除持仓快照历史失败",
-      );
-    } finally {
-      setPortfolioBusy(false);
-    }
-  }
-  async function confirmWatchlist() {
-    if (!localWatchlist.length) {
-      setError("Market Center 中没有可同步的观察标的。");
-      return;
-    }
-    setSyncBusy(true);
-    try {
-      const revision = `browser:${Date.now().toString(36)}`;
-      const result = await syncAgentWatchlist(revision, localWatchlist);
-      setProfile(result.profile);
-      setSetupNote(
-        `已确认 ${result.watchlist.items.length} 个标的，revision ${result.watchlist.revision}`,
-      );
-      setError(null);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "观察列表同步失败");
-    } finally {
-      setSyncBusy(false);
-    }
-  }
-  async function runReview() {
-    if (profile?.bootstrap === "required") {
-      setError("请先确认并同步观察列表。");
-      return;
-    }
-    setBusy(true);
-    try {
-      await startCloseReview();
-      await refresh();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "复盘启动失败");
-    } finally {
-      setBusy(false);
-    }
-  }
-  async function downloadRuns() {
-    try {
-      const exported = await exportAgentRuns();
-      const blob = new Blob([JSON.stringify(exported, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `market-agent-runs-${new Date().toISOString().slice(0, 10)}.json`;
-      link.click();
-      URL.revokeObjectURL(url);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "记录导出失败");
-    }
-  }
-  async function removeRun(run: AgentRunView) {
-    if (!window.confirm(`删除 ${date(run.createdAt)} 的复盘记录及其 Evidence？此操作无法恢复。`)) return;
-    setDeletingRunId(run.id);
-    try {
-      await deleteAgentRun(run.id);
-      setRuns((current) => current.filter((item) => item.id !== run.id));
-      if (activeRun === run.id) setActiveRun(null);
-      setError(null);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "记录删除失败");
-    } finally {
-      setDeletingRunId(null);
-    }
-  }
-  const updateRun = useCallback((run: AgentRunView) => {
-    setRuns((current) => {
-      const index = current.findIndex((item) => item.id === run.id);
-      if (index < 0) return [run, ...current];
-      const existing = current[index];
-      if (
-        existing.status === run.status
-        && existing.updatedAt === run.updatedAt
-        && existing.evidenceFingerprint === run.evidenceFingerprint
-      ) return current;
-      return current.map((item) => item.id === run.id ? run : item);
+    if (!onScreenChange) return;
+    const running = latest && !["success", "partial", "failed"].includes(latest.status);
+    onScreenChange({
+      status: {
+        tone: error ? "degraded" : running ? "neutral" : latest ? "live" : "neutral",
+        label: error ? "Agent 降级" : running ? statusLabel(latest.status) : latest ? "Evidence 已封存" : "等待运行",
+        detail: latest ? `${date(latest.updatedAt)} · ${modeLabel(latest.result?.mode, latest.portfolioSnapshotId)}` : "只读市场事实",
+      },
+      primaryAction: {
+        label: "盘后复盘",
+        pendingLabel: "排队中",
+        pending: busy,
+        disabled: bootstrap === "required",
+        invoke: runReview,
+      },
     });
-  }, []);
-  const latest = runs[0];
-  const events = useMemo(() => latest?.result?.observations ?? [], [latest]);
-  const askInstruments = useMemo(
-    () => [...new Set([
-      ...localWatchlist.map((item) => item.instrumentId),
-      ...(portfolioState?.snapshot?.positions.map((item) => item.instrumentId) ?? []),
-    ])].sort(),
-    [localWatchlist, portfolioState?.snapshot?.positions],
-  );
+  }, [bootstrap, busy, error, latest, onScreenChange, runReview]);
   return (
     <div className={embedded ? "agent-app agent-app--embedded" : "risk-app agent-app"}>
       <main className="risk-main agent-main">
-        <header className="agent-hero">
+        <header className="agent-command-header">
           <div>
-            <p>个人市场复盘</p>
-            <h1>
-              把市场事实，<span>留在证据里。</span>
-            </h1>
-            <span>只读观察、确定性事件和可追溯的运行记录。</span>
+            <span>MARKET AGENT</span>
+            <strong>提问、回答、证据在同一工作区。</strong>
           </div>
-          <div className="agent-hero__action">
-            <span>盘后工作流</span>
-            <button onClick={() => void runReview()} disabled={busy}>
-              {busy ? "正在排队" : "开始盘后复盘"}
+          <div>
+            <button type="button" onClick={() => void refresh()} disabled={loading}>
+              {loading ? "读取中" : "刷新"}
             </button>
-            <button
-              className="agent-hero__refresh"
-              onClick={() => void refresh()}
-              disabled={loading}
-            >
-              {loading ? "读取中" : "刷新数据"}
-            </button>
-            <small>
-              {latest ? `最近一次 ${date(latest.updatedAt)}` : "尚未有运行记录"}
-            </small>
+            <span>{latest ? `最近运行 ${date(latest.updatedAt)}` : "尚无运行记录"}</span>
           </div>
         </header>
         {error && (
           <p className="review-status review-status--warning">{error}</p>
         )}
-        {profile?.bootstrap === "required" && (
+        {bootstrap === "required" && (
           <section className="agent-bootstrap" aria-label="观察列表启动">
             <div>
               <p>观察范围尚未确认</p>
@@ -321,11 +133,21 @@ export default function AgentToday({ embedded = false }: { embedded?: boolean } 
           </section>
         )}
         {setupNote && <p className="agent-setup-note">{setupNote}</p>}
-        <AskPanel
-          runs={runs}
-          instruments={askInstruments}
-          onRunUpdate={updateRun}
-        />
+        <div className="agent-review-workbench">
+          <div className="agent-review-workbench__canvas">
+            <AskPanel
+              runs={runs}
+              instruments={askInstruments}
+              onRunUpdate={updateRun}
+            />
+          </div>
+          <EvidenceInspector
+            events={events}
+            latest={latest}
+            activeEvidenceId={activeRun}
+            onToggle={toggleEvidence}
+          />
+        </div>
         <details className="agent-context">
           <summary>
             <div>
@@ -466,14 +288,14 @@ export default function AgentToday({ embedded = false }: { embedded?: boolean } 
                 <div>
                   <button
                     type="button"
-                    onClick={() => setPurgeScope("expired")}
+                    onClick={() => requestPortfolioPurge("expired")}
                     disabled={portfolioBusy || !(portfolioState?.expiredSnapshotCount ?? 0)}
                   >
                     清除已过期
                   </button>
                   <button
                     type="button"
-                    onClick={() => setPurgeScope("all")}
+                    onClick={() => requestPortfolioPurge("all")}
                     disabled={portfolioBusy || !(portfolioState?.historicalSnapshotCount ?? 0)}
                   >
                     清除全部历史
@@ -491,7 +313,7 @@ export default function AgentToday({ embedded = false }: { embedded?: boolean } 
                 </p>
               </div>
               <div>
-                <button type="button" onClick={() => setPurgeScope(null)} disabled={portfolioBusy}>
+                <button type="button" onClick={cancelPortfolioPurge} disabled={portfolioBusy}>
                   取消
                 </button>
                 <button
@@ -507,43 +329,6 @@ export default function AgentToday({ embedded = false }: { embedded?: boolean } 
           )}
           </section>
         </details>
-        {events.length > 0 && <section className="agent-desire">
-          <div className="agent-pin">
-            <p>证据链</p>
-            <h2>每个结论都能回到一条事实。</h2>
-            <span>Bundle 封存后，叙事只能读取，不能改写。</span>
-          </div>
-          <div className="agent-event-stack" ref={rail}>
-            {events.map((event) => (
-                <article className="agent-run-card" key={event.id}>
-                  <div>
-                    <span
-                      className={`agent-observation agent-observation--${event.class}`}
-                    >
-                      {event.class}
-                    </span>
-                    <time>{latest ? date(latest.updatedAt) : "—"}</time>
-                  </div>
-                  <h3>{event.title}</h3>
-                  <p>{event.explanation}</p>
-                  <button
-                    onClick={() =>
-                      setActiveRun(activeRun === event.id ? null : event.id)
-                    }
-                  >
-                    {activeRun === event.id ? "收起 Evidence" : "查看 Evidence"}
-                  </button>
-                  {activeRun === event.id && (
-                    <div className="agent-evidence-row">
-                      {event.evidenceIds.map((id) => (
-                        <code key={id}>{id}</code>
-                      ))}
-                    </div>
-                  )}
-                </article>
-              ))}
-          </div>
-        </section>}
         <details className="agent-runs" id="runs">
           <summary>
             <div>
@@ -563,15 +348,7 @@ export default function AgentToday({ embedded = false }: { embedded?: boolean } 
                 <RunRow
                   key={run.id}
                   run={run}
-                  onFeedback={async (value) => {
-                    try {
-                      await sendRunFeedback(run.id, value);
-                    } catch (cause) {
-                      setError(
-                        cause instanceof Error ? cause.message : "反馈未保存",
-                      );
-                    }
-                  }}
+                  onFeedback={(value) => saveFeedback(run.id, value)}
                   onDelete={() => void removeRun(run)}
                   deleting={deletingRunId === run.id}
                 />
@@ -590,6 +367,48 @@ export default function AgentToday({ embedded = false }: { embedded?: boolean } 
         <a href="/lab/market">Market Center</a>
       </footer>}
     </div>
+  );
+}
+
+function EvidenceInspector({
+  events,
+  latest,
+  activeEvidenceId,
+  onToggle,
+}: {
+  events: AgentObservationView[];
+  latest: AgentRunView | undefined;
+  activeEvidenceId: string | null;
+  onToggle: (evidenceId: string) => void;
+}) {
+  return (
+    <aside className="agent-evidence-inspector" aria-label="Evidence inspector">
+      <header>
+        <div><strong>Evidence</strong><span>{events.length}</span></div>
+        <small>{latest?.evidenceFingerprint ? "sealed" : "waiting"}</small>
+      </header>
+      <div className="agent-evidence-inspector__list">
+        {events.map((event) => (
+          <article className={activeEvidenceId === event.id ? "is-active" : ""} key={event.id}>
+            <button type="button" onClick={() => onToggle(event.id)} aria-expanded={activeEvidenceId === event.id}>
+              <span className={`agent-observation agent-observation--${event.class}`}>{event.class}</span>
+              <strong>{event.title}</strong>
+              <p>{event.explanation}</p>
+            </button>
+            {activeEvidenceId === event.id && (
+              <div className="agent-evidence-row">
+                {event.evidenceIds.map((id) => <code key={id}>{id}</code>)}
+              </div>
+            )}
+          </article>
+        ))}
+        {!events.length && (
+          <p className="agent-evidence-inspector__empty">
+            Run 完成后，结论引用会固定在这里。
+          </p>
+        )}
+      </div>
+    </aside>
   );
 }
 

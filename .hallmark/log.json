@@ -1,5 +1,13 @@
 [
   {
+    "date": "2026-08-10",
+    "scope": "app",
+    "macrostructure": "Workbench",
+    "theme": "zxlab operational dark",
+    "enrichment": "none",
+    "brief": "Market and Market Agent single-screen financial workbench"
+  },
+  {
     "date": "2026-07-30",
     "scope": "component-app",
     "macrostructure": "Native Desktop Companion",

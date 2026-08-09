@@ -11,7 +11,15 @@ export function loadMarketWatchlist(storage: Storage): MarketWatchlistItem[] {
     const parsed = JSON.parse(storage.getItem(WATCHLIST_KEY) ?? "[]") as unknown;
     if (Array.isArray(parsed)) {
       const items = parsed.map((item) => item && typeof item === "object" ? item as Partial<MarketWatchlistItem> : null).filter((item): item is Partial<MarketWatchlistItem> => Boolean(item));
-      const normalized = items.flatMap((item) => typeof item.instrumentId === "string" ? [toWatchlistItem(item.instrumentId, item.reason || "自选标的", item.label)] : []);
+      const normalized: MarketWatchlistItem[] = items.flatMap((item) => {
+        if (typeof item.instrumentId !== "string") return [];
+        const normalizedItem = toWatchlistItem(
+          item.instrumentId,
+          item.reason || "自选标的",
+          item.label,
+        );
+        return normalizedItem ? [normalizedItem] : [];
+      });
       if (normalized.length) {
         const migrated = dedup(normalized);
         const oldDefaults = new Set(["SSE:512480", "SZSE:159995", "SSE:513100"]);
