@@ -5,6 +5,7 @@ import { MemoryService } from "../memory/service/memory-service";
 
 export interface AnnotationResponseObserver {
   replyDelta?(text: string): void;
+  replyReset?(): void;
   replyReady?(response: Pick<AnnotationResponse, "annotation" | "reply">): void;
   memoryReady?(memoryCandidate?: MemoryCandidate): void;
 }
@@ -43,18 +44,20 @@ export class AnnotationResponder {
     const createdAt = new Date().toISOString();
     const replyDraft = await this.llm.replyToAnnotation(
       { item, selectedText: input.selectedText, comment: input.comment, action: input.action, memories: relevantMemories },
-      { onDelta: (text) => observer.replyDelta?.(text) },
+      { onDelta: (text) => observer.replyDelta?.(text), onReset: () => observer.replyReset?.() },
     );
     const annotation = { id: annotationId, briefingId: input.briefingId, briefingItemId: input.briefingItemId,
       selectedText: input.selectedText, comment: input.comment, action: input.action, createdAt };
     const reply = { id: crypto.randomUUID(), annotationId, content: replyDraft.reply, createdAt: new Date().toISOString(), model: this.env.ZX_SIGNAL_LLM_LABEL };
     observer.replyReady?.({ annotation, reply });
-    const memoryDraft = await this.llm.extractMemory({ item, selectedText: input.selectedText, comment: input.comment, action: input.action, reply: replyDraft.reply });
     let memoryCandidate: MemoryCandidate | undefined;
-    if (memoryDraft?.shouldRemember && memoryDraft.scope && memoryDraft.content && memoryDraft.confidence !== undefined && memoryDraft.reason) {
-      memoryCandidate = { id: crypto.randomUUID(), annotationId, scope: memoryDraft.scope,
-        scopeKey: memoryDraft.scope === "project" ? "zxlab" : undefined, content: memoryDraft.content,
-        confidence: memoryDraft.confidence, reason: memoryDraft.reason, status: "proposed", createdAt: new Date().toISOString() };
+    if (input.action !== "track") {
+      const memoryDraft = await this.llm.extractMemory({ item, selectedText: input.selectedText, comment: input.comment, action: input.action, reply: replyDraft.reply });
+      if (memoryDraft?.shouldRemember && memoryDraft.scope && memoryDraft.content && memoryDraft.confidence !== undefined && memoryDraft.reason) {
+        memoryCandidate = { id: crypto.randomUUID(), annotationId, scope: memoryDraft.scope,
+          scopeKey: memoryDraft.scope === "project" ? "zxlab" : undefined, content: memoryDraft.content,
+          confidence: memoryDraft.confidence, reason: memoryDraft.reason, status: "proposed", createdAt: new Date().toISOString() };
+      }
     }
     observer.memoryReady?.(memoryCandidate);
     await this.annotations.save({ request: input, annotation, reply, memoryCandidate });

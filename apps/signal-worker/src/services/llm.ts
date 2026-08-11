@@ -32,16 +32,18 @@ import {
 } from "./prompts";
 import { GatewayRequestError, requestGatewayJson, responseValue } from "./gateway-client";
 import type { StoryDossier } from "./story-context";
+import { assertEditionQuality } from "./edition-quality";
 
 export interface GenerateBriefingInput { date: string; candidates: CandidateSignal[]; memories: MemoryEntry[]; storyDossiers: StoryDossier[]; runId: string; }
 export interface EditorialFilterInput { candidates: CandidateSignal[]; memories: MemoryEntry[]; storyDossiers: StoryDossier[]; runId: string; }
 export interface AnnotationReplyInput { item: BriefingItem; selectedText: string; comment: string; action: AnnotationAction; memories: MemoryEntry[]; }
 export interface MemoryExtractionInput { item: BriefingItem; selectedText: string; comment: string; action: AnnotationAction; reply: string; }
+export interface ReplyStreamOptions { onDelta?: (text: string) => void; onReset?: () => void; }
 
 export interface SignalLLM {
   filterCandidates(input: EditorialFilterInput): Promise<CandidateEditorialDecision[]>;
   generateBriefing(input: GenerateBriefingInput): Promise<GeneratedBriefingDraft>;
-  replyToAnnotation(input: AnnotationReplyInput, options?: { onDelta?: (text: string) => void }): Promise<AnnotationReplyDraft>;
+  replyToAnnotation(input: AnnotationReplyInput, options?: ReplyStreamOptions): Promise<AnnotationReplyDraft>;
   extractMemory(input: MemoryExtractionInput): Promise<MemoryCandidateDraft | null>;
 }
 
@@ -55,6 +57,7 @@ interface JsonRunOptions<T> {
   runId?: string;
   repair?: boolean;
   onGatewayDelta?: (text: string) => void;
+  onGatewayReset?: () => void;
 }
 
 function partialJsonStringField(source: string, field: string): string | undefined {
@@ -95,16 +98,25 @@ function partialJsonStringField(source: string, field: string): string | undefin
   return value;
 }
 
-function jsonStringFieldDelta(field: string, onDelta?: (text: string) => void): ((chunk: string) => void) | undefined {
-  if (!onDelta) return undefined;
+function jsonStringFieldStream(field: string, options: ReplyStreamOptions): {
+  onDelta?: (chunk: string) => void;
+  onReset?: () => void;
+} {
   let buffer = "";
   let emitted = "";
-  return (chunk: string) => {
-    buffer += chunk;
-    const current = partialJsonStringField(buffer, field);
-    if (current === undefined || current.length <= emitted.length) return;
-    onDelta(current.slice(emitted.length));
-    emitted = current;
+  return {
+    onDelta: options.onDelta ? (chunk: string) => {
+      buffer += chunk;
+      const current = partialJsonStringField(buffer, field);
+      if (current === undefined || current.length <= emitted.length) return;
+      options.onDelta?.(current.slice(emitted.length));
+      emitted = current;
+    } : undefined,
+    onReset: () => {
+      buffer = "";
+      emitted = "";
+      options.onReset?.();
+    },
   };
 }
 
@@ -133,26 +145,35 @@ export class ProjectApiSignalLLM implements SignalLLM {
 
   async generateBriefing(input: GenerateBriefingInput): Promise<GeneratedBriefingDraft> {
     const allowedSources = new Set(input.candidates.map((candidate) => candidate.id));
-    const itemRange = briefingItemRange(input.candidates.length);
+    const itemRange = briefingItemRange(input.candidates.length, input.storyDossiers);
     const allowedThreadDossiers = new Set(input.storyDossiers
       .filter((dossier) => dossier.historicalSignals.length > 0 || dossier.priorCoverage.length > 0)
       .map((dossier) => dossier.id));
-    const schema = itemRange.minItems > 1
-      ? {
-        ...briefingDraftJsonSchema,
-        properties: {
-          ...briefingDraftJsonSchema.properties,
-          items: { ...briefingDraftJsonSchema.properties.items, minItems: itemRange.minItems },
+    const schema = {
+      ...briefingDraftJsonSchema,
+      properties: {
+        ...briefingDraftJsonSchema.properties,
+        items: {
+          ...briefingDraftJsonSchema.properties.items,
+          minItems: itemRange.minItems,
+          maxItems: itemRange.maxItems,
         },
-      }
-      : briefingDraftJsonSchema;
+      },
+    };
     const options = {
       task: "briefing" as const, gatewayTask: "signal-briefing" as const, promptVersion: BRIEFING_PROMPT_VERSION,
       prompt: buildBriefingPrompt(input), schema,
       validate: (value: unknown) => {
-        const draft = parseGeneratedBriefingDraft(value, allowedSources, allowedThreadDossiers);
+        const draft = assertEditionQuality({
+          draft: parseGeneratedBriefingDraft(value, allowedSources, allowedThreadDossiers),
+          candidates: input.candidates,
+          storyDossiers: input.storyDossiers,
+        });
         if (draft.items.length < itemRange.minItems) {
           throw new SignalValidationError(`Briefing must contain at least ${itemRange.minItems} items for this candidate set`);
+        }
+        if (draft.items.length > itemRange.maxItems) {
+          throw new SignalValidationError(`Briefing must contain at most ${itemRange.maxItems} independent story items for this candidate set`);
         }
         return draft;
       }, runId: input.runId, repair: true,
@@ -160,10 +181,11 @@ export class ProjectApiSignalLLM implements SignalLLM {
     return this.runJson(options);
   }
 
-  async replyToAnnotation(input: AnnotationReplyInput, options: { onDelta?: (text: string) => void } = {}): Promise<AnnotationReplyDraft> {
+  async replyToAnnotation(input: AnnotationReplyInput, options: ReplyStreamOptions = {}): Promise<AnnotationReplyDraft> {
+    const stream = jsonStringFieldStream("reply", options);
     return this.runJson({ task: "annotation-reply", gatewayTask: "signal-annotation-reply", promptVersion: REPLY_PROMPT_VERSION,
       prompt: buildAnnotationReplyPrompt(input), schema: annotationReplyJsonSchema, validate: parseAnnotationReplyDraft,
-      onGatewayDelta: jsonStringFieldDelta("reply", options.onDelta) });
+      onGatewayDelta: stream.onDelta, onGatewayReset: stream.onReset });
   }
 
   async extractMemory(input: MemoryExtractionInput): Promise<MemoryCandidateDraft | null> {
@@ -201,6 +223,7 @@ export class ProjectApiSignalLLM implements SignalLLM {
           responseFormat: { type: "json" },
         },
         onDelta: options.onGatewayDelta,
+        onReset: options.onGatewayReset,
       });
       const value = options.validate(responseValue(result));
       await this.invocations.complete(invocationId, {
@@ -232,14 +255,23 @@ export class ProjectApiSignalLLM implements SignalLLM {
   }
 
   private async repairJson<T>(options: JsonRunOptions<T>, cause: unknown): Promise<T> {
-    return this.runJson({
-      ...options,
-      task: "briefing-repair",
-      prompt: {
-        system: `${options.prompt.system}\nThis is the single allowed repair attempt. Produce a complete replacement matching the schema.`,
-        user: `${options.prompt.user}\nValidation error: ${cause instanceof Error ? cause.message.slice(0, 300) : "invalid output"}`,
-      },
-      repair: false,
-    });
+    try {
+      return await this.runJson({
+        ...options,
+        task: "briefing-repair",
+        prompt: {
+          system: `${options.prompt.system}\nThis is the single allowed repair attempt. Produce a complete replacement matching the schema.`,
+          user: `${options.prompt.user}\nValidation error: ${cause instanceof Error ? cause.message.slice(0, 300) : "invalid output"}`,
+        },
+        repair: false,
+      });
+    } catch (repairCause) {
+      throw new SignalError(
+        "INVALID_MODEL_OUTPUT",
+        "The single model repair attempt did not produce a publishable briefing",
+        400,
+        repairCause,
+      );
+    }
   }
 }

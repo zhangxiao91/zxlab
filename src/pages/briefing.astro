@@ -5,6 +5,7 @@ import BriefingHeader from "../features/briefing/components/BriefingHeader.astro
 import BriefingItemCard from "../features/briefing/components/BriefingItemCard.astro";
 import BriefingStateView from "../features/briefing/components/BriefingStateView.astro";
 import BriefingStats from "../features/briefing/components/BriefingStats.astro";
+import WatchWorkspace from "../features/briefing/components/WatchWorkspace.astro";
 import { getLatestBriefing } from "../features/briefing/client";
 import { resolveLongTermThreads } from "../features/briefing/long-term-threads";
 import type { DailyBriefing } from "../features/briefing/types";
@@ -23,7 +24,9 @@ try {
     generatedAt: new Date().toISOString(),
     promptVersion: "unavailable",
     dataOrigin: "real" as const,
-    stats: { fetched: 0, deduplicated: 0, selected: 0 },
+    generationMode: "model" as const,
+    qualityStatus: "degraded" as const,
+    stats: { fetched: 0, deduplicated: 0, balanced: 0, synthesized: 0, selected: 0 },
     longTermThreads: [],
     items: [],
   };
@@ -36,12 +39,18 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
   description="每天真正值得我关注的变化，一份可回应、可积累的个人日报。"
   lang="zh-CN"
 >
-  <main class="signal-page" data-briefing-state={briefing.status} data-briefing-id={briefing.id}>
+  <main
+    class="signal-page"
+    data-briefing-state={briefing.status}
+    data-briefing-id={briefing.id}
+    data-briefing-generated-at={briefing.generatedAt}
+    data-briefing-quality-status={briefing.qualityStatus}
+  >
     <BriefingHeader briefing={briefing} />
 
     <aside class="signal-partial" role="status" data-partial-preview hidden>
       <span aria-hidden="true"></span>
-      <div><strong>部分来源暂时不可用</strong><p>已交付可以确认的 6 条内容，其余候选不会在证据不足时补齐。</p></div>
+      <div><strong>部分来源暂时不可用</strong><p>已交付可以确认的 <span data-partial-count>{briefing.stats.selected}</span> 条内容，其余候选不会在证据不足时补齐。</p></div>
     </aside>
 
     <BriefingStateView state="generating" hidden />
@@ -90,6 +99,8 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
           </div>
         </section>
 
+        <WatchWorkspace />
+
         <section class="signal-action" aria-labelledby="signal-action-title">
           <p>本阶段的闭环已经在浏览器内成立</p>
           <h2 id="signal-action-title">阅读，回应，确认什么值得留下。</h2>
@@ -100,6 +111,18 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
 
   <AnnotationPanel slot="overlay" />
 
+  <template slot="overlay" data-watch-confirm-template>
+    <section class="watch-confirm" data-watch-confirm hidden aria-labelledby="watch-confirm-title">
+      <header><p>持续追踪</p><span>等待确认</span></header>
+      <h3 id="watch-confirm-title">先把触发变化的条件说清楚。</h3>
+      <label for="watch-condition">追踪条件</label>
+      <textarea id="watch-condition" rows="4" maxlength="1000" data-watch-condition required></textarea>
+      <p>确认后才会建立跨设备 Watch；这不是 Memory，也不会自动改变长期偏好。</p>
+      <button type="button" data-watch-confirm-button><span>确认追踪</span><span aria-hidden="true">↗</span></button>
+      <p class="watch-confirm__status" role="status" aria-live="polite" data-watch-confirm-status hidden></p>
+    </section>
+  </template>
+
   <script>
     import gsap from "gsap";
     import { ScrollTrigger } from "gsap/ScrollTrigger";
@@ -107,6 +130,9 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
       getLatestBriefing,
       submitAnnotationStream,
       getMemories,
+      getWatches,
+      createWatch,
+      resolveWatch,
       updateMemoryCandidate,
     } from "../features/briefing/client";
     import { resolveLongTermThreads } from "../features/briefing/long-term-threads";
@@ -118,6 +144,7 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
       DailyBriefing,
       MemoryCandidate,
       MemoryScope,
+      WatchDossier,
     } from "../features/briefing/types";
 
     gsap.registerPlugin(ScrollTrigger);
@@ -129,6 +156,8 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
     const supportedStates = ["ready", "generating", "partial", "failed", "empty"];
     const statusLabel = document.querySelector<HTMLElement>("[data-briefing-status]");
     let activeState = supportedStates.includes(previewState) ? previewState : "ready";
+    let activeQualityStatus = document.querySelector<HTMLElement>("[data-briefing-quality-status]")
+      ?.dataset.briefingQualityStatus ?? "unknown";
 
     const setPreviewState = (state: string) => {
       activeState = supportedStates.includes(state) ? state : "ready";
@@ -138,13 +167,21 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
       document.querySelectorAll<HTMLElement>("[data-preview-state]").forEach((element) => {
         element.toggleAttribute("hidden", element.dataset.previewState !== activeState);
       });
-      if (statusLabel) statusLabel.textContent = {
+      const baseStatusLabel = {
         ready: "已就绪",
         partial: "部分完成",
         generating: "生成中",
         failed: "生成失败",
         empty: "已扫描",
-      }[activeState];
+      }[activeState] ?? "已就绪";
+      const qualityLabel = {
+        passed: "质量通过",
+        degraded: "质量降级",
+        unknown: "历史质量状态未知",
+      }[activeQualityStatus] ?? "历史质量状态未知";
+      if (statusLabel) statusLabel.textContent = activeState === "ready" || activeState === "partial"
+        ? `${baseStatusLabel} · ${qualityLabel}`
+        : baseStatusLabel;
     };
 
     setPreviewState(activeState);
@@ -162,6 +199,15 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
     const commentLabel = document.querySelector<HTMLElement>("[data-comment-label]");
     const briefingPage = document.querySelector<HTMLElement>("[data-briefing-state]");
     let briefingId = document.querySelector<HTMLElement>("[data-briefing-id]")?.dataset.briefingId ?? "";
+    const watchConfirmTemplate = document.querySelector<HTMLTemplateElement>("[data-watch-confirm-template]");
+    if (result && watchConfirmTemplate && !result.querySelector("[data-watch-confirm]")) {
+      result.append(watchConfirmTemplate.content.cloneNode(true));
+    }
+    const watchConfirm = result?.querySelector<HTMLElement>("[data-watch-confirm]");
+    const watchCondition = watchConfirm?.querySelector<HTMLTextAreaElement>("[data-watch-condition]");
+    const watchConfirmButton = watchConfirm?.querySelector<HTMLButtonElement>("[data-watch-confirm-button]");
+    const watchConfirmStatus = watchConfirm?.querySelector<HTMLElement>("[data-watch-confirm-status]");
+    let watches: WatchDossier[] = [];
     const session = briefingSessionStore.load();
     getMemories().then(({ candidates }) => {
       if (candidates.length === 0) return;
@@ -228,7 +274,7 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
       explain: "请深入解释这段内容，补充它成立的条件、技术机制，以及对 zxlab 的具体影响。",
       challenge: "请质疑这段判断，指出证据缺口、可能的反例、替代解释，以及仍需验证的假设。",
       remember: "我认同并希望记住这段判断。请把它整理成范围明确、可审计的当前看法候选。",
-      track: "请把这段内容转成持续追踪条件，说明未来哪些新证据会强化、削弱或改变这个判断。",
+      track: "请把这段内容转成可复核的持续追踪条件，说明未来哪些公开线索值得收集；命中只作为观察，不判断条件已经成立。",
     };
 
     const openPanel = (action: AnnotationAction) => {
@@ -237,6 +283,14 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
       form.reset();
       if (submitError) submitError.hidden = true;
       result?.setAttribute("hidden", "");
+      if (watchConfirm) watchConfirm.hidden = true;
+      if (watchConfirmStatus) watchConfirmStatus.hidden = true;
+      if (watchCondition) watchCondition.readOnly = false;
+      if (watchConfirmButton) {
+        watchConfirmButton.disabled = false;
+        const label = watchConfirmButton.querySelector<HTMLElement>("span");
+        if (label) label.textContent = "确认追踪";
+      }
       activeCandidate = null;
       const itemId = selectedItem.dataset.briefingItem ?? "";
       const itemTitle = selectedItem.dataset.itemTitle ?? "日报条目";
@@ -395,6 +449,8 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
       timeZone: "Asia/Shanghai",
     }).format(new Date(timestamp));
 
+    const countLabel = (value: number | null | undefined) => value == null ? "—" : String(value);
+
     const itemCard = (item: BriefingItem, index: number) => {
       const categoryLabels = { "ai-engineering": "AI Engineering", markets: "Markets", zxlab: "zxlab" } as const;
       const itemType = item.itemType ?? (index === 0 ? "lead" : "brief");
@@ -411,7 +467,8 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
       }).join("");
       const sourceNav = isLead && item.sources.length > 1 ? `<div class="signal-source-nav"><button type="button" data-source-direction="prev" aria-label="查看上一来源" title="上一来源">←</button><button type="button" data-source-direction="next" aria-label="查看下一来源" title="下一来源">→</button></div>` : "";
       const analysisToggle = isLead ? "" : `<button class="signal-analysis-toggle" type="button" data-analysis-toggle aria-expanded="false"><span>展开分析</span><span aria-hidden="true">⌄</span></button>`;
-      return `<article class="signal-item signal-item--${itemType}"${isLead ? ' id="lead-story"' : index === 1 ? ' id="briefs-start"' : ""} data-item-type="${itemType}" data-briefing-item="${escapeHtml(item.id)}" data-item-category="${item.category}" data-item-importance="${item.importance}" data-item-title="${escapeHtml(item.title)}" aria-labelledby="item-${escapeHtml(item.id)}">
+      const watchNextAttribute = item.watchNext ? ` data-item-watch-condition="${escapeHtml(item.watchNext)}"` : "";
+      return `<article class="signal-item signal-item--${itemType}"${isLead ? ' id="lead-story"' : index === 1 ? ' id="briefs-start"' : ""} data-item-type="${itemType}" data-briefing-item="${escapeHtml(item.id)}" data-item-category="${item.category}" data-item-importance="${item.importance}" data-item-title="${escapeHtml(item.title)}"${watchNextAttribute} aria-labelledby="item-${escapeHtml(item.id)}">
         <header class="signal-item__header"><div><p>${isLead ? "主报道" : "短讯"} · ${categoryLabels[item.category]}</p><h3 id="item-${escapeHtml(item.id)}">${escapeHtml(item.title)}${isLead ? `<span class="signal-lead__micro-image" style="--story-image:url(https://picsum.photos/seed/${imageSeed}/480/240)" role="img" aria-label="今日主报道配图"></span>` : ""}</h3></div><div class="signal-item__score" aria-label="重要性 ${item.importance}，置信度 ${item.confidence}"><span>重要 ${item.importance}</span><span>置信 ${item.confidence}</span></div></header>
         <div class="signal-item__body" data-selectable-copy><p class="signal-item__summary" data-selectable-segment>${escapeHtml(lede)}</p><p class="signal-item__nutgraf" data-selectable-segment>${escapeHtml(nutGraf)}</p>${facts ? `<ul class="signal-item__facts" aria-label="关键事实">${facts}</ul>` : ""}<div class="signal-item__analysis" data-item-analysis${isLead ? "" : " hidden"}>${item.broaderContext ? `<div data-selectable-segment><h4>背景</h4><p>${escapeHtml(item.broaderContext)}</p></div>` : ""}<div data-selectable-segment><h4>影响</h4><p>${escapeHtml(implications)}</p></div>${item.counterpoint ? `<div data-selectable-segment><h4>另一面</h4><p>${escapeHtml(item.counterpoint)}</p></div>` : ""}${item.watchNext ? `<div class="signal-item__watch" data-selectable-segment><h4>接下来</h4><p>${escapeHtml(item.watchNext)}</p></div>` : ""}${item.zxlabRelevance ? `<div data-selectable-segment><h4>对 zxlab</h4><p>${escapeHtml(item.zxlabRelevance)}</p></div>` : ""}</div></div>
         <footer class="signal-item__footer"><div class="signal-sources" data-source-carousel><span>来源</span><div data-source-track>${sources}</div>${sourceNav}</div><div class="signal-item__controls">${analysisToggle}<button class="signal-comment-trigger" type="button" data-mobile-comment><span>回应这条</span><span aria-hidden="true">＋</span></button></div></footer>
@@ -430,12 +487,115 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
       list.innerHTML = resolved.threads.map((thread) => `<article tabindex="0" data-thread-id="${escapeHtml(thread.id)}" data-thread-category="${thread.category}"><div><h3>${escapeHtml(thread.title)}</h3><p>${escapeHtml(thread.description)}</p></div><i aria-hidden="true"></i></article>`).join("");
     };
 
+    const watchTimestamp = (timestamp: string) => {
+      const value = new Date(timestamp);
+      if (Number.isNaN(value.getTime())) return "时间待确认";
+      return new Intl.DateTimeFormat("zh-CN", {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        timeZone: "Asia/Shanghai",
+      }).format(value);
+    };
+
+    const renderWatchWorkspace = () => {
+      const content = document.querySelector<HTMLElement>("[data-watch-content]");
+      const list = document.querySelector<HTMLElement>("[data-watch-list]");
+      const empty = document.querySelector<HTMLElement>("[data-watch-empty]");
+      if (!content || !list || !empty) return;
+
+      const ordered = [...watches].sort((left, right) => {
+        if (left.status !== right.status) return left.status === "active" ? -1 : 1;
+        return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
+      });
+      const active = ordered.filter((watch) => watch.status === "active");
+      const resolved = ordered.filter((watch) => watch.status === "resolved");
+      const observations = ordered.flatMap((watch) => watch.observations.map((observation) => ({ watch, observation })))
+        .sort((left, right) => new Date(right.observation.observedAt).getTime() - new Date(left.observation.observedAt).getTime());
+      const latest = observations[0];
+      const sourceCount = new Set(observations.flatMap(({ observation }) => observation.sources.map((source) => source.url))).size;
+      const mainWatch = active[0] ?? ordered[0];
+
+      const activeCount = document.querySelector<HTMLElement>("[data-watch-active-count]");
+      const resolvedCount = document.querySelector<HTMLElement>("[data-watch-resolved-count]");
+      const mainCondition = document.querySelector<HTMLElement>("[data-watch-main-condition]");
+      const latestTitle = document.querySelector<HTMLElement>("[data-watch-latest-title]");
+      const latestCopy = document.querySelector<HTMLElement>("[data-watch-latest-copy]");
+      const qualityTitle = document.querySelector<HTMLElement>("[data-watch-quality-title]");
+      const qualityCopy = document.querySelector<HTMLElement>("[data-watch-quality-copy]");
+      if (activeCount) activeCount.textContent = String(active.length);
+      if (resolvedCount) resolvedCount.textContent = String(resolved.length);
+      if (mainCondition) mainCondition.textContent = mainWatch?.condition ?? "等待第一个明确的追踪条件";
+      if (latestTitle) latestTitle.textContent = latest?.observation.title ?? "暂无新观察";
+      if (latestCopy) latestCopy.textContent = latest
+        ? `${latest.observation.summary} · ${watchTimestamp(latest.observation.observedAt)}`
+        : "创建 Watch 后，最近的跨日证据会出现在这里。";
+      if (qualityTitle) qualityTitle.textContent = sourceCount > 0 ? `${sourceCount} 个可核查来源` : "等待可核查来源";
+      if (qualityCopy) qualityCopy.textContent = observations.length > 0
+        ? `${observations.length} 次观察覆盖 ${ordered.length} 个条件；命中只作为待复核记录，并保留可用来源。`
+        : "每条观察都会保留可用的原始来源；主题相似只代表需要复核。";
+
+      const categoryLabels = { "ai-engineering": "AI Engineering", markets: "Markets", zxlab: "zxlab" } as const;
+      list.innerHTML = ordered.map((watch, index) => {
+        const latestObservation = [...watch.observations].sort((left, right) => new Date(right.observedAt).getTime() - new Date(left.observedAt).getTime())[0];
+        const sources = latestObservation?.sources.map((source) => {
+          const external = source.url.startsWith("http");
+          return `<a href="${escapeHtml(source.url)}"${external ? ' target="_blank" rel="noreferrer"' : ""}>${escapeHtml(source.publisher ?? source.title)}<span aria-hidden="true">↗</span></a>`;
+        }).join("") ?? "";
+        const panelId = `watch-panel-${index}`;
+        return `<article class="signal-watch-card" data-watch-id="${escapeHtml(watch.id)}" data-watch-status="${watch.status}" data-expanded="false">
+          <button class="signal-watch-card__toggle" type="button" data-watch-toggle aria-expanded="false" aria-controls="${panelId}">
+            <span class="signal-watch-card__status">${watch.status === "active" ? "持续中" : "已结束"} · ${categoryLabels[watch.category]}</span>
+            <h3>${escapeHtml(watch.title)}</h3>
+            <p>${escapeHtml(watch.condition)}</p>
+            <span class="signal-watch-card__prompt">${latestObservation ? `${watch.observations.length} 次观察` : "等待首次观察"}<i aria-hidden="true">→</i></span>
+          </button>
+          <div class="signal-watch-card__details" id="${panelId}" data-watch-details aria-hidden="true" hidden>
+            <div class="signal-watch-card__observation">
+              <span>${latestObservation ? watchTimestamp(latestObservation.observedAt) : "尚无观察"}</span>
+              <h4>${escapeHtml(latestObservation?.title ?? "等待与条件相关的待复核观察")}</h4>
+              <p>${escapeHtml(latestObservation?.summary ?? "命中会保留可用来源，仍需要人工判断它是否相关，以及条件是否成立。")}</p>
+            </div>
+            <div class="signal-watch-card__sources"><span>原始来源</span><div>${sources || "<p>这次观察还没有可核查来源。</p>"}</div></div>
+            <div class="signal-watch-card__meta"><span>建立于 ${watchTimestamp(watch.createdAt)}</span><span>更新于 ${watchTimestamp(watch.updatedAt)}</span></div>
+            ${watch.status === "active" ? '<button class="signal-watch-card__resolve" type="button" data-watch-resolve>结束追踪</button>' : `<p class="signal-watch-card__resolved">已于 ${watchTimestamp(watch.resolvedAt ?? watch.updatedAt)} 结束，观察历史仍保留。</p>`}
+            <p class="signal-watch-card__action-status" role="status" aria-live="polite" data-watch-action-status hidden></p>
+          </div>
+        </article>`;
+      }).join("");
+      empty.hidden = ordered.length !== 0;
+      list.hidden = ordered.length === 0;
+      content.hidden = false;
+      ScrollTrigger.refresh();
+    };
+
+    const loadWatchWorkspace = async () => {
+      const status = document.querySelector<HTMLElement>("[data-watch-load-status]");
+      if (status) {
+        status.hidden = false;
+        status.textContent = "正在读取跨设备追踪…";
+      }
+      try {
+        watches = await getWatches();
+        renderWatchWorkspace();
+        if (status) status.hidden = true;
+      } catch (error) {
+        if (status) status.textContent = error instanceof Error
+          ? `跨设备追踪暂时无法读取：${error.message}。日报仍可继续阅读。`
+          : "跨设备追踪暂时无法读取，日报仍可继续阅读。";
+      }
+    };
+
     const renderBriefing = (briefing: DailyBriefing) => {
       briefingId = briefing.id;
       if (briefingPage) {
         briefingPage.dataset.briefingId = briefing.id;
         briefingPage.dataset.briefingState = briefing.status;
+        briefingPage.dataset.briefingGeneratedAt = briefing.generatedAt;
+        briefingPage.dataset.briefingQualityStatus = briefing.qualityStatus;
       }
+      activeQualityStatus = briefing.qualityStatus;
       document.querySelector<HTMLElement>(".signal-kicker")?.replaceChildren(document.createElement("span"), ` ZX Signal · ${dateLabel(briefing.date)}`);
       const deck = document.querySelector<HTMLElement>(".signal-deck");
       if (deck) deck.textContent = briefing.title;
@@ -445,23 +605,43 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
         summary.dataset.expanded = "false";
       }
       const origin = document.querySelector<HTMLElement>("[data-briefing-origin]");
-      if (origin) origin.textContent = { mock: "Mock 预览", fixture: "Fixture 生成", real: "真实候选生成" }[briefing.dataOrigin];
+      if (origin) {
+        const sourceLabel = { mock: "Mock 预览", fixture: "Fixture", real: "真实候选" }[briefing.dataOrigin];
+        const generationLabel = {
+          model: "模型综合",
+          "deterministic-fallback": "确定性降级",
+          "legacy-unknown": "历史生成方式未知",
+        }[briefing.generationMode];
+        origin.textContent = `${sourceLabel} · ${generationLabel}`;
+      }
       const editorialValues = document.querySelectorAll<HTMLElement>(".signal-editorial dl dd");
       if (editorialValues[0]) editorialValues[0].textContent = timeLabel(briefing.generatedAt);
       if (editorialValues[1]) editorialValues[1].textContent = briefing.promptVersion;
       const filterTitle = document.querySelector<HTMLElement>("#filter-title");
-      if (filterTitle) filterTitle.textContent = `扫描了 ${briefing.stats.fetched} 个信号，最终保留 ${briefing.stats.selected} 条。`;
+      const pipelineStatsKnown = briefing.stats.fetched != null
+        && briefing.stats.deduplicated != null
+        && briefing.stats.balanced != null;
+      if (filterTitle) filterTitle.textContent = pipelineStatsKnown
+        ? `采集 ${briefing.stats.fetched} 个信号，去重与均衡后发布 ${briefing.stats.selected} 条。`
+        : `本期发布 ${briefing.stats.selected} 条；部分处理阶段统计未记录。`;
+      const balancedCount = briefing.stats.balanced;
       const marquee = document.querySelector<HTMLElement>(".signal-filter__marquee > div");
-      if (marquee) marquee.innerHTML = `<span>扫描 ${briefing.stats.fetched} 条</span><i></i><span>去重后 ${briefing.stats.deduplicated} 条</span><i></i><span>LLM 初筛 18 条</span><i></i><span>最终收录 ${briefing.stats.selected} 条</span><i></i><span>扫描 ${briefing.stats.fetched} 条</span><i></i><span>去重后 ${briefing.stats.deduplicated} 条</span><i></i><span>LLM 初筛 18 条</span><i></i><span>最终收录 ${briefing.stats.selected} 条</span><i></i>`;
+      if (marquee) marquee.innerHTML = `<span>采集 ${countLabel(briefing.stats.fetched)} 条</span><i></i><span>去重后 ${countLabel(briefing.stats.deduplicated)} 条</span><i></i><span>均衡输入 ${countLabel(balancedCount)} 条</span><i></i><span>最终发布 ${briefing.stats.selected} 条</span><i></i><span>采集 ${countLabel(briefing.stats.fetched)} 条</span><i></i><span>去重后 ${countLabel(briefing.stats.deduplicated)} 条</span><i></i><span>均衡输入 ${countLabel(balancedCount)} 条</span><i></i><span>最终发布 ${briefing.stats.selected} 条</span><i></i>`;
       const steps = document.querySelectorAll<HTMLElement>(".signal-filter__steps strong");
-      if (steps[0]) steps[0].textContent = String(briefing.stats.fetched);
-      if (steps[1]) steps[1].textContent = String(briefing.stats.deduplicated);
+      if (steps[0]) steps[0].textContent = countLabel(briefing.stats.fetched);
+      if (steps[1]) steps[1].textContent = countLabel(briefing.stats.deduplicated);
+      if (steps[2]) steps[2].textContent = countLabel(balancedCount);
       if (steps[3]) steps[3].textContent = String(briefing.stats.selected);
+      const partialCount = document.querySelector<HTMLElement>("[data-partial-count]");
+      if (partialCount) partialCount.textContent = String(briefing.stats.selected);
       const stream = document.querySelector<HTMLElement>(".signal-stream__items");
       if (stream) {
         stream.querySelectorAll(".signal-item").forEach((item) => item.remove());
         const empty = stream.querySelector<HTMLElement>("[data-filter-empty]");
         empty?.insertAdjacentHTML("beforebegin", briefing.items.map(itemCard).join(""));
+        stream.querySelectorAll<HTMLElement>(".signal-item--brief").forEach((item, index) => {
+          item.style.setProperty("--brief-stack-index", String(index));
+        });
       }
       renderLongTermThreads(briefing);
       setPreviewState(briefing.status);
@@ -477,11 +657,71 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
       track.scrollBy({ left: direction * Math.max(220, track.clientWidth * 0.72), behavior: "smooth" });
     });
 
-    if (!previewParam && briefingId === "signal-unavailable") {
-      getLatestBriefing("ready").then(renderBriefing).catch(() => {
-        // The static failure state already explains that the API was unavailable.
+    document.addEventListener("click", (event) => {
+      const toggle = (event.target as Element).closest<HTMLButtonElement>("[data-watch-toggle]");
+      if (!toggle) return;
+      const card = toggle.closest<HTMLElement>("[data-watch-id]");
+      const details = card?.querySelector<HTMLElement>("[data-watch-details]");
+      const list = card?.closest<HTMLElement>("[data-watch-list]");
+      if (!card || !details) return;
+      const willOpen = card.dataset.expanded !== "true";
+      list?.querySelectorAll<HTMLElement>("[data-watch-id]").forEach((candidate) => {
+        const candidateToggle = candidate.querySelector<HTMLButtonElement>("[data-watch-toggle]");
+        const candidateDetails = candidate.querySelector<HTMLElement>("[data-watch-details]");
+        candidate.dataset.expanded = "false";
+        candidateToggle?.setAttribute("aria-expanded", "false");
+        candidateDetails?.setAttribute("aria-hidden", "true");
+        if (candidateDetails) candidateDetails.hidden = true;
+      });
+      card.dataset.expanded = String(willOpen);
+      toggle.setAttribute("aria-expanded", String(willOpen));
+      details.setAttribute("aria-hidden", String(!willOpen));
+      details.hidden = !willOpen;
+      if (willOpen && !reducedPanelMotion.matches) {
+        gsap.from(details, { opacity: 0, x: 12, duration: 0.45, ease: "power3.out" });
+      }
+      ScrollTrigger.refresh();
+    });
+
+    document.addEventListener("click", async (event) => {
+      const button = (event.target as Element).closest<HTMLButtonElement>("[data-watch-resolve]");
+      if (!button) return;
+      const card = button.closest<HTMLElement>("[data-watch-id]");
+      const id = card?.dataset.watchId;
+      const status = card?.querySelector<HTMLElement>("[data-watch-action-status]");
+      if (!id) return;
+      button.disabled = true;
+      if (status) {
+        status.hidden = false;
+        status.textContent = "正在结束追踪…";
+      }
+      try {
+        const resolved = await resolveWatch(id);
+        watches = watches.map((watch) => watch.id === resolved.id ? resolved : watch);
+        renderWatchWorkspace();
+        const resolvedCard = [...document.querySelectorAll<HTMLElement>("[data-watch-id]")]
+          .find((candidate) => candidate.dataset.watchId === resolved.id);
+        resolvedCard?.querySelector<HTMLButtonElement>("[data-watch-toggle]")?.focus({ preventScroll: true });
+        const workspaceStatus = document.querySelector<HTMLElement>("[data-watch-load-status]");
+        if (workspaceStatus) {
+          workspaceStatus.hidden = false;
+          workspaceStatus.textContent = `已结束“${resolved.title}”的追踪，观察历史仍保留。`;
+        }
+      } catch (error) {
+        button.disabled = false;
+        if (status) status.textContent = error instanceof Error ? `结束失败：${error.message}` : "结束失败，请重试。";
+      }
+    });
+
+    if (!previewParam) {
+      const initialGeneratedAt = briefingPage?.dataset.briefingGeneratedAt ?? "";
+      getLatestBriefing("ready").then((latest) => {
+        if (latest.id !== briefingId || latest.generatedAt !== initialGeneratedAt) renderBriefing(latest);
+      }).catch(() => {
+        // Keep the server-rendered edition when the public latest endpoint cannot be refreshed.
       });
     }
+    void loadWatchWorkspace();
 
     const summaryToggle = document.querySelector<HTMLButtonElement>("[data-summary-toggle]");
     summaryToggle?.addEventListener("click", () => {
@@ -499,6 +739,11 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
       const values = new FormData(form);
       const comment = String(values.get("comment") ?? "").trim();
       if (!comment) return;
+      const action = String(values.get("action")) as AnnotationAction;
+      const annotationBriefingId = briefingId;
+      const annotationItemId = String(values.get("itemId"));
+      const annotationSelectedText = String(values.get("selectedText"));
+      const isTrackAction = action === "track";
       const submit = form.querySelector<HTMLButtonElement>("button[type='submit']");
       if (submit) submit.disabled = true;
       if (submitLabel) submitLabel.textContent = "Signal 正在回应";
@@ -512,32 +757,37 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
       if (replyContent) replyContent.textContent = "";
       if (memoryBox) memoryBox.hidden = true;
       if (memoryStatus) memoryStatus.hidden = true;
+      if (watchConfirm) watchConfirm.hidden = true;
+      if (watchConfirmStatus) watchConfirmStatus.hidden = true;
       result?.removeAttribute("hidden");
-      result?.scrollIntoView({ behavior: "smooth", block: "start" });
+      result?.scrollIntoView({ behavior: reducedPanelMotion.matches ? "auto" : "smooth", block: "start" });
 
       try {
         let finalResponse: AnnotationResponse | null = null;
         let streamedReply = "";
         for await (const streamEvent of submitAnnotationStream({
-          briefingId,
-          briefingItemId: String(values.get("itemId")),
-          selectedText: String(values.get("selectedText")),
+          briefingId: annotationBriefingId,
+          briefingItemId: annotationItemId,
+          selectedText: annotationSelectedText,
           comment,
-          action: String(values.get("action")) as AnnotationAction,
+          action,
         })) {
           if (streamEvent.type === "start") {
             if (submitLabel) submitLabel.textContent = "Signal 正在回应";
           } else if (streamEvent.type === "reply_delta") {
             streamedReply += streamEvent.text;
             if (replyContent) replyContent.textContent = streamedReply;
+          } else if (streamEvent.type === "reply_reset") {
+            streamedReply = "";
+            if (replyContent) replyContent.textContent = "";
           } else if (streamEvent.type === "reply") {
             streamedReply = streamEvent.reply.content;
             if (replyContent) replyContent.textContent = streamEvent.reply.content;
-            if (submitLabel) submitLabel.textContent = "正在整理 Memory";
+            if (submitLabel) submitLabel.textContent = isTrackAction ? "正在整理追踪条件" : "正在整理 Memory";
           } else if (streamEvent.type === "memory") {
-            activeCandidate = streamEvent.memoryCandidate ?? null;
-            if (memoryBox) memoryBox.hidden = !streamEvent.memoryCandidate;
-            if (streamEvent.memoryCandidate) {
+            activeCandidate = isTrackAction ? null : streamEvent.memoryCandidate ?? null;
+            if (memoryBox) memoryBox.hidden = isTrackAction || !streamEvent.memoryCandidate;
+            if (!isTrackAction && streamEvent.memoryCandidate) {
               if (memoryContent) memoryContent.textContent = `“${streamEvent.memoryCandidate.content}”`;
               if (confidence) confidence.textContent = `置信 ${Math.round(streamEvent.memoryCandidate.confidence * 100)}`;
               if (scope) scope.value = streamEvent.memoryCandidate.scope;
@@ -552,18 +802,32 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
         const response = finalResponse;
         session.annotations.push(response.annotation);
         session.replies.push(response.reply);
-        if (response.memoryCandidate) session.memoryCandidates.push(response.memoryCandidate);
+        if (!isTrackAction && response.memoryCandidate) session.memoryCandidates.push(response.memoryCandidate);
         briefingSessionStore.save(session);
-        activeCandidate = response.memoryCandidate ?? null;
+        activeCandidate = isTrackAction ? null : response.memoryCandidate ?? null;
 
         if (replyContent) replyContent.textContent = response.reply.content;
-        if (memoryBox) memoryBox.hidden = !response.memoryCandidate;
-        if (response.memoryCandidate) {
+        if (memoryBox) memoryBox.hidden = isTrackAction || !response.memoryCandidate;
+        if (!isTrackAction && response.memoryCandidate) {
           if (memoryContent) memoryContent.textContent = `“${response.memoryCandidate.content}”`;
           if (confidence) confidence.textContent = `置信 ${Math.round(response.memoryCandidate.confidence * 100)}`;
           if (scope) scope.value = response.memoryCandidate.scope;
         }
         if (memoryStatus) memoryStatus.hidden = true;
+        if (isTrackAction && watchConfirm && watchCondition) {
+          const currentItem = [...document.querySelectorAll<HTMLElement>("[data-briefing-item]")]
+            .find((item) => item.dataset.briefingItem === annotationItemId) ?? selectedItem;
+          const preferredCondition = normalizeSelectedText(
+            currentItem?.dataset.itemWatchCondition
+              ?? currentItem?.querySelector<HTMLElement>(".signal-item__watch p")?.textContent
+              ?? "",
+          );
+          watchCondition.value = preferredCondition || normalizeSelectedText(annotationSelectedText);
+          watchConfirm.dataset.briefingId = annotationBriefingId;
+          watchConfirm.dataset.briefingItemId = annotationItemId;
+          watchConfirm.hidden = false;
+          watchCondition.focus({ preventScroll: true });
+        }
         if (submitLabel) submitLabel.textContent = "再次发送";
       } catch (error) {
         if (submitError) {
@@ -575,6 +839,46 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
         if (submitLabel) submitLabel.textContent = "重新发送";
       } finally {
         if (submit) submit.disabled = false;
+      }
+    });
+
+    watchConfirmButton?.addEventListener("click", async () => {
+      const condition = normalizeSelectedText(watchCondition?.value ?? "");
+      const seedBriefingId = watchConfirm?.dataset.briefingId ?? "";
+      const seedBriefingItemId = watchConfirm?.dataset.briefingItemId ?? "";
+      if (!condition || !seedBriefingId || !seedBriefingItemId) {
+        if (watchConfirmStatus) {
+          watchConfirmStatus.hidden = false;
+          watchConfirmStatus.textContent = "请先写清追踪条件，再确认建立 Watch。";
+        }
+        watchCondition?.focus();
+        return;
+      }
+      watchConfirmButton.disabled = true;
+      const label = watchConfirmButton.querySelector<HTMLElement>("span");
+      if (label) label.textContent = "正在建立追踪";
+      if (watchConfirmStatus) {
+        watchConfirmStatus.hidden = false;
+        watchConfirmStatus.textContent = "正在把条件保存到跨设备 Watch…";
+      }
+      try {
+        const watch = await createWatch({ briefingId: seedBriefingId, briefingItemId: seedBriefingItemId, condition });
+        watches = [watch, ...watches.filter((candidate) => candidate.id !== watch.id)];
+        renderWatchWorkspace();
+        if (watchCondition) watchCondition.readOnly = true;
+        if (label) label.textContent = "已开始追踪";
+        if (watchConfirmStatus) watchConfirmStatus.textContent = "已确认。之后的命中会作为待复核观察保留，并附上原始来源。";
+        const workspaceStatus = document.querySelector<HTMLElement>("[data-watch-load-status]");
+        if (workspaceStatus) {
+          workspaceStatus.hidden = false;
+          workspaceStatus.textContent = `已开始追踪“${watch.title}”。命中不代表条件已经成立。`;
+        }
+      } catch (error) {
+        watchConfirmButton.disabled = false;
+        if (label) label.textContent = "重新确认追踪";
+        if (watchConfirmStatus) watchConfirmStatus.textContent = error instanceof Error
+          ? `建立失败：${error.message}`
+          : "建立失败，请重试。";
       }
     });
 
@@ -642,7 +946,7 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
         ease: "none",
         scrollTrigger: { trigger: ".signal-filter", start: "top 90%", end: "top 40%", scrub: 0.8 },
       });
-      gsap.utils.toArray<HTMLElement>(".signal-item, .signal-threads, .signal-action").forEach((element) => {
+      gsap.utils.toArray<HTMLElement>(".signal-item, .signal-threads, .signal-watches, .signal-action").forEach((element) => {
         gsap.from(element, {
           y: 24,
           opacity: 0,

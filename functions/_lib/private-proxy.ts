@@ -28,19 +28,24 @@ const jsonHeaders = {
   "Referrer-Policy": "no-referrer",
 };
 
-const signalPathAllowed = (path: string) =>
+const watchRequestAllowed = (path: string, method: string) =>
+  (path === "/api/watches" && (method === "GET" || method === "POST"))
+  || (/^\/api\/watches\/[^/]+\/resolve$/.test(path) && method === "POST");
+
+const signalPathAllowed = (path: string, method: string) =>
   path === "/api/annotations"
   || path === "/api/memories"
+  || watchRequestAllowed(path, method)
   || path.startsWith("/api/admin/")
   || path.startsWith("/api/memory/")
   || path.startsWith("/api/memory-candidates/");
 
 const marketAgentPathAllowed = (path: string) => path === "/ask" || path === "/runs" || path === "/today" || path === "/profile" || path === "/watchlist" || path === "/export" || path === "/portfolio-snapshot" || path === "/portfolio-snapshot/stop" || path === "/portfolio-snapshot/purge" || /^\/runs\/[^/]+(?:\/feedback|\/rerun|\/evidence)?$/.test(path);
 
-function target(service: PrivateService, rawPath: string, env: PrivateProxyEnv): URL {
+function target(service: PrivateService, rawPath: string, method: string, env: PrivateProxyEnv): URL {
   const path = `/${rawPath.replace(/^\/+/, "")}`;
   if (service === "runtime" && !path.startsWith("/api/v1/private/")) throw new RiskReviewError("PRIVATE_ROUTE_NOT_ALLOWED", "Private route is not allowed.", 404);
-  if (service === "signal" && !signalPathAllowed(path)) throw new RiskReviewError("PRIVATE_ROUTE_NOT_ALLOWED", "Private route is not allowed.", 404);
+  if (service === "signal" && !signalPathAllowed(path, method)) throw new RiskReviewError("PRIVATE_ROUTE_NOT_ALLOWED", "Private route is not allowed.", 404);
   if (service === "market-agent" && !marketAgentPathAllowed(path)) throw new RiskReviewError("PRIVATE_ROUTE_NOT_ALLOWED", "Private route is not allowed.", 404);
   const base = env.RUNTIME_API_URL?.trim() || "https://runtime-api.zx-dx.xyz";
   if (service === "market-agent") return new URL(`/api/v1/private/market-agent${path}`, env.MARKET_AGENT_API_URL?.trim() || base);
@@ -53,9 +58,9 @@ export async function proxyPrivateRequest(context: PrivateProxyContext, service:
     const token = (service === "market-agent" ? context.env.MARKET_AGENT_PROXY_TOKEN : context.env.ZX_RUNTIME_SERVICE_TOKEN)?.trim();
     if (!token) throw new RiskReviewError("PRIVATE_PROXY_UNAVAILABLE", "Private service credentials are unavailable.", 503);
 
-    const upstream = target(service, rawPath, context.env);
-    upstream.search = new URL(context.request.url).search;
     const method = context.request.method.toUpperCase();
+    const upstream = target(service, rawPath, method, context.env);
+    upstream.search = new URL(context.request.url).search;
     requireActorScope(actor, privateScope(service, method));
     const headers = new Headers({ Authorization: `Bearer ${token}`, Accept: context.request.headers.get("accept") ?? "application/json" });
     if (service === "market-agent") {

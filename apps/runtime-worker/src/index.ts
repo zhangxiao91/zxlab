@@ -26,9 +26,12 @@ async function proxyMemory(request: Request, env: Env, pathname: string) {
   return new Response(response.body, { status: response.status, headers: responseHeaders });
 }
 
-function signalPathAllowed(path: string): boolean {
+function signalPathAllowed(path: string, method: string): boolean {
+  const watchAllowed = (path === "/api/watches" && (method === "GET" || method === "POST"))
+    || (/^\/api\/watches\/[^/]+\/resolve$/.test(path) && method === "POST");
   return path === "/api/annotations"
     || path === "/api/memories"
+    || watchAllowed
     || path.startsWith("/api/admin/")
     || path.startsWith("/api/memory/")
     || path.startsWith("/api/memory-candidates/");
@@ -36,7 +39,7 @@ function signalPathAllowed(path: string): boolean {
 
 async function proxySignal(request: Request, env: Env, pathname: string) {
   const suffix = pathname.slice("/api/v1/private/signal".length);
-  if (!signalPathAllowed(suffix)) return json({ error: { code: "NOT_FOUND", message: "Route not found." } }, 404);
+  if (!signalPathAllowed(suffix, request.method.toUpperCase())) return json({ error: { code: "NOT_FOUND", message: "Route not found." } }, 404);
   const target = new URL(`https://signal.internal${suffix}`);
   target.search = new URL(request.url).search;
   const headers = new Headers({ Accept: request.headers.get("accept") ?? "application/json", Authorization: `Bearer ${env.ZX_RUNTIME_SERVICE_TOKEN}` });

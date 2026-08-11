@@ -3,17 +3,15 @@ import { CollectionRepository } from "../repositories/collection-repository";
 import { BriefingGenerator } from "./briefing-generator";
 import { CollectionService } from "./collection-service";
 import { ProjectApiSignalLLM, type SignalLLM } from "./llm";
+import { signalSourcePolicy } from "./source-policy";
 
 const DAILY_CANDIDATE_POOL = 200;
 const DAILY_MAX_CANDIDATES = 12;
 const BALANCE_ORDER: SignalCategory[] = ["ai-engineering", "markets", "zxlab", "uncategorized"];
-const MAX_CANDIDATES_PER_SOURCE = 3;
-const RELEASE_NOTE_SHARE = 0.25;
+const MAX_CANDIDATES_PER_FAMILY = 3;
 
 export function isReleaseNoteCandidate(candidate: CandidateSignal): boolean {
-  return candidate.source.sourceType === "github-release"
-    || candidate.source.sourceType === "web-changelog"
-    || candidate.source.sourceId === "cloudflare-developer-platform";
+  return signalSourcePolicy.isReleaseNote(candidate);
 }
 
 export function selectBalancedDailyCandidates(candidates: CandidateSignal[], maxCandidates = DAILY_MAX_CANDIDATES): CandidateSignal[] {
@@ -22,34 +20,36 @@ export function selectBalancedDailyCandidates(candidates: CandidateSignal[], max
   for (const candidate of candidates) {
     const category = buckets.get(candidate.categoryHint);
     if (!category) continue;
-    const source = category.get(candidate.source.sourceId) ?? [];
+    const family = signalSourcePolicy.familyFor(candidate);
+    const source = category.get(family) ?? [];
     source.push(candidate);
-    category.set(candidate.source.sourceId, source);
+    category.set(family, source);
   }
 
   const selected: CandidateSignal[] = [];
   const seen = new Set<string>();
-  const sourceCounts = new Map<string, number>();
-  const releaseNoteLimit = Math.max(1, Math.floor(maxCandidates * RELEASE_NOTE_SHARE));
+  const familyCounts = new Map<string, number>();
+  const releaseNoteLimit = signalSourcePolicy.releaseNoteLimit(maxCandidates);
   let releaseNoteCount = 0;
   const takeFromCategory = (category: SignalCategory, enforceSourceCap: boolean): boolean => {
     const sources = buckets.get(category);
     if (!sources) return false;
     const choice = [...sources.entries()]
-      .filter(([sourceId, items]) => {
-        const next = items[0];
-        return next
-          && (!enforceSourceCap || (sourceCounts.get(sourceId) ?? 0) < MAX_CANDIDATES_PER_SOURCE)
-          && (!isReleaseNoteCandidate(next) || releaseNoteCount < releaseNoteLimit);
+      .flatMap(([family, items]) => {
+        if (enforceSourceCap && (familyCounts.get(family) ?? 0) >= MAX_CANDIDATES_PER_FAMILY) return [];
+        const nextIndex = items.findIndex((candidate) => !seen.has(candidate.id)
+          && (!isReleaseNoteCandidate(candidate) || releaseNoteCount < releaseNoteLimit));
+        return nextIndex < 0 ? [] : [{ family, items, nextIndex }];
       })
-      .sort(([leftId], [rightId]) => (sourceCounts.get(leftId) ?? 0) - (sourceCounts.get(rightId) ?? 0) || leftId.localeCompare(rightId))[0];
+      .sort((left, right) => (familyCounts.get(left.family) ?? 0) - (familyCounts.get(right.family) ?? 0)
+        || left.family.localeCompare(right.family))[0];
     if (!choice) return false;
-    const [sourceId, items] = choice;
-    const candidate = items.shift();
+    const { family, items, nextIndex } = choice;
+    const [candidate] = items.splice(nextIndex, 1);
     if (!candidate || seen.has(candidate.id)) return false;
     selected.push(candidate);
     seen.add(candidate.id);
-    sourceCounts.set(sourceId, (sourceCounts.get(sourceId) ?? 0) + 1);
+    familyCounts.set(family, (familyCounts.get(family) ?? 0) + 1);
     if (isReleaseNoteCandidate(candidate)) releaseNoteCount += 1;
     return true;
   };
@@ -97,16 +97,24 @@ export class DailySignalPipeline {
       throw new Error(`Signal collection ${collection.id} did not produce a usable source run`);
     }
 
-    const candidates = await new CollectionRepository(this.env.DB).candidatesForBriefing({
+    const repository = new CollectionRepository(this.env.DB);
+    const [candidates, uniqueCandidateCount] = await Promise.all([repository.candidatesForBriefing({
       collectionRunId: collection.id,
       maxCandidates: DAILY_CANDIDATE_POOL,
-    });
+    }), repository.countCandidatesForBriefing({ collectionRunId: collection.id })]);
     const balancedCandidates = selectBalancedDailyCandidates(candidates);
     const generated = await new BriefingGenerator(this.env, this.llm).generate({
       date: shanghaiDate(scheduledTime),
       candidates: balancedCandidates,
       dataOrigin: "real",
       collectionRunId: collection.id,
+      triggerType: "workflow",
+      sourceQualityDegraded: collection.status === "partial",
+      stats: {
+        fetched: collection.fetchedCount,
+        unique: uniqueCandidateCount,
+        balanced: balancedCandidates.length,
+      },
     });
     return {
       collectionRunId: collection.id,

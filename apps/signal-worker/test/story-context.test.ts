@@ -59,7 +59,7 @@ describe("Signal story context", () => {
     expect(selected.map((item) => item.id)).toEqual(["primary", "supporting"]);
   });
 
-  it("supplements a full daily set to ten synthesis candidates by editorial score", () => {
+  it("does not re-add dropped candidates merely to reach ten items", () => {
     const candidates = Array.from({ length: 12 }, (_, index) => candidate(`daily-${index + 1}`, `Daily candidate ${index + 1}`));
     const decisions = candidates.map((item, index) => ({
       candidateId: item.id,
@@ -73,7 +73,7 @@ describe("Signal story context", () => {
       relatedMemoryIds: [],
     }));
     const selected = selectSynthesisCandidates(candidates, decisions);
-    expect(selected).toHaveLength(10);
-    expect(selected.at(-1)?.id).toBe("daily-12");
+    expect(selected).toHaveLength(9);
+    expect(selected.map((item) => item.id)).toEqual(candidates.slice(0, 9).map((item) => item.id));
   });
 });

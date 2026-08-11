@@ -32,6 +32,7 @@ export async function handleAnnotations(request: Request, pathname: string, env:
           send("start");
           const response = await responder.respond(input, {
             replyDelta: (text) => send("reply_delta", { text }),
+            replyReset: () => send("reply_reset"),
             replyReady: ({ annotation, reply }) => send("reply", { annotation, reply }),
             memoryReady: (memoryCandidate) => send("memory", { memoryCandidate }),
           });

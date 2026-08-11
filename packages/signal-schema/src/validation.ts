@@ -3,6 +3,7 @@ import type {
   AnnotationReplyDraft,
   CandidateEditorialDecision,
   CandidateSignal,
+  CreateWatchRequest,
   EditorialDecisionDraft,
   GenerateBriefingRequest,
   GeneratedBriefingDraft,
@@ -156,6 +157,15 @@ export function parseAnnotationInput(value: unknown): AnnotationInput {
     selectedText: string(input.selectedText, "selectedText", 420),
     comment: string(input.comment, "comment", 2_000),
     action: oneOf(input.actionType ?? input.action, actions, "actionType"),
+  };
+}
+
+export function parseCreateWatchRequest(value: unknown): CreateWatchRequest {
+  const input = record(value, "request");
+  return {
+    briefingId: string(input.briefingId, "briefingId", 120),
+    briefingItemId: string(input.briefingItemId, "briefingItemId", 120),
+    condition: string(input.condition, "condition", 1_000),
   };
 }
 

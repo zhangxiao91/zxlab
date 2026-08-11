@@ -5,13 +5,14 @@ import { CollectionRepository } from "../repositories/collection-repository";
 import { BriefingRepository } from "../repositories/briefing-repository";
 import { BriefingGenerator } from "../services/briefing-generator";
 import { ProjectApiSignalLLM } from "../services/llm";
-import { DailySignalPipeline } from "../services/daily-signal-pipeline";
+import { DailySignalPipeline, selectBalancedDailyCandidates } from "../services/daily-signal-pipeline";
 import { refreshStaticBriefing } from "../services/pages-refresh";
 
 interface AdminDependencies {
   runPipeline?: (scheduledTime: number) => Promise<{ collectionRunId: string; briefingId: string; briefingRunId: string }>;
   refreshPages?: () => Promise<"triggered" | "not-configured">;
   now?: () => number;
+  briefingGenerator?: Pick<BriefingGenerator, "fixture" | "generate">;
 }
 
 function today(): string {
@@ -55,24 +56,49 @@ export async function handleAdmin(request: Request, pathname: string, env: Env, 
   }
   if (request.method !== "POST" || pathname !== "/api/admin/briefings/generate") return null;
   const input = parseGenerateBriefingRequest(await readJson(request));
-  const generator = new BriefingGenerator(env, new ProjectApiSignalLLM(env));
+  const generator = dependencies.briefingGenerator ?? new BriefingGenerator(env, new ProjectApiSignalLLM(env));
   const fixture = input.useFixture || input.candidateMode === "fixture";
-  if (fixture) return json(await generator.generate({ date: input.date ?? today(), candidates: generator.fixture(), dataOrigin: "fixture" }), 201);
+  if (fixture) {
+    const candidates = selectBalancedDailyCandidates(generator.fixture());
+    return json(await generator.generate({ date: input.date ?? today(), candidates, dataOrigin: "fixture",
+      stats: { fetched: null, unique: null, balanced: candidates.length } }), 201);
+  }
   if (input.candidates?.length) {
-    return json(await generator.generate({ date: input.date ?? today(), candidates: input.candidates, dataOrigin: "real" }), 201);
+    const candidates = selectBalancedDailyCandidates(input.candidates);
+    return json(await generator.generate({ date: input.date ?? today(), candidates, dataOrigin: "real",
+      stats: { fetched: null, unique: null, balanced: candidates.length } }), 201);
   }
   const mode = input.candidateMode ?? (input.collectionRunId ? "collection-run" : "time-window");
   if (mode === "collection-run" && !input.collectionRunId) {
     throw new SignalError("INVALID_REQUEST", "collectionRunId is required for collection-run mode", 400);
   }
   const repository = new CollectionRepository(env.DB);
-  const candidates = await repository.candidatesForBriefing({
+  const filters = {
     collectionRunId: mode === "collection-run" ? input.collectionRunId : undefined,
     since: mode === "time-window" ? input.since ?? new Date(Date.now() - 86_400_000).toISOString() : undefined,
     until: mode === "time-window" ? input.until : undefined,
     category: input.category,
-    maxCandidates: input.maxCandidates ?? 40,
-  });
+  };
+  if (mode === "collection-run") {
+    const collectionRunId = input.collectionRunId!;
+    const collectionRun = await repository.getRun(collectionRunId);
+    if (collectionRun.status === "running" || collectionRun.status === "failed") {
+      throw new SignalError("INVALID_REQUEST", `Collection run ${collectionRunId} is ${collectionRun.status} and cannot publish a briefing`, 409);
+    }
+    const [candidatePool, uniqueCount] = await Promise.all([
+      repository.candidatesForBriefing({ ...filters, maxCandidates: input.maxCandidates ?? 40 }),
+      repository.countCandidatesForBriefing(filters),
+    ]);
+    const candidates = selectBalancedDailyCandidates(candidatePool);
+    return json(await generator.generate({ date: input.date ?? today(), candidates, dataOrigin: "real", collectionRunId,
+      sourceQualityDegraded: collectionRun.status === "partial",
+      stats: { fetched: collectionRun.fetchedCount, unique: uniqueCount, balanced: candidates.length } }), 201);
+  }
+  const [candidatePool, uniqueCount] = await Promise.all([
+    repository.candidatesForBriefing({ ...filters, maxCandidates: input.maxCandidates ?? 40 }),
+    repository.countCandidatesForBriefing(filters),
+  ]);
+  const candidates = selectBalancedDailyCandidates(candidatePool);
   return json(await generator.generate({ date: input.date ?? today(), candidates, dataOrigin: "real",
-    collectionRunId: mode === "collection-run" ? input.collectionRunId : undefined }), 201);
+    stats: { fetched: null, unique: uniqueCount, balanced: candidates.length } }), 201);
 }

@@ -32,15 +32,18 @@ class GatewayStreamUnavailableError extends Error {
   }
 }
 
+class GatewayStreamProtocolError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "GatewayStreamProtocolError";
+  }
+}
+
 function shouldFallbackToGenerate(error: unknown, apiUrl: string): boolean {
-  if (error instanceof GatewayStreamUnavailableError) return true;
+  if (error instanceof GatewayStreamUnavailableError || error instanceof GatewayStreamProtocolError) return true;
   if (error instanceof DOMException && error.name === "TimeoutError") return true;
   if (error instanceof TypeError && streamEndpoint(apiUrl) !== generateEndpoint(apiUrl)) return true;
-  return error instanceof GatewayRequestError && [
-    "GATEWAY_STREAM_ALL_CANDIDATES_FAILED",
-    "GATEWAY_STREAM_INVALID_PROVIDER_RESPONSE",
-    "GATEWAY_STREAM_INCOMPLETE",
-  ].includes(error.failureCode);
+  return false;
 }
 
 function object(value: unknown): Record<string, unknown> | undefined {
@@ -127,10 +130,13 @@ async function requestGenerate(params: {
   return gatewaySuccess(payload);
 }
 
-function streamEvent(value: unknown): { type: string; requestId?: unknown; data?: unknown; error?: unknown } {
+function streamEvent(value: unknown): { type: string; requestId: string; text?: unknown; data?: unknown; error?: unknown } {
   const event = object(value);
-  if (!event || typeof event.type !== "string") throw new SignalValidationError("Gateway stream returned an invalid event");
-  return event as { type: string; requestId?: unknown; data?: unknown; error?: unknown };
+  if (!event || typeof event.type !== "string" || typeof event.requestId !== "string"
+    || !new Set(["start", "attempt", "delta", "reset", "done", "error"]).has(event.type)) {
+    throw new GatewayStreamProtocolError("Gateway stream returned an invalid event");
+  }
+  return event as { type: string; requestId: string; text?: unknown; data?: unknown; error?: unknown };
 }
 
 async function requestStream(params: {
@@ -140,6 +146,7 @@ async function requestStream(params: {
   invocationId: string;
   body: unknown;
   onDelta?: (text: string) => void;
+  onReset?: () => void;
 }): Promise<GatewaySuccess> {
   const response = await params.fetcher(streamEndpoint(params.apiUrl), {
     method: "POST",
@@ -148,7 +155,7 @@ async function requestStream(params: {
     signal: AbortSignal.timeout(STREAM_TIMEOUT_MS),
   });
   if (!response.ok) {
-    if (response.status === 404 || response.status === 405 || response.status === 501) {
+    if ([404, 405, 406, 415, 501].includes(response.status)) {
       throw new GatewayStreamUnavailableError(`Gateway stream endpoint returned HTTP ${response.status}`);
     }
     const raw = await readBoundedText(response);
@@ -173,11 +180,24 @@ async function requestStream(params: {
     const data = dataLines.join("\n");
     dataLines = [];
     sawEvent = true;
-    const event = streamEvent(JSON.parse(data) as unknown);
-    if (event.type === "done") return gatewaySuccess({ ok: true, data: event.data, requestId: event.requestId });
+    let event: ReturnType<typeof streamEvent>;
+    try {
+      event = streamEvent(JSON.parse(data) as unknown);
+    } catch (cause) {
+      if (cause instanceof GatewayStreamProtocolError) throw cause;
+      throw new GatewayStreamProtocolError("Gateway stream returned invalid JSON", { cause });
+    }
+    if (event.type === "done") {
+      try { return gatewaySuccess({ ok: true, data: event.data, requestId: event.requestId }); }
+      catch (cause) { throw new GatewayStreamProtocolError("Gateway stream returned an invalid terminal event", { cause }); }
+    }
     if (event.type === "delta") {
-      const text = object(event)?.text;
-      if (typeof text === "string") params.onDelta?.(text);
+      if (typeof event.text !== "string") throw new GatewayStreamProtocolError("Gateway stream returned an invalid delta event");
+      params.onDelta?.(event.text);
+      return undefined;
+    }
+    if (event.type === "reset") {
+      params.onReset?.();
       return undefined;
     }
     if (event.type === "error") {
@@ -218,7 +238,7 @@ async function requestStream(params: {
   }
 
   if (!sawEvent) throw new GatewayStreamUnavailableError("Gateway stream ended before any event");
-  throw new GatewayRequestError("GATEWAY_STREAM_INCOMPLETE", "Project AI gateway stream ended before completion", 502);
+  throw new GatewayStreamProtocolError("Project AI gateway stream ended before completion");
 }
 
 export async function requestGatewayJson(params: {
@@ -228,11 +248,13 @@ export async function requestGatewayJson(params: {
   invocationId: string;
   body: unknown;
   onDelta?: (text: string) => void;
+  onReset?: () => void;
 }): Promise<GatewaySuccess> {
   try {
     return await requestStream(params);
   } catch (cause) {
     if (shouldFallbackToGenerate(cause, params.apiUrl)) {
+      params.onReset?.();
       return requestGenerate(params);
     }
     throw cause;

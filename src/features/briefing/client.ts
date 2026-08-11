@@ -3,16 +3,21 @@ import type {
   AnnotationInput,
   AnnotationResponse,
   BriefingPreviewState,
+  CreateWatchRequest,
   DailyBriefing,
   MemoriesResponse,
   MemoryCandidate,
   MemoryScope,
   SignalErrorResponse,
+  WatchDossier,
+  WatchResponse,
+  WatchesResponse,
 } from "./types";
 
 export type AnnotationStreamEvent =
   | { type: "start" }
   | { type: "reply_delta"; text: string }
+  | { type: "reply_reset" }
   | { type: "reply"; annotation: AnnotationResponse["annotation"]; reply: AnnotationResponse["reply"] }
   | { type: "memory"; memoryCandidate?: MemoryCandidate }
   | { type: "done"; response: AnnotationResponse }
@@ -26,6 +31,7 @@ const defaultApiBase = import.meta.env.DEV ? "" : "https://signal-api.zx-dx.xyz"
 const apiBase = String(import.meta.env.PUBLIC_SIGNAL_API_BASE ?? defaultApiBase).replace(/\/$/, "");
 const privateApiBase = import.meta.env.DEV ? apiBase : "/api/private/signal";
 const privateAccessUrl = "/lab/risk/";
+let mockWatches: WatchDossier[] = [];
 
 export class SignalApiError extends Error {
   constructor(readonly code: string, message: string, readonly status: number) {
@@ -36,7 +42,7 @@ export class SignalApiError extends Error {
 
 function endpoint(path: string): string {
   if (!apiBase) throw new SignalApiError("SIGNAL_API_NOT_CONFIGURED", "PUBLIC_SIGNAL_API_BASE is not configured", 503);
-  const privatePath = path === "/api/annotations" || path === "/api/memories" || path.startsWith("/api/memory-candidates/") || path.startsWith("/api/memory/") || path.startsWith("/api/admin/");
+  const privatePath = path === "/api/annotations" || path === "/api/memories" || path.startsWith("/api/memory-candidates/") || path.startsWith("/api/memory/") || path === "/api/watches" || /^\/api\/watches\/[^/]+\/resolve$/.test(path) || path.startsWith("/api/admin/");
   return `${privatePath ? privateApiBase : apiBase}${path}`;
 }
 
@@ -199,4 +205,59 @@ export async function updateMemoryCandidate(
 export async function getMemories(): Promise<MemoriesResponse> {
   if (dataMode === "mock") return { memories: [], candidates: [] };
   return apiRequest<MemoriesResponse>("/api/memories");
+}
+
+export async function getWatches(): Promise<WatchDossier[]> {
+  if (dataMode === "mock") return structuredClone(mockWatches);
+  const response = await apiRequest<WatchesResponse>("/api/watches");
+  return response.watches;
+}
+
+export async function createWatch(input: CreateWatchRequest): Promise<WatchDossier> {
+  if (dataMode === "mock") {
+    const now = new Date().toISOString();
+    const watch: WatchDossier = {
+      id: `watch-${Date.now()}`,
+      title: "本地预览追踪",
+      condition: input.condition,
+      category: "zxlab",
+      status: "active",
+      seedBriefingId: input.briefingId,
+      seedBriefingItemId: input.briefingItemId,
+      createdAt: now,
+      updatedAt: now,
+      observations: [{
+        id: `watch-observation-${Date.now()}`,
+        type: "created",
+        briefingId: input.briefingId,
+        briefingItemId: input.briefingItemId,
+        title: "追踪已建立",
+        summary: "这是本地预览中的初始观察。连接 Signal API 后，服务端会从真实日报条目补全来源。",
+        sources: [],
+        observedAt: now,
+      }],
+    };
+    mockWatches = [watch, ...mockWatches];
+    return structuredClone(watch);
+  }
+  const response = await apiRequest<WatchResponse>("/api/watches", {
+    method: "POST",
+    body: JSON.stringify(input),
+  }, 15_000);
+  return response.watch;
+}
+
+export async function resolveWatch(id: string): Promise<WatchDossier> {
+  if (dataMode === "mock") {
+    const watch = mockWatches.find((candidate) => candidate.id === id);
+    if (!watch) throw new SignalApiError("WATCH_NOT_FOUND", "Watch does not exist", 404);
+    const resolved = { ...watch, status: "resolved" as const, resolvedAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    mockWatches = mockWatches.map((candidate) => candidate.id === id ? resolved : candidate);
+    return structuredClone(resolved);
+  }
+  const response = await apiRequest<WatchResponse>(`/api/watches/${encodeURIComponent(id)}/resolve`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  }, 15_000);
+  return response.watch;
 }

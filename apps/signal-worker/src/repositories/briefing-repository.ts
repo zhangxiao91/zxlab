@@ -5,7 +5,9 @@ import type { PriorBriefingContext } from "../services/story-context";
 interface BriefingRow {
   id: string; run_id: string; briefing_date: string; title: string; summary: string; status: string;
   data_origin: "fixture" | "real"; generated_at: string; prompt_version: string; model: string;
+  generation_mode: DailyBriefing["generationMode"]; quality_status: DailyBriefing["qualityStatus"];
   long_term_threads_json: string | null; candidate_count: number; selected_count: number;
+  fetched_count: number | null; unique_count: number | null; balanced_count: number | null; synthesis_count: number | null;
 }
 interface ItemRow {
   id: string; briefing_id: string; category: BriefingItem["category"]; title: string; summary: string;
@@ -25,6 +27,7 @@ function parseJson<T>(value: string | null, fallback: T): T {
 interface BriefingRunDiagnosticRow {
   id: string; briefing_date: string; status: "running" | "succeeded" | "failed"; trigger_type: string;
   started_at: string; completed_at: string | null; candidate_count: number; selected_count: number;
+  fetched_count: number | null; unique_count: number | null; balanced_count: number | null; synthesis_count: number | null;
   error_code: string | null; error_message: string | null; collection_run_id: string | null;
 }
 
@@ -39,11 +42,14 @@ export class BriefingRepository {
   async latestDiagnostics(limit = 10): Promise<Array<{
     id: string; date: string; status: "running" | "succeeded" | "failed"; triggerType: string;
     startedAt: string; completedAt?: string; candidateCount: number; selectedCount: number;
+    fetchedCount: number | null; uniqueCount: number | null; balancedCount: number | null;
+    synthesisCount: number | null; publishedCount: number;
     errorCode?: string; errorMessage?: string; collectionRunId?: string;
     invocations: Array<{ id: string; task: string; model: string; status: "running" | "succeeded" | "failed"; startedAt: string; completedAt?: string; errorCode?: string }>;
   }>> {
     const runs = await this.db.prepare(`SELECT id, briefing_date, status, trigger_type, started_at, completed_at,
-      candidate_count, selected_count, error_code, error_message, collection_run_id
+      candidate_count, selected_count, fetched_count, unique_count, balanced_count, synthesis_count,
+      error_code, error_message, collection_run_id
       FROM briefing_runs ORDER BY started_at DESC LIMIT ?`).bind(Math.min(Math.max(limit, 1), 20)).all<BriefingRunDiagnosticRow>();
     return Promise.all(runs.results.map(async (run) => {
       const invocations = await this.db.prepare(`SELECT id, task, model, status, started_at, completed_at, error_code
@@ -52,6 +58,11 @@ export class BriefingRepository {
         id: run.id, date: run.briefing_date, status: run.status, triggerType: run.trigger_type,
         startedAt: run.started_at, completedAt: run.completed_at ?? undefined,
         candidateCount: run.candidate_count, selectedCount: run.selected_count,
+        fetchedCount: run.fetched_count,
+        uniqueCount: run.unique_count,
+        balancedCount: run.balanced_count,
+        synthesisCount: run.synthesis_count,
+        publishedCount: run.selected_count,
         errorCode: run.error_code ?? undefined, errorMessage: run.error_message ?? undefined,
         collectionRunId: run.collection_run_id ?? undefined,
         invocations: invocations.results.map((invocation) => ({
@@ -63,11 +74,18 @@ export class BriefingRepository {
     }));
   }
 
-  async startRun(input: { id: string; date: string; triggerType: string; promptVersion: string; model: string; candidateCount: number; startedAt: string; collectionRunId?: string }): Promise<void> {
+  async startRun(input: {
+    id: string; date: string; triggerType: string; promptVersion: string; model: string; candidateCount: number;
+    startedAt: string; collectionRunId?: string;
+    stats?: { fetched: number | null; unique: number | null; balanced: number | null };
+  }): Promise<void> {
+    const stats = input.stats ?? { fetched: null, unique: null, balanced: null };
     await this.db.prepare(`INSERT INTO briefing_runs
-      (id, briefing_date, status, trigger_type, prompt_version, model, started_at, candidate_count, collection_run_id)
-      VALUES (?, ?, 'running', ?, ?, ?, ?, ?, ?)`)
-      .bind(input.id, input.date, input.triggerType, input.promptVersion, input.model, input.startedAt, input.candidateCount, input.collectionRunId ?? null).run();
+      (id, briefing_date, status, trigger_type, prompt_version, model, started_at, candidate_count, collection_run_id,
+       fetched_count, unique_count, balanced_count)
+      VALUES (?, ?, 'running', ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .bind(input.id, input.date, input.triggerType, input.promptVersion, input.model, input.startedAt, input.candidateCount,
+        input.collectionRunId ?? null, stats.fetched, stats.unique, stats.balanced).run();
   }
 
   async failRun(runId: string, code: string, message: string): Promise<void> {
@@ -78,6 +96,7 @@ export class BriefingRepository {
   async saveGenerated(input: {
     runId: string; briefingId: string; date: string; draft: GeneratedBriefingDraft; candidates: CandidateSignal[];
     promptVersion: string; model: string; dataOrigin: "fixture" | "real"; generatedAt: string; linkCandidates?: boolean;
+    generationMode?: DailyBriefing["generationMode"]; qualityStatus?: DailyBriefing["qualityStatus"]; synthesisCount?: number;
   }): Promise<void> {
     const previous = await this.db.prepare("SELECT id FROM briefings WHERE briefing_date = ? AND is_active = 1 LIMIT 1")
       .bind(input.date).first<{ id: string }>();
@@ -85,10 +104,12 @@ export class BriefingRepository {
     const statements: D1PreparedStatement[] = [];
     if (previous) statements.push(this.db.prepare("UPDATE briefings SET is_active = 0, status = 'superseded' WHERE id = ?").bind(previous.id));
     statements.push(this.db.prepare(`INSERT INTO briefings
-      (id, run_id, briefing_date, title, summary, status, is_active, data_origin, generated_at, prompt_version, model, supersedes_id, long_term_threads_json)
-      VALUES (?, ?, ?, ?, ?, 'ready', 1, ?, ?, ?, ?, ?, ?)`)
+      (id, run_id, briefing_date, title, summary, status, is_active, data_origin, generated_at, prompt_version, model,
+       supersedes_id, long_term_threads_json, generation_mode, quality_status)
+      VALUES (?, ?, ?, ?, ?, 'ready', 1, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .bind(input.briefingId, input.runId, input.date, input.draft.title, input.draft.summary, input.dataOrigin, input.generatedAt,
-        input.promptVersion, input.model, previous?.id ?? null, JSON.stringify(input.draft.longTermThreads)));
+        input.promptVersion, input.model, previous?.id ?? null, JSON.stringify(input.draft.longTermThreads),
+        input.generationMode ?? "model", input.qualityStatus ?? "passed"));
     input.draft.items.forEach((item, index) => {
       const itemId = crypto.randomUUID();
       statements.push(this.db.prepare(`INSERT INTO briefing_items
@@ -115,8 +136,8 @@ export class BriefingRepository {
           .bind(selectedIds.has(source.id) ? "selected" : "filtered", source.id));
       }
     }
-    statements.push(this.db.prepare(`UPDATE briefing_runs SET status = 'succeeded', completed_at = ?, selected_count = ? WHERE id = ?`)
-      .bind(input.generatedAt, input.draft.items.length, input.runId));
+    statements.push(this.db.prepare(`UPDATE briefing_runs SET status = 'succeeded', completed_at = ?, selected_count = ?, synthesis_count = ? WHERE id = ?`)
+      .bind(input.generatedAt, input.draft.items.length, input.synthesisCount ?? input.candidates.length, input.runId));
     try { await this.db.batch(statements); }
     catch (cause) { throw new SignalError("DATABASE_WRITE_FAILED", "The generated briefing could not be persisted", 500, cause); }
   }
@@ -150,7 +171,8 @@ export class BriefingRepository {
 
   private selectBriefing(): string {
     return `SELECT b.id, b.run_id, b.briefing_date, b.title, b.summary, b.status, b.data_origin, b.generated_at,
-      b.prompt_version, b.model, b.long_term_threads_json, r.candidate_count, r.selected_count
+      b.prompt_version, b.model, b.generation_mode, b.quality_status, b.long_term_threads_json,
+      r.candidate_count, r.selected_count, r.fetched_count, r.unique_count, r.balanced_count, r.synthesis_count
       FROM briefings b JOIN briefing_runs r ON r.id = b.run_id`;
   }
 
@@ -162,7 +184,14 @@ export class BriefingRepository {
     return {
       id: row.id, date: row.briefing_date, status: row.status === "partial" ? "partial" : "ready", title: row.title, summary: row.summary,
       generatedAt: row.generated_at, promptVersion: row.prompt_version, model: row.model, dataOrigin: row.data_origin,
-      stats: { fetched: row.candidate_count, deduplicated: row.candidate_count, selected: row.selected_count },
+      generationMode: row.generation_mode ?? "legacy-unknown", qualityStatus: row.quality_status ?? "unknown",
+      stats: {
+        fetched: row.fetched_count,
+        deduplicated: row.unique_count,
+        balanced: row.balanced_count,
+        synthesized: row.synthesis_count,
+        selected: row.selected_count,
+      },
       longTermThreads: parseJson<LongTermThread[]>(row.long_term_threads_json, []),
       items: items.map((item) => ({
         id: item.id,

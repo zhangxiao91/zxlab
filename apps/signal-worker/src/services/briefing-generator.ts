@@ -3,7 +3,7 @@ import fixtureCandidates from "../../fixtures/candidates.json";
 import { parseCandidateSignal, parseGeneratedBriefingDraft } from "@zxlab/signal-schema";
 import { SignalError } from "../lib/errors";
 import { BriefingRepository } from "../repositories/briefing-repository";
-import { BRIEFING_PROMPT_VERSION, briefingItemRange } from "./prompts";
+import { BRIEFING_PROMPT_VERSION } from "./prompts";
 import type { SignalLLM } from "./llm";
 import { MemoryService } from "../memory/service/memory-service";
 import { CollectionRepository } from "../repositories/collection-repository";
@@ -11,6 +11,8 @@ import { fixtureCandidate } from "./candidate-normalizer";
 import { buildStoryDossiers, selectStoryDossiers } from "./story-context";
 import type { CandidateEditorialDecision } from "@zxlab/signal-schema";
 import { GatewayRequestError } from "./gateway-client";
+import { WatchModule } from "../watch/watch-module";
+import { assertEditionQuality, selectUniqueEditionCandidates } from "./edition-quality";
 
 const HISTORY_WINDOW_DAYS = 30;
 const EDITORIAL_FALLBACK_LIMIT = 12;
@@ -20,6 +22,7 @@ const BRIEFING_FALLBACK_LIMIT = 12;
 function transientModelFailure(cause: unknown): GatewayRequestError | Error | undefined {
   let current = cause;
   for (let depth = 0; depth < 4 && current instanceof Error; depth += 1) {
+    if (current instanceof SignalError && current.code === "INVALID_MODEL_OUTPUT") return undefined;
     if (current instanceof GatewayRequestError && (
       current.failureCode.includes("ALL_CANDIDATES_FAILED")
       || current.failureCode.includes("TIMEOUT")
@@ -91,47 +94,46 @@ export function selectSynthesisCandidates(candidates: CandidateSignal[], decisio
   const supporting = new Set(decisions
     .filter((decision) => decision.decision === "merge" && decision.mergeTargetCandidateId && kept.has(decision.mergeTargetCandidateId))
     .map((decision) => decision.candidateId));
-  const selected = candidates.filter((candidate) => kept.has(candidate.id) || supporting.has(candidate.id));
-  const minimumItems = briefingItemRange(candidates.length).minItems;
-  if (selected.length >= minimumItems) return selected;
+  return candidates.filter((candidate) => kept.has(candidate.id) || supporting.has(candidate.id));
+}
 
-  const decisionsByCandidateId = new Map(decisions.map((decision) => [decision.candidateId, decision]));
-  const editorialScore = (candidate: CandidateSignal): number => {
-    const decision = decisionsByCandidateId.get(candidate.id);
-    if (!decision) return 0;
-    return decision.relevance + decision.novelty + decision.actionability + decision.sourceQuality;
-  };
-  const needed = minimumItems - selected.length;
-  const supplemental = candidates
-    .filter((candidate) => !kept.has(candidate.id) && !supporting.has(candidate.id))
-    .sort((left, right) => editorialScore(right) - editorialScore(left) || left.id.localeCompare(right.id))
-    .slice(0, needed);
-  return [...selected, ...supplemental];
+export interface BriefingGenerationInput {
+  date: string;
+  candidates: CandidateSignal[];
+  dataOrigin: "fixture" | "real";
+  collectionRunId?: string;
+  triggerType?: "manual" | "workflow";
+  sourceQualityDegraded?: boolean;
+  stats?: { fetched: number | null; unique: number | null; balanced: number | null };
 }
 
 export class BriefingGenerator {
   private readonly briefings: BriefingRepository;
   private readonly unifiedMemories: MemoryService;
   private readonly candidates: CollectionRepository;
+  private readonly watches: WatchModule;
 
   constructor(private readonly env: Env, private readonly llm: SignalLLM) {
     this.briefings = new BriefingRepository(env.DB);
     this.unifiedMemories = new MemoryService(env.DB);
     this.candidates = new CollectionRepository(env.DB);
+    this.watches = new WatchModule(env.DB);
   }
 
   fixture(): CandidateSignal[] {
     return fixtureCandidates.map((value) => parseCandidateSignal(fixtureCandidate(value as Parameters<typeof fixtureCandidate>[0])));
   }
 
-  async generate(input: { date: string; candidates: CandidateSignal[]; dataOrigin: "fixture" | "real"; collectionRunId?: string }): Promise<GenerateBriefingResponse> {
+  async generate(input: BriefingGenerationInput): Promise<GenerateBriefingResponse> {
     if (input.candidates.length === 0) throw new SignalError("INVALID_REQUEST", "At least one candidate is required", 400);
     const runId = crypto.randomUUID();
     const briefingId = crypto.randomUUID();
     const startedAt = new Date().toISOString();
-    await this.briefings.startRun({ id: runId, date: input.date, triggerType: "manual", promptVersion: BRIEFING_PROMPT_VERSION,
-      model: this.env.ZX_SIGNAL_LLM_LABEL, candidateCount: input.candidates.length, startedAt, collectionRunId: input.collectionRunId });
+    await this.briefings.startRun({ id: runId, date: input.date, triggerType: input.triggerType ?? "manual", promptVersion: BRIEFING_PROMPT_VERSION,
+      model: this.env.ZX_SIGNAL_LLM_LABEL, candidateCount: input.candidates.length, startedAt,
+      collectionRunId: input.collectionRunId, stats: input.stats });
     try {
+      let qualityDegraded = Boolean(input.sourceQualityDegraded);
       const retrieved = await this.unifiedMemories.retrieve({
         task: "signal-briefing",
         namespaces: ["briefing", "zxlab", "global", "markets"],
@@ -174,6 +176,7 @@ export class BriefingGenerator {
           const transient = transientModelFailure(cause);
           if (!transient) throw cause;
           decisions = deterministicEditorialFallback(input.candidates);
+          qualityDegraded = true;
           console.warn(JSON.stringify({
             event: "signal.editorial_filter.fallback",
             runId,
@@ -188,12 +191,26 @@ export class BriefingGenerator {
         storyDossiers = selectStoryDossiers(storyDossiers, new Set(synthesisCandidates.map((candidate) => candidate.id)));
       }
       let draft: GeneratedBriefingDraft;
+      let generationMode: "model" | "deterministic-fallback" = "model";
       try {
         draft = await this.llm.generateBriefing({ date: input.date, candidates: synthesisCandidates, memories, storyDossiers, runId });
       } catch (cause) {
         const transient = input.dataOrigin === "real" ? transientModelFailure(cause) : undefined;
         if (!transient) throw cause;
-        draft = deterministicBriefingFallback(input.date, synthesisCandidates);
+        const fallbackCandidates = selectUniqueEditionCandidates({
+          candidates: synthesisCandidates,
+          storyDossiers,
+          limit: BRIEFING_FALLBACK_LIMIT,
+        });
+        if (fallbackCandidates.length === 0) {
+          throw new SignalError("NO_ELIGIBLE_CANDIDATES", "No independent story remained for deterministic generation", 422);
+        }
+        const fallbackDossiers = selectStoryDossiers(storyDossiers, new Set(fallbackCandidates.map((candidate) => candidate.id)));
+        synthesisCandidates = fallbackCandidates;
+        storyDossiers = fallbackDossiers;
+        draft = deterministicBriefingFallback(input.date, fallbackCandidates);
+        generationMode = "deterministic-fallback";
+        qualityDegraded = true;
         console.warn(JSON.stringify({
           event: "signal.briefing.fallback",
           runId,
@@ -202,11 +219,23 @@ export class BriefingGenerator {
           reason: transient instanceof GatewayRequestError ? transient.failureCode : transient.name,
         }));
       }
+      draft = assertEditionQuality({ draft, candidates: synthesisCandidates, storyDossiers });
       const generatedAt = new Date().toISOString();
       await this.briefings.saveGenerated({ runId, briefingId, date: input.date, draft, candidates: synthesisCandidates,
         promptVersion: BRIEFING_PROMPT_VERSION, model: this.env.ZX_SIGNAL_LLM_LABEL, dataOrigin: input.dataOrigin,
-        generatedAt, linkCandidates: input.dataOrigin === "real" });
-      return { runId, briefing: await this.briefings.getById(briefingId) };
+        generatedAt, linkCandidates: input.dataOrigin === "real", generationMode,
+        qualityStatus: qualityDegraded ? "degraded" : "passed", synthesisCount: synthesisCandidates.length });
+      const briefing = await this.briefings.getById(briefingId);
+      try {
+        await this.watches.observeBriefing(briefing);
+      } catch (cause) {
+        console.error(JSON.stringify({
+          event: "signal.watch.observe_failed",
+          briefingId,
+          message: cause instanceof Error ? cause.message : "Unknown Watch observation failure",
+        }));
+      }
+      return { runId, briefing };
     } catch (cause) {
       const code = cause instanceof SignalError ? cause.code : "MODEL_REQUEST_FAILED";
       const message = cause instanceof Error ? cause.message : "Unknown generation failure";

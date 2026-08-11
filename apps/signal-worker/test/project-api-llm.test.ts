@@ -178,6 +178,49 @@ describe("ProjectApiSignalLLM", () => {
     expect(streamed).toBe("流式回应已经可见。");
   });
 
+  it("resets a partial annotation reply before streaming the provider fallback", async () => {
+    const finalReply = { reply: "回退后的完整回复。" };
+    const events = [
+      { type: "start", requestId: "gateway-stream-reset" },
+      { type: "delta", requestId: "gateway-stream-reset", text: '{"reply":"错误的半截' },
+      { type: "reset", requestId: "gateway-stream-reset", reason: "fallback" },
+      { type: "delta", requestId: "gateway-stream-reset", text: '{"reply":"回退后的' },
+      { type: "delta", requestId: "gateway-stream-reset", text: '完整回复。"}' },
+      {
+        type: "done",
+        requestId: "gateway-stream-reset",
+        data: {
+          text: JSON.stringify(finalReply),
+          json: finalReply,
+          provider: "provider2",
+          model: "gpt-fallback",
+          fallbackIndex: 1,
+          latencyMs: 18,
+        },
+      },
+    ];
+    const fetcher = vi.fn<typeof fetch>(async () => new Response(
+      events.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(""),
+      { headers: { "content-type": "text/event-stream" } },
+    ));
+    const llm = new ProjectApiSignalLLM(env, fetcher);
+    let streamed = "";
+
+    const result = await llm.replyToAnnotation({
+      item,
+      selectedText: "project gateway",
+      comment: "确认 provider fallback 会清除旧输出",
+      action: "comment",
+      memories: [],
+    }, {
+      onDelta: (text) => { streamed += text; },
+      onReset: () => { streamed = ""; },
+    });
+
+    expect(result).toEqual(finalReply);
+    expect(streamed).toBe(finalReply.reply);
+  });
+
   it("repairs a full daily briefing that returns fewer than ten items", async () => {
     const candidates = Array.from({ length: 12 }, (_, index) => briefingCandidate(`daily-${index + 1}`));
     const runId = "daily-minimum-test";
@@ -211,6 +254,78 @@ describe("ProjectApiSignalLLM", () => {
     });
 
     expect(result.items).toHaveLength(10);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("holds a briefing when repeated candidate sources survive the single repair attempt", async () => {
+    const candidates = Array.from({ length: 10 }, (_, index) => briefingCandidate(`quality-${index + 1}`));
+    const runId = "daily-quality-hold-test";
+    await env.DB.prepare(`INSERT INTO briefing_runs
+      (id, briefing_date, status, trigger_type, prompt_version, model, started_at)
+      VALUES (?, '2026-08-10', 'running', 'manual', 'test', 'test', ?)`)
+      .bind(runId, new Date().toISOString()).run();
+    let attempt = 0;
+    const fetcher = vi.fn<typeof fetch>(async () => {
+      const repeated = briefingDraft(candidates, 10);
+      repeated.items[1]!.sourceIds = [candidates[0]!.id];
+      attempt += 1;
+      return gatewayStream({
+        text: JSON.stringify(repeated),
+        json: repeated,
+        provider: "deepseek",
+        model: "deepseek-v4-flash",
+        fallbackIndex: 0,
+        latencyMs: 10,
+      }, `gateway-quality-${attempt}`);
+    });
+    const llm = new ProjectApiSignalLLM(env, fetcher);
+
+    await expect(llm.generateBriefing({
+      date: "2026-08-10",
+      candidates,
+      memories: [],
+      storyDossiers: [],
+      runId,
+    })).rejects.toMatchObject({ code: "INVALID_MODEL_OUTPUT" });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("holds a briefing when the single repair request fails transiently", async () => {
+    const candidates = Array.from({ length: 10 }, (_, index) => briefingCandidate(`repair-failure-${index + 1}`));
+    const runId = "daily-repair-transient-hold-test";
+    await env.DB.prepare(`INSERT INTO briefing_runs
+      (id, briefing_date, status, trigger_type, prompt_version, model, started_at)
+      VALUES (?, '2026-08-11', 'running', 'manual', 'test', 'test', ?)`)
+      .bind(runId, new Date().toISOString()).run();
+    let attempt = 0;
+    const fetcher = vi.fn<typeof fetch>(async () => {
+      attempt += 1;
+      if (attempt === 1) {
+        const repeated = briefingDraft(candidates, 10);
+        repeated.items[1]!.sourceIds = [candidates[0]!.id];
+        return gatewayStream({
+          text: JSON.stringify(repeated),
+          json: repeated,
+          provider: "deepseek",
+          model: "deepseek-v4-flash",
+          fallbackIndex: 0,
+          latencyMs: 10,
+        }, "gateway-repair-invalid-first-pass");
+      }
+      return new Response(
+        'event: error\ndata: {"type":"error","requestId":"gateway-repair-transient","error":{"code":"ALL_CANDIDATES_FAILED"}}\n\n',
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    });
+    const llm = new ProjectApiSignalLLM(env, fetcher);
+
+    await expect(llm.generateBriefing({
+      date: "2026-08-11",
+      candidates,
+      memories: [],
+      storyDossiers: [],
+      runId,
+    })).rejects.toMatchObject({ code: "INVALID_MODEL_OUTPUT" });
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
 });

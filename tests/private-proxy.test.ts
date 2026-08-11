@@ -67,6 +67,57 @@ test("private Signal requests travel through the Runtime service-binding bridge"
   assert.equal(forwardedAuthorization, "Bearer server-only-token");
 });
 
+test("private Signal proxy admits only the bounded Watch routes", async () => {
+  const forwarded: Array<{ url: string; method: string }> = [];
+  const fetcher = async (input: RequestInfo | URL, init?: RequestInit) => {
+    forwarded.push({ url: String(input), method: init?.method ?? "GET" });
+    return Response.json({ ok: true });
+  };
+
+  const list = await proxyPrivateRequest(
+    { request: new Request("https://beta.zxlab.pages.dev/api/private/signal/api/watches"), env },
+    "signal",
+    "api/watches",
+    { verifyAccess, fetcher },
+  );
+  const resolve = await proxyPrivateRequest(
+    {
+      request: new Request("https://beta.zxlab.pages.dev/api/private/signal/api/watches/watch-1/resolve", {
+        method: "POST",
+        body: "{}",
+      }),
+      env,
+    },
+    "signal",
+    "api/watches/watch-1/resolve",
+    { verifyAccess, fetcher },
+  );
+
+  assert.equal(list.status, 200);
+  assert.equal(resolve.status, 200);
+  assert.deepEqual(forwarded, [
+    { url: "https://runtime-api.zx-dx.xyz/api/v1/private/signal/api/watches", method: "GET" },
+    { url: "https://runtime-api.zx-dx.xyz/api/v1/private/signal/api/watches/watch-1/resolve", method: "POST" },
+  ]);
+
+  for (const request of [
+    new Request("https://beta.zxlab.pages.dev/api/private/signal/api/watches/watch-1"),
+    new Request("https://beta.zxlab.pages.dev/api/private/signal/api/watches/watch-1/resolve"),
+    new Request("https://beta.zxlab.pages.dev/api/private/signal/api/watches/watch-1/resolve/again", { method: "POST", body: "{}" }),
+    new Request("https://beta.zxlab.pages.dev/api/private/signal/api/watches", { method: "DELETE", body: "{}" }),
+  ]) {
+    const rawPath = new URL(request.url).pathname.replace("/api/private/signal/", "");
+    const rejected = await proxyPrivateRequest(
+      { request, env },
+      "signal",
+      rawPath,
+      { verifyAccess, fetcher },
+    );
+    assert.equal(rejected.status, 404, `${request.method} ${rawPath}`);
+  }
+  assert.equal(forwarded.length, 2);
+});
+
 test("private Market Agent requests use the dedicated upstream and preserve the allowed path", async () => {
   let forwardedUrl = "";
   let forwardedMethod = "";

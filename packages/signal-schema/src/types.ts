@@ -14,6 +14,8 @@ export type CandidateStatus = "new" | "duplicate" | "eligible" | "filtered" | "s
 export type BriefingStatus = "generating" | "ready" | "partial" | "failed";
 export type BriefingDataOrigin = "mock" | "fixture" | "real";
 export type BriefingItemType = "lead" | "brief";
+export type BriefingGenerationMode = "model" | "deterministic-fallback" | "legacy-unknown";
+export type BriefingQualityStatus = "passed" | "degraded" | "unknown";
 
 export interface BriefingSource {
   id: string;
@@ -64,13 +66,59 @@ export interface DailyBriefing {
   promptVersion: string;
   model?: string;
   dataOrigin: BriefingDataOrigin;
+  generationMode: BriefingGenerationMode;
+  qualityStatus: BriefingQualityStatus;
   stats: {
-    fetched: number;
-    deduplicated: number;
+    fetched: number | null;
+    deduplicated: number | null;
+    balanced: number | null;
+    synthesized: number | null;
     selected: number;
   };
   longTermThreads: LongTermThread[];
   items: BriefingItem[];
+}
+
+export type WatchStatus = "active" | "resolved";
+export type WatchObservationType = "created" | "update";
+
+export interface WatchObservation {
+  id: string;
+  type: WatchObservationType;
+  briefingId: string;
+  briefingItemId: string;
+  title: string;
+  summary: string;
+  sources: BriefingSource[];
+  observedAt: string;
+}
+
+export interface WatchDossier {
+  id: string;
+  title: string;
+  condition: string;
+  category: BriefingCategory;
+  status: WatchStatus;
+  seedBriefingId: string;
+  seedBriefingItemId: string;
+  createdAt: string;
+  updatedAt: string;
+  resolvedAt?: string;
+  observations: WatchObservation[];
+}
+
+export interface CreateWatchRequest {
+  briefingId: string;
+  briefingItemId: string;
+  condition: string;
+}
+
+export interface WatchesResponse {
+  watches: WatchDossier[];
+}
+
+export interface WatchResponse {
+  watch: WatchDossier;
 }
 
 export type MemoryScope = "discussion" | "project" | "preference" | "belief";
@@ -272,6 +320,7 @@ export type SignalErrorCode =
   | "DATABASE_WRITE_FAILED"
   | "MEMORY_CANDIDATE_NOT_FOUND"
   | "MEMORY_ALREADY_RESOLVED"
+  | "WATCH_NOT_FOUND"
   | "INVALID_REQUEST"
   | "UNAUTHORIZED"
   | "SOURCE_NOT_FOUND"

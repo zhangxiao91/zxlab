@@ -2,29 +2,36 @@
 import type { DailyBriefing } from "../types";
 interface Props { briefing: DailyBriefing; }
 const { briefing } = Astro.props;
+const countLabel = (value: number | null | undefined) => value == null ? "—" : String(value);
+const pipelineStatsKnown = briefing.stats.fetched != null
+  && briefing.stats.deduplicated != null
+  && briefing.stats.balanced != null;
+const filterTitle = pipelineStatsKnown
+  ? `采集 ${briefing.stats.fetched} 个信号，去重与均衡后发布 ${briefing.stats.selected} 条。`
+  : `本期发布 ${briefing.stats.selected} 条；部分处理阶段统计未记录。`;
 ---
 
 <section class="signal-filter" aria-labelledby="filter-title">
   <div class="signal-filter__heading">
     <p>今日信号经过四道过滤</p>
-    <h2 id="filter-title">扫描了 {briefing.stats.fetched} 个信号，最终保留 {briefing.stats.selected} 条。</h2>
+    <h2 id="filter-title">{filterTitle}</h2>
   </div>
   <div class="signal-filter__marquee" aria-hidden="true">
     <div>
-      <span>扫描 {briefing.stats.fetched} 条</span><i></i>
-      <span>去重后 {briefing.stats.deduplicated} 条</span><i></i>
-      <span>LLM 初筛 18 条</span><i></i>
+      <span>扫描 {countLabel(briefing.stats.fetched)} 条</span><i></i>
+      <span>去重后 {countLabel(briefing.stats.deduplicated)} 条</span><i></i>
+      <span>均衡输入 {countLabel(briefing.stats.balanced)} 条</span><i></i>
       <span>最终收录 {briefing.stats.selected} 条</span><i></i>
-      <span>扫描 {briefing.stats.fetched} 条</span><i></i>
-      <span>去重后 {briefing.stats.deduplicated} 条</span><i></i>
-      <span>LLM 初筛 18 条</span><i></i>
+      <span>扫描 {countLabel(briefing.stats.fetched)} 条</span><i></i>
+      <span>去重后 {countLabel(briefing.stats.deduplicated)} 条</span><i></i>
+      <span>均衡输入 {countLabel(briefing.stats.balanced)} 条</span><i></i>
       <span>最终收录 {briefing.stats.selected} 条</span><i></i>
     </div>
   </div>
   <div class="signal-filter__steps">
-    <div><strong>{briefing.stats.fetched}</strong><p>原始扫描</p></div>
-    <div><strong>{briefing.stats.deduplicated}</strong><p>语义去重</p></div>
-    <div><strong>18</strong><p>模型初筛</p></div>
+    <div><strong>{countLabel(briefing.stats.fetched)}</strong><p>原始扫描</p></div>
+    <div><strong>{countLabel(briefing.stats.deduplicated)}</strong><p>语义去重</p></div>
+    <div><strong>{countLabel(briefing.stats.balanced)}</strong><p>均衡输入</p></div>
     <div><strong>{briefing.stats.selected}</strong><p>总编收录</p></div>
   </div>
   <p class="signal-filter__rejection"><span>过滤原则</span> 缺乏独立证据、公共影响或真实变化的消息不会进入日报。</p>

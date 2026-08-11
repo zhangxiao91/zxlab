@@ -96,11 +96,12 @@ export class CollectionRepository {
 
   async syncSources(sources: readonly SignalSourceConfig[], now: string, retryOptions?: D1BatchRetryOptions): Promise<void> {
     await batchWithD1Retry(this.db, () => sources.map((source) => this.db.prepare(`INSERT INTO signal_sources
-      (id, name, type, enabled, category_hint, priority, config_json, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (id, name, source_family, type, enabled, category_hint, priority, config_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET name=excluded.name, type=excluded.type, enabled=excluded.enabled,
-        category_hint=excluded.category_hint, priority=excluded.priority, config_json=excluded.config_json, updated_at=excluded.updated_at`)
-      .bind(source.id, source.name, source.type, source.enabled ? 1 : 0, source.categoryHint, source.priority,
+        source_family=excluded.source_family, category_hint=excluded.category_hint, priority=excluded.priority,
+        config_json=excluded.config_json, updated_at=excluded.updated_at`)
+      .bind(source.id, source.name, source.family, source.type, source.enabled ? 1 : 0, source.categoryHint, source.priority,
         JSON.stringify(source), now, now)), retryOptions);
   }
 
@@ -237,6 +238,18 @@ export class CollectionRepository {
     const result = await this.db.prepare(`${this.candidateSelect()} WHERE ${clauses.join(" AND ")}
       ORDER BY ss.priority DESC, COALESCE(c.published_at,c.fetched_at) DESC LIMIT ?`).bind(...bindings).all<CandidateRow>();
     return result.results.map((row) => candidate(row));
+  }
+
+  async countCandidatesForBriefing(input: { collectionRunId?: string; since?: string; until?: string; category?: SignalCategory }): Promise<number> {
+    const clauses = ["c.status IN ('new','eligible')", "c.duplicate_of IS NULL"];
+    const bindings: unknown[] = [];
+    if (input.collectionRunId) { clauses.push("c.collection_run_id=?"); bindings.push(input.collectionRunId); }
+    if (input.since) { clauses.push("COALESCE(c.published_at,c.fetched_at)>=?"); bindings.push(input.since); }
+    if (input.until) { clauses.push("COALESCE(c.published_at,c.fetched_at)<=?"); bindings.push(input.until); }
+    if (input.category) { clauses.push("c.category_hint=?"); bindings.push(input.category); }
+    const row = await this.db.prepare(`SELECT COUNT(*) count FROM candidate_signals c WHERE ${clauses.join(" AND ")}`)
+      .bind(...bindings).first<{ count: number }>();
+    return row?.count ?? 0;
   }
 
   async historicalCandidatesForContext(input: { excludeCollectionRunId?: string; since: string; until: string; maxCandidates?: number }): Promise<CandidateSignal[]> {

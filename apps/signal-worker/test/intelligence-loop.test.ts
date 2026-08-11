@@ -71,6 +71,15 @@ class StreamingAnnotationFixtureLLM extends MemoryAwareFixtureLLM {
   }
 }
 
+class ResettingAnnotationFixtureLLM extends MemoryAwareFixtureLLM {
+  override async replyToAnnotation(_input: AnnotationReplyInput, options: { onDelta?: (text: string) => void; onReset?: () => void } = {}): Promise<AnnotationReplyDraft> {
+    options.onDelta?.("错误的半截");
+    options.onReset?.();
+    options.onDelta?.("回退后的完整回复。");
+    return { reply: "回退后的完整回复。" };
+  }
+}
+
 async function streamEvents(response: Response): Promise<Array<Record<string, unknown>>> {
   const raw = await response.text();
   return raw.trim().split(/\n\n+/).map((chunk) => {
@@ -244,5 +253,32 @@ describe("ZX Signal intelligence loop", () => {
     const done = events.at(-1)?.response as { reply?: { content?: string }; memoryCandidate?: { content?: string } };
     expect(done.reply?.content).toBe("先看到流式回复。");
     expect(done.memoryCandidate?.content).toContain("前端流式体验");
+  });
+
+  it("forwards a provider reset before streaming the replacement annotation reply", async () => {
+    const llm = new ResettingAnnotationFixtureLLM();
+    const generated = await new BriefingGenerator(env, llm).generate({
+      date: "2026-07-19",
+      candidates: new BriefingGenerator(env, llm).fixture(),
+      dataOrigin: "fixture",
+    });
+    const item = generated.briefing.items[0]!;
+    const response = await handleAnnotations(new Request("https://signal.example/api/annotations?stream=1", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        briefingId: generated.briefing.id,
+        briefingItemId: item.id,
+        selectedText: "runtime fit",
+        comment: "请验证 provider reset 会替换已显示的半截回复",
+        action: "comment",
+      }),
+    }), "/api/annotations", env, { llm });
+    const events = await streamEvents(response!);
+
+    expect(events.map((event) => event.type)).toEqual([
+      "start", "reply_delta", "reply_reset", "reply_delta", "reply", "memory", "done",
+    ]);
+    expect(events.find((event) => event.type === "reply_delta" && event.text === "回退后的完整回复。")).toBeTruthy();
   });
 });

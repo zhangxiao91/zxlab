@@ -17,7 +17,9 @@ const baseBriefing: DailyBriefing = {
   generatedAt: "2026-07-18T07:42:00+08:00",
   promptVersion: "editorial-v0.3",
   dataOrigin: "mock",
-  stats: { fetched: 186, deduplicated: 72, selected: 6 },
+  generationMode: "model",
+  qualityStatus: "passed",
+  stats: { fetched: 186, deduplicated: 72, balanced: 12, synthesized: 10, selected: 6 },
   longTermThreads: [],
   items: [
     {

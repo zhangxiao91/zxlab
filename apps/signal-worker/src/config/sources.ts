@@ -3,6 +3,7 @@ import type { SignalCategory, SignalSourceType } from "@zxlab/signal-schema";
 export interface SignalSourceConfig {
   id: string;
   name: string;
+  family: string;
   type: SignalSourceType;
   enabled: boolean;
   categoryHint: SignalCategory;
@@ -25,6 +26,7 @@ export const SIGNAL_SOURCES: readonly SignalSourceConfig[] = [
   {
     id: "cloudflare-developer-platform",
     name: "Cloudflare Developer Platform Changelog",
+    family: "cloudflare",
     type: "rss",
     enabled: true,
     categoryHint: "zxlab",
@@ -38,6 +40,7 @@ export const SIGNAL_SOURCES: readonly SignalSourceConfig[] = [
   {
     id: "github-workers-sdk-releases",
     name: "cloudflare/workers-sdk Releases",
+    family: "cloudflare",
     type: "github-release",
     enabled: true,
     categoryHint: "zxlab",
@@ -52,6 +55,7 @@ export const SIGNAL_SOURCES: readonly SignalSourceConfig[] = [
   {
     id: "github-openai-node-releases",
     name: "openai/openai-node Releases",
+    family: "openai",
     type: "github-release",
     enabled: true,
     categoryHint: "ai-engineering",
@@ -66,6 +70,7 @@ export const SIGNAL_SOURCES: readonly SignalSourceConfig[] = [
   {
     id: "github-openai-python-releases",
     name: "openai/openai-python Releases",
+    family: "openai",
     type: "github-release",
     enabled: true,
     categoryHint: "ai-engineering",
@@ -80,6 +85,7 @@ export const SIGNAL_SOURCES: readonly SignalSourceConfig[] = [
   {
     id: "github-anthropic-sdk-typescript-releases",
     name: "anthropics/anthropic-sdk-typescript Releases",
+    family: "anthropic",
     type: "github-release",
     enabled: true,
     categoryHint: "ai-engineering",
@@ -94,6 +100,7 @@ export const SIGNAL_SOURCES: readonly SignalSourceConfig[] = [
   {
     id: "github-google-genai-js-releases",
     name: "googleapis/js-genai Releases",
+    family: "google",
     type: "github-release",
     enabled: true,
     categoryHint: "ai-engineering",
@@ -108,6 +115,7 @@ export const SIGNAL_SOURCES: readonly SignalSourceConfig[] = [
   {
     id: "github-huggingface-transformers-releases",
     name: "huggingface/transformers Releases",
+    family: "huggingface",
     type: "github-release",
     enabled: true,
     categoryHint: "ai-engineering",
@@ -122,6 +130,7 @@ export const SIGNAL_SOURCES: readonly SignalSourceConfig[] = [
   {
     id: "github-huggingface-hub-releases",
     name: "huggingface/huggingface_hub Releases",
+    family: "huggingface",
     type: "github-release",
     enabled: true,
     categoryHint: "ai-engineering",
@@ -136,6 +145,7 @@ export const SIGNAL_SOURCES: readonly SignalSourceConfig[] = [
   {
     id: "linuxdo-develop",
     name: "LinuxDo Develop RSS",
+    family: "linuxdo",
     type: "rss",
     enabled: true,
     categoryHint: "ai-engineering",
@@ -149,6 +159,7 @@ export const SIGNAL_SOURCES: readonly SignalSourceConfig[] = [
   {
     id: "mit-technology-review",
     name: "MIT Technology Review",
+    family: "mit-technology-review",
     type: "rss",
     enabled: true,
     categoryHint: "ai-engineering",
@@ -162,6 +173,7 @@ export const SIGNAL_SOURCES: readonly SignalSourceConfig[] = [
   {
     id: "techcrunch-ai",
     name: "TechCrunch Artificial Intelligence",
+    family: "techcrunch",
     type: "rss",
     enabled: true,
     categoryHint: "ai-engineering",
@@ -175,6 +187,7 @@ export const SIGNAL_SOURCES: readonly SignalSourceConfig[] = [
   {
     id: "the-verge-ai",
     name: "The Verge AI",
+    family: "the-verge",
     type: "rss",
     enabled: true,
     categoryHint: "ai-engineering",
@@ -188,6 +201,7 @@ export const SIGNAL_SOURCES: readonly SignalSourceConfig[] = [
   {
     id: "linuxdo-news",
     name: "LinuxDo News RSS",
+    family: "linuxdo",
     type: "rss",
     enabled: true,
     categoryHint: "ai-engineering",
@@ -201,6 +215,7 @@ export const SIGNAL_SOURCES: readonly SignalSourceConfig[] = [
   {
     id: "linuxdo-resource",
     name: "LinuxDo Resource RSS",
+    family: "linuxdo",
     type: "rss",
     enabled: true,
     categoryHint: "ai-engineering",
@@ -214,6 +229,7 @@ export const SIGNAL_SOURCES: readonly SignalSourceConfig[] = [
   {
     id: "hn-ai-engineering",
     name: "Hacker News AI Engineering",
+    family: "hacker-news",
     type: "hacker-news",
     enabled: true,
     categoryHint: "ai-engineering",
@@ -228,6 +244,7 @@ export const SIGNAL_SOURCES: readonly SignalSourceConfig[] = [
   {
     id: "hn-show-ai-engineering",
     name: "Hacker News Show AI Engineering",
+    family: "hacker-news",
     type: "hacker-news",
     enabled: true,
     categoryHint: "ai-engineering",
@@ -242,6 +259,7 @@ export const SIGNAL_SOURCES: readonly SignalSourceConfig[] = [
   {
     id: "arxiv-agent-infra",
     name: "arXiv Agents and AI Infrastructure",
+    family: "arxiv",
     type: "arxiv",
     enabled: true,
     categoryHint: "ai-engineering",
@@ -255,6 +273,7 @@ export const SIGNAL_SOURCES: readonly SignalSourceConfig[] = [
   {
     id: "hf-daily-papers",
     name: "Hugging Face Daily Papers",
+    family: "huggingface",
     type: "hf-daily-papers",
     enabled: true,
     categoryHint: "ai-engineering",
@@ -267,6 +286,7 @@ export const SIGNAL_SOURCES: readonly SignalSourceConfig[] = [
   {
     id: "producthunt-ai-devtools",
     name: "Product Hunt AI Devtools",
+    family: "producthunt",
     type: "producthunt",
     enabled: true,
     categoryHint: "ai-engineering",
@@ -281,6 +301,7 @@ export const SIGNAL_SOURCES: readonly SignalSourceConfig[] = [
   {
     id: "openai-official-updates",
     name: "OpenAI Official Updates",
+    family: "openai",
     type: "web-changelog",
     enabled: true,
     categoryHint: "ai-engineering",
@@ -295,6 +316,7 @@ export const SIGNAL_SOURCES: readonly SignalSourceConfig[] = [
   {
     id: "anthropic-official-updates",
     name: "Anthropic Claude Release Notes",
+    family: "anthropic",
     type: "web-changelog",
     enabled: true,
     categoryHint: "ai-engineering",
@@ -309,6 +331,7 @@ export const SIGNAL_SOURCES: readonly SignalSourceConfig[] = [
   {
     id: "google-gemini-official-updates",
     name: "Google Gemini API Changelog",
+    family: "google",
     type: "web-changelog",
     enabled: true,
     categoryHint: "ai-engineering",
@@ -323,6 +346,7 @@ export const SIGNAL_SOURCES: readonly SignalSourceConfig[] = [
   {
     id: "market-a-share-news",
     name: "A-share Market News",
+    family: "a-share-market",
     type: "market-news",
     enabled: true,
     categoryHint: "markets",

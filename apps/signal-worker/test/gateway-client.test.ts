@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { requestGatewayJson } from "../src/services/gateway-client";
+import { GatewayRequestError, requestGatewayJson } from "../src/services/gateway-client";
 
 describe("gateway client", () => {
   it("falls back to the generate endpoint when the stream times out", async () => {
@@ -35,26 +35,14 @@ describe("gateway client", () => {
     expect(fetcher.mock.calls.every(([, init]) => init?.signal instanceof AbortSignal)).toBe(true);
   });
 
-  it("falls back to the generate endpoint when streaming exhausts the provider chain", async () => {
+  it("does not retry the full request when streaming exhausts the provider chain", async () => {
     const fetcher = vi.fn<typeof fetch>()
-      .mockResolvedValueOnce(new Response(
+      .mockResolvedValue(new Response(
         'event: error\ndata: {"type":"error","requestId":"request-1","error":{"code":"ALL_CANDIDATES_FAILED"}}\n\n',
         { headers: { "content-type": "text/event-stream" } },
-      ))
-      .mockResolvedValueOnce(Response.json({
-        ok: true,
-        requestId: "request-1",
-        data: {
-          text: "{\"ok\":true}",
-          json: { ok: true },
-          provider: "deepseek",
-          model: "deepseek-v4-flash",
-          fallbackIndex: 0,
-          latencyMs: 10,
-        },
-      }));
+      ));
 
-    const result = await requestGatewayJson({
+    const request = requestGatewayJson({
       fetcher,
       apiUrl: "https://gateway.example/api/ai/generate",
       token: "token",
@@ -62,11 +50,51 @@ describe("gateway client", () => {
       body: { task: "signal-briefing" },
     });
 
-    expect(result.data.provider).toBe("deepseek");
-    expect(fetcher).toHaveBeenCalledTimes(2);
+    await expect(request).rejects.toEqual(expect.objectContaining<Partial<GatewayRequestError>>({
+      failureCode: "GATEWAY_STREAM_ALL_CANDIDATES_FAILED",
+    }));
+    expect(fetcher).toHaveBeenCalledOnce();
     expect(fetcher.mock.calls.map(([url]) => String(url))).toEqual([
       "https://gateway.example/api/ai/stream",
-      "https://gateway.example/api/ai/generate",
     ]);
+  });
+
+  it("clears partial deltas when the stream resets before a provider fallback", async () => {
+    const events = [
+      { type: "start", requestId: "request-reset" },
+      { type: "delta", requestId: "request-reset", text: "{broken" },
+      { type: "reset", requestId: "request-reset", reason: "fallback" },
+      { type: "delta", requestId: "request-reset", text: '{"answer":42}' },
+      {
+        type: "done",
+        requestId: "request-reset",
+        data: {
+          text: '{"answer":42}',
+          json: { answer: 42 },
+          provider: "provider",
+          model: "model",
+          fallbackIndex: 1,
+          latencyMs: 12,
+        },
+      },
+    ];
+    const fetcher = vi.fn<typeof fetch>(async () => new Response(
+      events.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(""),
+      { headers: { "content-type": "text/event-stream" } },
+    ));
+    let partial = "";
+
+    const result = await requestGatewayJson({
+      fetcher,
+      apiUrl: "https://gateway.example/api/ai/generate",
+      token: "token",
+      invocationId: "invocation-reset",
+      body: { task: "signal-briefing" },
+      onDelta: (text) => { partial += text; },
+      onReset: () => { partial = ""; },
+    });
+
+    expect(partial).toBe('{"answer":42}');
+    expect(result.data.fallbackIndex).toBe(1);
   });
 });

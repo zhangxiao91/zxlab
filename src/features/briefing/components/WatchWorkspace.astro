@@ -1,0 +1,39 @@
+<section class="signal-watches" aria-labelledby="watch-workspace-title" data-watch-workspace>
+  <div class="signal-watches__heading">
+    <h2 id="watch-workspace-title">把值得等待的变化，留在下一份日报之外。</h2>
+    <p>Watch 只在你确认追踪条件后建立。后续观察保留原始来源，也可以随时明确结束。</p>
+  </div>
+
+  <p class="signal-watches__status" role="status" aria-live="polite" data-watch-load-status>
+    正在读取跨设备追踪…
+  </p>
+
+  <div data-watch-content hidden>
+    <div class="signal-watch-summary" data-watch-summary>
+      <article class="signal-watch-summary__main">
+        <div><strong data-watch-active-count>0</strong><span> 条正在观察</span></div>
+        <h3 data-watch-main-condition>等待第一个明确的追踪条件</h3>
+        <p><span data-watch-resolved-count>0</span> 条已结束；命中是待复核观察，不代表追踪条件已经成立。</p>
+      </article>
+      <article class="signal-watch-summary__latest">
+        <p>最近一次变化</p>
+        <h3 data-watch-latest-title>暂无新观察</h3>
+        <p data-watch-latest-copy>创建 Watch 后，最近的跨日证据会出现在这里。</p>
+      </article>
+      <article class="signal-watch-summary__quality">
+        <p>证据可追溯性</p>
+        <h3 data-watch-quality-title>等待可核查来源</h3>
+        <p data-watch-quality-copy>每条观察都会保留可用的原始来源；主题相似只代表需要复核。</p>
+      </article>
+    </div>
+
+    <div class="signal-watch-rail__heading">
+      <h3>追踪条件与最新观察</h3>
+      <p>选择一条 Watch 查看最近证据；已结束的条件仍保留，观察次数会持续累计。</p>
+    </div>
+    <div class="signal-watch-rail" data-watch-list></div>
+    <p class="signal-watch-empty" data-watch-empty hidden>
+      还没有跨日追踪。阅读日报后选择“继续追踪”，编辑条件并确认；确认前不会创建 Watch。
+    </p>
+  </div>
+</section>

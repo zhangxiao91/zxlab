@@ -67,6 +67,34 @@ describe("Signal prompts", () => {
     expect(editorial.system).toContain("public significance");
   });
 
+  it("reduces the requested item range when candidates collapse into fewer independent dossiers", () => {
+    const candidates = Array.from({ length: 12 }, (_, index) => candidate(`story-${index}`));
+    const storyDossiers = [
+      {
+        id: "clustered-story",
+        anchorCandidateId: "story-0",
+        currentCandidateIds: ["story-0", "story-1", "story-2", "story-3", "story-4"],
+        historicalSignals: [],
+        priorCoverage: [],
+      },
+      ...candidates.slice(5).map((value) => ({
+        id: `dossier-${value.id}`,
+        anchorCandidateId: value.id,
+        currentCandidateIds: [value.id],
+        historicalSignals: [],
+        priorCoverage: [],
+      })),
+    ];
+
+    const briefing = buildBriefingPrompt({ date: "2026-08-10", candidates, memories: [], storyDossiers });
+    const editorial = buildEditorialPrompt({ candidates, memories: [], storyDossiers });
+
+    expect(briefing.system).toContain("Return 1 to 8 items");
+    expect(briefing.system).toContain("Never split one storyDossier across multiple items");
+    expect(briefing.system).toContain("never pad the edition to ten with duplicate stories");
+    expect(editorial.system).toContain("support a 1-8 item briefing");
+  });
+
   it("supplies bounded story history to both editorial stages", () => {
     const storyDossiers = [{
       id: "story-1",

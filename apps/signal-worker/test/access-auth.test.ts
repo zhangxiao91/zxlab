@@ -2,6 +2,7 @@ import { SignJWT, generateKeyPair } from "jose";
 import { describe, expect, it } from "vitest";
 import { corsHeaders } from "../src/lib/http";
 import { requireWriteAccess, verifyAccessJwt } from "../src/middleware/auth";
+import signalWorker from "../src/index";
 
 const issuer = "https://zxdx1.cloudflareaccess.com";
 const audience = "its_my_first_tag_www";
@@ -10,6 +11,7 @@ function accessEnv(overrides: Partial<Record<keyof Env, unknown>> = {}): Env {
   return {
     ENVIRONMENT: "production",
     ZX_SIGNAL_ACCESS_ENABLED: "true",
+    ZX_SIGNAL_ALLOWED_ORIGINS: "",
     CF_ACCESS_TEAM_DOMAIN: issuer,
     CF_ACCESS_AUD: audience,
     ...overrides,
@@ -71,6 +73,18 @@ describe("Cloudflare Access authentication", () => {
     const headers = { authorization: "Bearer runtime-service-secret" };
     await expect(requireWriteAccess(new Request("https://signal.example/api/annotations", { method: "POST", headers }), env)).resolves.toBeUndefined();
     await expect(requireWriteAccess(new Request("https://signal.example/api/memory/consolidate", { method: "POST", headers }), env)).resolves.toBeUndefined();
+  });
+
+  it("rejects unauthenticated Watch reads and writes at the Worker seam", async () => {
+    const disabled = accessEnv({ ZX_SIGNAL_ACCESS_ENABLED: "false" });
+    const read = await signalWorker.fetch(new Request("https://signal.example/api/watches"), disabled);
+    const write = await signalWorker.fetch(new Request("https://signal.example/api/watches", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ briefingId: "briefing", briefingItemId: "item", condition: "Track it." }),
+    }), disabled);
+    expect(read.status).toBe(401);
+    expect(write.status).toBe(401);
   });
 
   it("allows the annotation stream accept header in CORS preflight", () => {
