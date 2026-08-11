@@ -128,6 +128,8 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
     import { ScrollTrigger } from "gsap/ScrollTrigger";
     import {
       getLatestBriefing,
+      privateAccessUrl,
+      SignalApiError,
       submitAnnotationStream,
       getMemories,
       getWatches,
@@ -196,6 +198,11 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
     const closeButton = document.querySelector<HTMLButtonElement>("[data-panel-close]");
     const submitLabel = document.querySelector<HTMLElement>("[data-submit-label]");
     const submitError = document.querySelector<HTMLElement>("[data-annotation-error]");
+    const annotationAccessLink = document.querySelector<HTMLAnchorElement>("[data-annotation-access-link]");
+    annotationAccessLink?.addEventListener("click", (event) => {
+      event.preventDefault();
+      window.open(annotationAccessLink.dataset.accessUrl ?? privateAccessUrl, "_blank", "noopener,noreferrer");
+    });
     const commentLabel = document.querySelector<HTMLElement>("[data-comment-label]");
     const briefingPage = document.querySelector<HTMLElement>("[data-briefing-state]");
     let briefingId = document.querySelector<HTMLElement>("[data-briefing-id]")?.dataset.briefingId ?? "";
@@ -282,6 +289,7 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
 			panelTrigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       form.reset();
       if (submitError) submitError.hidden = true;
+      if (annotationAccessLink) annotationAccessLink.hidden = true;
       result?.setAttribute("hidden", "");
       if (watchConfirm) watchConfirm.hidden = true;
       if (watchConfirmStatus) watchConfirmStatus.hidden = true;
@@ -830,12 +838,14 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
         }
         if (submitLabel) submitLabel.textContent = "再次发送";
       } catch (error) {
+        const accessRequired = error instanceof SignalApiError && error.code === "SIGNAL_ACCESS_REQUIRED";
         if (submitError) {
           submitError.hidden = false;
           submitError.textContent = error instanceof Error
             ? `发送失败：${error.message}。评论内容已保留，可直接重试。`
             : "发送失败，评论内容已保留。";
         }
+        if (annotationAccessLink) annotationAccessLink.hidden = !accessRequired;
         if (submitLabel) submitLabel.textContent = "重新发送";
       } finally {
         if (submit) submit.disabled = false;

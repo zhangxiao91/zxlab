@@ -30,7 +30,7 @@ const dataMode: "api" | "mock" = configuredMode === "api" || configuredMode === 
 const defaultApiBase = import.meta.env.DEV ? "" : "https://signal-api.zx-dx.xyz";
 const apiBase = String(import.meta.env.PUBLIC_SIGNAL_API_BASE ?? defaultApiBase).replace(/\/$/, "");
 const privateApiBase = import.meta.env.DEV ? apiBase : "/api/private/signal";
-const privateAccessUrl = "/lab/risk/";
+export const privateAccessUrl = "/api/private/signal/api/watches";
 let mockWatches: WatchDossier[] = [];
 
 export class SignalApiError extends Error {
@@ -169,7 +169,8 @@ export async function* submitAnnotationStream(input: AnnotationInput): AsyncGene
     try {
       yield { type: "done", response: await submitAnnotation(input) };
       return;
-    } catch {
+    } catch (fallbackCause) {
+      if (fallbackCause instanceof SignalApiError) throw fallbackCause;
       throw new SignalApiError("SIGNAL_API_UNAVAILABLE", networkMessage(cause), 503);
     }
   }

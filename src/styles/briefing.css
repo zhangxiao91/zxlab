@@ -825,6 +825,9 @@
 .annotation-panel form button { margin-top: 1rem; }
 .annotation-panel form button:disabled { cursor: wait; opacity: 0.55; }
 .annotation-form__error { margin-top: 0.75rem; color: #9c3f32; font-size: 0.78rem; line-height: 1.5; }
+.annotation-access-link { display: inline-flex; align-items: center; justify-content: space-between; gap: 1rem; width: 100%; margin-top: 0.85rem; padding: 0.85rem 1rem; background: #1d1f19; color: #f3f1e8; font-size: 0.82rem; text-decoration: none; }
+.annotation-access-link[hidden] { display: none; }
+.annotation-access-link:hover { background: #303329; }
 .annotation-result { margin-top: 3rem; padding-top: 2rem; box-shadow: inset 0 1px rgba(25, 26, 22, 0.12); }
 .annotation-reply > div { margin-top: 0.8rem; color: #4e4f48; font-size: 1.02rem; line-height: 1.75; }
 .memory-candidate { margin-top: 2.5rem; padding: 1.5rem; border-radius: 1.6rem; background: #1d1f19; color: #f3f1e8; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1); }
