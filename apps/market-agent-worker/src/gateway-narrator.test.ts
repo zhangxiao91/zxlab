@@ -65,6 +65,24 @@ test("gateway stream errors preserve a bounded diagnostic category in fallback",
   assert.doesNotMatch(result.result.limitations.join(" "), /sensitive upstream detail/);
 });
 
+test("gateway returns on the terminal SSE event without waiting for the stream to close", async () => {
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode(
+        'event: done\ndata: {"type":"done","requestId":"request-open","data":{"json":{"status":"success","headline":"ok","summary":"ok","observations":[],"portfolioImpacts":[],"watchNext":[],"limitations":[],"evidenceFingerprint":"sha256:g"}}}\n\n',
+      ));
+    },
+  });
+  const narrator = new GatewayNarrator({
+    apiUrl: "https://gateway.example/api/ai/generate",
+    token: "secret",
+    fetcher: async () => new Response(stream, { headers: { "content-type": "text/event-stream" } }),
+  });
+
+  const result = await narrator.narrate({ workflow: "close_review", evidence }) as { headline: string };
+  assert.equal(result.headline, "ok");
+});
+
 test("gateway receives a bounded session-aware projection instead of raw bar history", async () => {
   const bars = Array.from({ length: 240 }, (_, index) => ({
     instrumentId: "SSE:600000",

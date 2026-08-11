@@ -45,21 +45,56 @@ export class GatewayNarrator implements Narrator {
 }
 
 async function readTerminalEvent(response: Response): Promise<unknown> {
-  const raw = await response.text();
-  if (new TextEncoder().encode(raw).byteLength > 512 * 1024) throw new Error("MARKET_AGENT_GATEWAY_RESPONSE_TOO_LARGE");
-  for (const block of raw.split(/\r?\n\r?\n/)) {
-    const data = block.split(/\r?\n/).filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trimStart()).join("\n");
-    if (!data) continue;
-    const event = JSON.parse(data) as Record<string, unknown>;
+  if (!response.body) throw new Error("MARKET_AGENT_GATEWAY_STREAM_INCOMPLETE");
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let bytes = 0;
+  let buffer = "";
+  let dataLines: string[] = [];
+
+  const parseEvent = (): unknown | undefined => {
+    if (!dataLines.length) return undefined;
+    const data = dataLines.join("\n");
+    dataLines = [];
+    let event: Record<string, unknown>;
+    try { event = JSON.parse(data) as Record<string, unknown>; }
+    catch { throw new Error("MARKET_AGENT_GATEWAY_STREAM_INVALID_JSON"); }
     if (event.type === "error") {
       const error = record(event.error);
-      const code = typeof error?.code === "string" && /^[A-Z0-9_]{1,64}$/.test(error.code)
-        ? error.code
-        : "UNKNOWN";
+      const code = typeof error?.code === "string" && /^[A-Z0-9_]{1,64}$/.test(error.code) ? error.code : "UNKNOWN";
       throw new Error(`MARKET_AGENT_GATEWAY_STREAM_${code}`);
     }
-    if (event.type === "done") return { data: event.data };
+    return event.type === "done" ? { data: event.data } : undefined;
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    bytes += value.byteLength;
+    if (bytes > 512 * 1024) throw new Error("MARKET_AGENT_GATEWAY_RESPONSE_TOO_LARGE");
+    buffer += decoder.decode(value, { stream: true });
+    while (true) {
+      const newline = buffer.indexOf("\n");
+      if (newline < 0) break;
+      const line = buffer.slice(0, newline).replace(/\r$/, "");
+      buffer = buffer.slice(newline + 1);
+      if (!line) {
+        const terminal = parseEvent();
+        if (terminal !== undefined) {
+          void reader.cancel();
+          return terminal;
+        }
+      } else if (line.startsWith("data:")) {
+        dataLines.push(line.slice(5).trimStart());
+      }
+    }
   }
+  buffer += decoder.decode();
+  if (buffer.trim()) {
+    for (const line of buffer.split(/\r?\n/)) if (line.startsWith("data:")) dataLines.push(line.slice(5).trimStart());
+  }
+  const terminal = parseEvent();
+  if (terminal !== undefined) return terminal;
   throw new Error("MARKET_AGENT_GATEWAY_STREAM_INCOMPLETE");
 }
 
