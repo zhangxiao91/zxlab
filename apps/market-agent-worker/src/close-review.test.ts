@@ -10,7 +10,10 @@ const snapshot: MarketSnapshot = { schemaVersion: "market-snapshot.v1", asOf: "2
 test("close review seals evidence before narration", async () => {
   const service = new CloseReviewService({ getCurrentSnapshot: async () => snapshot });
   const result = await service.execute({ runId: "run-1", command: { profileId: "p1", trigger: "manual", workflow: "close_review", idempotencyKey: "close-review-1" }, instrumentIds: ["SSE:600000"], watchlistRevision: "w1" });
-  assert.equal(result.result.mode, "market-only"); assert.equal(result.evidence.items.some((item) => item.kind === "market_event"), true); assert.equal(result.result.observations[0]?.evidenceIds[0], result.evidence.items.at(-1)?.id);
+  const eventEvidence = result.evidence.items.find((item) => item.kind === "market_event");
+  assert.equal(result.result.mode, "market-only");
+  assert.ok(eventEvidence);
+  assert.ok(result.result.observations.some((item) => item.evidenceIds.includes(eventEvidence.id)));
 });
 
 test("close review seals only context references while passing context ephemerally", async () => {

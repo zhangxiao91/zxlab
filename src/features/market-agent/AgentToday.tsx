@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import type { TradingScreenAction, TradingScreenStatus } from "../trading/screen";
-import AskPanel from "./AskPanel";
+import AskPanel, { RunActivity } from "./AskPanel";
 import {
   type AgentObservationView,
   type AgentRunMode,
@@ -91,8 +91,8 @@ export default function AgentToday({
       <main className="risk-main agent-main">
         <header className="agent-command-header">
           <div>
-            <span>MARKET AGENT</span>
-            <strong>提问、回答、证据在同一工作区。</strong>
+            <h1 className="agent-command-title">Agent 工作区</h1>
+            <p>盘后复盘、提问、工具调用与证据在同一条时间线上。</p>
           </div>
           <div>
             <button type="button" onClick={() => void refresh()} disabled={loading}>
@@ -133,21 +133,19 @@ export default function AgentToday({
           </section>
         )}
         {setupNote && <p className="agent-setup-note">{setupNote}</p>}
-        <div className="agent-review-workbench">
-          <div className="agent-review-workbench__canvas">
-            <AskPanel
-              runs={runs}
-              instruments={askInstruments}
-              onRunUpdate={updateRun}
-            />
-          </div>
-          <EvidenceInspector
+        <section className="agent-conversation" aria-label="Agent 对话与执行记录">
+          <LatestReviewThread
             events={events}
             latest={latest}
             activeEvidenceId={activeRun}
             onToggle={toggleEvidence}
           />
-        </div>
+          <AskPanel
+            runs={runs}
+            instruments={askInstruments}
+            onRunUpdate={updateRun}
+          />
+        </section>
         <details className="agent-context">
           <summary>
             <div>
@@ -370,7 +368,7 @@ export default function AgentToday({
   );
 }
 
-function EvidenceInspector({
+function LatestReviewThread({
   events,
   latest,
   activeEvidenceId,
@@ -381,35 +379,54 @@ function EvidenceInspector({
   activeEvidenceId: string | null;
   onToggle: (evidenceId: string) => void;
 }) {
+  if (!latest || latest.workflow === "ask") return null;
   return (
-    <aside className="agent-evidence-inspector" aria-label="Evidence inspector">
-      <header>
-        <div><strong>Evidence</strong><span>{events.length}</span></div>
-        <small>{latest?.evidenceFingerprint ? "sealed" : "waiting"}</small>
-      </header>
-      <div className="agent-evidence-inspector__list">
-        {events.map((event) => (
-          <article className={activeEvidenceId === event.id ? "is-active" : ""} key={event.id}>
-            <button type="button" onClick={() => onToggle(event.id)} aria-expanded={activeEvidenceId === event.id}>
-              <span className={`agent-observation agent-observation--${event.class}`}>{event.class}</span>
-              <strong>{event.title}</strong>
+    <section className="agent-review-thread" aria-label="最近一次盘后复盘">
+      <article className="agent-message agent-message--user">
+        <header>
+          <strong>{latest.workflow === "morning_brief" ? "生成盘前简报" : "执行盘后复盘"}</strong>
+          <time>{date(latest.createdAt)}</time>
+        </header>
+        <p>{modeLabel(latest.result?.mode, latest.portfolioSnapshotId)} · 已确认观察列表</p>
+      </article>
+      <RunActivity status={latest.status} runId={latest.id} limitations={latest.result?.limitations} />
+      <article className="agent-message agent-message--assistant agent-review-result">
+        <header>
+          <div>
+            <span className={`agent-status agent-status--${latest.status}`}>{statusLabel(latest.status)}</span>
+            <strong>{latest.result?.headline ?? "正在收集已批准的市场事实"}</strong>
+          </div>
+          <code>{latest.id}</code>
+        </header>
+        <p>{latest.result?.summary ?? "事实收集完成后，复盘结果会出现在这里。"}</p>
+        <div className="agent-review-result__evidence">
+          {events.map((event) => (
+            <details className={activeEvidenceId === event.id ? "is-active" : ""} key={event.id} open={activeEvidenceId === event.id}>
+              <summary onClick={(clickEvent) => { clickEvent.preventDefault(); onToggle(event.id); }}>
+                <span className={`agent-observation agent-observation--${event.class}`}>{observationLabel(event.class)}</span>
+                <strong>{event.title}</strong>
+              </summary>
               <p>{event.explanation}</p>
-            </button>
-            {activeEvidenceId === event.id && (
               <div className="agent-evidence-row">
                 {event.evidenceIds.map((id) => <code key={id}>{id}</code>)}
               </div>
-            )}
-          </article>
-        ))}
-        {!events.length && (
-          <p className="agent-evidence-inspector__empty">
-            Run 完成后，结论引用会固定在这里。
-          </p>
-        )}
-      </div>
-    </aside>
+            </details>
+          ))}
+          {!events.length && <p className="agent-empty">结论会在运行完成后连同证据引用显示。</p>}
+        </div>
+        {latest.result?.limitations.length ? (
+          <details className="agent-review-result__limitations">
+            <summary>数据限制 · {latest.result.limitations.length}</summary>
+            <ul>{latest.result.limitations.map((item) => <li key={item}>{item}</li>)}</ul>
+          </details>
+        ) : null}
+      </article>
+    </section>
   );
+}
+
+function observationLabel(value: AgentObservationView["class"]) {
+  return ({ fact: "事实", inference: "推断", unknown: "未知" } as const)[value];
 }
 
 function RunRow({

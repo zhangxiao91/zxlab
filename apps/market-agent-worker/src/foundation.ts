@@ -51,10 +51,10 @@ export async function buildDeterministicCloseReview(command: MarketAgentCommand,
     reliable: snapshot.quality.reliable,
   }, ...snapshot.data.quotes.map((quote, index) => ({ id: `${runId}:quote:${index}`, kind: "market_fact" as const, origin: "server-observed" as const, value: { type: "quote", ...quote }, reliable: quote.quality === "live" && !quote.stale }))];
   snapshot.data.bars.forEach((series, index) => items.push({ id: `${runId}:bars:${index}`, kind: "market_fact", origin: "server-observed", value: { type: "bar_series", ...series }, reliable: series.bars.length > 0 }));
-  snapshot.data.news.forEach((news, index) => items.push({ id: `${runId}:news:${index}`, kind: "market_fact", origin: "server-observed", value: { evidenceType: "news", ...news }, reliable: Boolean(news.publishedAt) && news.warnings.length === 0 }));
-  snapshot.data.announcements.forEach((announcement, index) => items.push({ id: `${runId}:announcement:${index}`, kind: "market_fact", origin: "server-observed", value: { evidenceType: "announcement", ...announcement }, reliable: Boolean(announcement.publishedAt) && announcement.warnings.length === 0 }));
+  snapshot.data.news.forEach((news, index) => items.push({ id: `${runId}:news:${index}`, kind: "market_fact", origin: "server-observed", value: { evidenceType: "news", ...news }, reliable: externalTextReliable(news.publishedAt, news.warnings) }));
+  snapshot.data.announcements.forEach((announcement, index) => items.push({ id: `${runId}:announcement:${index}`, kind: "market_fact", origin: "server-observed", value: { evidenceType: "announcement", ...announcement }, reliable: externalTextReliable(announcement.publishedAt, announcement.warnings) }));
   snapshot.data.status.forEach((status, index) => items.push({ id: `${runId}:status:${index}`, kind: "market_fact", origin: "server-observed", value: { type: "market_status", ...status }, reliable: status.reliable }));
-  for (const capability of snapshot.capabilities.filter((item) => item.status !== "operational")) items.push({ id: `${runId}:limitation:${items.length}`, kind: "limitation", origin: "server-observed", value: { capability: capability.id, status: capability.status, warnings: capability.warnings }, reliable: true });
+  for (const capability of snapshot.capabilities.filter(materialCapabilityLimitation)) items.push({ id: `${runId}:limitation:${items.length}`, kind: "limitation", origin: "server-observed", value: { capability: capability.id, status: capability.status, freshness: capability.freshness, warnings: capability.warnings }, reliable: true });
   if (!snapshot.quality.reliable || snapshot.quality.warnings.length) items.push({ id: `${runId}:limitation:quality`, kind: "limitation", origin: "server-observed", value: { quality: snapshot.quality.status, freshness: snapshot.quality.freshness, warnings: snapshot.quality.warnings, unavailableCapabilities: snapshot.quality.unavailableCapabilities }, reliable: true });
   if (portfolio) {
     if (portfolio.reliable) {
@@ -178,6 +178,17 @@ export async function buildDeterministicAskEvidence(input: {
 function toContextUses(contexts: ConfirmedContext[]): ConfirmedContextUse[] {
   const usedAt = new Date().toISOString();
   return contexts.map((context) => ({ memoryId: context.memoryId, role: context.role, revisionHash: context.revisionHash, usedAt }));
+}
+
+function externalTextReliable(publishedAt: string | null, warnings: string[]): boolean {
+  return Boolean(publishedAt) && warnings.every((warning) => warning === "external_text_is_untrusted");
+}
+
+function materialCapabilityLimitation(capability: MarketSnapshot["capabilities"][number]): boolean {
+  if (!capability.required) return false;
+  if (capability.status === "unavailable") return true;
+  if (capability.freshness === "stale" || capability.freshness === "unknown") return true;
+  return capability.warnings.length > 0;
 }
 
 export class MemoryRunRepository {

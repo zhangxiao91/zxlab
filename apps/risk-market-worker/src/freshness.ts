@@ -128,7 +128,8 @@ export async function assessIntradayFreshness(
       : await previousTradingDate(status.calendarDate, calendar);
     const fresh = expectedCloseDate != null
       && input.marketTimestamp != null
-      && isSessionClose(input.marketTimestamp, expectedCloseDate, 15 * 60);
+      && (isSessionClose(input.marketTimestamp, expectedCloseDate, 15 * 60)
+        || isSameDayPostCloseObservation(input.marketTimestamp, input.receivedAt, expectedCloseDate));
     return {
       freshness: fresh ? "fresh" : expectedCloseDate ? "stale" : "unknown",
       stale: !fresh,
@@ -207,11 +208,20 @@ export function applyIntradayFreshnessDecision<T extends IntradayFreshnessFact>(
     warnings: unique([
       ...warnings,
       ...decision.warnings,
-      decision.freshness === "stale" && Number.isFinite(decision.ageSeconds)
-        ? `报价已过期 ${Math.round(decision.ageSeconds)} 秒`
-        : "",
     ]),
   };
+}
+
+function isSameDayPostCloseObservation(marketTimestamp: string, receivedAt: string, date: string): boolean {
+  const market = Date.parse(marketTimestamp);
+  const received = Date.parse(receivedAt);
+  const minutes = shanghaiMinutes(marketTimestamp);
+  return Number.isFinite(market)
+    && Number.isFinite(received)
+    && market <= received
+    && isSameShanghaiDate(marketTimestamp, date)
+    && minutes !== null
+    && minutes >= 15 * 60;
 }
 
 async function previousTradingDate(date: string, calendar: TradingCalendar): Promise<string | null> {

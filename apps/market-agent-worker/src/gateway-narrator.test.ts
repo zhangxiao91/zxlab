@@ -50,6 +50,21 @@ test("Ask uses the dedicated answer task and keeps user wording outside the evid
   assert.equal(result.headline, "ok");
 });
 
+test("gateway stream errors preserve a bounded diagnostic category in fallback", async () => {
+  const narrator = new GatewayNarrator({
+    apiUrl: "https://gateway.example/api/ai/generate",
+    token: "secret",
+    fetcher: async () => new Response(
+      'event: error\ndata: {"type":"error","requestId":"request-1","error":{"code":"ALL_CANDIDATES_FAILED","message":"sensitive upstream detail"}}\n\n',
+      { headers: { "content-type": "text/event-stream" } },
+    ),
+  });
+
+  const result = await (await import("./narration.ts")).narrateWithRepair(narrator, { workflow: "close_review", evidence });
+  assert.match(result.result.limitations.at(-1) ?? "", /模型候选均失败/);
+  assert.doesNotMatch(result.result.limitations.join(" "), /sensitive upstream detail/);
+});
+
 test("gateway receives a bounded session-aware projection instead of raw bar history", async () => {
   const bars = Array.from({ length: 240 }, (_, index) => ({
     instrumentId: "SSE:600000",

@@ -173,3 +173,35 @@ test("deterministic fallback never promotes an unreliable market event to fact",
   assert.equal(result.observations[0]?.class, "unknown");
   assert.match(result.observations[0]?.explanation ?? "", /底层行情不可靠/);
 });
+
+test("closed-session fallback collapses duplicate quality warnings and never prints raw limitation JSON", async () => {
+  const closedEvidence: SealedEvidenceBundle = {
+    ...evidence,
+    items: [
+      {
+        id: "snapshot-context",
+        kind: "market_fact",
+        origin: "server-observed",
+        reliable: false,
+        value: {
+          type: "snapshot_context",
+          quality: { status: "degraded", reliable: false, freshness: "stale", warnings: ["闭市阶段最近有效收盘应为 2026-08-11 15:00", "报价已过期 733 秒"], unavailableCapabilities: [] },
+          markets: [{ exchange: "SSE", session: "closed", open: false, reliable: true, freshness: "fresh" }],
+        },
+      },
+      { id: "stale-quote", kind: "market_fact", origin: "server-observed", reliable: false, value: { type: "quote", instrumentId: "SSE:600000", price: 9.21, quality: "stale", stale: true } },
+      { id: "news", kind: "market_fact", origin: "server-observed", reliable: false, value: { evidenceType: "news", title: "fixture", warnings: ["external_text_is_untrusted"] } },
+      { id: "quotes-limit", kind: "limitation", origin: "server-observed", reliable: true, value: { capability: "quotes", status: "degraded", warnings: ["闭市阶段最近有效收盘应为 2026-08-11 15:00", "报价已过期 733 秒"] } },
+      { id: "empty-limit", kind: "limitation", origin: "server-observed", reliable: true, value: { capability: "announcements:SSE:600000", status: "degraded", warnings: [] } },
+      { id: "quality-limit", kind: "limitation", origin: "server-observed", reliable: true, value: { quality: "degraded", freshness: "stale", warnings: ["闭市阶段最近有效收盘应为 2026-08-11 15:00", "报价已过期 733 秒"], unavailableCapabilities: [] } },
+    ],
+  };
+
+  const result = await new DeterministicNarrator().narrate({ workflow: "close_review", evidence: closedEvidence });
+  const joined = result.limitations.join("\n");
+
+  assert.doesNotMatch(joined, /证据限制|\{"capability"/);
+  assert.equal(result.limitations.filter((item) => item.includes("闭市阶段最近有效收盘")).length, 1);
+  assert.equal(result.limitations.filter((item) => item.includes("报价已过期")).length, 1);
+  assert.doesNotMatch(joined, /announcements:SSE:600000/);
+});

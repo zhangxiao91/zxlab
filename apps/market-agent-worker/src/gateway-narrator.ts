@@ -51,7 +51,13 @@ async function readTerminalEvent(response: Response): Promise<unknown> {
     const data = block.split(/\r?\n/).filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trimStart()).join("\n");
     if (!data) continue;
     const event = JSON.parse(data) as Record<string, unknown>;
-    if (event.type === "error") throw new Error("MARKET_AGENT_GATEWAY_STREAM_ERROR");
+    if (event.type === "error") {
+      const error = record(event.error);
+      const code = typeof error?.code === "string" && /^[A-Z0-9_]{1,64}$/.test(error.code)
+        ? error.code
+        : "UNKNOWN";
+      throw new Error(`MARKET_AGENT_GATEWAY_STREAM_${code}`);
+    }
     if (event.type === "done") return { data: event.data };
   }
   throw new Error("MARKET_AGENT_GATEWAY_STREAM_INCOMPLETE");

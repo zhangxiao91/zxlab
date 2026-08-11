@@ -27,12 +27,11 @@ export class DeterministicNarrator implements Narrator {
       const direction = event.kind === "price_rise" ? "上涨" : event.kind === "price_fall" ? "下跌" : "出现变化";
       return { id: `deterministic-${index}`, class: item.reliable ? "fact" : "unknown", importance: Math.abs(Number(event.actual ?? 0)) >= 1000 ? "high" : "medium", title: `${event.instrumentId ?? "标的"} ${direction}`, explanation: item.reliable ? `确定性规则检测到 ${String(event.actual ?? "未知")} bps 的价格变化。` : `规则检测到 ${String(event.actual ?? "未知")} bps 的价格变化，但底层行情不可靠，当前只能标记为未知。`, evidenceIds: [item.id] };
     });
-    const factObservations = input.workflow === "ask"
-      ? facts.slice(0, 24).flatMap((item, index) => askFactObservation(item, index, marketState))
-      : [];
-    const observations = input.workflow === "ask"
-      ? [...factObservations, ...eventObservations]
-      : eventObservations;
+    const factObservations = facts
+      .filter((item) => input.workflow === "ask" || record(item.value)?.type === "quote")
+      .slice(0, input.workflow === "ask" ? 24 : 12)
+      .flatMap((item, index) => askFactObservation(item, index, marketState));
+    const observations = [...factObservations, ...eventObservations];
     const portfolioImpacts: AgentObservation[] = input.evidence.items.flatMap((item, index) => {
       const value = item.value as { type?: unknown; impact?: { marketValue?: unknown; unrealizedPnl?: unknown; concentration?: unknown } };
       if (item.kind !== "portfolio_impact" || !item.reliable || value.type !== "risk_impact" || !value.impact) return [];
@@ -42,11 +41,12 @@ export class DeterministicNarrator implements Narrator {
       return [{ id: `deterministic-portfolio-${index}`, class: "fact", importance: "medium", title: "本地持仓风险快照已重估", explanation: `服务端已按当前可靠行情重估 ${concentrationCount} 个持仓；估算市值 ${Number.isFinite(marketValue) ? marketValue.toFixed(2) : "未知"}，未实现盈亏 ${Number.isFinite(unrealizedPnl) ? unrealizedPnl.toFixed(2) : "未知"}。`, evidenceIds: [item.id] }];
     });
     const declaredLimitations = input.evidence.items.filter((item) => item.kind === "limitation");
+    const declaredMessages = declaredLimitations.flatMap((item) => limitationMessages(item.value));
     const limitations = [...new Set([
-      ...(facts.some((item) => !item.reliable) ? ["部分市场事实不可靠，结果仅供观察，不能视为完整复盘。"] : []),
+      ...(facts.some(materiallyUnreliableFact) && !marketState.warnings.length && !declaredMessages.length ? ["部分必要市场事实暂不可用，本次结果仅覆盖可验证内容。"] : []),
       ...(marketState.claimPolicy === "current-price-claims-forbidden" ? ["当前行情鲜度或交易时段状态不足，不得将最近观测值表述为当前价格。"] : []),
-      ...marketState.warnings.map((warning) => `行情限制：${warning}`),
-      ...declaredLimitations.map((item) => `证据限制：${JSON.stringify(item.value)}`),
+      ...marketState.warnings.map((warning) => `数据限制：${warning}`),
+      ...declaredMessages,
     ])];
     const label = input.workflow === "ask"
       ? `受限问答：${askScopeLabel(input.askScope)}`
@@ -57,10 +57,39 @@ export class DeterministicNarrator implements Narrator {
   }
 }
 
+function materiallyUnreliableFact(item: SealedEvidenceBundle["items"][number]): boolean {
+  if (item.reliable) return false;
+  const value = record(item.value);
+  const warnings = Array.isArray(value?.warnings) ? value.warnings.filter((warning): warning is string => typeof warning === "string") : [];
+  return !((value?.evidenceType === "news" || value?.evidenceType === "announcement")
+    && warnings.length > 0
+    && warnings.every((warning) => warning === "external_text_is_untrusted"));
+}
+
+function limitationMessages(value: unknown): string[] {
+  const limitation = record(value);
+  if (!limitation) return [];
+  const warnings = Array.isArray(limitation.warnings)
+    ? limitation.warnings.filter((warning): warning is string => typeof warning === "string")
+    : [];
+  if (warnings.length) return warnings.map((warning) => `数据限制：${warning}`);
+  if (typeof limitation.limitation === "string") return [`数据限制：${limitation.limitation}`];
+  if (limitation.status === "unavailable" && typeof limitation.capability === "string") return [`数据能力暂不可用：${limitation.capability}`];
+  return [];
+}
+
 export async function narrateWithRepair(narrator: Narrator, input: NarrationInput & { repair?: (issues: string[]) => Promise<unknown> }): Promise<{ result: AgentNarration; repaired: boolean; issues: string[] }> {
   let candidate: unknown;
   try { candidate = await narrator.narrate(input); }
-  catch { const fallback = await new DeterministicNarrator().narrate(input); return { result: { ...fallback, status: "partial", limitations: [...fallback.limitations, "Gateway 暂不可用，已降级为确定性结果。"] }, repaired: false, issues: ["gateway unavailable"] }; }
+  catch (error) {
+    const category = gatewayFailureCategory(error);
+    const fallback = await new DeterministicNarrator().narrate(input);
+    return {
+      result: { ...fallback, status: "partial", limitations: [...fallback.limitations, `Gateway 暂不可用（${category}），已降级为确定性结果。`] },
+      repaired: false,
+      issues: [`gateway unavailable: ${category}`],
+    };
+  }
   let issues = validateNarration(candidate, input);
   if (!issues.length) return { result: candidate as AgentNarration, repaired: false, issues };
   const repair = input.repair ?? (narrator.repair ? (repairIssues: string[]) => narrator.repair!({ ...input, issues: repairIssues }) : undefined);
@@ -75,6 +104,18 @@ export async function narrateWithRepair(narrator: Narrator, input: NarrationInpu
   }
   const fallback = await new DeterministicNarrator().narrate(input);
   return { result: { ...fallback, status: "partial", limitations: [...fallback.limitations, "叙事输出未通过安全校验，已降级为确定性结果。"] }, repaired: Boolean(repair), issues };
+}
+
+function gatewayFailureCategory(error: unknown): string {
+  const code = error instanceof Error ? error.message : "";
+  if (error instanceof DOMException && error.name === "TimeoutError" || code.includes("TIMEOUT")) return "请求超时";
+  if (/HTTP_(401|403)$/.test(code) || code.includes("UNAUTHORIZED") || code.includes("FORBIDDEN")) return "鉴权失败";
+  if (/HTTP_429$/.test(code) || code.includes("RATE_LIMIT")) return "请求限流";
+  if (code.includes("ALL_CANDIDATES_FAILED")) return "模型候选均失败";
+  if (code.includes("NOT_CONFIGURED")) return "服务配置缺失";
+  if (code.includes("INVALID_JSON") || code.includes("STREAM_INCOMPLETE") || code.includes("RESPONSE_TOO_LARGE")) return "响应协议异常";
+  if (/HTTP_5\d\d$/.test(code)) return "上游服务异常";
+  return "连接异常";
 }
 
 function askScopeLabel(scope: AskScope | undefined): string {

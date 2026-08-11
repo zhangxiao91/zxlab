@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { OfficialCnTradingCalendar } from "./calendar.ts";
-import { assessDailyBarFreshness, assessIntradayFreshness } from "./freshness.ts";
+import { applyIntradayFreshnessDecision, assessDailyBarFreshness, assessIntradayFreshness } from "./freshness.ts";
 
 test("accepts the latest official close across a multi-day holiday", async () => {
   const decision = await assessIntradayFreshness({
@@ -49,6 +49,20 @@ test("classifies intraday timestamps against the active trading session", async 
   }));
 
   assert.deepEqual(observed, cases.map(([, , session, freshness]) => [session, freshness]));
+});
+
+test("accepts a same-day corroborated provider timestamp after the market has closed", async () => {
+  const decision = await assessIntradayFreshness({
+    exchange: "SSE",
+    marketTimestamp: "2026-08-11T16:14:46+08:00",
+    receivedAt: "2026-08-11T16:26:58+08:00",
+  }, new OfficialCnTradingCalendar());
+  const quote = applyIntradayFreshnessDecision({ quality: "live" as const, stale: false, warnings: [] }, decision);
+
+  assert.equal(decision.session, "closed");
+  assert.equal(decision.freshness, "fresh");
+  assert.equal(quote.stale, false);
+  assert.deepEqual(quote.warnings, []);
 });
 
 test("classifies daily bars by the latest completed official trading day", async () => {

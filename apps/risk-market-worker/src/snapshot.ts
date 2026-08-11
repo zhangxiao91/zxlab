@@ -85,7 +85,7 @@ export async function readCurrentMarketSnapshot(request: MarketSnapshotRequest, 
   const reliable = required.length > 0 && unavailableCapabilities.length === 0 && !quoteUnreliable && !calendarUnreliable && !requiredFreshnessUnreliable;
   const qualityStatus: MarketCapabilityStatus = requiredFacts.length > 0 && requiredFacts.every((item) => item.status === "unavailable") ? "unavailable" : required.some((item) => item.status !== "operational") || !reliable ? "degraded" : "operational";
   const freshness = combinedFreshness(required.map((item) => item.freshness));
-  const warnings = unique([...capabilities.flatMap((item) => item.warnings), ...quotes.flatMap((item) => item.warnings), ...status.flatMap((item) => item.warnings)]);
+  const warnings = unique([...required.flatMap((item) => item.warnings), ...quotes.flatMap((item) => item.warnings), ...status.flatMap((item) => item.warnings)]);
   const attempts = capabilities.flatMap((item) => item.attempts);
   const marketTimestamp = latest([
     ...quotes.map((item) => item.marketTimestamp),

@@ -60,6 +60,7 @@ const terminalStatuses = new Set(["success", "partial", "failed"]);
 const runStages = [
   { id: "queued", label: "建立 Run", tool: "Run Orchestrator", detail: "固定问题范围与幂等键" },
   { id: "collecting", label: "收集事实", tool: "Market Snapshot", detail: "读取允许范围内的行情与公告" },
+  { id: "context", label: "读取上下文", tool: "Signal Memory", detail: "读取已确认的偏好与持仓引用" },
   { id: "evidence_sealed", label: "封存证据", tool: "Evidence Assembler", detail: "冻结引用范围并计算指纹" },
   { id: "generating", label: "形成回答", tool: "Agent Narrator", detail: "只读取本次 Evidence" },
   { id: "validating", label: "校验输出", tool: "Result Validator", detail: "检查引用、结构与限制项" },
@@ -81,6 +82,7 @@ export default function AskPanel({
   const [question, setQuestion] = useState("");
   const [priorRunId, setPriorRunId] = useState("");
   const [answer, setAnswer] = useState<AgentRunView | null>(null);
+  const [submittedPrompt, setSubmittedPrompt] = useState<{ title: string; detail: string } | null>(null);
   const [evidence, setEvidence] = useState<SealedEvidenceBundle | null>(null);
   const [selectedEvidenceId, setSelectedEvidenceId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -105,15 +107,31 @@ export default function AskPanel({
   );
 
   useEffect(() => {
-    if (!answer?.result || !panel.current) return;
-    const context = gsap.context(() => {
-      gsap.fromTo(
-        ".agent-ask__answer",
-        { opacity: 0, y: 18, scale: 0.985 },
-        { opacity: 1, y: 0, scale: 1, duration: 0.48, ease: "power3.out" },
-      );
-    }, panel);
-    return () => context.revert();
+    if (!answer || !panel.current) return;
+    let cancelled = false;
+    let context: gsap.Context | undefined;
+    void import("gsap/ScrollTrigger").then(({ ScrollTrigger }) => {
+      if (cancelled || !panel.current) return;
+      gsap.registerPlugin(ScrollTrigger);
+      context = gsap.context(() => {
+        gsap.fromTo(
+          ".agent-activity li",
+          { opacity: 0, y: 10 },
+          { opacity: 1, y: 0, duration: 0.36, stagger: 0.06, ease: "power2.out" },
+        );
+        if (answer.result) {
+          gsap.fromTo(
+            ".agent-message--assistant",
+            { opacity: 0, y: 18 },
+            { opacity: 1, y: 0, duration: 0.48, ease: "power3.out", scrollTrigger: { trigger: ".agent-message--assistant", start: "top 88%" } },
+          );
+        }
+      }, panel);
+    });
+    return () => {
+      cancelled = true;
+      context?.revert();
+    };
   }, [answer?.id, answer?.result?.headline]);
 
   useEffect(() => {
@@ -166,6 +184,7 @@ export default function AskPanel({
     setFeedbackNote(null);
     if (clearAnswer) {
       setAnswer(null);
+      setSubmittedPrompt(null);
       setEvidence(null);
       setSelectedEvidenceId(null);
     }
@@ -204,6 +223,10 @@ export default function AskPanel({
         updatedAt: now,
         evidenceFingerprint: null,
       });
+      setSubmittedPrompt({
+        title: selectedScope.label,
+        detail: question.trim() || scopeBoundary(selectedScope, instrumentId, priorRunId),
+      });
       setEvidence(null);
       setSelectedEvidenceId(null);
       setFeedbackNote(null);
@@ -238,13 +261,9 @@ export default function AskPanel({
   return (
     <section className="agent-ask" aria-labelledby="agent-ask-title" ref={panel}>
       <header className="agent-ask__header">
-        <div>
-          <span>只读问答</span>
-          <h2 id="agent-ask-title">问一个可由证据回答的问题。</h2>
-        </div>
-        <span>服务端封存范围</span>
+        <h2 id="agent-ask-title">向 Agent 提问</h2>
+        <p>回答只使用本次服务端封存的证据范围。</p>
       </header>
-      <RunActivity status={answer?.status} runId={answer?.id} />
       <div className="agent-ask__grid">
         <form
           className="agent-ask__form"
@@ -333,74 +352,55 @@ export default function AskPanel({
       </div>
       {error && <p className="review-status review-status--warning">{error}</p>}
       {answer && (
-        <section className="agent-ask__answer" aria-live="polite">
-          <header>
-            <div>
-              <span>{statusLabel(answer.status)}</span>
-              <strong>{answer.result?.headline ?? "正在收集已批准的市场事实"}</strong>
-            </div>
-            <code>{answer.id}</code>
-          </header>
-          {answer.result ? (
-            <>
-              <p className="agent-ask__summary">{answer.result.summary}</p>
-              <div className="agent-ask__answer-grid">
-                <ObservationGroup
-                  title="事实"
-                  observations={answer.result.observations.filter((item) => item.class === "fact")}
-                  onEvidence={setSelectedEvidenceId}
-                />
-                <ObservationGroup
-                  title="推断"
-                  observations={answer.result.observations.filter((item) => item.class === "inference")}
-                  onEvidence={setSelectedEvidenceId}
-                />
-                <ObservationGroup
-                  title="未知"
-                  observations={answer.result.observations.filter((item) => item.class === "unknown")}
-                  onEvidence={setSelectedEvidenceId}
-                />
-                <section className="agent-ask__answer-group agent-ask__answer-group--limitations">
-                  <h3>局限</h3>
-                  {answer.result.limitations.length ? (
-                    <ul>
-                      {answer.result.limitations.map((item) => <li key={item}>{item}</li>)}
-                    </ul>
-                  ) : <p>本次没有额外的数据质量限制。</p>}
-                </section>
+        <section className="agent-thread" aria-live="polite">
+          <article className="agent-message agent-message--user">
+            <header><strong>{submittedPrompt?.title ?? selectedScope.label}</strong></header>
+            <p>{submittedPrompt?.detail ?? selectedScope.description}</p>
+          </article>
+          <RunActivity status={answer.status} runId={answer.id} limitations={answer.result?.limitations} />
+          <section className="agent-ask__answer agent-message agent-message--assistant">
+            <header>
+              <div>
+                <span>{statusLabel(answer.status)}</span>
+                <strong>{answer.result?.headline ?? "正在收集已批准的市场事实"}</strong>
               </div>
-              {answer.result.portfolioImpacts.length > 0 && (
-                <ObservationGroup
-                  title="持仓影响"
-                  observations={answer.result.portfolioImpacts}
-                  onEvidence={setSelectedEvidenceId}
-                />
-              )}
-              <EvidencePanel evidence={evidence} selected={selectedEvidence} />
-              <footer className="agent-ask__feedback">
-                <span>{feedbackNote ?? "反馈只用于改进后续运行，不会改写本次记录。"}</span>
-                <div>
-                  <button type="button" disabled={feedbackBusy} onClick={() => void sendFeedback("helpful")}>有帮助</button>
-                  <button type="button" disabled={feedbackBusy} onClick={() => void sendFeedback("fact_error")}>事实错误</button>
-                  <button type="button" disabled={feedbackBusy} onClick={() => void sendFeedback("missing_factor")}>遗漏关键因素</button>
+              <code>{answer.id}</code>
+            </header>
+            {answer.result ? (
+              <>
+                <p className="agent-ask__summary">{answer.result.summary}</p>
+                <div className="agent-ask__answer-grid">
+                  <ObservationGroup title="事实" observations={answer.result.observations.filter((item) => item.class === "fact")} onEvidence={setSelectedEvidenceId} />
+                  <ObservationGroup title="推断" observations={answer.result.observations.filter((item) => item.class === "inference")} onEvidence={setSelectedEvidenceId} />
+                  <ObservationGroup title="未知" observations={answer.result.observations.filter((item) => item.class === "unknown")} onEvidence={setSelectedEvidenceId} />
+                  <section className="agent-ask__answer-group agent-ask__answer-group--limitations">
+                    <h3>局限</h3>
+                    {answer.result.limitations.length ? <ul>{answer.result.limitations.map((item) => <li key={item}>{item}</li>)}</ul> : <p>本次没有额外的数据质量限制。</p>}
+                  </section>
                 </div>
-              </footer>
-            </>
-          ) : (
-            <p className="agent-ask__waiting">
-              {answer.status === "failed"
-                ? "本次运行未能完成；没有可展示的模型正文。"
-                : "正在按固定计划收集事实、封存 Evidence 并生成回答。"}
-            </p>
-          )}
+                {answer.result.portfolioImpacts.length > 0 && <ObservationGroup title="持仓影响" observations={answer.result.portfolioImpacts} onEvidence={setSelectedEvidenceId} />}
+                <EvidencePanel evidence={evidence} selected={selectedEvidence} />
+                <footer className="agent-ask__feedback">
+                  <span>{feedbackNote ?? "反馈只用于改进后续运行，不会改写本次记录。"}</span>
+                  <div>
+                    <button type="button" disabled={feedbackBusy} onClick={() => void sendFeedback("helpful")}>有帮助</button>
+                    <button type="button" disabled={feedbackBusy} onClick={() => void sendFeedback("fact_error")}>事实错误</button>
+                    <button type="button" disabled={feedbackBusy} onClick={() => void sendFeedback("missing_factor")}>遗漏关键因素</button>
+                  </div>
+                </footer>
+              </>
+            ) : (
+              <p className="agent-ask__waiting">{answer.status === "failed" ? "本次运行未能完成；没有可展示的模型正文。" : "正在按固定计划收集事实、封存 Evidence 并生成回答。"}</p>
+            )}
+          </section>
         </section>
       )}
     </section>
   );
 }
 
-function RunActivity({ status, runId }: { status?: string; runId?: string }) {
-  if (!status || terminalStatuses.has(status)) return null;
+export function RunActivity({ status, runId, limitations = [] }: { status?: string; runId?: string; limitations?: string[] }) {
+  if (!status) return null;
   const activeIndex = runStageIndex(status);
   const finished = status === "success" || status === "partial";
   const failed = status === "failed";
@@ -416,7 +416,9 @@ function RunActivity({ status, runId }: { status?: string; runId?: string }) {
       </header>
       <ol>
         {runStages.map((stage, index) => {
-          const state = failed && index === activeIndex
+          const state = status === "partial" && degradedTool(stage.tool, limitations)
+            ? "degraded"
+            : failed && index === activeIndex
             ? "failed"
             : finished || index < activeIndex
               ? "complete"
@@ -426,11 +428,13 @@ function RunActivity({ status, runId }: { status?: string; runId?: string }) {
           return (
             <li key={stage.id} data-state={state}>
               <span className="agent-activity__node" aria-hidden="true" />
-              <div>
-                <span>{stage.label}</span>
-                <strong>{stage.tool}</strong>
+              <details open={state === "active"}>
+                <summary>
+                  <span>{stage.tool}</span>
+                  <strong>{stage.label}</strong>
+                </summary>
                 <small>{stage.detail}</small>
-              </div>
+              </details>
               <em>{activityStateLabel(state)}</em>
             </li>
           );
@@ -445,12 +449,17 @@ function runStageIndex(status?: string) {
   if (status === "retry_wait") return 1;
   if (status === "success" || status === "partial") return runStages.length - 1;
   if (status === "failed") return 0;
-  const index = runStages.findIndex((stage) => stage.id === status);
-  return index < 0 ? 0 : index;
+  return ({ queued: 0, collecting: 1, evidence_sealed: 3, generating: 4, validating: 5 } as Record<string, number>)[status] ?? 0;
 }
 
-function activityStateLabel(state: "complete" | "active" | "failed" | "waiting") {
-  return ({ complete: "完成", active: "进行中", failed: "中止", waiting: "等待" } as const)[state];
+function activityStateLabel(state: "complete" | "active" | "degraded" | "failed" | "waiting") {
+  return ({ complete: "完成", active: "进行中", degraded: "降级", failed: "中止", waiting: "等待" } as const)[state];
+}
+
+function degradedTool(tool: string, limitations: string[]) {
+  if (tool === "Agent Narrator") return limitations.some((item) => item.includes("Gateway"));
+  if (tool === "Market Snapshot") return limitations.some((item) => /数据限制|数据能力|行情|报价|市场事实/.test(item));
+  return false;
 }
 
 function ObservationGroup({

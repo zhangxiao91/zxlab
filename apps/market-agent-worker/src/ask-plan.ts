@@ -50,7 +50,7 @@ const plans: Record<AskScope, AskEvidencePlan> = {
     requiresPreviousRun: false,
     instrumentSelection: "selected-and-watchlist",
     intervals: ["1d"],
-    include: ["quotes", "bars", "comparisons"],
+    include: ["quotes", "bars"],
     quoteMode: "corroborated",
     requiresCorroboratedQuotes: true,
   },
