@@ -46,6 +46,11 @@ credential:
 ]
 ```
 
+If an existing deployment already owns the encrypted
+`ZX_ACCESS_SERVICE_ACTORS` value, add a separately managed machine through
+`ZX_ACCESS_ADDITIONAL_SERVICE_ACTORS` instead of replacing it. Both arrays are
+merged, and a duplicate `clientId` fails closed.
+
 Use a separate debug account and profile for machine-driven beta checks. Do not
 delegate a headless token to the production owner subject. Remove one entry to
 revoke that machine without affecting other Agents.
@@ -79,6 +84,29 @@ Chrome, Playwright, or an MCP prompt.
    identity provider, then use `@Chrome` for interactive debugging. The built-in
    Browser uses a separate profile and will not automatically inherit this
    session.
+
+## Cross-session CLI access
+
+New Codex sessions do not automatically inherit a browser cookie or a Cloudflare
+Access Service Token. For headless/API debugging on macOS, store the dedicated
+debug token in Keychain under account `codex` using these fixed service names:
+
+- `zxlab.debug-access.client-id`
+- `zxlab.debug-access.client-secret`
+
+Enter both values yourself in an interactive terminal; never paste them into a
+Codex prompt or commit them to the repository. Then any local ZXLab session can
+run:
+
+```bash
+npm run access:debug
+npm run access:debug -- --path /api/private/market-agent/today
+```
+
+The wrapper reads Keychain directly, fixes the destination to
+`https://debug-beta.zxlab.pages.dev`, permits only Market Agent private paths,
+does not follow redirects, and never prints either credential. Interactive
+rendering remains a separate flow through the dedicated `@Chrome` profile.
 
 ## Verification
 

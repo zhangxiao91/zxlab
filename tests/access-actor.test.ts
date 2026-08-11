@@ -37,6 +37,33 @@ test("access actor resolves a registered machine identity to its delegated owner
   assert.throws(() => requireActorScope(actor, "signal:read"), (error: unknown) => error instanceof RiskReviewError && error.code === "ACCESS_SCOPE_REQUIRED");
 });
 
+test("access actor merges an independently managed machine mapping without replacing existing actors", async () => {
+  const actor = await resolveAccessActor(
+    new Request("https://debug-beta.zxlab.pages.dev/api/private/market-agent/profile", {
+      headers: { "cf-access-client-id": "codex-client-id", "cf-access-client-secret": "secret" },
+    }),
+    {
+      ZX_ACCESS_SERVICE_ACTORS: JSON.stringify([{
+        clientId: "bot-client-id",
+        actorId: "bot-bridge",
+        ownerSubject: "bot-owner",
+        scopes: ["market-agent:read"],
+      }]),
+      ZX_ACCESS_ADDITIONAL_SERVICE_ACTORS: JSON.stringify([{
+        clientId: "codex-client-id",
+        actorId: "codex-debug-mac",
+        ownerSubject: "codex-debug-owner",
+        scopes: ["market-agent:read", "market-agent:write"],
+      }]),
+    },
+    { verifyAccess: async () => ({ sub: "", common_name: "codex-client-id" }) as never },
+  );
+
+  assert.equal(actor.actorId, "codex-debug-mac");
+  assert.equal(actor.ownerSubject, "codex-debug-owner");
+  assert.deepEqual(actor.scopes, ["market-agent:read", "market-agent:write"]);
+});
+
 test("access actor fails closed for an unregistered or malformed machine configuration", async () => {
   const request = new Request("https://beta.zxlab.pages.dev/api/private/market-agent/profile", { headers: { "cf-access-client-id": "client-id", "cf-access-client-secret": "client-secret" } });
   await assert.rejects(

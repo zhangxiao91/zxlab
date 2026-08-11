@@ -18,6 +18,8 @@ export interface AccessActorEnv extends RiskReviewEnv {
    * delegated ZXLab owner and explicit route scopes.
    */
   ZX_ACCESS_SERVICE_ACTORS?: string;
+  /** Additive JSON actor mapping for independently managed machine credentials. */
+  ZX_ACCESS_ADDITIONAL_SERVICE_ACTORS?: string;
   /** JSON array of additional Access audiences accepted only by private proxy routes. */
   ZX_PRIVATE_ACCESS_ADDITIONAL_AUDS?: string;
 }
@@ -51,7 +53,10 @@ export async function resolveAccessActor(request: Request, env: AccessActorEnv, 
   const claims = await (dependencies.verifyAccess ?? verifyCloudflareAccess)(request, env, audienceConfiguration.audiences ? { audiences: audienceConfiguration.audiences } : undefined);
   const serviceClientId = stringClaim(claims, "common_name");
   const machine = Boolean(serviceClientId) || serviceTokenHeadersPresent(request) || hasMachineAudience(claims, audienceConfiguration.machineAudiences);
-  const configured = configuredServiceActors(env.ZX_ACCESS_SERVICE_ACTORS);
+  const configured = configuredServiceActors(
+    env.ZX_ACCESS_SERVICE_ACTORS,
+    env.ZX_ACCESS_ADDITIONAL_SERVICE_ACTORS,
+  );
   if (machine) {
     if (!serviceClientId) {
       throw new RiskReviewError("ACCESS_SERVICE_ACTOR_IDENTITY_MISSING", "This machine Access assertion has no service-token identity.", 403);
@@ -120,18 +125,9 @@ export function requireActorScope(actor: AccessActor, required: string): void {
   }
 }
 
-function configuredServiceActors(raw: string | undefined): Map<string, ConfiguredServiceActor> {
-  const value = raw?.trim();
-  if (!value) return new Map();
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(value) as unknown;
-  } catch (cause) {
-    throw invalidConfiguration(cause);
-  }
-  if (!Array.isArray(parsed) || parsed.length > 64) throw invalidConfiguration();
-
+function configuredServiceActors(...rawValues: Array<string | undefined>): Map<string, ConfiguredServiceActor> {
+  const parsed = rawValues.flatMap(parseServiceActorArray);
+  if (parsed.length > 64) throw invalidConfiguration();
   const actors = new Map<string, ConfiguredServiceActor>();
   for (const entry of parsed) {
     if (!isRecord(entry)) throw invalidConfiguration();
@@ -143,6 +139,20 @@ function configuredServiceActors(raw: string | undefined): Map<string, Configure
     actors.set(clientId, { clientId, actorId, ownerSubject, scopes });
   }
   return actors;
+}
+
+function parseServiceActorArray(raw: string | undefined): unknown[] {
+  const value = raw?.trim();
+  if (!value) return [];
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value) as unknown;
+  } catch (cause) {
+    throw invalidConfiguration(cause);
+  }
+  if (!Array.isArray(parsed)) throw invalidConfiguration();
+  return parsed;
 }
 
 function invalidConfiguration(cause?: unknown): RiskReviewError {

@@ -28,6 +28,7 @@ RISK_ACCESS_AUD=
 # Never place the Cloudflare client secret, CF_Authorization cookie, or a real
 # subject value in this file.
 ZX_ACCESS_SERVICE_ACTORS=
+ZX_ACCESS_ADDITIONAL_SERVICE_ACTORS=
 
 # Optional JSON array of audiences for a separate private debug Access app.
 # The normal RISK_ACCESS_AUD is always required as the primary audience.
