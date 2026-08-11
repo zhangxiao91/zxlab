@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { loadMarketWatchlist } from "../market/watchlist";
 import { LocalPortfolioRepository } from "../risk/ledger";
 import {
@@ -7,9 +7,11 @@ import {
   getAgentProfile,
   getAgentRuns,
   getPortfolioSnapshotControlState,
+  pollAgentRunUntilTerminal,
   purgePortfolioSnapshotHistory,
   sendRunFeedback,
   startCloseReview,
+  streamAgentRun,
   stopPortfolioSnapshot,
   syncAgentWatchlist,
   syncPortfolioSnapshot,
@@ -36,6 +38,7 @@ export interface MarketAgentWorkspace {
     bootstrap: AgentProfileView["bootstrap"] | null;
     loading: boolean;
     reviewBusy: boolean;
+    streamingAnswer: string;
     error: string | null;
     setupNote: string | null;
     deletingRunId: string | null;
@@ -78,6 +81,7 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
   const [localWatchlist, setLocalWatchlist] = useState<AgentWatchlistItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [reviewBusy, setReviewBusy] = useState(false);
+  const [streamingAnswers, setStreamingAnswers] = useState<Record<string, string>>({});
   const [syncBusy, setSyncBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [setupNote, setSetupNote] = useState<string | null>(null);
@@ -92,6 +96,69 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
   const [portfolioError, setPortfolioError] = useState<string | null>(null);
   const [portfolioNote, setPortfolioNote] = useState<string | null>(null);
   const [purgeScope, setPurgeScope] = useState<PortfolioPurgeScope | null>(null);
+  const activeStreams = useRef(new Map<string, AbortController>());
+
+  const updateRun = useCallback((run: AgentRunView) => {
+    setRuns((current) => {
+      const index = current.findIndex((item) => item.id === run.id);
+      if (index < 0) return [run, ...current];
+      const existing = current[index];
+      if (
+        existing.status === run.status
+        && existing.updatedAt === run.updatedAt
+        && existing.evidenceFingerprint === run.evidenceFingerprint
+      ) {
+        return current;
+      }
+      return current.map((item) => item.id === run.id ? run : item);
+    });
+  }, []);
+
+  const clearStreamingAnswer = useCallback((runId: string) => {
+    setStreamingAnswers((current) => {
+      if (!(runId in current)) return current;
+      const next = { ...current };
+      delete next[runId];
+      return next;
+    });
+  }, []);
+
+  const followRun = useCallback(async (runId: string) => {
+    if (activeStreams.current.has(runId)) return;
+    const controller = new AbortController();
+    activeStreams.current.set(runId, controller);
+    setStreamingAnswers((current) => ({ ...current, [runId]: "" }));
+    try {
+      await streamAgentRun(runId, {
+        onStatus: updateRun,
+        onAnswerDelta: (delta) => {
+          setStreamingAnswers((current) => ({
+            ...current,
+            [runId]: `${current[runId] ?? ""}${delta}`,
+          }));
+        },
+        onDone: (run) => {
+          updateRun(run);
+          clearStreamingAnswer(runId);
+        },
+      }, { signal: controller.signal });
+      setError(null);
+    } catch (cause) {
+      if (controller.signal.aborted) return;
+      try {
+        const run = await pollAgentRunUntilTerminal(runId, updateRun, controller.signal);
+        updateRun(run);
+        clearStreamingAnswer(runId);
+        setError(null);
+      } catch (fallbackCause) {
+        if (!controller.signal.aborted) {
+          setError(fallbackCause instanceof Error ? fallbackCause.message : cause instanceof Error ? cause.message : "Agent 运行状态暂不可用");
+        }
+      }
+    } finally {
+      activeStreams.current.delete(runId);
+    }
+  }, [clearStreamingAnswer, updateRun]);
 
   const refreshPortfolioPreview = useCallback(() => {
     const preview = previewLocalPortfolioSnapshot(
@@ -139,6 +206,16 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
     refreshPortfolioPreview();
     void refresh();
   }, [refresh, refreshPortfolioPreview]);
+
+  useEffect(() => {
+    const activeRun = runs.find((run) => run.workflow !== "ask" && !["success", "partial", "failed"].includes(run.status));
+    if (activeRun) void followRun(activeRun.id);
+  }, [followRun, runs]);
+
+  useEffect(() => () => {
+    for (const controller of activeStreams.current.values()) controller.abort();
+    activeStreams.current.clear();
+  }, []);
 
   const syncLocalPortfolioSnapshot = useCallback(async () => {
     const preview = refreshPortfolioPreview();
@@ -235,14 +312,23 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
     }
     setReviewBusy(true);
     try {
-      await startCloseReview();
-      await refresh();
+      const started = await startCloseReview();
+      const now = new Date().toISOString();
+      updateRun({
+        id: started.runId,
+        workflow: "close_review",
+        status: started.status,
+        createdAt: now,
+        updatedAt: now,
+        evidenceFingerprint: null,
+      });
+      setError(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "复盘启动失败");
     } finally {
       setReviewBusy(false);
     }
-  }, [profile?.bootstrap, refresh]);
+  }, [profile?.bootstrap, updateRun]);
 
   const downloadRuns = useCallback(async () => {
     try {
@@ -289,22 +375,6 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
     }
   }, []);
 
-  const updateRun = useCallback((run: AgentRunView) => {
-    setRuns((current) => {
-      const index = current.findIndex((item) => item.id === run.id);
-      if (index < 0) return [run, ...current];
-      const existing = current[index];
-      if (
-        existing.status === run.status
-        && existing.updatedAt === run.updatedAt
-        && existing.evidenceFingerprint === run.evidenceFingerprint
-      ) {
-        return current;
-      }
-      return current.map((item) => item.id === run.id ? run : item);
-    });
-  }, []);
-
   const toggleEvidence = useCallback((evidenceId: string) => {
     setActiveEvidenceId((current) => current === evidenceId ? null : evidenceId);
   }, []);
@@ -328,6 +398,7 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
       bootstrap: profile?.bootstrap ?? null,
       loading,
       reviewBusy,
+      streamingAnswer: latest ? streamingAnswers[latest.id] ?? "" : "",
       error,
       setupNote,
       deletingRunId,

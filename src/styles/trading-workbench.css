@@ -1188,6 +1188,30 @@
   font-size: var(--text-sm);
 }
 
+.agent-streamed-answer {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.agent-stream-cursor {
+  display: inline-block;
+  width: 0.5em;
+  height: 1em;
+  margin-inline-start: var(--space-3xs);
+  vertical-align: -0.12em;
+  background: var(--color-accent);
+  animation: agent-stream-cursor 0.8s steps(1, end) infinite;
+}
+
+@keyframes agent-stream-cursor {
+  50% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-stream-cursor { animation: none; }
+}
+
 .agent-conversation .agent-ask__answer-grid {
   grid-template-columns: minmax(0, 1fr);
   margin-block-start: var(--space-lg);

@@ -46,6 +46,12 @@ export class D1RunRepository {
     if (!result.meta.changes) { const run = await this.get(runId); if (!run) return { kind: "missing" }; if (["success", "partial", "failed"].includes(run.status)) return { kind: "terminal" }; return { kind: "leased", retryAfter: now }; }
     const run = await this.get(runId); if (!run) return { kind: "missing" }; return { kind: "claimed", lease: { run, leaseToken: token, attempt: run.attempt, leaseExpiresAt } };
   }
+  async advance(runId: string, leaseToken: string, status: "evidence_sealed" | "generating" | "validating"): Promise<boolean> {
+    const allowed = status === "evidence_sealed" ? ["collecting"] : status === "generating" ? ["evidence_sealed"] : ["generating"];
+    const placeholders = allowed.map(() => "?").join(",");
+    const response = await this.db.prepare(`UPDATE agent_runs SET status = ?, updated_at = ? WHERE id = ? AND lease_token = ? AND status IN (${placeholders})`).bind(status, new Date().toISOString(), runId, leaseToken, ...allowed).run();
+    return Boolean(response.meta.changes);
+  }
   async complete(runId: string, leaseToken: string, evidence: SealedEvidenceBundle, result: AgentResult): Promise<boolean> {
     const now = new Date().toISOString(); const response = await this.db.prepare("UPDATE agent_runs SET status = ?, evidence_fingerprint = ?, evidence_json = ?, result_json = ?, lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL, updated_at = ? WHERE id = ? AND lease_token = ? AND status IN ('collecting','evidence_sealed','generating','validating')").bind(result.status, evidence.fingerprint, JSON.stringify(evidence), JSON.stringify(result), now, runId, leaseToken).run(); return Boolean(response.meta.changes);
   }

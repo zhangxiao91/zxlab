@@ -103,13 +103,112 @@ export async function getAgentRuns(): Promise<AgentRunView[]> {
       : [];
 }
 
-export async function getAgentRun(runId: string): Promise<AgentRunView> {
+export async function getAgentRun(runId: string, signal?: AbortSignal): Promise<AgentRunView> {
   const response = await fetch(
     `/api/private/market-agent/runs/${encodeURIComponent(runId)}`,
-    { headers: { accept: "application/json" } },
+    { headers: { accept: "application/json" }, signal },
   );
   if (!response.ok) throw await apiError(response, "Agent Run 暂不可用");
   return (await response.json()) as AgentRunView;
+}
+
+export interface AgentRunStreamHandlers {
+  onStatus?(run: AgentRunView): void;
+  onAnswerDelta?(delta: string): void;
+  onDone?(run: AgentRunView): void;
+}
+
+export async function streamAgentRun(
+  runId: string,
+  handlers: AgentRunStreamHandlers,
+  options: { signal?: AbortSignal; fetcher?: typeof fetch } = {},
+): Promise<AgentRunView> {
+  const response = await (options.fetcher ?? fetch)(
+    `/api/private/market-agent/runs/${encodeURIComponent(runId)}/stream`,
+    { headers: { accept: "text/event-stream" }, signal: options.signal },
+  );
+  if (!response.ok) throw await apiError(response, "Agent 实时状态暂不可用");
+  if (!response.body || !response.headers.get("content-type")?.toLowerCase().startsWith("text/event-stream")) {
+    throw new MarketAgentApiError("RUN_STREAM_INVALID", "Agent 实时响应格式无效", response.status);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let bytes = 0;
+  let buffer = "";
+  let eventName = "message";
+  let dataLines: string[] = [];
+  let completed: AgentRunView | null = null;
+
+  const dispatch = () => {
+    if (!dataLines.length) {
+      eventName = "message";
+      return;
+    }
+    const raw = dataLines.join("\n");
+    dataLines = [];
+    let data: Record<string, unknown>;
+    try { data = JSON.parse(raw) as Record<string, unknown>; }
+    catch { throw new MarketAgentApiError("RUN_STREAM_INVALID", "Agent 实时响应无法解析", response.status); }
+    if (eventName === "status" && isRunView(data.run)) handlers.onStatus?.(data.run);
+    if (eventName === "answer_delta" && typeof data.delta === "string") handlers.onAnswerDelta?.(data.delta);
+    if (eventName === "done" && isRunView(data.run)) {
+      completed = data.run;
+      handlers.onDone?.(data.run);
+    }
+    if (eventName === "error") {
+      const code = typeof data.code === "string" ? data.code : "RUN_STREAM_UNAVAILABLE";
+      throw new MarketAgentApiError(code, streamErrorMessage(code), response.status);
+    }
+    eventName = "message";
+  };
+
+  while (!completed) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    bytes += value.byteLength;
+    if (bytes > 2 * 1024 * 1024) throw new MarketAgentApiError("RUN_STREAM_TOO_LARGE", "Agent 实时响应过大", response.status);
+    buffer += decoder.decode(value, { stream: true });
+    while (!completed) {
+      const newline = buffer.indexOf("\n");
+      if (newline < 0) break;
+      const line = buffer.slice(0, newline).replace(/\r$/, "");
+      buffer = buffer.slice(newline + 1);
+      if (!line) dispatch();
+      else if (line.startsWith("event:")) eventName = line.slice(6).trim();
+      else if (line.startsWith("data:")) dataLines.push(line.slice(5).trimStart());
+    }
+  }
+
+  if (completed) {
+    void reader.cancel();
+    return completed;
+  }
+  buffer += decoder.decode();
+  if (buffer.trim()) {
+    for (const line of buffer.split(/\r?\n/)) {
+      if (line.startsWith("event:")) eventName = line.slice(6).trim();
+      else if (line.startsWith("data:")) dataLines.push(line.slice(5).trimStart());
+    }
+    dispatch();
+  }
+  if (completed) return completed;
+  throw new MarketAgentApiError("RUN_STREAM_INCOMPLETE", "Agent 实时连接提前结束", response.status);
+}
+
+export async function pollAgentRunUntilTerminal(
+  runId: string,
+  onRun: (run: AgentRunView) => void,
+  signal?: AbortSignal,
+  intervalMs = 1_200,
+): Promise<AgentRunView> {
+  while (!signal?.aborted) {
+    const run = await getAgentRun(runId, signal);
+    onRun(run);
+    if (["success", "partial", "failed"].includes(run.status)) return run;
+    await wait(intervalMs, signal);
+  }
+  throw new DOMException("Aborted", "AbortError");
 }
 
 export async function getAgentRunEvidence(
@@ -294,4 +393,33 @@ async function apiError(response: Response, fallback: string): Promise<MarketAge
   )[code];
   const message = clarification ?? mappedMessage ?? fallback;
   return new MarketAgentApiError(code, message, response.status);
+}
+
+function isRunView(value: unknown): value is AgentRunView {
+  return Boolean(value && typeof value === "object"
+    && typeof (value as { id?: unknown }).id === "string"
+    && typeof (value as { status?: unknown }).status === "string");
+}
+
+function streamErrorMessage(code: string): string {
+  return ({
+    RUN_NOT_FOUND: "这条 Agent Run 已不存在。",
+    RUN_STREAM_TIMEOUT: "Agent 运行时间超过实时连接窗口。",
+    RUN_STREAM_ABORTED: "Agent 实时连接已取消。",
+  } as Record<string, string>)[code] ?? "Agent 实时连接暂不可用";
+}
+
+function wait(milliseconds: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.reject(new DOMException("Aborted", "AbortError"));
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      window.clearTimeout(timer);
+      reject(new DOMException("Aborted", "AbortError"));
+    };
+    const timer = window.setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, milliseconds);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }

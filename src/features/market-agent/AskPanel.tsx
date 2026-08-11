@@ -2,10 +2,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import gsap from "gsap";
 import type { AskScope, SealedEvidenceBundle } from "@zxlab/market-agent-schema";
 import {
-  getAgentRun,
   getAgentRunEvidence,
+  pollAgentRunUntilTerminal,
   sendRunFeedback,
   startAgentAsk,
+  streamAgentRun,
   type AgentObservationView,
   type AgentRunView,
 } from "./client";
@@ -82,6 +83,7 @@ export default function AskPanel({
   const [question, setQuestion] = useState("");
   const [priorRunId, setPriorRunId] = useState("");
   const [answer, setAnswer] = useState<AgentRunView | null>(null);
+  const [streamedAnswer, setStreamedAnswer] = useState("");
   const [submittedPrompt, setSubmittedPrompt] = useState<{ title: string; detail: string } | null>(null);
   const [evidence, setEvidence] = useState<SealedEvidenceBundle | null>(null);
   const [selectedEvidenceId, setSelectedEvidenceId] = useState<string | null>(null);
@@ -136,27 +138,34 @@ export default function AskPanel({
 
   useEffect(() => {
     if (!answer || terminalStatuses.has(answer.status)) return;
-    let cancelled = false;
-    const poll = async () => {
+    const controller = new AbortController();
+    setStreamedAnswer("");
+    const update = (next: AgentRunView) => {
+      setAnswer(next);
+      onRunUpdate(next);
+      setError(null);
+    };
+    void streamAgentRun(answer.id, {
+      onStatus: update,
+      onAnswerDelta: (delta) => setStreamedAnswer((current) => current + delta),
+      onDone: (next) => {
+        update(next);
+        setStreamedAnswer("");
+      },
+    }, { signal: controller.signal }).catch(async (cause) => {
+      if (controller.signal.aborted) return;
       try {
-        const next = await getAgentRun(answer.id);
-        if (cancelled) return;
-        setAnswer(next);
-        onRunUpdate(next);
-        setError(null);
-      } catch (cause) {
-        if (!cancelled) {
-          setError(cause instanceof Error ? cause.message : "无法读取 Ask 运行状态");
+        const next = await pollAgentRunUntilTerminal(answer.id, update, controller.signal);
+        update(next);
+        setStreamedAnswer("");
+      } catch (fallbackCause) {
+        if (!controller.signal.aborted) {
+          setError(fallbackCause instanceof Error ? fallbackCause.message : cause instanceof Error ? cause.message : "无法读取 Ask 运行状态");
         }
       }
-    };
-    void poll();
-    const timer = window.setInterval(() => void poll(), 1_600);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [answer?.id, answer?.status, onRunUpdate]);
+    });
+    return () => controller.abort();
+  }, [answer?.id, onRunUpdate]);
 
   useEffect(() => {
     if (!answer || !terminalStatuses.has(answer.status) || !answer.evidenceFingerprint) return;
@@ -187,6 +196,7 @@ export default function AskPanel({
       setSubmittedPrompt(null);
       setEvidence(null);
       setSelectedEvidenceId(null);
+      setStreamedAnswer("");
     }
   }
 
@@ -229,6 +239,7 @@ export default function AskPanel({
       });
       setEvidence(null);
       setSelectedEvidenceId(null);
+      setStreamedAnswer("");
       setFeedbackNote(null);
       setError(null);
       requestKey.current = crypto.randomUUID();
@@ -362,7 +373,7 @@ export default function AskPanel({
             <header>
               <div>
                 <span>{statusLabel(answer.status)}</span>
-                <strong>{answer.result?.headline ?? "正在收集已批准的市场事实"}</strong>
+                <strong>{answer.result?.headline ?? (streamedAnswer ? "正在流式生成回答" : "正在收集已批准的市场事实")}</strong>
               </div>
               <code>{answer.id}</code>
             </header>
@@ -389,6 +400,8 @@ export default function AskPanel({
                   </div>
                 </footer>
               </>
+            ) : streamedAnswer ? (
+              <p className="agent-streamed-answer">{streamedAnswer}<span className="agent-stream-cursor" aria-hidden="true" /></p>
             ) : (
               <p className="agent-ask__waiting">{answer.status === "failed" ? "本次运行未能完成；没有可展示的模型正文。" : "正在按固定计划收集事实、封存 Evidence 并生成回答。"}</p>
             )}

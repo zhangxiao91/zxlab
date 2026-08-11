@@ -2,6 +2,7 @@ import type {
   AgentResult,
   MarketAgentAskCommand,
   PortfolioSnapshot,
+  RunStatus,
   SealedEvidenceBundle,
 } from "@zxlab/market-agent-schema";
 import type { MarketSnapshot } from "@zxlab/market-schema";
@@ -29,6 +30,7 @@ export interface AskServiceInput {
   watchlistRevision: string;
   portfolioSnapshot?: PortfolioSnapshot | null;
   previous?: AskPreviousRun;
+  onProgress?: (status: Extract<RunStatus, "evidence_sealed" | "generating" | "validating">) => Promise<void> | void;
 }
 
 export class AskService {
@@ -81,6 +83,8 @@ export class AskService {
       previous: input.previous,
       confirmedContext,
     });
+    await input.onProgress?.("evidence_sealed");
+    await input.onProgress?.("generating");
     const narration = await narrateWithRepair(this.narrator, {
       workflow: "ask",
       evidence,
@@ -88,6 +92,7 @@ export class AskService {
       question: input.command.question,
       confirmedContext: confirmedContext.contexts,
     });
+    await input.onProgress?.("validating");
     return {
       evidence,
       repaired: narration.repaired,

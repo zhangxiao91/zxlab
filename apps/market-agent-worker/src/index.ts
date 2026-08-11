@@ -13,6 +13,7 @@ import { productionTradingCalendar } from "@zxlab/market-schema/calendar";
 import { decideScheduledWorkflow, scheduledWorkflowAt } from "./schedule.ts";
 import { requireMarketAgentScope, resolveMarketAgentActor } from "./auth.ts";
 import { SignalMemoryAdapter } from "./confirmed-context.ts";
+import { createRunEventStream } from "./run-stream.ts";
 
 const repository = new MemoryRunRepository();
 type RunMessage = { runId: string; generation: number; kind: "initial" | "recovery" };
@@ -108,6 +109,13 @@ export default {
       if (path === "/runs" && request.method === "GET") return json({ runs: await runs.list(profile.profileId) });
       if (path === "/today" && request.method === "GET") return json({ run: (await runs.list(profile.profileId, 1))[0] ?? null });
       if (path === "/export" && request.method === "GET") return json({ schemaVersion: "market-agent-export.v1", runs: await runs.list(profile.profileId) });
+      const streamMatch = path.match(/^\/runs\/([^/]+)\/stream$/);
+      if (streamMatch && request.method === "GET") {
+        const run = await runs.get(streamMatch[1]);
+        return run?.profileId === profile.profileId
+          ? createRunEventStream(request, runs, run.id, profile.profileId, { initialRun: run })
+          : json({ error: "NOT_FOUND" }, 404);
+      }
       const evidenceMatch = path.match(/^\/runs\/([^/]+)\/evidence$/);
       if (evidenceMatch && request.method === "GET") {
         const evidence = await runs.getEvidence(evidenceMatch[1], profile.profileId);
@@ -152,7 +160,7 @@ export async function processRun(runId: string, env: Env): Promise<"ack" | "retr
     }
     try {
       const reader = new MarketSnapshotAdapter({ service: env.MARKET_SNAPSHOT_SERVICE, baseUrl: env.MARKET_SNAPSHOT_URL });
-      const output = await new AskService(reader, narratorFor(env), contextReaderFor(env)).execute({ runId, command, watchlistRevision: watchlist?.revision ?? "ask-without-watchlist", portfolioSnapshot, previous });
+      const output = await new AskService(reader, narratorFor(env), contextReaderFor(env)).execute({ runId, command, watchlistRevision: watchlist?.revision ?? "ask-without-watchlist", portfolioSnapshot, previous, onProgress: (status) => advanceRun(runs, runId, claim.lease.leaseToken, status) });
       await runs.complete(runId, claim.lease.leaseToken, output.evidence, output.result);
       return "ack";
     } catch {
@@ -164,7 +172,7 @@ export async function processRun(runId: string, env: Env): Promise<"ack" | "retr
   const instrumentIds = [...new Set([...(command.instrumentId ? [command.instrumentId] : (watchlist?.items.map((item) => item.instrumentId) ?? [])), ...(portfolioSnapshot?.positions.map((item) => item.instrumentId) ?? [])])]; if (!instrumentIds.length) { await runs.fail(runId, claim.lease.leaseToken, "INSTRUMENT_SCOPE_EMPTY"); return "ack"; }
   try {
     const reader = new MarketSnapshotAdapter({ service: env.MARKET_SNAPSHOT_SERVICE, baseUrl: env.MARKET_SNAPSHOT_URL });
-    const output = await new CloseReviewService(reader, narratorFor(env), contextReaderFor(env)).execute({ runId, command, instrumentIds, watchlistRevision: watchlist?.revision ?? "instrument-only", portfolioSnapshot });
+    const output = await new CloseReviewService(reader, narratorFor(env), contextReaderFor(env)).execute({ runId, command, instrumentIds, watchlistRevision: watchlist?.revision ?? "instrument-only", portfolioSnapshot, onProgress: (status) => advanceRun(runs, runId, claim.lease.leaseToken, status) });
     await runs.complete(runId, claim.lease.leaseToken, output.evidence, output.result); return "ack";
   } catch { await runs.defer(runId, claim.lease.leaseToken, "CLOSE_REVIEW_RETRYABLE"); return "retry"; }
 }
@@ -189,6 +197,7 @@ function validResolvedAskScope(ids: unknown): ids is string[] { return Array.isA
 function sameInstrumentScope(left: string[], right: string[]): boolean { return left.length === right.length && [...left].sort().every((value, index) => value === [...right].sort()[index]); }
 function narratorFor(env: Env): GatewayNarrator | DeterministicNarrator { return env.MARKET_AGENT_GENERATION_ENABLED === "true" && env.MARKET_AGENT_GATEWAY_URL && env.MARKET_AGENT_GATEWAY_TOKEN ? new GatewayNarrator({ apiUrl: env.MARKET_AGENT_GATEWAY_URL, token: env.MARKET_AGENT_GATEWAY_TOKEN }) : new DeterministicNarrator(); }
 function contextReaderFor(env: Env): SignalMemoryAdapter { return new SignalMemoryAdapter({ service: env.SIGNAL_MEMORY_SERVICE, baseUrl: env.SIGNAL_MEMORY_URL, token: env.ZX_RUNTIME_SERVICE_TOKEN }); }
+async function advanceRun(runs: D1RunRepository, runId: string, leaseToken: string, status: "evidence_sealed" | "generating" | "validating"): Promise<void> { if (!await runs.advance(runId, leaseToken, status)) throw new Error("RUN_LEASE_LOST"); }
 
 export { MemoryRunRepository } from "./foundation.ts";
 export { CloseReviewService } from "./close-review.ts";

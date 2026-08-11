@@ -37,6 +37,7 @@ export default function AgentToday({
     bootstrap,
     loading,
     reviewBusy: busy,
+    streamingAnswer,
     error,
     setupNote,
     deletingRunId,
@@ -138,6 +139,7 @@ export default function AgentToday({
             events={events}
             latest={latest}
             activeEvidenceId={activeRun}
+            streamingAnswer={streamingAnswer}
             onToggle={toggleEvidence}
           />
           <AskPanel
@@ -372,11 +374,13 @@ function LatestReviewThread({
   events,
   latest,
   activeEvidenceId,
+  streamingAnswer,
   onToggle,
 }: {
   events: AgentObservationView[];
   latest: AgentRunView | undefined;
   activeEvidenceId: string | null;
+  streamingAnswer: string;
   onToggle: (evidenceId: string) => void;
 }) {
   if (!latest || latest.workflow === "ask") return null;
@@ -394,11 +398,14 @@ function LatestReviewThread({
         <header>
           <div>
             <span className={`agent-status agent-status--${latest.status}`}>{statusLabel(latest.status)}</span>
-            <strong>{latest.result?.headline ?? "正在收集已批准的市场事实"}</strong>
+            <strong>{latest.result?.headline ?? (streamingAnswer ? "正在流式生成复盘" : "正在收集已批准的市场事实")}</strong>
           </div>
           <code>{latest.id}</code>
         </header>
-        <p>{latest.result?.summary ?? "事实收集完成后，复盘结果会出现在这里。"}</p>
+        <p className={streamingAnswer && !latest.result ? "agent-streamed-answer" : undefined}>
+          {(latest.result?.summary ?? streamingAnswer) || "事实收集完成后，复盘结果会出现在这里。"}
+          {streamingAnswer && !latest.result ? <span className="agent-stream-cursor" aria-hidden="true" /> : null}
+        </p>
         <div className="agent-review-result__evidence">
           {events.map((event) => (
             <details className={activeEvidenceId === event.id ? "is-active" : ""} key={event.id} open={activeEvidenceId === event.id}>

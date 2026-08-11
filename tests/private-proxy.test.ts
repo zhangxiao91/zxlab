@@ -256,6 +256,7 @@ test("private Market Agent allowlist admits the bounded Ask lifecycle only", asy
   const paths = [
     { path: "ask", method: "POST" },
     { path: "runs/run-1/evidence", method: "GET" },
+    { path: "runs/run-1/stream", method: "GET" },
   ] as const;
 
   for (const item of paths) {
@@ -281,12 +282,15 @@ test("private Market Agent allowlist admits the bounded Ask lifecycle only", asy
         verifyAccess,
         fetcher: async (input) => {
           forwardedPath = new URL(String(input)).pathname;
-          return Response.json({ ok: true });
+          return item.path.endsWith("/stream")
+            ? new Response("event: done\ndata: {}\n\n", { headers: { "content-type": "text/event-stream" } })
+            : Response.json({ ok: true });
         },
       },
     );
     assert.equal(response.status, 200, item.path);
     assert.equal(forwardedPath, `/api/v1/private/market-agent/${item.path}`);
+    if (item.path.endsWith("/stream")) assert.match(response.headers.get("content-type") ?? "", /^text\/event-stream/);
   }
 });
 

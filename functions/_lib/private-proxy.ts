@@ -40,7 +40,7 @@ const signalPathAllowed = (path: string, method: string) =>
   || path.startsWith("/api/memory/")
   || path.startsWith("/api/memory-candidates/");
 
-const marketAgentPathAllowed = (path: string) => path === "/ask" || path === "/runs" || path === "/today" || path === "/profile" || path === "/watchlist" || path === "/export" || path === "/portfolio-snapshot" || path === "/portfolio-snapshot/stop" || path === "/portfolio-snapshot/purge" || /^\/runs\/[^/]+(?:\/feedback|\/rerun|\/evidence)?$/.test(path);
+const marketAgentPathAllowed = (path: string) => path === "/ask" || path === "/runs" || path === "/today" || path === "/profile" || path === "/watchlist" || path === "/export" || path === "/portfolio-snapshot" || path === "/portfolio-snapshot/stop" || path === "/portfolio-snapshot/purge" || /^\/runs\/[^/]+(?:\/feedback|\/rerun|\/evidence|\/stream)?$/.test(path);
 
 function target(service: PrivateService, rawPath: string, method: string, env: PrivateProxyEnv): URL {
   const path = `/${rawPath.replace(/^\/+/, "")}`;
