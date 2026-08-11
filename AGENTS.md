@@ -82,3 +82,5 @@ After every visual or interface change, ensure the local Astro development serve
 - When working on the `beta` branch, every completed implementation must be committed using the Conventional Commits specification, pushed to the remote repository, and deployed.
 
 如果在本项目里需要用到 OpenAI key，则使用 `/Users/zhangyang/Developer/.env` 里的 `baseurl` 和 `apikey`。
+
+Codex 跨 Session 调试 ZXLab 的 Cloudflare Access 时，先读取 `docs/access/codex-debug.md`，并使用其中的 Keychain 安全入口与验收边界。
