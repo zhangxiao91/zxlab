@@ -1,4 +1,5 @@
 import type { AgentRun } from "@zxlab/market-agent-schema";
+import { MARKET_AGENT_RUN_STREAM_TIMEOUT_MS } from "./runtime-budget.ts";
 
 const terminalStatuses = new Set(["success", "partial", "failed"]);
 
@@ -24,7 +25,7 @@ export function createRunEventStream(
 ): Response {
   const encoder = new TextEncoder();
   const pollMs = options.pollMs ?? 500;
-  const timeoutMs = options.timeoutMs ?? 120_000;
+  const timeoutMs = options.timeoutMs ?? MARKET_AGENT_RUN_STREAM_TIMEOUT_MS;
   const deltaDelayMs = options.deltaDelayMs ?? 18;
   const wait = options.wait ?? abortableWait;
   const now = options.now ?? Date.now;

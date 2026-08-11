@@ -14,6 +14,7 @@ import { decideScheduledWorkflow, scheduledWorkflowAt } from "./schedule.ts";
 import { requireMarketAgentScope, resolveMarketAgentActor } from "./auth.ts";
 import { SignalMemoryAdapter } from "./confirmed-context.ts";
 import { createRunEventStream } from "./run-stream.ts";
+import { MARKET_AGENT_RUN_LEASE_MS } from "./runtime-budget.ts";
 
 const repository = new MemoryRunRepository();
 type RunMessage = { runId: string; generation: number; kind: "initial" | "recovery" };
@@ -133,7 +134,7 @@ export default {
 } satisfies ExportedHandler<Env, RunMessage>;
 
 export async function processRun(runId: string, env: Env): Promise<"ack" | "retry"> {
-  if (!env.DB) return "retry"; const runs = new D1RunRepository(env.DB); const claim = await runs.claim(runId, "market-agent-consumer", new Date().toISOString(), new Date(Date.now() + 60_000).toISOString());
+  if (!env.DB) return "retry"; const runs = new D1RunRepository(env.DB); const claim = await runs.claim(runId, "market-agent-consumer", new Date().toISOString(), new Date(Date.now() + MARKET_AGENT_RUN_LEASE_MS).toISOString());
   if (claim.kind === "terminal" || claim.kind === "missing") return "ack"; if (claim.kind === "leased") return "retry";
   const command = await runs.getCommand(runId); if (!command) { await runs.fail(runId, claim.lease.leaseToken, "COMMAND_MISSING"); return "ack"; }
   const profiles = new D1ProfileRepository(env.DB);

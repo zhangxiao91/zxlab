@@ -39,23 +39,36 @@ const defaultAdapters: AdapterMap = {
 async function resolveRoute(input: GenerateAIInput, options: AIGatewayOptions, requestId: string): Promise<{
   candidates: ModelCandidate[];
   fixedRoute: boolean;
+  selectionReason?: string;
 }> {
   if (options.candidates) return { candidates: options.candidates, fixedRoute: false };
-  const candidates = getDefaultModelChain(options.env ?? {});
+  const defaultCandidates = getDefaultModelChain(options.env ?? {});
+  const marketAgentRoute = input.task.startsWith("market-agent-");
+  const configuredOpenAI = defaultCandidates.filter((candidate) => candidate.providerInstance === "openai-text-configured");
+  const marketAgentOpenAIPrimary = marketAgentRoute && configuredOpenAI.length > 0;
+  const candidates = marketAgentOpenAIPrimary
+    ? [
+        ...configuredOpenAI,
+        ...defaultCandidates.filter((candidate) => candidate.providerInstance !== "openai-text-configured"),
+      ]
+    : defaultCandidates;
+  const selectionReason = marketAgentOpenAIPrimary
+    ? "market-agent-openai-primary"
+    : "deepseek-kimi-openai-fallback";
   const routingWrite = recordRoutingDecision(options.telemetryDb, {
     requestId,
     task: input.task,
     source: resolveCallContext(input.task, input.context).source,
     selectedTier: candidates[0]!.tier,
     selectionSource: "fixed-chain",
-    reasonCode: "deepseek-kimi-openai-fallback",
+    reasonCode: selectionReason,
     selectorFallbackUsed: false,
     selectorAttempts: 0,
     selectorTrace: [],
     routeCandidateIds: candidates.map((candidate) => candidate.id),
   }).catch((error) => console.warn("ai.gateway.routing_telemetry_failed", requestId, error instanceof Error ? error.name : "unknown"));
   if (options.scheduleTelemetry) options.scheduleTelemetry(routingWrite); else void routingWrite;
-  return { candidates, fixedRoute: true };
+  return { candidates, fixedRoute: true, selectionReason };
 }
 
 function secureJitterMs(): number {
@@ -143,7 +156,7 @@ export async function generateAI(input: GenerateAIInput, options: AIGatewayOptio
             ...(route.fixedRoute ? {
               selectedTier: candidates[0]!.tier,
               selectionSource: "fixed-chain" as const,
-              selectionReason: "deepseek-kimi-openai-fallback",
+              selectionReason: route.selectionReason!,
             } : {}),
             usage: providerResult.usage,
           };
@@ -260,7 +273,7 @@ export async function streamAI(
             ...(route.fixedRoute ? {
               selectedTier: candidates[0]!.tier,
               selectionSource: "fixed-chain" as const,
-              selectionReason: "deepseek-kimi-openai-fallback",
+              selectionReason: route.selectionReason!,
             } : {}),
             usage: providerResult.usage,
           };

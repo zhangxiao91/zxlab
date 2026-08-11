@@ -120,6 +120,26 @@ test("production routing reaches the configured OpenAI text fallback", async () 
   assert.equal(result.fallbackIndex, 2);
 });
 
+test("Market Agent routing prefers the configured OpenAI text candidate", async () => {
+  const adapter = new ScriptedAdapter([success("market-agent")]);
+  const result = await generateAI({ ...input, task: "market-agent-close-review" }, {
+    env: {
+      DEEPSEEK_API_KEY: "deep-key",
+      KIMI_API_KEY: "kimi-key",
+      OPENAI_TEXT_BASE_URL: "https://text.example/v1",
+      OPENAI_TEXT_API_KEY: "text-key",
+      OPENAI_TEXT_MODEL: "text-model",
+    },
+    adapters: adapters(adapter),
+    jitterMs: () => 0,
+  });
+
+  assert.deepEqual(adapter.calls, ["openai-text-configured"]);
+  assert.equal(result.provider, "openai");
+  assert.equal(result.selectedTier, "openai-text");
+  assert.equal(result.selectionReason, "market-agent-openai-primary");
+});
+
 test("first candidate succeeds without fallback", async () => {
   const adapter = new ScriptedAdapter([success()]);
   const result = await generateAI(input, { candidates, adapters: adapters(adapter), jitterMs: () => 0 });
