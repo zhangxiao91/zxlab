@@ -12,6 +12,7 @@ import { MarketSnapshotAdapter } from "./snapshot-reader.ts";
 import { productionTradingCalendar } from "@zxlab/market-schema/calendar";
 import { decideScheduledWorkflow, scheduledWorkflowAt } from "./schedule.ts";
 import { requireMarketAgentScope, resolveMarketAgentActor } from "./auth.ts";
+import { SignalMemoryAdapter } from "./confirmed-context.ts";
 
 const repository = new MemoryRunRepository();
 type RunMessage = { runId: string; generation: number; kind: "initial" | "recovery" };
@@ -151,7 +152,7 @@ export async function processRun(runId: string, env: Env): Promise<"ack" | "retr
     }
     try {
       const reader = new MarketSnapshotAdapter({ service: env.MARKET_SNAPSHOT_SERVICE, baseUrl: env.MARKET_SNAPSHOT_URL });
-      const output = await new AskService(reader, narratorFor(env)).execute({ runId, command, watchlistRevision: watchlist?.revision ?? "ask-without-watchlist", portfolioSnapshot, previous });
+      const output = await new AskService(reader, narratorFor(env), contextReaderFor(env)).execute({ runId, command, watchlistRevision: watchlist?.revision ?? "ask-without-watchlist", portfolioSnapshot, previous });
       await runs.complete(runId, claim.lease.leaseToken, output.evidence, output.result);
       return "ack";
     } catch {
@@ -163,7 +164,7 @@ export async function processRun(runId: string, env: Env): Promise<"ack" | "retr
   const instrumentIds = [...new Set([...(command.instrumentId ? [command.instrumentId] : (watchlist?.items.map((item) => item.instrumentId) ?? [])), ...(portfolioSnapshot?.positions.map((item) => item.instrumentId) ?? [])])]; if (!instrumentIds.length) { await runs.fail(runId, claim.lease.leaseToken, "INSTRUMENT_SCOPE_EMPTY"); return "ack"; }
   try {
     const reader = new MarketSnapshotAdapter({ service: env.MARKET_SNAPSHOT_SERVICE, baseUrl: env.MARKET_SNAPSHOT_URL });
-    const output = await new CloseReviewService(reader, narratorFor(env)).execute({ runId, command, instrumentIds, watchlistRevision: watchlist?.revision ?? "instrument-only", portfolioSnapshot });
+    const output = await new CloseReviewService(reader, narratorFor(env), contextReaderFor(env)).execute({ runId, command, instrumentIds, watchlistRevision: watchlist?.revision ?? "instrument-only", portfolioSnapshot });
     await runs.complete(runId, claim.lease.leaseToken, output.evidence, output.result); return "ack";
   } catch { await runs.defer(runId, claim.lease.leaseToken, "CLOSE_REVIEW_RETRYABLE"); return "retry"; }
 }
@@ -187,6 +188,7 @@ function terminalWithEvidence(run: { status: string; evidenceFingerprint: string
 function validResolvedAskScope(ids: unknown): ids is string[] { return Array.isArray(ids) && ids.length > 0 && ids.length <= 200 && ids.every((id) => typeof id === "string" && /^(SSE|SZSE):\d{6}$/.test(id)) && new Set(ids).size === ids.length; }
 function sameInstrumentScope(left: string[], right: string[]): boolean { return left.length === right.length && [...left].sort().every((value, index) => value === [...right].sort()[index]); }
 function narratorFor(env: Env): GatewayNarrator | DeterministicNarrator { return env.MARKET_AGENT_GENERATION_ENABLED === "true" && env.MARKET_AGENT_GATEWAY_URL && env.MARKET_AGENT_GATEWAY_TOKEN ? new GatewayNarrator({ apiUrl: env.MARKET_AGENT_GATEWAY_URL, token: env.MARKET_AGENT_GATEWAY_TOKEN }) : new DeterministicNarrator(); }
+function contextReaderFor(env: Env): SignalMemoryAdapter { return new SignalMemoryAdapter({ service: env.SIGNAL_MEMORY_SERVICE, baseUrl: env.SIGNAL_MEMORY_URL, token: env.ZX_RUNTIME_SERVICE_TOKEN }); }
 
 export { MemoryRunRepository } from "./foundation.ts";
 export { CloseReviewService } from "./close-review.ts";

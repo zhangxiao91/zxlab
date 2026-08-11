@@ -62,7 +62,11 @@ export interface RetrieveMemoryInput {
 }
 
 export interface RetrieveMemoryResult {
-  memories: MemoryItem[];
+  memories: RetrievedMemory[];
   summary: string;
   tokenEstimate: number;
+}
+
+export interface RetrievedMemory extends MemoryItem {
+  revisionHash: `sha256:${string}`;
 }

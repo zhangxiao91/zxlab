@@ -14,6 +14,29 @@ test("gateway narrator sends only the bounded task and sealed evidence", async (
   assert.equal(result.headline, "ok");
 });
 
+test("gateway receives ephemeral context but rejects reproducing its body during validation", async () => {
+  const context = {
+    memoryId: "memory-1",
+    role: "preference" as const,
+    revisionHash: "sha256:" + "1".repeat(64) as `sha256:${string}`,
+    namespace: "markets" as const,
+    kind: "preference" as const,
+    sourceType: "market-agent-preference",
+    content: "This private context must not be repeated in the result.",
+    updatedAt: "2026-08-08T00:00:00.000Z",
+  };
+  const narrator = new GatewayNarrator({ apiUrl: "https://gateway.example/api/ai/generate", token: "secret", fetcher: async (_url, init) => {
+    const body = JSON.parse(String(init?.body)) as { messages: Array<{ content: string }> };
+    const payload = JSON.parse(body.messages[1]!.content) as { ephemeralConfirmedContext: Array<{ content: string }> };
+    assert.equal(payload.ephemeralConfirmedContext[0]?.content, context.content);
+    return new Response(JSON.stringify({ ok: true, data: { json: { status: "success", headline: context.content, summary: "ok", observations: [], portfolioImpacts: [], watchNext: [], limitations: [], evidenceFingerprint: evidence.fingerprint } } }), { status: 200, headers: { "content-type": "application/json" } });
+  } });
+  const result = await (await import("./narration.ts")).narrateWithRepair(narrator, { workflow: "close_review", evidence, confirmedContext: [context] });
+  assert.equal(result.repaired, true);
+  assert.equal(result.result.status, "partial");
+  assert.match(result.result.limitations.at(-1) ?? "", /安全校验/);
+});
+
 test("Ask uses the dedicated answer task and keeps user wording outside the evidence bundle", async () => {
   const narrator = new GatewayNarrator({ apiUrl: "https://gateway.example/api/ai/generate", token: "secret", fetcher: async (_url, init) => {
     const body = JSON.parse(String(init?.body)) as { task: string; maxOutputTokens: number; temperature: number; messages: Array<{ content: string }> };

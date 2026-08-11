@@ -36,7 +36,19 @@ export interface MarketAgentAskCommand extends BrowserAskIntent {
 }
 export type MarketAgentCommand = MarketAgentRunCommand | MarketAgentAskCommand;
 export interface MarketEvent { id: string; ruleId: string; instrumentId: string | null; kind: string; observedAt: string; actual: number | string | null; threshold: number | string | null; reliable: boolean; evidenceId: string; dedupeKey: string; }
-export interface ConfirmedContextUse { memoryId: string; role: string; revisionHash: string; usedAt: string; }
+export type ConfirmedContextRole = "preference" | "watch_reason" | "belief" | "constraint";
+export interface ConfirmedContextUse { memoryId: string; role: ConfirmedContextRole; revisionHash: `sha256:${string}`; usedAt: string; }
+export interface ConfirmedContext {
+  memoryId: string;
+  role: ConfirmedContextRole;
+  revisionHash: `sha256:${string}`;
+  namespace: "global" | "markets";
+  kind: "preference" | "fact" | "decision" | "summary";
+  sourceType: string;
+  content: string;
+  updatedAt: string;
+  expiresAt?: string;
+}
 export interface EvidenceItem { id: string; kind: EvidenceKind; origin: "server-observed" | "user-supplied-risk-snapshot" | "canonical-context"; value: unknown; reliable: boolean; }
 export interface SealedEvidenceBundle {
   schemaVersion: typeof MARKET_AGENT_SCHEMA_VERSION;

@@ -1,4 +1,4 @@
-import type { AgentNarration, AgentObservation, AskScope, MarketAgentCommand, SealedEvidenceBundle } from "@zxlab/market-agent-schema";
+import type { AgentNarration, AgentObservation, AskScope, ConfirmedContext, MarketAgentCommand, SealedEvidenceBundle } from "@zxlab/market-agent-schema";
 import { validateAgentNarration } from "@zxlab/market-agent-schema";
 import { buildNarrationContext } from "./narration-context.ts";
 
@@ -8,6 +8,8 @@ export interface NarrationInput {
   askScope?: AskScope;
   /** Untrusted wording only. It never changes the sealed scope or evidence. */
   question?: string;
+  /** Ephemeral canonical context. It must never be persisted or quoted in the result. */
+  confirmedContext?: ConfirmedContext[];
 }
 
 export interface Narrator {
@@ -134,6 +136,8 @@ function validateNarration(value: unknown, input: NarrationInput): string[] {
   const issues = validateAgentNarration(value, evidence);
   const candidate = record(value);
   if (!candidate) return issues;
+  const contextLeak = contextLeakIssue(candidate, input.confirmedContext ?? []);
+  if (contextLeak) issues.push(contextLeak);
   const evidenceById = new Map(evidence.items.map((item) => [item.id, item]));
   const presentedEvidenceIds = new Set(buildNarrationContext({ evidence, workflow: input.workflow, askScope: input.askScope }).evidence.map((item) => item.id));
   const materialLimitations = evidence.items.some((item) => item.kind === "limitation" || (item.kind === "market_fact" && !item.reliable));
@@ -165,6 +169,19 @@ function validateNarration(value: unknown, input: NarrationInput): string[] {
     }
   }
   return [...new Set(issues)];
+}
+
+function contextLeakIssue(value: Record<string, unknown>, contexts: ConfirmedContext[]): string | null {
+  const serialized = normalizeText(JSON.stringify(value));
+  for (const context of contexts) {
+    const content = normalizeText(context.content);
+    if (content.length >= 24 && serialized.includes(content)) return `output must not reproduce confirmed context ${context.memoryId}`;
+  }
+  return null;
+}
+
+function normalizeText(value: string): string {
+  return value.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
 function deterministicMarketState(evidence: SealedEvidenceBundle): {

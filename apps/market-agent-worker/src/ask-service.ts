@@ -13,6 +13,7 @@ import {
 } from "./foundation.ts";
 import { narrateWithRepair, type Narrator, DeterministicNarrator } from "./narration.ts";
 import { evaluatePortfolioRiskImpact } from "./portfolio-risk-impact.ts";
+import type { ConfirmedContextReader } from "./confirmed-context.ts";
 
 export interface AskPreviousRun {
   runId: string;
@@ -33,10 +34,12 @@ export interface AskServiceInput {
 export class AskService {
   private readonly reader: CurrentMarketSnapshotReader;
   private readonly narrator: Narrator;
+  private readonly contextReader?: ConfirmedContextReader;
 
-  constructor(reader: CurrentMarketSnapshotReader, narrator: Narrator = new DeterministicNarrator()) {
+  constructor(reader: CurrentMarketSnapshotReader, narrator: Narrator = new DeterministicNarrator(), contextReader?: ConfirmedContextReader) {
     this.reader = reader;
     this.narrator = narrator;
+    this.contextReader = contextReader;
   }
 
   async execute(input: AskServiceInput): Promise<{
@@ -64,6 +67,9 @@ export class AskService {
     const portfolio = input.portfolioSnapshot
       ? evaluatePortfolioRiskImpact(scopedPortfolio(input.portfolioSnapshot, input.command.resolvedInstrumentIds), snapshot)
       : undefined;
+    const confirmedContext = this.contextReader
+      ? await this.contextReader.retrieve({ profileId: input.command.profileId, workflow: "ask", instrumentIds: input.command.resolvedInstrumentIds, question: input.command.question })
+      : { contexts: [], limitations: [] };
     const evidence = await buildDeterministicAskEvidence({
       command: input.command,
       snapshot,
@@ -73,12 +79,14 @@ export class AskService {
       plan,
       portfolio,
       previous: input.previous,
+      confirmedContext,
     });
     const narration = await narrateWithRepair(this.narrator, {
       workflow: "ask",
       evidence,
       askScope: input.command.scope,
       question: input.command.question,
+      confirmedContext: confirmedContext.contexts,
     });
     return {
       evidence,

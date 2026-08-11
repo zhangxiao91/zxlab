@@ -1,6 +1,6 @@
 import type { MarketSnapshot } from "@zxlab/market-schema";
 import type { RiskImpact } from "@zxlab/risk-domain";
-import type { AgentResult, AgentRun, EvidenceItem, MarketAgentAskCommand, MarketAgentCommand, MarketEvent, PortfolioSnapshot, RunClaimResult, RunCreation, SealedEvidenceBundle } from "@zxlab/market-agent-schema";
+import type { AgentResult, AgentRun, ConfirmedContext, ConfirmedContextUse, EvidenceItem, MarketAgentAskCommand, MarketAgentCommand, MarketEvent, PortfolioSnapshot, RunClaimResult, RunCreation, SealedEvidenceBundle } from "@zxlab/market-agent-schema";
 import { EVENT_RULE_VERSION, MARKET_AGENT_SCHEMA_VERSION, eventEvidenceId, isMarketAgentAskCommand } from "@zxlab/market-agent-schema";
 import type { AskEvidencePlan } from "./ask-plan.ts";
 
@@ -21,7 +21,7 @@ export class DeterministicMarketEventDetector {
 
 export interface PortfolioEvidenceInput { snapshot: PortfolioSnapshot; impact: RiskImpact | null; reliable: boolean; limitations: string[]; }
 
-export async function buildDeterministicCloseReview(command: MarketAgentCommand, snapshot: MarketSnapshot, events: MarketEvent[], runId: string, watchlistRevision = "unconfigured", portfolio?: PortfolioEvidenceInput): Promise<SealedEvidenceBundle> {
+export async function buildDeterministicCloseReview(command: MarketAgentCommand, snapshot: MarketSnapshot, events: MarketEvent[], runId: string, watchlistRevision = "unconfigured", portfolio?: PortfolioEvidenceInput, confirmedContext?: { contexts: ConfirmedContext[]; limitations: string[] }): Promise<SealedEvidenceBundle> {
   const items: EvidenceItem[] = [{
     id: `${runId}:snapshot:context`,
     kind: "market_fact",
@@ -84,12 +84,14 @@ export async function buildDeterministicCloseReview(command: MarketAgentCommand,
     for (const limitation of portfolio.limitations) items.push({ id: `${runId}:portfolio:limitation:${items.length}`, kind: "limitation", origin: "server-observed", value: { type: "portfolio_snapshot", snapshotId: portfolio.snapshot.id, limitation }, reliable: true });
   }
   for (const event of events) items.push({ id: event.evidenceId, kind: "market_event", origin: "server-observed", value: event, reliable: event.reliable });
+  for (const limitation of confirmedContext?.limitations ?? []) items.push({ id: `${runId}:context:limitation:${items.length}`, kind: "limitation", origin: "server-observed", value: { capability: "signal-memory", limitation }, reliable: true });
+  const contextUses = toContextUses(confirmedContext?.contexts ?? []);
   const commandForFingerprint = isMarketAgentAskCommand(command)
     ? { workflow: command.workflow, profileId: command.profileId, scope: command.scope, instrumentId: command.instrumentId ?? null, priorRunId: command.priorRunId ?? null, resolvedInstrumentIds: command.resolvedInstrumentIds }
     : { workflow: command.workflow, profileId: command.profileId, instrumentId: command.instrumentId ?? null, marketDate: command.marketDate ?? null };
-  const canonical = stableFingerprint({ command: commandForFingerprint, snapshot, events, watchlistRevision, portfolio: portfolio ? portfolio.reliable ? { snapshot: portfolio.snapshot, impact: portfolio.impact, limitations: portfolio.limitations } : { snapshotId: portfolio.snapshot.id, reliable: false, limitations: portfolio.limitations } : null });
+  const canonical = stableFingerprint({ command: commandForFingerprint, snapshot, events, watchlistRevision, portfolio: portfolio ? portfolio.reliable ? { snapshot: portfolio.snapshot, impact: portfolio.impact, limitations: portfolio.limitations } : { snapshotId: portfolio.snapshot.id, reliable: false, limitations: portfolio.limitations } : null, contextUses });
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical)));
-  return { schemaVersion: MARKET_AGENT_SCHEMA_VERSION, eventRuleVersion: EVENT_RULE_VERSION, profileId: command.profileId, workflow: command.workflow, watchlistRevision, instrumentIds: snapshot.request.instrumentIds, items, contextUses: [], fingerprint: `sha256:${[...digest].map((byte) => byte.toString(16).padStart(2, "0")).join("")}`, sealedAt: new Date().toISOString() };
+  return { schemaVersion: MARKET_AGENT_SCHEMA_VERSION, eventRuleVersion: EVENT_RULE_VERSION, profileId: command.profileId, workflow: command.workflow, watchlistRevision, instrumentIds: snapshot.request.instrumentIds, items, contextUses, fingerprint: `sha256:${[...digest].map((byte) => byte.toString(16).padStart(2, "0")).join("")}`, sealedAt: new Date().toISOString() };
 }
 
 export async function buildDeterministicAskEvidence(input: {
@@ -100,6 +102,7 @@ export async function buildDeterministicAskEvidence(input: {
   watchlistRevision: string;
   plan: AskEvidencePlan;
   portfolio?: PortfolioEvidenceInput;
+  confirmedContext?: { contexts: ConfirmedContext[]; limitations: string[] };
   previous?: { runId: string; workflow: string; createdAt: string; evidenceFingerprint: string; result: AgentResult };
 }): Promise<SealedEvidenceBundle> {
   const base = await buildDeterministicCloseReview(
@@ -109,6 +112,7 @@ export async function buildDeterministicAskEvidence(input: {
     input.runId,
     input.watchlistRevision,
     input.portfolio,
+    input.confirmedContext,
   );
   const items: EvidenceItem[] = [
     ...base.items,
@@ -169,6 +173,11 @@ export async function buildDeterministicAskEvidence(input: {
     },
     fingerprint: `sha256:${[...digest].map((byte) => byte.toString(16).padStart(2, "0")).join("")}`,
   };
+}
+
+function toContextUses(contexts: ConfirmedContext[]): ConfirmedContextUse[] {
+  const usedAt = new Date().toISOString();
+  return contexts.map((context) => ({ memoryId: context.memoryId, role: context.role, revisionHash: context.revisionHash, usedAt }));
 }
 
 export class MemoryRunRepository {
