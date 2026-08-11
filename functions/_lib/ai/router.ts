@@ -48,7 +48,7 @@ async function resolveRoute(input: GenerateAIInput, options: AIGatewayOptions, r
     source: resolveCallContext(input.task, input.context).source,
     selectedTier: candidates[0]!.tier,
     selectionSource: "fixed-chain",
-    reasonCode: "deepseek-primary-kimi-fallback",
+    reasonCode: "deepseek-kimi-openai-fallback",
     selectorFallbackUsed: false,
     selectorAttempts: 0,
     selectorTrace: [],
@@ -143,7 +143,7 @@ export async function generateAI(input: GenerateAIInput, options: AIGatewayOptio
             ...(route.fixedRoute ? {
               selectedTier: candidates[0]!.tier,
               selectionSource: "fixed-chain" as const,
-              selectionReason: "deepseek-primary-kimi-fallback",
+              selectionReason: "deepseek-kimi-openai-fallback",
             } : {}),
             usage: providerResult.usage,
           };
@@ -260,7 +260,7 @@ export async function streamAI(
             ...(route.fixedRoute ? {
               selectedTier: candidates[0]!.tier,
               selectionSource: "fixed-chain" as const,
-              selectionReason: "deepseek-primary-kimi-fallback",
+              selectionReason: "deepseek-kimi-openai-fallback",
             } : {}),
             usage: providerResult.usage,
           };

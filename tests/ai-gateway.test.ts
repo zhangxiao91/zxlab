@@ -65,6 +65,23 @@ test("production model chain uses official DeepSeek then Kimi endpoints", () => 
   ]);
 });
 
+test("production model chain appends the configured OpenAI text fallback", () => {
+  const env = {
+    DEEPSEEK_API_KEY: "deep-key",
+    KIMI_API_KEY: "kimi-key",
+    OPENAI_TEXT_BASE_URL: "https://text.example/v1",
+    OPENAI_TEXT_API_KEY: "text-key",
+    OPENAI_TEXT_MODEL: "text-model",
+  } as Parameters<typeof getDefaultModelChain>[0] & Record<"OPENAI_TEXT_BASE_URL" | "OPENAI_TEXT_API_KEY" | "OPENAI_TEXT_MODEL", string>;
+  const chain = getDefaultModelChain(env);
+
+  assert.deepEqual(chain.map(({ id, tier, provider, providerInstance, model, baseUrl }) => ({ id, tier, provider, providerInstance, model, baseUrl })), [
+    { id: "deepseek-v4-flash-official", tier: "deepseek-flash", provider: "deepseek", providerInstance: "deepseek-official", model: "deepseek-v4-flash", baseUrl: "https://api.deepseek.com" },
+    { id: "kimi-k3-official", tier: "kimi-k3", provider: "moonshot", providerInstance: "moonshot-official", model: "kimi-k3", baseUrl: "https://api.moonshot.ai/v1" },
+    { id: "openai-text-configured", tier: "openai-text", provider: "openai", providerInstance: "openai-text-configured", model: "text-model", baseUrl: "https://text.example/v1" },
+  ]);
+});
+
 test("production routing always tries DeepSeek before Kimi", async () => {
   const adapter = new ScriptedAdapter([fallback500(), success()]);
   const result = await generateAI(input, {
@@ -80,6 +97,27 @@ test("production routing always tries DeepSeek before Kimi", async () => {
   assert.equal(result.selectionSource, "fixed-chain");
   assert.equal(result.provider, "moonshot");
   assert.equal(result.model, "kimi-k3");
+});
+
+test("production routing reaches the configured OpenAI text fallback", async () => {
+  const chain = getDefaultModelChain({
+    DEEPSEEK_API_KEY: "deep-key",
+    KIMI_API_KEY: "kimi-key",
+    OPENAI_TEXT_BASE_URL: "https://text.example/v1",
+    OPENAI_TEXT_API_KEY: "text-key",
+    OPENAI_TEXT_MODEL: "text-model",
+  });
+  const adapter = new ScriptedAdapter([fallback500(), fallback500(), success("third")]);
+  const result = await generateAI(input, {
+    candidates: chain,
+    adapters: adapters(adapter),
+    jitterMs: () => 0,
+  });
+
+  assert.deepEqual(adapter.calls, ["deepseek-v4-flash-official", "kimi-k3-official", "openai-text-configured"]);
+  assert.equal(result.provider, "openai");
+  assert.equal(result.model, "text-model");
+  assert.equal(result.fallbackIndex, 2);
 });
 
 test("first candidate succeeds without fallback", async () => {

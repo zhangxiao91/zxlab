@@ -1,7 +1,7 @@
 import { AIError } from "./errors.ts";
 import type { LLMUsageDatabase } from "./telemetry.ts";
 
-export type CapabilityTier = "deepseek-flash" | "kimi-k3";
+export type CapabilityTier = "deepseek-flash" | "kimi-k3" | "openai-text";
 
 export interface AIEnv {
   ENVIRONMENT?: string;
@@ -13,6 +13,9 @@ export interface AIEnv {
   KIMI_API_KEY?: string;
   KIMI_MODEL?: string;
   KIMI_K3_MODEL?: string;
+  OPENAI_TEXT_BASE_URL?: string;
+  OPENAI_TEXT_API_KEY?: string;
+  OPENAI_TEXT_MODEL?: string;
   AI_GATEWAY_ACCESS_TOKEN?: string;
   MARKET_AGENT_GATEWAY_TOKEN?: string;
   AI_GATEWAY_ALLOWED_ORIGINS?: string;
@@ -23,8 +26,8 @@ export interface AIEnv {
 export interface ModelCandidate {
   id: string;
   tier: CapabilityTier;
-  provider: "deepseek" | "moonshot";
-  providerInstance: "deepseek-official" | "moonshot-official";
+  provider: "deepseek" | "moonshot" | "openai";
+  providerInstance: "deepseek-official" | "moonshot-official" | "openai-text-configured";
   adapter: "openai-compatible";
   model: string;
   baseUrl: string;
@@ -55,8 +58,7 @@ function configured(env: AIEnv, key: keyof AIEnv): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-function officialBaseUrl(env: AIEnv, key: keyof AIEnv, fallback: string): string {
-  const value = configured(env, key) ?? fallback;
+function normalizedBaseUrl(value: string): string {
   try {
     const url = new URL(value);
     if (url.protocol !== "https:" && url.hostname !== "localhost" && url.hostname !== "127.0.0.1") {
@@ -68,7 +70,11 @@ function officialBaseUrl(env: AIEnv, key: keyof AIEnv, fallback: string): string
   }
 }
 
-/** Fixed production route: DeepSeek V4 Flash first, Kimi K3 only on failure. */
+function officialBaseUrl(env: AIEnv, key: keyof AIEnv, fallback: string): string {
+  return normalizedBaseUrl(configured(env, key) ?? fallback);
+}
+
+/** Fixed production route: DeepSeek first, then Kimi, then the configured OpenAI text fallback. */
 export function getDefaultModelChain(env: AIEnv): ModelCandidate[] {
   const candidates: ModelCandidate[] = [];
   const deepseekKey = configured(env, "DEEPSEEK_API_KEY");
@@ -90,6 +96,22 @@ export function getDefaultModelChain(env: AIEnv): ModelCandidate[] {
       model: configured(env, "KIMI_MODEL") ?? configured(env, "KIMI_K3_MODEL") ?? OFFICIAL_MODELS.kimi.model,
       baseUrl: officialBaseUrl(env, "KIMI_BASE_URL", OFFICIAL_MODELS.kimi.baseUrl),
       apiKey: kimiKey,
+    });
+  }
+
+  const openAITextKey = configured(env, "OPENAI_TEXT_API_KEY");
+  const openAITextBaseUrl = configured(env, "OPENAI_TEXT_BASE_URL");
+  const openAITextModel = configured(env, "OPENAI_TEXT_MODEL");
+  if (openAITextKey && openAITextBaseUrl && openAITextModel) {
+    candidates.push({
+      id: "openai-text-configured",
+      tier: "openai-text",
+      provider: "openai",
+      providerInstance: "openai-text-configured",
+      adapter: "openai-compatible",
+      model: openAITextModel,
+      baseUrl: normalizedBaseUrl(openAITextBaseUrl),
+      apiKey: openAITextKey,
     });
   }
 

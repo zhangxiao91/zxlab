@@ -38,7 +38,7 @@ export type GenerateAIResult = {
   fallbackIndex: number;
   attempts?: number;
   latencyMs: number;
-  selectedTier?: "deepseek-flash" | "kimi-k3";
+  selectedTier?: "deepseek-flash" | "kimi-k3" | "openai-text";
   selectionSource?: "fixed-chain";
   selectionReason?: string;
   usage?: AIUsage;
