@@ -36,10 +36,10 @@ export class GatewayNarrator implements Narrator {
       signal: AbortSignal.timeout(this.options.timeoutMs ?? 90_000),
     });
     if (response.ok && response.headers.get("content-type")?.toLowerCase().startsWith("text/event-stream")) return parseGatewayNarration(await readTerminalEvent(response));
-    if (![404, 405, 501].includes(response.status)) { const payload = await safeJson(response); if (!response.ok) throw new Error(`MARKET_AGENT_GATEWAY_HTTP_${response.status}`); return parseGatewayNarration(payload); }
+    if (![404, 405, 501].includes(response.status)) { const payload = await safeJson(response); if (!response.ok) throw gatewayHttpError(response.status, payload); return parseGatewayNarration(payload); }
     const fallback = await fetcher(this.options.apiUrl, { method: "POST", headers: { authorization: `Bearer ${this.options.token}`, "content-type": "application/json", accept: "application/json", "x-request-id": crypto.randomUUID() }, body: JSON.stringify(body), signal: AbortSignal.timeout(this.options.timeoutMs ?? 90_000) });
     const payload = await safeJson(fallback);
-    if (!fallback.ok) throw new Error(`MARKET_AGENT_GATEWAY_HTTP_${fallback.status}`);
+    if (!fallback.ok) throw gatewayHttpError(fallback.status, payload);
     return parseGatewayNarration(payload);
   }
 }
@@ -99,6 +99,8 @@ async function readTerminalEvent(response: Response): Promise<unknown> {
 }
 
 async function safeJson(response: Response): Promise<unknown> { const raw = await response.text(); if (new TextEncoder().encode(raw).byteLength > 512 * 1024) throw new Error("MARKET_AGENT_GATEWAY_RESPONSE_TOO_LARGE"); try { return JSON.parse(raw) as unknown; } catch { throw new Error("MARKET_AGENT_GATEWAY_INVALID_JSON"); } }
+
+function gatewayHttpError(status: number, value: unknown): Error { const root = record(value); const error = record(root?.error); const code = typeof error?.code === "string" && /^[A-Z0-9_]{1,64}$/.test(error.code) ? error.code : "UNKNOWN"; return new Error(`MARKET_AGENT_GATEWAY_HTTP_${status}_${code}`); }
 
 function parseGatewayNarration(value: unknown): AgentNarration | unknown {
   const root = record(value); if (!root) return value;

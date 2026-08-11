@@ -109,12 +109,14 @@ export async function narrateWithRepair(narrator: Narrator, input: NarrationInpu
 function gatewayFailureCategory(error: unknown): string {
   const code = error instanceof Error ? error.message : "";
   if (error instanceof DOMException && error.name === "TimeoutError" || code.includes("TIMEOUT")) return "请求超时";
-  if (/HTTP_(401|403)$/.test(code) || code.includes("UNAUTHORIZED") || code.includes("FORBIDDEN")) return "鉴权失败";
-  if (/HTTP_429$/.test(code) || code.includes("RATE_LIMIT")) return "请求限流";
+  if (/HTTP_(401|403)(?:_|$)/.test(code) || code.includes("UNAUTHORIZED") || code.includes("FORBIDDEN")) return "鉴权失败";
+  if (/HTTP_429(?:_|$)/.test(code) || code.includes("RATE_LIMIT")) return "请求限流";
+  if (code.includes("CONTEXT_TOO_LONG")) return "上下文超出限制";
+  if (code.includes("INVALID_INPUT")) return "请求格式不兼容";
   if (code.includes("ALL_CANDIDATES_FAILED")) return "模型候选均失败";
   if (code.includes("NOT_CONFIGURED")) return "服务配置缺失";
   if (code.includes("INVALID_JSON") || code.includes("STREAM_INCOMPLETE") || code.includes("RESPONSE_TOO_LARGE")) return "响应协议异常";
-  if (/HTTP_5\d\d$/.test(code)) return "上游服务异常";
+  if (/HTTP_5\d\d(?:_|$)/.test(code)) return "上游服务异常";
   return "连接异常";
 }
 

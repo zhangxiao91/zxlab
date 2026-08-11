@@ -66,6 +66,21 @@ test("gateway stream errors preserve a bounded diagnostic category in fallback",
   assert.doesNotMatch(result.result.limitations.join(" "), /sensitive upstream detail/);
 });
 
+test("gateway HTTP errors preserve only the bounded response code", async () => {
+  const narrator = new GatewayNarrator({
+    apiUrl: "https://gateway.example/api/ai/generate",
+    token: "secret",
+    fetcher: async () => Response.json({
+      ok: false,
+      error: { code: "CONTEXT_TOO_LONG", message: "sensitive upstream detail" },
+    }, { status: 413 }),
+  });
+
+  const result = await (await import("./narration.ts")).narrateWithRepair(narrator, { workflow: "close_review", evidence });
+  assert.match(result.result.limitations.at(-1) ?? "", /上下文超出限制/);
+  assert.doesNotMatch(result.result.limitations.join(" "), /sensitive upstream detail/);
+});
+
 test("gateway returns on the terminal SSE event without waiting for the stream to close", async () => {
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
