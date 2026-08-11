@@ -38,3 +38,6 @@ outputs/kai-html-eval-package/
 
 #skills
 .agent/
+
+# local Codex handoff notes
+/docs/access/codex-debug.md
