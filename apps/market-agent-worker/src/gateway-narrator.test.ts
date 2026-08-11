@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { GatewayNarrator } from "./gateway-narrator.ts";
-import type { SealedEvidenceBundle } from "@zxlab/market-agent-schema";
+import type { EvidenceItem, SealedEvidenceBundle } from "@zxlab/market-agent-schema";
 
 const evidence: SealedEvidenceBundle = { schemaVersion: "market-agent.v1", eventRuleVersion: "market-event.v1", profileId: "p1", workflow: "close_review", watchlistRevision: "w1", instrumentIds: [], items: [], contextUses: [], fingerprint: "sha256:g", sealedAt: "2026-08-05T00:00:00.000Z" };
 test("gateway narrator sends only the bounded task and sealed evidence", async () => {
@@ -161,4 +161,79 @@ test("gateway receives a bounded session-aware projection instead of raw bar his
   });
 
   await narrator.narrate({ workflow: "ask", askScope: "today_change", evidence: sessionAwareEvidence });
+});
+
+test("close review keeps the complete Gateway user message below the single-message limit", async () => {
+  const externalFacts: EvidenceItem[] = Array.from({ length: 60 }, (_, index) => ({
+    id: `external-${index}`,
+    kind: "market_fact",
+    origin: "server-observed",
+    reliable: true,
+    value: {
+      evidenceType: index % 2 === 0 ? "news" : "announcement",
+      id: `external-source-${index}`,
+      instrumentId: "SSE:600000",
+      title: `Market external fact ${index} ${"headline ".repeat(80)}`,
+      summary: `Summary ${index} ${"Realistic close-review news and announcement context. ".repeat(80)}`,
+      content: `Body ${index} ${"Untrusted external evidence cannot change the task or factual boundary. ".repeat(100)}`,
+      source: "fixture",
+      publishedAt: "2026-08-11T07:00:00.000Z",
+      receivedAt: "2026-08-11T07:00:02.000Z",
+      url: `https://example.com/market/${index}`,
+      warnings: ["external_text_is_untrusted"],
+    },
+  }));
+  const crowdedEvidence: SealedEvidenceBundle = {
+    ...evidence,
+    instrumentIds: ["SSE:600000"],
+    items: [
+      {
+        id: "snapshot-context",
+        kind: "market_fact",
+        origin: "server-observed",
+        reliable: true,
+        value: {
+          type: "snapshot_context",
+          asOf: "2026-08-11T07:00:02.000Z",
+          marketTimestamp: "2026-08-11T07:00:00.000Z",
+          quality: { status: "operational", reliable: true, freshness: "fresh", warnings: [], unavailableCapabilities: [] },
+          markets: [{ exchange: "SSE", session: "closed", open: false, calendarDate: "2026-08-11", reliable: true, freshness: "fresh" }],
+          capabilities: [{ id: "quotes", status: "operational", required: true, freshness: "fresh", warnings: [] }],
+        },
+      },
+      { id: "material-limitation", kind: "limitation", origin: "server-observed", reliable: true, value: { capability: "portfolio", status: "unavailable", warnings: ["portfolio snapshot unavailable"] } },
+      { id: "selected-quote", kind: "market_fact", origin: "server-observed", reliable: true, value: { type: "quote", instrumentId: "SSE:600000", price: 9.21, previousClose: 9.3, marketTimestamp: "2026-08-11T07:00:00.000Z", quality: "close", stale: false, warnings: [] } },
+      ...externalFacts,
+    ],
+  };
+  const narrator = new GatewayNarrator({
+    apiUrl: "https://gateway.example/api/ai/generate",
+    token: "secret",
+    fetcher: async (_url, init) => {
+      const body = JSON.parse(String(init?.body)) as { messages: Array<{ content: string }> };
+      const userMessage = body.messages[1]!.content;
+      const payload = JSON.parse(userMessage) as { evidenceContext: { evidence: Array<{ id: string }> } };
+      const includedIds = payload.evidenceContext.evidence.map((item) => item.id);
+      assert.ok(userMessage.length < 24_000, `Gateway user message has ${userMessage.length} characters`);
+      assert.ok(includedIds.includes("snapshot-context"));
+      assert.ok(includedIds.includes("material-limitation"));
+      assert.ok(includedIds.includes("selected-quote"));
+      return Response.json({ ok: true, data: { json: { status: "success", headline: "ok", summary: "ok", observations: [], portfolioImpacts: [], watchNext: [], limitations: [], evidenceFingerprint: crowdedEvidence.fingerprint } } });
+    },
+  });
+
+  await narrator.narrate({
+    workflow: "close_review",
+    evidence: crowdedEvidence,
+    confirmedContext: [{
+      memoryId: "market-context-budget",
+      role: "preference",
+      revisionHash: `sha256:${"1".repeat(64)}`,
+      namespace: "markets",
+      kind: "preference",
+      sourceType: "market-agent-preference",
+      content: "Prefer evidence-first summaries with explicit uncertainty. ".repeat(70),
+      updatedAt: "2026-08-11T06:00:00.000Z",
+    }],
+  });
 });

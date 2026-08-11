@@ -5,8 +5,8 @@ import type {
   SealedEvidenceBundle,
 } from "@zxlab/market-agent-schema";
 
-const MAX_CONTEXT_ITEMS = 80;
-const MAX_CONTEXT_EVIDENCE_BYTES = 48 * 1024;
+const MAX_CONTEXT_ITEMS = 32;
+const MAX_CONTEXT_EVIDENCE_BYTES = 14 * 1024;
 
 type ClaimPolicy = "live-if-fresh" | "last-observed-not-live" | "current-price-claims-forbidden";
 

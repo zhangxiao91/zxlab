@@ -77,8 +77,8 @@ test("data-quality scope retains capability failures and limitations ahead of a 
   assert.ok(context.evidence.some((item) => item.id === "bars-limitation"));
   assert.equal(context.marketState.capabilityIssues.length, 1);
   assert.equal(context.marketState.claimPolicy, "last-observed-not-live");
-  assert.equal(context.selection.includedItems, 80);
-  assert.equal(context.selection.omittedItems, 42);
+  assert.equal(context.selection.includedItems, 32);
+  assert.equal(context.selection.omittedItems, 90);
 });
 
 test("relative-performance context carries selected rank and prioritizes the selected quote", () => {
