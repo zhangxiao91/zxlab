@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { extname, join, relative } from "node:path";
 
 const outputDir = join(process.cwd(), "dist");
+const functionsDir = join(process.cwd(), "functions");
 
 if (!existsSync(outputDir)) {
   console.error("站内链接检查失败：没有找到 dist，请先运行构建。");
@@ -16,6 +17,22 @@ const walkHtml = (directory) =>
   });
 
 const htmlFiles = walkHtml(outputDir);
+const walkFunctions = (directory, segments = []) =>
+  readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    if (entry.name.startsWith("_")) return [];
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) return walkFunctions(path, [...segments, entry.name]);
+    if (!/\.[cm]?[jt]s$/.test(entry.name)) return [];
+    const routeSegments = [...segments, entry.name.replace(/\.[cm]?[jt]s$/, "")];
+    if (routeSegments.at(-1) === "index") routeSegments.pop();
+    const pattern = routeSegments.map((segment) => {
+      if (/^\[\[.+\]\]$/.test(segment)) return ".*";
+      if (/^\[.+\]$/.test(segment)) return "[^/]+";
+      return segment.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
+    }).join("/");
+    return [new RegExp(`^/${pattern}/?$`)];
+  });
+const functionRoutes = existsSync(functionsDir) ? walkFunctions(functionsDir) : [];
 const failures = [];
 let checkedLinks = 0;
 
@@ -27,6 +44,7 @@ const routeExists = (pathname) => {
   if (existsSync(exactPath) && extname(exactPath)) return true;
   if (existsSync(join(exactPath, "index.html"))) return true;
   if (existsSync(`${exactPath}.html`)) return true;
+  if (functionRoutes.some((pattern) => pattern.test(decodedPath))) return true;
   return false;
 };
 

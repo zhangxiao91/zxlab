@@ -34,7 +34,7 @@ const runtimeApiBase = String(import.meta.env.PUBLIC_RUNTIME_API_BASE ?? (import
           </div>
           <div class="access-card__actions">
             <button type="button" data-access-refresh aria-label="Check authentication again" title="Check authentication again"><span aria-hidden="true">&#8635;</span></button>
-            <a data-access-login href="/lab/risk/" target="_blank" rel="noreferrer"><span data-access-login-label>Sign in with Cloudflare</span><span aria-hidden="true">&#8599;</span></a>
+            <a data-access-login href="/api/private/session?returnTo=/status/" target="_blank" rel="noreferrer"><span data-access-login-label>Sign in with Cloudflare</span><span aria-hidden="true">&#8599;</span></a>
           </div>
         </header>
         <p class="access-card__message" data-access-message>Private tools stay closed until their Cloudflare Access sessions are verified.</p>
@@ -93,7 +93,7 @@ const runtimeApiBase = String(import.meta.env.PUBLIC_RUNTIME_API_BASE ?? (import
     type AccessState = "checking" | "authenticated" | "required" | "unavailable";
     type AccessBoundary = "pages";
     const accessTargets: Record<AccessBoundary, { probe: string; login: string; init?: RequestInit }> = {
-      pages: { probe: "/lab/risk/", login: "/lab/risk/", init: { method: "HEAD" } },
+      pages: { probe: "/api/private/session?returnTo=/status/", login: "/api/private/session?returnTo=/status/" },
     };
     let accessCheckInFlight = false;
 
@@ -265,7 +265,7 @@ const runtimeApiBase = String(import.meta.env.PUBLIC_RUNTIME_API_BASE ?? (import
         button.textContent = "Memory unlocked";
       } catch (error) {
         const accessRequired = error instanceof Error && (error.message === "access-required" || error instanceof TypeError);
-        root.innerHTML = `<div class="memory-private__notice"><h3>${accessRequired ? "Cloudflare Access required" : "Memory details unavailable"}</h3><p>${accessRequired ? "Complete the unified Access login, then try again. Public counters remain visible." : "The private Memory source could not be reached."}</p><a href="/lab/risk/" target="_blank" rel="noreferrer">${accessRequired ? "Open unified login" : "Check protected access"}</a></div>`;
+        root.innerHTML = `<div class="memory-private__notice"><h3>${accessRequired ? "Cloudflare Access required" : "Memory details unavailable"}</h3><p>${accessRequired ? "Complete the unified Access login, then try again. Public counters remain visible." : "The private Memory source could not be reached."}</p><a href="/api/private/session?returnTo=/status/" target="_blank" rel="noreferrer">${accessRequired ? "Open unified login" : "Check protected access"}</a></div>`;
         button.textContent = "Try Memory again";
       } finally { button.disabled = false; }
     }

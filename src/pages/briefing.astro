@@ -201,8 +201,13 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
     const annotationAccessLink = document.querySelector<HTMLAnchorElement>("[data-annotation-access-link]");
     annotationAccessLink?.addEventListener("click", (event) => {
       event.preventDefault();
-      window.open(annotationAccessLink.dataset.accessUrl ?? privateAccessUrl, "_blank", "noopener,noreferrer");
+      window.open(annotationAccessLink.dataset.accessUrl ?? privateAccessUrl, "zxlab-private-access", "popup,width=560,height=720,noopener,noreferrer");
     });
+    const accessChannel = typeof BroadcastChannel === "function"
+      ? new BroadcastChannel("zxlab-private-access")
+      : null;
+    let pendingAccessRetry = false;
+    let accessProbeInFlight = false;
     const commentLabel = document.querySelector<HTMLElement>("[data-comment-label]");
     const briefingPage = document.querySelector<HTMLElement>("[data-briefing-state]");
     let briefingId = document.querySelector<HTMLElement>("[data-briefing-id]")?.dataset.briefingId ?? "";
@@ -595,6 +600,31 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
       }
     };
 
+    const resumePendingAnnotation = async () => {
+      if (!pendingAccessRetry || accessProbeInFlight) return;
+      accessProbeInFlight = true;
+      try {
+        watches = await getWatches();
+        renderWatchWorkspace();
+        pendingAccessRetry = false;
+        if (submitError) submitError.hidden = true;
+        if (annotationAccessLink) annotationAccessLink.hidden = true;
+        form?.requestSubmit();
+      } catch {
+        // Keep the preserved comment and login action visible until Access is ready.
+      } finally {
+        accessProbeInFlight = false;
+      }
+    };
+
+    accessChannel?.addEventListener("message", (event) => {
+      if (event.data?.type !== "zxlab:private-access-ready") return;
+      void resumePendingAnnotation();
+    });
+    window.addEventListener("focus", () => {
+      if (pendingAccessRetry) window.setTimeout(() => void resumePendingAnnotation(), 350);
+    });
+
     const renderBriefing = (briefing: DailyBriefing) => {
       briefingId = briefing.id;
       if (briefingPage) {
@@ -839,6 +869,7 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
         if (submitLabel) submitLabel.textContent = "再次发送";
       } catch (error) {
         const accessRequired = error instanceof SignalApiError && error.code === "SIGNAL_ACCESS_REQUIRED";
+        pendingAccessRetry = accessRequired;
         if (submitError) {
           submitError.hidden = false;
           submitError.textContent = error instanceof Error
@@ -851,6 +882,8 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
         if (submit) submit.disabled = false;
       }
     });
+
+    window.addEventListener("pagehide", () => accessChannel?.close(), { once: true });
 
     watchConfirmButton?.addEventListener("click", async () => {
       const condition = normalizeSelectedText(watchCondition?.value ?? "");

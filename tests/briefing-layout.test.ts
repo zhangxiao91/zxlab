@@ -64,20 +64,23 @@ test("track remains a two-step Watch action and refreshes protected cross-device
   assert.match(client, /`\/api\/watches\/\$\{encodeURIComponent\(id\)\}\/resolve`/);
 });
 
-test("private annotation failures point to the protected Signal login route", async () => {
+test("private annotation failures use the unified HTML access callback", async () => {
   const [client, page] = await Promise.all([
     readFile(clientSource, "utf8"),
     readFile(pageSource, "utf8"),
   ]);
   const annotationPanel = await readFile(new URL("../src/features/briefing/components/AnnotationPanel.astro", import.meta.url), "utf8");
 
-  assert.match(client, /export const privateAccessUrl = "\/api\/private\/signal\/api\/watches"/);
-  assert.doesNotMatch(client, /privateAccessUrl = "\/lab\/risk\//);
+  assert.match(client, /export const privateAccessUrl = "\/api\/private\/session\?returnTo=\/briefing\/"/);
+  assert.doesNotMatch(client, /privateAccessUrl = "\/api\/private\/signal\/api\/watches"/);
   assert.match(client, /fallbackCause instanceof SignalApiError/);
   assert.match(annotationPanel, /data-annotation-access-link/);
-  assert.match(annotationPanel, /data-access-url="\/api\/private\/signal\/api\/watches"/);
-  assert.match(annotationPanel, /href="\/briefing\/#signal-access"/);
+  assert.match(annotationPanel, /data-access-url="\/api\/private\/session\?returnTo=\/briefing\/"/);
+  assert.match(annotationPanel, /href="\/api\/private\/session\?returnTo=\/briefing\/"/);
   assert.match(page, /error instanceof SignalApiError && error\.code === "SIGNAL_ACCESS_REQUIRED"/);
+  assert.match(page, /new BroadcastChannel\("zxlab-private-access"\)/);
+  assert.match(page, /event\.data\?\.type !== "zxlab:private-access-ready"/);
+  assert.match(page, /await getWatches\(\)[\s\S]*?form\?\.requestSubmit\(\)/);
   assert.match(await readFile(styleSource, "utf8"), /\.annotation-access-link\[hidden\]\s*\{\s*display:\s*none;/);
 });
 
