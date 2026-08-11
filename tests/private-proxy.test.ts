@@ -67,6 +67,28 @@ test("private Signal requests travel through the Runtime service-binding bridge"
   assert.equal(forwardedAuthorization, "Bearer server-only-token");
 });
 
+test("private proxy does not misreport upstream service authentication as an Access failure", async () => {
+  const response = await proxyPrivateRequest(
+    { request: new Request("https://beta.zxlab.pages.dev/api/private/signal/api/watches"), env },
+    "signal",
+    "api/watches",
+    {
+      verifyAccess,
+      fetcher: async () => Response.json({
+        error: { code: "UNAUTHORIZED", message: "Cloudflare Access authentication is required" },
+      }, { status: 401 }),
+    },
+  );
+
+  assert.equal(response.status, 502);
+  assert.deepEqual(await response.json(), {
+    error: {
+      code: "PRIVATE_UPSTREAM_AUTH_FAILED",
+      message: "Private service authentication failed.",
+    },
+  });
+});
+
 test("private Signal proxy admits only the bounded Watch routes", async () => {
   const forwarded: Array<{ url: string; method: string }> = [];
   const fetcher = async (input: RequestInfo | URL, init?: RequestInit) => {

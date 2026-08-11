@@ -90,6 +90,10 @@ export async function proxyPrivateRequest(context: PrivateProxyContext, service:
       body: method === "GET" || method === "HEAD" ? undefined : context.request.body,
       redirect: "manual",
     });
+    if (response.status === 401) {
+      console.error(JSON.stringify({ event: "private_proxy.upstream_auth_failed", service, path: upstream.pathname }));
+      throw new RiskReviewError("PRIVATE_UPSTREAM_AUTH_FAILED", "Private service authentication failed.", 502);
+    }
     const responseHeaders = new Headers(jsonHeaders);
     for (const name of ["content-type", "content-length"]) {
       const value = response.headers.get(name);
