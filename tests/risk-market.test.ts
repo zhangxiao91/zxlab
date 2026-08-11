@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import "./market-workspace-policy.test.ts";
 import { proxyRiskMarket } from "../functions/_lib/market/proxy.ts";
 import { resolveMarketChartKind } from "../src/features/market/chart-model.ts";
 import { capabilityHealth, LatestMarketRequest, summarizeMarketDataQuality } from "../src/features/market/quality.ts";
@@ -20,6 +21,62 @@ test("partial and total capability failure cannot remain operational", () => {
   assert.equal(summarizeMarketDataQuality([ok, failed]).status, "degraded");
   assert.equal(summarizeMarketDataQuality([failed]).status, "unavailable");
   assert.deepEqual(summarizeMarketDataQuality([ok, failed]).unavailableCapabilities, ["minute-bars"]);
+});
+
+test("frontend capability aggregation preserves upstream freshness and ignores optional diagnostics for health", () => {
+  const stale = capabilityHealth({
+    id: "quotes",
+    response: {
+      data: [{ quality: "stale" }],
+      meta: {
+        capabilityStatus: "degraded",
+        freshness: "stale",
+        receivedAt: "2026-08-11T02:00:00.000Z",
+      },
+    } as MarketResponse<Array<{ quality: "stale" }>>,
+    itemQualities: ["stale"],
+  });
+  assert.equal(stale.freshness, "stale");
+  assert.equal(summarizeMarketDataQuality([stale]).freshness, "stale");
+
+  const live = capabilityHealth({
+    id: "quotes",
+    response: {
+      data: [{ quality: "live" }],
+      meta: { capabilityStatus: "operational", freshness: "fresh" },
+    } as MarketResponse<Array<{ quality: "live" }>>,
+    itemQualities: ["live"],
+  });
+  const providers = capabilityHealth({
+    id: "providers",
+    error: new Error("diagnostics unavailable"),
+    required: false,
+  });
+  const aggregate = summarizeMarketDataQuality([live, providers]);
+  assert.equal(aggregate.status, "operational");
+  assert.equal(aggregate.freshness, "fresh");
+});
+
+test("cached transport provenance stays operational when upstream freshness is fresh", () => {
+  const cached = capabilityHealth({
+    id: "quotes",
+    response: {
+      data: [{ quality: "cached" }],
+      meta: { capabilityStatus: "operational", freshness: "fresh" },
+    } as MarketResponse<Array<{ quality: "cached" }>>,
+    itemQualities: ["cached"],
+  });
+  assert.equal(cached.status, "operational");
+  assert.equal(cached.freshness, "fresh");
+  assert.equal(summarizeMarketDataQuality([cached]).reliable, true);
+
+  const missingFreshness = capabilityHealth({
+    id: "quotes",
+    response: { data: [{ quality: "cached" }] } as MarketResponse<Array<{ quality: "cached" }>>,
+    itemQualities: ["cached"],
+  });
+  assert.equal(missingFreshness.status, "operational");
+  assert.equal(missingFreshness.freshness, "unknown");
 });
 
 test("latest-only request gate rejects an older response after instrument switch", () => {

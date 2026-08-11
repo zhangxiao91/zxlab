@@ -26,12 +26,13 @@ export interface MarketNewsItem extends SharedMarketNewsItem {}
 
 export interface MarketStatus extends SharedMarketStatus {}
 
-export interface MarketCapabilityHealth extends Omit<SharedMarketCapabilityHealth, "required" | "receivedAt" | "freshness"> {
+export interface MarketCapabilityHealth extends Omit<SharedMarketCapabilityHealth, "receivedAt"> {
   receivedAt: string | null;
 }
 
 export interface MarketDataQuality {
   status: MarketCapabilityStatus;
+  reliable: boolean;
   asOf: string | null;
   receivedAt: string;
   freshness: MarketFreshness;

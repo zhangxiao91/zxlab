@@ -81,9 +81,10 @@ export async function readCurrentMarketSnapshot(request: MarketSnapshotRequest, 
   const unavailableCapabilities = required.filter((item) => item.status === "unavailable").map((item) => item.id);
   const quoteUnreliable = quotes.some((quote) => quote.quality === "stale" || quote.quality === "conflicted" || quote.quality === "unavailable" || quote.corroboration?.status === "limited");
   const calendarUnreliable = status.some((item) => !item.reliable);
-  const reliable = required.length > 0 && unavailableCapabilities.length === 0 && !quoteUnreliable && !calendarUnreliable;
+  const requiredFreshnessUnreliable = required.some((item) => item.freshness === "stale" || item.freshness === "unknown");
+  const reliable = required.length > 0 && unavailableCapabilities.length === 0 && !quoteUnreliable && !calendarUnreliable && !requiredFreshnessUnreliable;
   const qualityStatus: MarketCapabilityStatus = requiredFacts.length > 0 && requiredFacts.every((item) => item.status === "unavailable") ? "unavailable" : required.some((item) => item.status !== "operational") || !reliable ? "degraded" : "operational";
-  const freshness: MarketFreshness = quotes.some((item) => item.quality === "stale") ? "stale" : qualityStatus === "operational" ? "fresh" : required.some((item) => item.status === "operational") ? "mixed" : "unknown";
+  const freshness = combinedFreshness(required.map((item) => item.freshness));
   const warnings = unique([...capabilities.flatMap((item) => item.warnings), ...quotes.flatMap((item) => item.warnings), ...status.flatMap((item) => item.warnings)]);
   const attempts = capabilities.flatMap((item) => item.attempts);
   const marketTimestamp = latest([
@@ -112,7 +113,7 @@ function capabilityOf(item: LoadedCapability, observedAt: string): MarketCapabil
   let freshness = marketFreshness(meta.freshness) ?? "fresh";
   if (item.kind === "quotes") {
     if (!item.result.data.length || item.result.data.every((quote) => quote.quality === "unavailable")) status = "unavailable";
-    else if (item.result.data.some((quote) => quote.quality !== "live" || quote.corroboration?.status === "limited")) status = "degraded";
+    else if (item.result.data.some((quote) => quote.quality === "stale" || quote.quality === "conflicted" || quote.quality === "unavailable" || quote.corroboration?.status === "limited")) status = "degraded";
     if (item.result.data.some((quote) => quote.quality === "stale")) freshness = "stale";
   }
   if (item.kind === "bars" && !item.result.data.length) { status = "unavailable"; freshness = "unknown"; }
@@ -136,6 +137,12 @@ function strings(value: unknown): string[] { return Array.isArray(value) ? value
 function optionalString(value: unknown): string | null { return typeof value === "string" ? value : null; }
 function capabilityStatus(value: unknown): MarketCapabilityStatus | null { return value === "operational" || value === "degraded" || value === "unavailable" ? value : null; }
 function marketFreshness(value: unknown): MarketFreshness | null { return value === "fresh" || value === "mixed" || value === "stale" || value === "unknown" ? value : null; }
+function combinedFreshness(values: MarketFreshness[]): MarketFreshness {
+  if (!values.length || values.every((value) => value === "unknown")) return "unknown";
+  if (values.some((value) => value === "stale")) return "stale";
+  if (values.every((value) => value === "fresh")) return "fresh";
+  return "mixed";
+}
 function errorText(error: unknown): string { return error instanceof Error ? error.message : "capability unavailable"; }
 function latest(values: Array<string | null>): string | null { return values.filter((value): value is string => Boolean(value)).sort().at(-1) ?? null; }
 function unique(values: string[]): string[] { return [...new Set(values.filter(Boolean))]; }

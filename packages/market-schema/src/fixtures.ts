@@ -5,7 +5,7 @@ export function marketSnapshotFixture(quality: MarketFactQuality = "live"): Mark
   const unavailable = quality === "unavailable";
   const conflicted = quality === "conflicted";
   const stale = quality === "stale";
-  const capabilityStatus = unavailable ? "unavailable" : quality === "live" ? "operational" : "degraded";
+  const capabilityStatus = unavailable ? "unavailable" : stale || conflicted ? "degraded" : "operational";
   const quote = {
     instrumentId: "SSE:512480",
     price: unavailable ? null : .9,

@@ -55,3 +55,54 @@ test("normalizes adapter quotes and records snapshot completion separately from 
   assert.equal(snapshot.receivedAt, "2026-08-03T02:00:01.000Z");
   assert.equal(snapshot.data.quotes[0]?.corroboration.status, "not_requested");
 });
+
+test("keeps a fresh cached quote operational and reliable", async () => {
+  const snapshot = await readCurrentMarketSnapshot(request, dependencies({
+    loadQuotes: async () => {
+      const result = await dependencies().loadQuotes(["SSE:512480"], "fallback");
+      return { ...result, data: result.data.map((quote) => ({ ...quote, quality: "cached" as const })) };
+    },
+  }));
+
+  const quotes = snapshot.capabilities.find((capability) => capability.id === "quotes");
+  assert.deepEqual(
+    [quotes?.status, quotes?.freshness, snapshot.quality.status, snapshot.quality.reliable, snapshot.quality.freshness],
+    ["operational", "fresh", "operational", true, "fresh"],
+  );
+});
+
+test("keeps fresh fallback data fresh without upgrading its degraded provider health", async () => {
+  const snapshot = await readCurrentMarketSnapshot(request, dependencies({
+    loadQuotes: async () => {
+      const result = await dependencies().loadQuotes(["SSE:512480"], "fallback");
+      return {
+        ...result,
+        data: result.data.map((quote) => ({ ...quote, fallbackUsed: true })),
+        meta: { ...result.meta, capabilityStatus: "degraded", freshness: "fresh", fallbackUsed: true },
+      };
+    },
+  }));
+
+  const quotes = snapshot.capabilities.find((capability) => capability.id === "quotes");
+  assert.deepEqual(
+    [quotes?.status, quotes?.freshness, snapshot.quality.status, snapshot.quality.reliable, snapshot.quality.freshness],
+    ["degraded", "fresh", "degraded", true, "fresh"],
+  );
+});
+
+test("a stale required bar capability cannot remain reliable", async () => {
+  const snapshot = await readCurrentMarketSnapshot(request, dependencies({
+    loadBars: async () => {
+      const result = await dependencies().loadBars("SSE:512480", "1m");
+      return {
+        ...result,
+        meta: { ...result.meta, capabilityStatus: "degraded", freshness: "stale" },
+      };
+    },
+  }));
+
+  assert.equal(snapshot.quality.status, "degraded");
+  assert.equal(snapshot.quality.reliable, false);
+  assert.equal(snapshot.quality.freshness, "stale");
+  assert.equal(validateMarketSnapshot(snapshot).ok, true);
+});

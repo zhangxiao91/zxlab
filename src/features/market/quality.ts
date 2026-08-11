@@ -10,6 +10,7 @@ interface CapabilityInput<T> {
   id: string;
   response?: MarketResponse<T>;
   error?: unknown;
+  required?: boolean;
   emptyIsUnavailable?: boolean;
   itemQualities?: Array<"live" | "cached" | "stale" | "conflicted" | "unavailable">;
   extraWarnings?: string[];
@@ -32,6 +33,7 @@ export function capabilityHealth<T>({
   id,
   response,
   error,
+  required = true,
   emptyIsUnavailable = false,
   itemQualities = [],
   extraWarnings = [],
@@ -47,7 +49,9 @@ export function capabilityHealth<T>({
   const isEmpty = Array.isArray(data) && data.length === 0;
   const explicit = isCapabilityStatus(meta?.capabilityStatus) ? meta.capabilityStatus : null;
   const allItemsUnavailable = itemQualities.length > 0 && itemQualities.every((quality) => quality === "unavailable");
-  const hasWeakItem = itemQualities.some((quality) => quality !== "live");
+  const hasWeakItem = itemQualities.some((quality) =>
+    quality === "stale" || quality === "conflicted" || quality === "unavailable"
+  );
   const hasFailedAttempt = attempts.some((attempt) => !attempt.ok);
   const status: MarketCapabilityStatus = error || (emptyIsUnavailable && isEmpty) || allItemsUnavailable
     ? "unavailable"
@@ -56,15 +60,20 @@ export function capabilityHealth<T>({
   return {
     id,
     status,
+    required,
     asOf: stringOf(meta?.asOf),
     receivedAt: stringOf(meta?.receivedAt),
+    freshness: marketFreshness(meta?.freshness)
+      ?? freshnessFromItems(itemQualities, status),
     warnings,
     attempts,
   };
 }
 
 export function summarizeMarketDataQuality(capabilities: MarketCapabilityHealth[], receivedAt = new Date().toISOString()): MarketDataQuality {
-  const statuses = capabilities.map((item) => item.status);
+  const required = capabilities.filter((item) => item.required);
+  const considered = required.length ? required : capabilities;
+  const statuses = considered.map((item) => item.status);
   const status: MarketCapabilityStatus = statuses.length > 0 && statuses.every((item) => item === "unavailable")
     ? "unavailable"
     : statuses.some((item) => item !== "operational")
@@ -73,14 +82,33 @@ export function summarizeMarketDataQuality(capabilities: MarketCapabilityHealth[
   const asOf = capabilities.map((item) => item.asOf).filter((value): value is string => Boolean(value)).sort().at(-1) ?? null;
   return {
     status,
+    reliable: considered.length > 0
+      && considered.every((item) => item.status !== "unavailable" && item.freshness !== "stale" && item.freshness !== "unknown"),
     asOf,
     receivedAt,
-    freshness: status === "operational" ? "fresh" : statuses.some((item) => item === "operational") ? "mixed" : "unknown",
+    freshness: combinedFreshness(considered.map((item) => item.freshness)),
     capabilities,
     warnings: unique(capabilities.flatMap((item) => item.warnings)),
     attempts: capabilities.flatMap((item) => item.attempts),
     unavailableCapabilities: capabilities.filter((item) => item.status === "unavailable").map((item) => item.id),
   };
+}
+
+function freshnessFromItems(
+  qualities: Array<"live" | "cached" | "stale" | "conflicted" | "unavailable">,
+  status: MarketCapabilityStatus,
+): MarketCapabilityHealth["freshness"] {
+  if (qualities.some((quality) => quality === "stale")) return "stale";
+  if (qualities.length && qualities.every((quality) => quality === "live")) return "fresh";
+  if (qualities.some((quality) => quality === "cached" || quality === "conflicted" || quality === "unavailable")) return "unknown";
+  return status === "operational" ? "fresh" : "unknown";
+}
+
+function combinedFreshness(values: MarketCapabilityHealth["freshness"][]): MarketCapabilityHealth["freshness"] {
+  if (!values.length || values.every((value) => value === "unknown")) return "unknown";
+  if (values.some((value) => value === "stale")) return "stale";
+  if (values.every((value) => value === "fresh")) return "fresh";
+  return "mixed";
 }
 
 function errorAttempts(error: unknown): unknown {
@@ -110,6 +138,10 @@ function stringOf(value: unknown): string | null {
 
 function isCapabilityStatus(value: unknown): value is MarketCapabilityStatus {
   return value === "operational" || value === "degraded" || value === "unavailable";
+}
+
+function marketFreshness(value: unknown): MarketCapabilityHealth["freshness"] | null {
+  return value === "fresh" || value === "mixed" || value === "stale" || value === "unknown" ? value : null;
 }
 
 function unique(values: string[]): string[] {

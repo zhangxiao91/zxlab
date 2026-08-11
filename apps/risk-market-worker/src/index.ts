@@ -1,6 +1,8 @@
 import { getChinaMarketStatus } from "./calendar.ts";
+import { projectCachedLoadResult } from "./cache-policy.ts";
+import { applyIntradayFreshnessDecision, assessDailyBarFreshness, assessIntradayFreshness } from "./freshness.ts";
 import { readCurrentMarketSnapshot, type SnapshotLoadResult } from "./snapshot.ts";
-import { DEFAULT_QUOTE_CONFLICT_THRESHOLD_BPS, type MarketFactQuality, type MarketQuoteMode, type QuoteCorroboration } from "../../../packages/market-schema/src/index.ts";
+import { DEFAULT_QUOTE_CONFLICT_THRESHOLD_BPS, type MarketFactQuality, type MarketFreshness, type MarketQuoteMode, type QuoteCorroboration, type TradingCalendar } from "../../../packages/market-schema/src/index.ts";
 
 type NullableNumber = number | null;
 type Quality = MarketFactQuality;
@@ -89,6 +91,7 @@ const CORS = {
 };
 const MAX_UPSTREAM_BYTES = 2_000_000;
 const UPSTREAM_TIMEOUT_MS = 4_500;
+const QUOTE_BATCH_CONCURRENCY = 4;
 
 export function instrumentToCode(id: string): { exchange: "SSE" | "SZSE"; symbol: string; prefixed: string; secid: string } {
   const match = /^(SSE|SZSE):(\d{6})$/.exec(id);
@@ -157,61 +160,10 @@ function parseJsonOrJsonp(value: string): unknown {
   return JSON.parse(trimmed.slice(start, end + 1));
 }
 
-function quoteFreshness(marketTimestamp: string | null, receivedAt: string) {
-  const ageSeconds = marketTimestamp ? Math.max(0, (Date.parse(receivedAt) - Date.parse(marketTimestamp)) / 1000) : Number.POSITIVE_INFINITY;
-  const closedSnapshot = marketTimestamp ? isCurrentClosedMarketSnapshot(marketTimestamp, receivedAt) : false;
-  return { stale: ageSeconds > 120 && !closedSnapshot, ageSeconds };
-}
-
-function isCurrentClosedMarketSnapshot(marketTimestamp: string, receivedAt: string) {
-  const market = shanghaiClock(marketTimestamp);
-  const received = shanghaiClock(receivedAt);
-  if (!market || !received) return false;
-  const receivedMinutes = received.hour * 60 + received.minute;
-  const marketMinutes = market.hour * 60 + market.minute;
-  const sessionOpen = received.weekday >= 1 && received.weekday <= 5
-    && ((receivedMinutes >= 570 && receivedMinutes < 690) || (receivedMinutes >= 780 && receivedMinutes < 900));
-  if (sessionOpen) return false;
-  if (market.date === received.date) return receivedMinutes >= 900 && marketMinutes >= 900;
-  const expectedPreviousCloseDate = previousWeekday(received.date);
-  const acceptsPreviousClose = received.weekday === 0
-    || received.weekday === 6
-    || (received.weekday >= 1 && received.weekday <= 5 && receivedMinutes < 570);
-  return acceptsPreviousClose && market.date === expectedPreviousCloseDate && marketMinutes >= 900;
-}
-
-function shanghaiClock(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.valueOf())) return null;
-  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Shanghai",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    weekday: "short",
-    hourCycle: "h23",
-  }).formatToParts(date).map((part) => [part.type, part.value]));
-  return {
-    date: `${parts.year}-${parts.month}-${parts.day}`,
-    hour: Number(parts.hour),
-    minute: Number(parts.minute),
-    weekday: ({ Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 } as Record<string, number>)[parts.weekday] ?? -1,
-  };
-}
-
-function previousWeekday(value: string) {
-  const date = new Date(`${value}T00:00:00Z`);
-  do date.setUTCDate(date.getUTCDate() - 1); while (date.getUTCDay() === 0 || date.getUTCDay() === 6);
-  return date.toISOString().slice(0, 10);
-}
-
-function quoteWarnings(price: number | null, marketTimestamp: string | null, ageSeconds: number, stale: boolean): string[] {
+function quoteWarnings(price: number | null, marketTimestamp: string | null): string[] {
   return [
     price == null ? "上游缺少现价" : null,
     marketTimestamp == null ? "上游缺少市场时间" : null,
-    stale && Number.isFinite(ageSeconds) ? `报价已过期 ${Math.round(ageSeconds)} 秒` : null,
   ].filter((item): item is string => Boolean(item));
 }
 
@@ -223,8 +175,7 @@ export function parseTencentQuote(instrumentId: string, body: string, receivedAt
   const marketTimestamp = chinaIso(fields[30]?.slice(0, 8) ?? "", fields[30]?.slice(8, 14) ?? "");
   const price = finite(fields[3]);
   if (price == null) throw new GatewayError("EMPTY_PRICE", `腾讯 ${instrumentId} 现价为空`, 502);
-  const freshness = quoteFreshness(marketTimestamp, receivedAt);
-  return { instrumentId, price, previousClose: finite(fields[4]), open: finite(fields[5]), high: finite(fields[33]), low: finite(fields[34]), volume: multiplied(fields[6], 100), turnover: multiplied(fields[37], 10_000), marketTimestamp, receivedAt, source: "tencent-qt", quality: freshness.stale ? "stale" : "live", stale: freshness.stale, warnings: quoteWarnings(price, marketTimestamp, freshness.ageSeconds, freshness.stale), fallbackUsed: false, providerAttempts: [] };
+  return { instrumentId, price, previousClose: finite(fields[4]), open: finite(fields[5]), high: finite(fields[33]), low: finite(fields[34]), volume: multiplied(fields[6], 100), turnover: multiplied(fields[37], 10_000), marketTimestamp, receivedAt, source: "tencent-qt", quality: marketTimestamp ? "live" : "stale", stale: marketTimestamp == null, warnings: quoteWarnings(price, marketTimestamp), fallbackUsed: false, providerAttempts: [] };
 }
 
 export function parseTencentSecurityName(body: string): string {
@@ -242,8 +193,7 @@ export function parseSinaQuote(instrumentId: string, body: string, receivedAt = 
   const marketTimestamp = chinaIso(fields[30] ?? "", fields[31] ?? "");
   const price = finite(fields[3]);
   if (price == null) throw new GatewayError("EMPTY_PRICE", `新浪 ${instrumentId} 现价为空`, 502);
-  const freshness = quoteFreshness(marketTimestamp, receivedAt);
-  return { instrumentId, price, previousClose: finite(fields[2]), open: finite(fields[1]), high: finite(fields[4]), low: finite(fields[5]), volume: finite(fields[8]), turnover: finite(fields[9]), marketTimestamp, receivedAt, source: "sina-hq", quality: freshness.stale ? "stale" : "live", stale: freshness.stale, warnings: quoteWarnings(price, marketTimestamp, freshness.ageSeconds, freshness.stale), fallbackUsed: true, providerAttempts: [] };
+  return { instrumentId, price, previousClose: finite(fields[2]), open: finite(fields[1]), high: finite(fields[4]), low: finite(fields[5]), volume: finite(fields[8]), turnover: finite(fields[9]), marketTimestamp, receivedAt, source: "sina-hq", quality: marketTimestamp ? "live" : "stale", stale: marketTimestamp == null, warnings: quoteWarnings(price, marketTimestamp), fallbackUsed: true, providerAttempts: [] };
 }
 
 export function parseEastmoneyQuote(instrumentId: string, payload: unknown, receivedAt = new Date().toISOString()): StandardQuote {
@@ -256,8 +206,7 @@ export function parseEastmoneyQuote(instrumentId: string, payload: unknown, rece
   const marketTimestamp = rawTimestamp == null ? null : new Date(rawTimestamp * 1000).toISOString();
   const price = scaled(data.f43);
   if (price == null) throw new GatewayError("EMPTY_PRICE", `东财 ${instrumentId} 现价为空`, 502);
-  const freshness = quoteFreshness(marketTimestamp, receivedAt);
-  return { instrumentId, price, previousClose: scaled(data.f60), open: scaled(data.f46), high: scaled(data.f44), low: scaled(data.f45), volume: multiplied(data.f47, 100), turnover: finite(data.f48), marketTimestamp, receivedAt, source: "eastmoney-push2", quality: freshness.stale ? "stale" : "live", stale: freshness.stale, warnings: quoteWarnings(price, marketTimestamp, freshness.ageSeconds, freshness.stale), fallbackUsed: true, providerAttempts: [] };
+  return { instrumentId, price, previousClose: scaled(data.f60), open: scaled(data.f46), high: scaled(data.f44), low: scaled(data.f45), volume: multiplied(data.f47, 100), turnover: finite(data.f48), marketTimestamp, receivedAt, source: "eastmoney-push2", quality: marketTimestamp ? "live" : "stale", stale: marketTimestamp == null, warnings: quoteWarnings(price, marketTimestamp), fallbackUsed: true, providerAttempts: [] };
 }
 
 export function parseEastmoneySecurityName(payload: unknown): string {
@@ -547,12 +496,12 @@ class AllProvidersFailedError extends GatewayError {
   constructor(readonly capability: Capability, readonly attempts: ProviderAttempt[]) { super("ALL_PROVIDERS_FAILED", `${capability} 的 ${attempts.length} 个 Provider 均失败`, 502); }
 }
 
-function quoteProviders(instrumentId: string): Provider<StandardQuote>[] {
+function quoteProviders(instrumentId: string, receivedAt = new Date().toISOString()): Provider<StandardQuote>[] {
   const code = instrumentToCode(instrumentId);
   return [
-    { name: "tencent-qt", load: async (fetcher) => parseTencentQuote(instrumentId, await (await upstream(fetcher, `https://qt.gtimg.cn/q=${code.prefixed}`)).text()) },
-    { name: "sina-hq", load: async (fetcher) => parseSinaQuote(instrumentId, await (await upstream(fetcher, `https://hq.sinajs.cn/list=${code.prefixed}`, { referer: "https://finance.sina.com.cn/" })).text()) },
-    { name: "eastmoney-push2", load: async (fetcher) => parseEastmoneyQuote(instrumentId, await (await upstream(fetcher, `https://push2.eastmoney.com/api/qt/stock/get?secid=${code.secid}&fields=f43,f44,f45,f46,f47,f48,f57,f58,f59,f60,f86`)).json()) },
+    { name: "tencent-qt", load: async (fetcher) => parseTencentQuote(instrumentId, await (await upstream(fetcher, `https://qt.gtimg.cn/q=${code.prefixed}`)).text(), receivedAt) },
+    { name: "sina-hq", load: async (fetcher) => parseSinaQuote(instrumentId, await (await upstream(fetcher, `https://hq.sinajs.cn/list=${code.prefixed}`, { referer: "https://finance.sina.com.cn/" })).text(), receivedAt) },
+    { name: "eastmoney-push2", load: async (fetcher) => parseEastmoneyQuote(instrumentId, await (await upstream(fetcher, `https://push2.eastmoney.com/api/qt/stock/get?secid=${code.secid}&fields=f43,f44,f45,f46,f47,f48,f57,f58,f59,f60,f86`)).json(), receivedAt) },
   ];
 }
 
@@ -673,8 +622,7 @@ async function cached<T>(request: Request, seconds: number, ctx: ExecutionContex
   const hit = await cache.match(request);
   if (hit) {
     const body = await hit.json() as LoadResult<T>;
-    const data = Array.isArray(body.data) ? body.data.map((item) => item && typeof item === "object" && "quality" in item ? { ...item, quality: "stale" in item && item.stale ? "stale" : "cached" } : item) : body.data;
-    return json({ data, meta: { ...body.meta, cached: true } }, 200, `public, max-age=${seconds}`);
+    return json(projectCachedLoadResult(body), 200, `public, max-age=${seconds}`);
   }
   const loaded = await loader();
   const response = json({ data: loaded.data, meta: { ...loaded.meta, cached: false } }, 200, `public, max-age=${seconds}`);
@@ -682,17 +630,43 @@ async function cached<T>(request: Request, seconds: number, ctx: ExecutionContex
   return response;
 }
 
-async function loadQuotes(ids: string[], mode: MarketQuoteMode = "fallback"): Promise<LoadResult<StandardQuote[]>> {
-  const resolved = await mapWithConcurrency(ids, 1, async (id) => {
-    try { return mode === "corroborated" ? await runCorroboratedQuote(quoteProviders(id)) : withQuoteDiagnostics(await runWithFallback("quote", quoteProviders(id))); }
-    catch (error) { if (error instanceof AllProvidersFailedError) return unavailableQuote(id, error, mode); throw error; }
+export interface QuoteLoadDependencies {
+  fetcher?: Fetcher;
+  now?: () => Date;
+  calendar?: TradingCalendar;
+}
+
+export async function loadQuotes(ids: string[], mode: MarketQuoteMode = "fallback", dependencies: QuoteLoadDependencies = {}): Promise<LoadResult<StandardQuote[]>> {
+  const fetcher = dependencies.fetcher ?? fetch;
+  const observedAt = (dependencies.now?.() ?? new Date()).toISOString();
+  const resolvedWithFreshness = await mapWithConcurrency(ids, QUOTE_BATCH_CONCURRENCY, async (id) => {
+    try {
+      const providers = quoteProviders(id, observedAt);
+      const loaded = mode === "corroborated"
+        ? await runCorroboratedQuote(providers, fetcher)
+        : withQuoteDiagnostics(await runWithFallback("quote", providers, fetcher));
+      const decision = await assessIntradayFreshness({ exchange: instrumentToCode(id).exchange, marketTimestamp: loaded.marketTimestamp, receivedAt: loaded.receivedAt }, dependencies.calendar);
+      return { quote: applyIntradayFreshnessDecision(loaded, decision), freshness: decision.freshness };
+    } catch (error) {
+      if (error instanceof AllProvidersFailedError) return { quote: unavailableQuote(id, error, mode), freshness: "unknown" as const };
+      throw error;
+    }
   });
+  const resolved = resolvedWithFreshness.map((item) => item.quote);
   const sources = [...new Set(resolved.map((item) => item.source))];
   const unavailableCount = resolved.filter((item) => item.quality === "unavailable").length;
   const receivedAt = resolved.map((item) => item.receivedAt).sort().at(-1) ?? new Date().toISOString();
   const asOf = resolved.map((item) => item.marketTimestamp).filter((value): value is string => Boolean(value)).sort().at(-1) ?? null;
-  const capabilityStatus = unavailableCount === resolved.length ? "unavailable" : unavailableCount > 0 || resolved.some((item) => item.fallbackUsed || item.quality !== "live" || item.corroboration?.status === "limited") ? "degraded" : "operational";
-  return { data: resolved, meta: { capability: "quote", quoteMode: mode, capabilityStatus, asOf, receivedAt, freshness: capabilityStatus === "operational" ? "fresh" : "mixed", providerChain: ["tencent-qt", "sina-hq", "eastmoney-push2"], sources, attempts: resolved.flatMap((item) => item.providerAttempts), warnings: resolved.flatMap((item) => item.warnings), fallbackCount: resolved.filter((item) => item.fallbackUsed).length, unavailableCount, corroboratedCount: resolved.filter((item) => item.corroboration?.status === "corroborated").length, conflictedCount: resolved.filter((item) => item.quality === "conflicted").length } };
+  const freshness = aggregateFreshness(resolvedWithFreshness.map((item) => item.freshness));
+  const capabilityStatus = unavailableCount === resolved.length ? "unavailable" : unavailableCount > 0 || freshness !== "fresh" || resolved.some((item) => item.fallbackUsed || item.quality !== "live" || item.corroboration?.status === "limited") ? "degraded" : "operational";
+  return { data: resolved, meta: { capability: "quote", quoteMode: mode, capabilityStatus, asOf, receivedAt, freshness, providerChain: ["tencent-qt", "sina-hq", "eastmoney-push2"], sources, attempts: resolved.flatMap((item) => item.providerAttempts), warnings: resolved.flatMap((item) => item.warnings), fallbackCount: resolved.filter((item) => item.fallbackUsed).length, unavailableCount, corroboratedCount: resolved.filter((item) => item.corroboration?.status === "corroborated").length, conflictedCount: resolved.filter((item) => item.quality === "conflicted").length } };
+}
+
+function aggregateFreshness(values: MarketFreshness[]): MarketFreshness {
+  if (!values.length || values.every((value) => value === "unknown")) return "unknown";
+  if (values.some((value) => value === "stale")) return "stale";
+  if (values.some((value) => value !== "fresh")) return "mixed";
+  return "fresh";
 }
 
 async function mapWithConcurrency<T, R>(items: T[], limit: number, mapper: (item: T) => Promise<R>): Promise<R[]> {
@@ -709,18 +683,28 @@ async function mapWithConcurrency<T, R>(items: T[], limit: number, mapper: (item
   return results;
 }
 
-async function loadBars(instrumentId: string, interval: "1d" | "1m"): Promise<LoadResult<StandardBar[]>> {
+export interface BarLoadDependencies {
+  fetcher?: Fetcher;
+  now?: () => Date;
+  calendar?: TradingCalendar;
+}
+
+export async function loadBars(instrumentId: string, interval: "1d" | "1m", dependencies: BarLoadDependencies = {}): Promise<LoadResult<StandardBar[]>> {
   const capability = interval === "1d" ? "daily-bars" : "minute-bars";
   const providers = interval === "1d" ? dailyProviders(instrumentId) : minuteProviders(instrumentId);
-  const result = await runWithFallback(capability, providers);
+  const result = await runWithFallback(capability, providers, dependencies.fetcher ?? fetch);
   const data = result.data.map((item) => {
     const timestamp = normalizeBarTimestamp(item.timestamp);
     if (!timestamp) throw new GatewayError("UPSTREAM_SCHEMA_CHANGED", `${result.source} 返回无法识别的 K 线时间`, 502);
     return { ...item, timestamp };
   });
-  const receivedAt = new Date().toISOString();
+  const receivedAt = (dependencies.now?.() ?? new Date()).toISOString();
   const asOf = data.map((item) => item.timestamp).sort().at(-1) ?? null;
-  return { data, meta: { capability, capabilityStatus: data.length ? result.fallbackUsed ? "degraded" : "operational" : "unavailable", asOf, receivedAt, freshness: data.length ? "fresh" : "unknown", source: result.source, fallbackUsed: result.fallbackUsed, providerChain: providers.map((item) => item.name), attempts: result.attempts } };
+  const freshness = interval === "1d"
+    ? await assessDailyBarFreshness({ exchange: instrumentToCode(instrumentId).exchange, marketTimestamp: asOf, receivedAt }, dependencies.calendar)
+    : await assessIntradayFreshness({ exchange: instrumentToCode(instrumentId).exchange, marketTimestamp: asOf, receivedAt }, dependencies.calendar);
+  const capabilityStatus = !data.length ? "unavailable" : result.fallbackUsed || freshness.freshness !== "fresh" ? "degraded" : "operational";
+  return { data, meta: { capability, capabilityStatus, asOf, receivedAt, freshness: data.length ? freshness.freshness : "unknown", warnings: freshness.warnings, source: result.source, fallbackUsed: result.fallbackUsed, providerChain: providers.map((item) => item.name), attempts: result.attempts } };
 }
 
 export function dedupNews(items: StandardNewsItem[], limit: number): StandardNewsItem[] {

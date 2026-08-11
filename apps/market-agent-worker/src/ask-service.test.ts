@@ -121,3 +121,47 @@ test("Ask rejects a market response that does not echo the sealed fixed plan", a
     /ASK_SNAPSHOT_SCOPE_MISMATCH/,
   );
 });
+
+test("Ask seals the snapshot session, freshness, and required capability state for narration", async () => {
+  const service = new AskService({
+    getCurrentSnapshot: async (input) => ({
+      ...marketSnapshot(input),
+      data: {
+        ...marketSnapshot(input).data,
+        status: [{
+          exchange: "SSE",
+          open: true,
+          session: "open",
+          calendarDate: "2026-08-07",
+          marketTimestamp: "2026-08-07T08:00:00.000Z",
+          asOf: "2026-08-07T08:00:00.000Z",
+          receivedAt: "2026-08-07T08:00:01.000Z",
+          freshness: "fresh",
+          quality: "operational",
+          reliable: true,
+          source: "calendar-fixture",
+          warnings: [],
+        }],
+      },
+      capabilities: [{ id: "quotes", status: "operational", required: true, asOf: "2026-08-07T08:00:00.000Z", receivedAt: "2026-08-07T08:00:01.000Z", freshness: "fresh", warnings: [], attempts: [] }],
+    }),
+  });
+
+  const output = await service.execute({ runId: "ask-run-context", command: ask(), watchlistRevision: "watchlist-1" });
+  const snapshotContext = output.evidence.items.find((item) => {
+    const value = item.value as { type?: unknown };
+    return value?.type === "snapshot_context";
+  });
+
+  assert.ok(snapshotContext);
+  assert.equal(snapshotContext.reliable, true);
+  assert.deepEqual(snapshotContext.value, {
+    type: "snapshot_context",
+    asOf: "2026-08-07T08:00:00.000Z",
+    receivedAt: "2026-08-07T08:00:01.000Z",
+    marketTimestamp: "2026-08-07T08:00:00.000Z",
+    quality: { status: "operational", reliable: true, freshness: "fresh", warnings: [], unavailableCapabilities: [] },
+    markets: [{ exchange: "SSE", open: true, session: "open", calendarDate: "2026-08-07", marketTimestamp: "2026-08-07T08:00:00.000Z", asOf: "2026-08-07T08:00:00.000Z", receivedAt: "2026-08-07T08:00:01.000Z", freshness: "fresh", quality: "operational", reliable: true, source: "calendar-fixture", warnings: [] }],
+    capabilities: [{ id: "quotes", status: "operational", required: true, asOf: "2026-08-07T08:00:00.000Z", freshness: "fresh", warnings: [] }],
+  });
+});

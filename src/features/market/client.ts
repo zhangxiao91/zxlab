@@ -14,42 +14,45 @@ export class MarketClient {
     private readonly fetcher: typeof fetch = fetch,
   ) {}
 
-  async getQuotes(instrumentIds: string[]): Promise<MarketResponse<MarketQuote[]>> {
-    return this.request(`/api/market/quotes?instruments=${encodeURIComponent(instrumentIds.join(","))}`);
+  async getQuotes(instrumentIds: string[], signal?: AbortSignal): Promise<MarketResponse<MarketQuote[]>> {
+    return this.request(`/api/market/quotes?instruments=${encodeURIComponent(instrumentIds.join(","))}`, signal);
   }
 
-  async getSnapshot(input: MarketSnapshotRequest): Promise<MarketResponse<MarketSnapshot>> {
+  async getSnapshot(input: MarketSnapshotRequest, signal?: AbortSignal): Promise<MarketResponse<MarketSnapshot>> {
     const params = new URLSearchParams({ ids: input.instrumentIds.join(","), include: input.include.join(","), intervals: input.intervals.join(","), quoteMode: input.quoteMode });
-    const response = await this.request<unknown>(`/api/market/snapshot?${params}`);
+    const response = await this.request<unknown>(`/api/market/snapshot?${params}`, signal);
     return { data: parseMarketSnapshot(response.data), meta: response.meta };
   }
 
-  async getBars(instrumentId: string, interval: MarketInterval): Promise<MarketResponse<MarketBar[]>> {
-    return this.request(`/api/market/bars/${encodeURIComponent(instrumentId)}?interval=${interval}`);
+  async getBars(instrumentId: string, interval: MarketInterval, signal?: AbortSignal): Promise<MarketResponse<MarketBar[]>> {
+    return this.request(`/api/market/bars/${encodeURIComponent(instrumentId)}?interval=${interval}`, signal);
   }
 
-  async getStatus(exchange: MarketExchange): Promise<MarketResponse<MarketStatus>> {
-    return this.request(`/api/market/status?exchange=${exchange}`);
+  async getStatus(exchange: MarketExchange, signal?: AbortSignal): Promise<MarketResponse<MarketStatus>> {
+    return this.request(`/api/market/status?exchange=${exchange}`, signal);
   }
 
-  async getProviders(): Promise<MarketResponse<MarketProviders>> {
-    return this.request("/api/market/providers");
+  async getProviders(signal?: AbortSignal): Promise<MarketResponse<MarketProviders>> {
+    return this.request("/api/market/providers", signal);
   }
 
-  async getNews(instrumentIds: string[], limit = 30): Promise<MarketResponse<MarketNewsItem[]>> {
+  async getNews(instrumentIds: string[], limit = 30, signal?: AbortSignal): Promise<MarketResponse<MarketNewsItem[]>> {
     const params = new URLSearchParams({ limit: String(limit) });
     if (instrumentIds.length) params.set("instruments", instrumentIds.join(","));
-    return this.request(`/api/market/news?${params}`);
+    return this.request(`/api/market/news?${params}`, signal);
   }
 
-  async getAnnouncements(instrumentId: string, limit = 20): Promise<MarketResponse<MarketNewsItem[]>> {
-    return this.request(`/api/market/announcements?instrument=${encodeURIComponent(instrumentId)}&limit=${limit}`);
+  async getAnnouncements(instrumentId: string, limit = 20, signal?: AbortSignal): Promise<MarketResponse<MarketNewsItem[]>> {
+    return this.request(`/api/market/announcements?instrument=${encodeURIComponent(instrumentId)}&limit=${limit}`, signal);
   }
 
-  private async request<T>(path: string): Promise<MarketResponse<T>> {
+  private async request<T>(path: string, signal?: AbortSignal): Promise<MarketResponse<T>> {
     let response: Response;
     try {
-      response = await this.fetcher.call(globalThis, `${this.baseUrl.replace(/\/$/, "")}${path}`, { signal: AbortSignal.timeout(15_000) });
+      const timeout = AbortSignal.timeout(15_000);
+      response = await this.fetcher.call(globalThis, `${this.baseUrl.replace(/\/$/, "")}${path}`, {
+        signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+      });
     } catch (error) {
       throw new MarketDataError(error instanceof Error ? error.message : "行情中心不可达", "MARKET_CENTER_UNREACHABLE");
     }

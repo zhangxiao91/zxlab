@@ -58,12 +58,13 @@ export default function MarketCenter({
   } = useMarketWorkspace();
   const [intelTab, setIntelTab] = useState<"news" | "announcements">("news");
 
-  const healthLabel = state.quality.status === "operational"
+  const healthy = state.quality.status === "operational" && state.quality.reliable;
+  const healthLabel = healthy
     ? "行情在线"
     : state.quality.status === "degraded"
       ? "数据降级"
       : "行情不可用";
-  const healthTone: TradingScreenStatus["tone"] = state.quality.status === "operational"
+  const healthTone: TradingScreenStatus["tone"] = healthy
     ? "live"
     : state.quality.status === "degraded"
       ? "degraded"
@@ -76,7 +77,7 @@ export default function MarketCenter({
         tone: healthTone,
         label: healthLabel,
         detail: lastUpdatedAt
-          ? `${new Date(lastUpdatedAt).toLocaleTimeString("zh-CN")} · ${state.quality.freshness}`
+          ? `${new Date(lastUpdatedAt).toLocaleTimeString("zh-CN")} · ${loading ? "重验中" : state.quality.reliable ? "可信" : "待核验"} · ${freshnessText(state.quality.freshness)}`
           : (state.providers?.strategy ?? "等待首轮行情"),
       },
       primaryAction: {
@@ -103,13 +104,16 @@ export default function MarketCenter({
     setAutoRefresh,
     state.providers?.strategy,
     state.quality.freshness,
+    state.quality.reliable,
   ]);
 
   const selectedWatchlistItem = watchlist.find((item) => item.instrumentId === selectedId);
   const move = quoteMove(selectedQuote);
   const rangePosition = quoteRangePosition(selectedQuote);
   const intelItems = useMemo(() => {
-    if (intelTab === "announcements") return state.announcements;
+    if (intelTab === "announcements") {
+      return state.announcements.filter((item) => item.instrumentId === selectedId);
+    }
     return state.news.filter((item) => !item.instrumentId || item.instrumentId === selectedId);
   }, [intelTab, selectedId, state.announcements, state.news]);
 
@@ -130,7 +134,7 @@ export default function MarketCenter({
         <span className={`is-${healthTone}`} />
         <div>
           <strong>{healthLabel}</strong>
-          <small>{state.quality.freshness}</small>
+          <small>{loading ? "重验中" : `${state.quality.reliable ? "可信" : "待核验"} · ${freshnessText(state.quality.freshness)}`}</small>
         </div>
       </div>
     </div>
@@ -293,6 +297,8 @@ export default function MarketCenter({
               <div className="setting-row"><span>策略</span><strong>{state.providers?.strategy ?? "—"}</strong></div>
               <div className="setting-row"><span>单次超时</span><strong>{state.providers?.timeoutMsPerProvider ?? "—"} ms</strong></div>
               <div className="setting-row"><span>自动刷新</span><strong>{autoRefresh ? `${pollIntervalMs / 1000} 秒` : "暂停"}</strong></div>
+              <div className="setting-row"><span>Snapshot</span><strong>{time(state.quality.asOf)}</strong></div>
+              <div className="setting-row"><span>可信度</span><strong>{state.quality.reliable ? "可信" : "待核验"} · {freshnessText(state.quality.freshness)}</strong></div>
             </section>
             <section className="market-diagnostics__attempts">
               <h2>最近请求</h2>
@@ -436,6 +442,13 @@ function formatSigned(value: number | null) {
 function formatPercent(value: number | null) {
   if (value == null) return "—";
   return `${value >= 0 ? "+" : ""}${(value * 100).toFixed(2)}%`;
+}
+
+function freshnessText(value: "fresh" | "mixed" | "stale" | "unknown"): string {
+  if (value === "fresh") return "新鲜";
+  if (value === "mixed") return "部分延迟";
+  if (value === "stale") return "已过期";
+  return "未知";
 }
 
 function statusDot(item: MarketStatus): "healthy" | "degraded" | "offline" {

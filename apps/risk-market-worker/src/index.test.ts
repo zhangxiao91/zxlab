@@ -21,12 +21,24 @@ import {
   parseTencentStockNews,
   parseTencentSecurityName,
   parseTonghuashunDailyBars,
+  loadBars,
+  loadQuotes,
   runCorroboratedQuote,
   runWithFallback,
 } from "./index.ts";
 import worker from "./index.ts";
 import { validateMarketSnapshot } from "../../../packages/market-schema/src/index.ts";
 import { CachedTradingCalendar, getChinaMarketStatus, OfficialCnTradingCalendar } from "./calendar.ts";
+import { applyIntradayFreshnessDecision, assessIntradayFreshness } from "./freshness.ts";
+
+async function classifyQuote(quote: ReturnType<typeof parseTencentQuote>) {
+  const decision = await assessIntradayFreshness({
+    exchange: instrumentToCode(quote.instrumentId).exchange,
+    marketTimestamp: quote.marketTimestamp,
+    receivedAt: quote.receivedAt,
+  }, new OfficialCnTradingCalendar());
+  return applyIntradayFreshnessDecision(quote, decision);
+}
 
 test("maps normalized instruments for all HTTP providers", () => {
   assert.equal(instrumentToTencent("SSE:512480"), "sh512480");
@@ -85,37 +97,112 @@ test("parses Tencent quote without coercing empty values to zero", () => {
   assert.equal(parseTencentSecurityName('v_sh512480="1~半导体ETF~512480";'), "半导体ETF");
 });
 
-test("keeps the latest Friday close current over the weekend", () => {
+test("keeps the latest Friday close current over the weekend", async () => {
   const fields = Array(38).fill("");
   fields[3] = "11.19"; fields[4] = "11.27"; fields[5] = "11.23"; fields[6] = "882977"; fields[30] = "20260807150000"; fields[33] = "11.26"; fields[34] = "11.10";
-  const quote = parseTencentQuote("SZSE:000001", `v_sz000001="${fields.join("~")}";`, "2026-08-08T07:15:35.000Z");
+  const quote = await classifyQuote(parseTencentQuote("SZSE:000001", `v_sz000001="${fields.join("~")}";`, "2026-08-08T07:15:35.000Z"));
   assert.equal(quote.stale, false);
   assert.equal(quote.quality, "live");
   assert.doesNotMatch(quote.warnings.join(" "), /过期/);
 });
 
-test("keeps the same-day close current after the market closes", () => {
+test("keeps the same-day close current after the market closes", async () => {
   const fields = Array(38).fill("");
   fields[3] = "11.19"; fields[4] = "11.27"; fields[5] = "11.23"; fields[6] = "882977"; fields[30] = "20260807150000"; fields[33] = "11.26"; fields[34] = "11.10";
-  const quote = parseTencentQuote("SZSE:000001", `v_sz000001="${fields.join("~")}";`, "2026-08-07T12:30:00.000Z");
+  const quote = await classifyQuote(parseTencentQuote("SZSE:000001", `v_sz000001="${fields.join("~")}";`, "2026-08-07T12:30:00.000Z"));
   assert.equal(quote.stale, false);
   assert.equal(quote.quality, "live");
 });
 
-test("still rejects delayed quotes while the market is open", () => {
+test("still rejects delayed quotes while the market is open", async () => {
   const fields = Array(38).fill("");
   fields[3] = "11.19"; fields[4] = "11.27"; fields[5] = "11.23"; fields[6] = "882977"; fields[30] = "20260807100000"; fields[33] = "11.26"; fields[34] = "11.10";
-  const quote = parseTencentQuote("SZSE:000001", `v_sz000001="${fields.join("~")}";`, "2026-08-07T02:05:00.000Z");
+  const quote = await classifyQuote(parseTencentQuote("SZSE:000001", `v_sz000001="${fields.join("~")}";`, "2026-08-07T02:05:00.000Z"));
   assert.equal(quote.stale, true);
   assert.equal(quote.quality, "stale");
 });
 
-test("does not treat a delayed morning quote as a close during lunch break", () => {
+test("does not treat a delayed morning quote as a close during lunch break", async () => {
   const fields = Array(38).fill("");
   fields[3] = "11.19"; fields[4] = "11.27"; fields[5] = "11.23"; fields[6] = "882977"; fields[30] = "20260807110000"; fields[33] = "11.26"; fields[34] = "11.10";
-  const quote = parseTencentQuote("SZSE:000001", `v_sz000001="${fields.join("~")}";`, "2026-08-07T03:45:00.000Z");
+  const quote = await classifyQuote(parseTencentQuote("SZSE:000001", `v_sz000001="${fields.join("~")}";`, "2026-08-07T03:45:00.000Z"));
   assert.equal(quote.stale, true);
   assert.equal(quote.quality, "stale");
+});
+
+test("loads quotes with official holiday freshness in both item and capability metadata", async () => {
+  const fields = Array(38).fill("");
+  fields[3] = "11.19"; fields[4] = "11.27"; fields[5] = "11.23"; fields[6] = "882977"; fields[30] = "20260930150000"; fields[33] = "11.26"; fields[34] = "11.10";
+  const result = await loadQuotes(["SSE:600000"], "fallback", {
+    fetcher: async () => new Response(`v_sh600000="${fields.join("~")}";`),
+    now: () => new Date("2026-10-05T02:00:00.000Z"),
+    calendar: new OfficialCnTradingCalendar(),
+  });
+
+  assert.equal(result.data[0]?.stale, false);
+  assert.equal(result.data[0]?.quality, "live");
+  assert.equal(result.meta.capabilityStatus, "operational");
+  assert.equal(result.meta.freshness, "fresh");
+});
+
+test("loads quote batches with bounded parallelism", async () => {
+  const fields = Array(38).fill("");
+  fields[3] = "11.19"; fields[4] = "11.27"; fields[5] = "11.23"; fields[6] = "882977"; fields[30] = "20260804100400"; fields[33] = "11.26"; fields[34] = "11.10";
+  let started = 0;
+  let active = 0;
+  let maxActive = 0;
+  let release = () => {};
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const pending = loadQuotes(["SSE:600000", "SSE:600001", "SSE:600002", "SSE:600003", "SSE:600004", "SSE:600005"], "fallback", {
+    fetcher: async () => {
+      started += 1;
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await gate;
+      active -= 1;
+      return new Response(`v_quote="${fields.join("~")}";`);
+    },
+    now: () => new Date("2026-08-04T02:05:00.000Z"),
+    calendar: new OfficialCnTradingCalendar(),
+  });
+
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  const startedBeforeRelease = started;
+  release();
+  await pending;
+
+  assert.deepEqual({ startedBeforeRelease, maxActive }, { startedBeforeRelease: 4, maxActive: 4 });
+});
+
+test("marks an old morning minute bar stale during the lunch break", async () => {
+  const result = await loadBars("SSE:600000", "1m", {
+    fetcher: async () => Response.json({ data: { sh600000: { data: { date: "20260804", data: ["1100 11.19 100 1000"] } } } }),
+    now: () => new Date("2026-08-04T03:45:00.000Z"),
+    calendar: new OfficialCnTradingCalendar(),
+  });
+
+  assert.equal(result.meta.capabilityStatus, "degraded");
+  assert.equal(result.meta.freshness, "stale");
+  assert.match(String((result.meta.warnings as string[])[0]), /11:30/);
+});
+
+test("keeps legal minute and daily session closes fresh", async () => {
+  const calendar = new OfficialCnTradingCalendar();
+  const minute = await loadBars("SSE:600000", "1m", {
+    fetcher: async () => Response.json({ data: { sh600000: { data: { date: "20260804", data: ["1130 11.19 100 1000"] } } } }),
+    now: () => new Date("2026-08-04T03:45:00.000Z"),
+    calendar,
+  });
+  const daily = await loadBars("SSE:600000", "1d", {
+    fetcher: async () => Response.json({ data: { sh600000: { day: [["2026-09-30", "11", "11.19", "11.26", "11.10", "100"]] } } }),
+    now: () => new Date("2026-10-05T02:00:00.000Z"),
+    calendar,
+  });
+
+  assert.deepEqual(
+    [minute.meta.capabilityStatus, minute.meta.freshness, daily.meta.capabilityStatus, daily.meta.freshness],
+    ["operational", "fresh", "operational", "fresh"],
+  );
 });
 
 test("normalizes Sina and Eastmoney backup quotes", () => {

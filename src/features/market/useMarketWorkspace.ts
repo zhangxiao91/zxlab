@@ -7,24 +7,27 @@ import {
   type Dispatch,
   type SetStateAction,
 } from "react";
+import type { MarketSnapshotRequest } from "../../../packages/market-schema/src/index";
 import { buildPositionsDetailed, LocalPortfolioRepository } from "../risk/ledger";
 import { MarketClient } from "./client";
-import {
-  capabilityHealth,
-  LatestMarketRequest,
-  summarizeMarketDataQuality,
-} from "./quality";
 import type {
   MarketBar,
-  MarketDataQuality,
   MarketInterval,
-  MarketNewsItem,
   MarketProviderAttempt,
-  MarketProviders,
   MarketQuote,
-  MarketStatus,
   MarketWatchlistItem,
 } from "./types";
+import {
+  emptyMarketWorkspaceState,
+  marketBarSeriesKey,
+  marketRequestCapabilityIds,
+  marketSnapshotRequests,
+  marketSnapshotFailureCapabilities,
+  marketWorkspaceRefreshDecision,
+  mergeMarketSnapshots,
+  retainMarketWorkspaceAfterFailure,
+  type MarketWorkspaceState,
+} from "./workspace-policy";
 import {
   defaultMarketWatchlist,
   loadMarketWatchlist,
@@ -32,20 +35,16 @@ import {
   toWatchlistItem,
 } from "./watchlist";
 
-const INITIAL_POLL_INTERVAL_MS = 30_000;
-const REALTIME_POLL_INTERVAL_MS = 15_000;
-const SNAPSHOT_POLL_INTERVAL_MS = 60_000;
+const ACTIVE_SLOW_REFRESH_MS = 60_000;
+const IDLE_SLOW_REFRESH_MS = 300_000;
+const SNAPSHOT_REQUEST_CONCURRENCY = 3;
 
-export interface MarketWorkspaceState {
-  quotes: MarketQuote[];
-  bars: Record<string, MarketBar[]>;
-  news: MarketNewsItem[];
-  announcements: MarketNewsItem[];
-  status: MarketStatus[];
-  providers: MarketProviders | null;
-  attempts: MarketProviderAttempt[];
-  warnings: string[];
-  quality: MarketDataQuality;
+export type { MarketWorkspaceState } from "./workspace-policy";
+
+interface MarketRefreshFlight {
+  scopeKey: string;
+  controller: AbortController;
+  promise: Promise<void>;
 }
 
 export interface MarketWorkspace {
@@ -72,29 +71,6 @@ export interface MarketWorkspace {
   removeInstrument(instrumentId: string): void;
 }
 
-const emptyQuality = (): MarketDataQuality => ({
-  status: "unavailable",
-  asOf: null,
-  receivedAt: new Date(0).toISOString(),
-  freshness: "unknown",
-  capabilities: [],
-  warnings: [],
-  attempts: [],
-  unavailableCapabilities: [],
-});
-
-const emptyState = (): MarketWorkspaceState => ({
-  quotes: [],
-  bars: {},
-  news: [],
-  announcements: [],
-  status: [],
-  providers: null,
-  attempts: [],
-  warnings: [],
-  quality: emptyQuality(),
-});
-
 export function useMarketWorkspace(): MarketWorkspace {
   const storage = useMemo(
     () => (typeof window === "undefined" ? null : window.localStorage),
@@ -104,7 +80,7 @@ export function useMarketWorkspace(): MarketWorkspace {
   const [watchlist, setWatchlist] = useState<MarketWatchlistItem[]>(() =>
     storage ? loadMarketWatchlist(storage) : defaultMarketWatchlist(),
   );
-  const [state, setState] = useState<MarketWorkspaceState>(emptyState);
+  const [state, setState] = useState<MarketWorkspaceState>(emptyMarketWorkspaceState);
   const [selectedId, setSelectedId] = useState(
     watchlist[0]?.instrumentId ?? "",
   );
@@ -114,7 +90,10 @@ export function useMarketWorkspace(): MarketWorkspace {
   const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const requestGateRef = useRef(new LatestMarketRequest());
+  const coreFlightRef = useRef<MarketRefreshFlight | null>(null);
+  const slowFlightRef = useRef<MarketRefreshFlight | null>(null);
+  const scopeKeyRef = useRef("");
+  const lastSlowRefreshAtRef = useRef(0);
 
   const ids = useMemo(
     () => watchlist.map((item) => item.instrumentId),
@@ -141,181 +120,175 @@ export function useMarketWorkspace(): MarketWorkspace {
     [selectedId, state.quotes],
   );
   const selectedBars = useMemo(
-    () => state.bars[selectedId] ?? [],
-    [selectedId, state.bars],
+    () => state.bars[marketBarSeriesKey(selectedId, interval)] ?? [],
+    [interval, selectedId, state.bars],
   );
-  const pollIntervalMs = state.status.length
-    ? state.status.some((item) => item.open)
-      ? REALTIME_POLL_INTERVAL_MS
-      : SNAPSHOT_POLL_INTERVAL_MS
-    : INITIAL_POLL_INTERVAL_MS;
+  const refreshDecision = marketWorkspaceRefreshDecision(state);
+  const pollIntervalMs = refreshDecision.intervalMs;
+  const activeId = ids.includes(selectedId) ? selectedId : ids[0];
+  const scopeKey = `${idsKey}|${activeId ?? ""}|${interval}`;
+  scopeKeyRef.current = scopeKey;
+
+  const startSlowRefresh = useCallback((): Promise<void> => {
+    if (!ids.length || !activeId) return Promise.resolve();
+    const requestScopeKey = `${idsKey}|${activeId}|${interval}`;
+    if (scopeKeyRef.current !== requestScopeKey) return Promise.resolve();
+    const currentFlight = slowFlightRef.current;
+    if (currentFlight?.scopeKey === requestScopeKey) return currentFlight.promise;
+    currentFlight?.controller.abort();
+
+    const controller = new AbortController();
+    const requests = marketSnapshotRequests(ids, activeId, interval, true)
+      .filter(isIntelSnapshotRequest);
+    let promise: Promise<void>;
+    const loadIntel = async () => {
+      const results = await settleWithConcurrency(
+        requests.map((request) => () => client.getSnapshot(request, controller.signal)),
+        1,
+      );
+      if (slowFlightRef.current?.controller !== controller || controller.signal.aborted) return;
+      const outcome = snapshotOutcome(requests, results);
+      if (outcome.snapshots.length) lastSlowRefreshAtRef.current = Date.now();
+      setState((current) => mergeMarketSnapshots(current, outcome.snapshots, {
+        requestedCapabilityIds: outcome.requestedCapabilityIds,
+        failedCapabilities: outcome.failedCapabilities,
+        preserveUnrequestedCapabilities: true,
+        preserveUnrequestedStatuses: true,
+        snapshotWarnings: outcome.snapshotWarnings,
+      }));
+    };
+    const loadProviders = async () => {
+      try {
+        const response = await client.getProviders(controller.signal);
+        if (slowFlightRef.current?.controller !== controller || controller.signal.aborted) return;
+        setState((current) => mergeMarketSnapshots(current, [], {
+          providers: response.data,
+          diagnosticWarnings: [],
+        }));
+      } catch (reason) {
+        if (slowFlightRef.current?.controller !== controller || controller.signal.aborted) return;
+        setState((current) => mergeMarketSnapshots(current, [], {
+          diagnosticWarnings: [`Provider 诊断暂不可用：${errorMessage(reason)}`],
+        }));
+      }
+    };
+    promise = Promise.allSettled([loadIntel(), loadProviders()])
+      .then(() => undefined)
+      .finally(() => {
+        if (slowFlightRef.current?.controller !== controller) return;
+        slowFlightRef.current = null;
+      });
+    slowFlightRef.current = { scopeKey: requestScopeKey, controller, promise };
+    return promise;
+  }, [activeId, client, ids, idsKey, interval]);
 
   const refresh = useCallback(
-    async ({ slow = true }: { slow?: boolean } = {}) => {
-      const requestToken = requestGateRef.current.begin();
+    ({ slow = true }: { slow?: boolean } = {}): Promise<void> => {
       if (!ids.length) {
-        setState(emptyState());
+        coreFlightRef.current?.controller.abort();
+        slowFlightRef.current?.controller.abort();
+        coreFlightRef.current = null;
+        slowFlightRef.current = null;
+        setState(emptyMarketWorkspaceState());
+        setLastUpdatedAt(null);
+        setError(null);
         setLoading(false);
-        return;
+        return Promise.resolve();
       }
+
+      const requestScopeKey = `${idsKey}|${activeId}|${interval}`;
+      if (scopeKeyRef.current !== requestScopeKey) return Promise.resolve();
+      if (slow) void startSlowRefresh();
+      const currentFlight = coreFlightRef.current;
+      if (currentFlight?.scopeKey === requestScopeKey) return currentFlight.promise;
+      currentFlight?.controller.abort();
+
+      const controller = new AbortController();
+      const requests = marketSnapshotRequests(ids, activeId, interval, false);
       setLoading(true);
       setError(null);
-      try {
-        const activeId = selectedId || ids[0];
-        const [quotes, providers, sse, szse, news, announcements, bars] =
-          await Promise.allSettled([
-            client.getQuotes(ids),
-            client.getProviders(),
-            client.getStatus("SSE"),
-            client.getStatus("SZSE"),
-            slow ? client.getNews(ids, 36) : Promise.resolve(null),
-            slow && activeId
-              ? client.getAnnouncements(activeId, 20)
-              : Promise.resolve(null),
-            activeId
-              ? client.getBars(activeId, interval)
-              : Promise.resolve(null),
-          ]);
-        if (!requestGateRef.current.isCurrent(requestToken)) return;
-        const next = emptyState();
-        const capabilityResults: ReturnType<typeof capabilityHealth>[] = [];
-        if (quotes.status === "fulfilled") {
-          next.quotes = quotes.value.data;
-        }
-        capabilityResults.push(
-          capabilityHealth({
-            id: "quotes",
-            response: quotes.status === "fulfilled" ? quotes.value : undefined,
-            error: quotes.status === "rejected" ? quotes.reason : undefined,
-            emptyIsUnavailable: true,
-            itemQualities:
-              quotes.status === "fulfilled"
-                ? quotes.value.data.map((item) => item.quality)
-                : [],
-          }),
+
+      let promise: Promise<void>;
+      promise = (async () => {
+        const results = await settleWithConcurrency(
+          requests.map((request) => () => client.getSnapshot(request, controller.signal)),
+          SNAPSHOT_REQUEST_CONCURRENCY,
         );
-        if (providers.status === "fulfilled") {
-          next.providers = providers.value.data;
+        if (coreFlightRef.current?.controller !== controller || controller.signal.aborted) return;
+        const outcome = snapshotOutcome(requests, results);
+
+        if (!outcome.snapshots.length) {
+          const message = outcome.snapshotWarnings.join("；") || "Market Snapshot 暂不可用";
+          setState((current) => mergeMarketSnapshots(
+            retainMarketWorkspaceAfterFailure(current, message),
+            [],
+            {
+              requestedCapabilityIds: outcome.requestedCapabilityIds,
+              failedCapabilities: outcome.failedCapabilities,
+              snapshotWarnings: outcome.snapshotWarnings,
+            },
+          ));
+          setError(message);
+          return;
         }
-        capabilityResults.push(
-          capabilityHealth({
-            id: "providers",
-            response:
-              providers.status === "fulfilled" ? providers.value : undefined,
-            error:
-              providers.status === "rejected" ? providers.reason : undefined,
-          }),
-        );
-        for (const [exchange, result] of [
-          ["SSE", sse],
-          ["SZSE", szse],
-        ] as const) {
-          if (result.status === "fulfilled") {
-            next.status.push(result.value.data);
-          }
-          capabilityResults.push(
-            capabilityHealth({
-              id: `status:${exchange}`,
-              response:
-                result.status === "fulfilled" ? result.value : undefined,
-              error: result.status === "rejected" ? result.reason : undefined,
-              extraWarnings:
-                result.status === "fulfilled"
-                  ? (result.value.data.warnings ?? [])
-                  : [],
-            }),
-          );
-        }
-        if (news.status === "fulfilled" && news.value) {
-          next.news = news.value.data;
-        }
-        if (slow) {
-          capabilityResults.push(
-            capabilityHealth({
-              id: "news",
-              response:
-                news.status === "fulfilled"
-                  ? (news.value ?? undefined)
-                  : undefined,
-              error: news.status === "rejected" ? news.reason : undefined,
-            }),
-          );
-        }
-        if (announcements.status === "fulfilled" && announcements.value) {
-          next.announcements = announcements.value.data;
-        }
-        if (slow) {
-          capabilityResults.push(
-            capabilityHealth({
-              id: `announcements:${activeId}`,
-              response:
-                announcements.status === "fulfilled"
-                  ? (announcements.value ?? undefined)
-                  : undefined,
-              error:
-                announcements.status === "rejected"
-                  ? announcements.reason
-                  : undefined,
-            }),
-          );
-        }
-        if (bars.status === "fulfilled" && bars.value) {
-          next.bars[activeId] = bars.value.data;
-        }
-        capabilityResults.push(
-          capabilityHealth({
-            id: `bars:${activeId}:${interval}`,
-            response:
-              bars.status === "fulfilled" ? (bars.value ?? undefined) : undefined,
-            error: bars.status === "rejected" ? bars.reason : undefined,
-            emptyIsUnavailable: true,
-          }),
-        );
-        const receivedAt = new Date().toISOString();
-        setState((current) => ({
-          ...next,
-          news: slow ? next.news : current.news,
-          announcements: slow ? next.announcements : current.announcements,
-          bars: { ...current.bars, ...next.bars },
-          ...qualityState(
-            capabilityResults,
-            current.quality,
-            receivedAt,
-            !slow,
-          ),
+
+        setState((current) => mergeMarketSnapshots(current, outcome.snapshots, {
+          requestedQuoteIds: ids,
+          requestedCapabilityIds: outcome.requestedCapabilityIds,
+          failedCapabilities: outcome.failedCapabilities,
+          snapshotWarnings: outcome.snapshotWarnings,
         }));
-        setLastUpdatedAt(receivedAt);
-      } catch (reason) {
-        setError(
-          reason instanceof Error ? reason.message : "Market Center 加载失败",
-        );
-      } finally {
-        if (requestGateRef.current.isCurrent(requestToken)) {
+        setLastUpdatedAt(latestReceivedAt(outcome.snapshots.map((snapshot) => snapshot.receivedAt)));
+      })()
+        .catch((reason) => {
+          if (coreFlightRef.current?.controller !== controller || controller.signal.aborted) return;
+          const message = errorMessage(reason);
+          setState((current) => retainMarketWorkspaceAfterFailure(current, message));
+          setError(message);
+        })
+        .finally(() => {
+          if (coreFlightRef.current?.controller !== controller) return;
+          coreFlightRef.current = null;
           setLoading(false);
-        }
-      }
+        });
+      coreFlightRef.current = { scopeKey: requestScopeKey, controller, promise };
+      return promise;
     },
-    [client, ids, selectedId, interval],
+    [activeId, client, ids, idsKey, interval, startSlowRefresh],
   );
 
   useEffect(() => {
     void refresh({ slow: true });
-  }, [refresh]);
+    return () => {
+      coreFlightRef.current?.controller.abort();
+      slowFlightRef.current?.controller.abort();
+      coreFlightRef.current = null;
+      slowFlightRef.current = null;
+    };
+  }, [refresh, scopeKey]);
+
+  useEffect(() => {
+    if (!autoRefresh || loading || !ids.length) return;
+    const timer = window.setTimeout(() => {
+      if (document.visibilityState !== "visible") return;
+      const slow = Date.now() - lastSlowRefreshAtRef.current
+        >= slowRefreshInterval(refreshDecision.session);
+      void refresh({ slow });
+    }, refreshDecision.delayMs);
+    return () => window.clearTimeout(timer);
+  }, [autoRefresh, ids.length, loading, refresh, refreshDecision.delayMs, refreshDecision.session]);
 
   useEffect(() => {
     if (!autoRefresh) return;
-    const tick = () => {
-      if (document.visibilityState === "visible") {
-        void refresh({ slow: false });
-      }
+    const refreshOnVisible = () => {
+      if (document.visibilityState !== "visible" || coreFlightRef.current) return;
+      const slow = Date.now() - lastSlowRefreshAtRef.current
+        >= slowRefreshInterval(refreshDecision.session);
+      void refresh({ slow });
     };
-    const timer = window.setInterval(tick, pollIntervalMs);
-    document.addEventListener("visibilitychange", tick);
-    return () => {
-      window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", tick);
-    };
-  }, [autoRefresh, pollIntervalMs, refresh]);
+    document.addEventListener("visibilitychange", refreshOnVisible);
+    return () => document.removeEventListener("visibilitychange", refreshOnVisible);
+  }, [autoRefresh, refresh, refreshDecision.session]);
 
   const persistWatchlist = useCallback(
     (items: MarketWatchlistItem[]) => {
@@ -389,23 +362,98 @@ export function useMarketWorkspace(): MarketWorkspace {
   };
 }
 
-function qualityState(
-  fresh: ReturnType<typeof capabilityHealth>[],
-  current: MarketDataQuality,
-  receivedAt: string,
-  retainSlowCapabilities: boolean,
+function snapshotRequestLabel(request: MarketSnapshotRequest | undefined): string {
+  if (!request) return "Snapshot 请求";
+  if (request.include.includes("quotes")) {
+    const first = request.instrumentIds[0] ?? "unknown";
+    return request.instrumentIds.length > 1
+      ? `报价批次 ${first} 等 ${request.instrumentIds.length} 个标的`
+      : `报价 ${first}`;
+  }
+  return `详情 ${request.instrumentIds[0] ?? "unknown"}`;
+}
+
+function isIntelSnapshotRequest(request: MarketSnapshotRequest): boolean {
+  return request.include.some((capability) =>
+    capability === "news" || capability === "announcements"
+  );
+}
+
+function snapshotOutcome(
+  requests: MarketSnapshotRequest[],
+  results: Array<PromiseSettledResult<Awaited<ReturnType<MarketClient["getSnapshot"]>>>>,
 ) {
-  const replaced = new Set(fresh.map((item) => item.id));
-  const retained = retainSlowCapabilities
-    ? current.capabilities.filter(
-        (item) =>
-          !replaced.has(item.id) &&
-          (item.id === "news" || item.id.startsWith("announcements:")),
+  const failedAt = new Date().toISOString();
+  const failures = results.flatMap((result, index) => {
+    if (result.status !== "rejected") return [];
+    const request = requests[index];
+    const warning = `${snapshotRequestLabel(request)}失败：${errorMessage(result.reason)}`;
+    return request ? [{ request, warning, reason: result.reason }] : [];
+  });
+  return {
+    snapshots: results.flatMap((result) =>
+      result.status === "fulfilled" ? [result.value.data] : []
+    ),
+    snapshotWarnings: failures.map((failure) => failure.warning),
+    failedCapabilities: failures.flatMap((failure) =>
+      marketSnapshotFailureCapabilities(
+        failure.request,
+        failure.warning,
+        failedAt,
+        errorAttempts(failure.reason),
+      )
+    ),
+    requestedCapabilityIds: marketRequestCapabilityIds(requests),
+  };
+}
+
+function errorMessage(reason: unknown): string {
+  return reason instanceof Error ? reason.message : "Market Center 加载失败";
+}
+
+function errorAttempts(reason: unknown): MarketProviderAttempt[] {
+  if (!reason || typeof reason !== "object" || !("details" in reason)) return [];
+  const details = (reason as { details?: unknown }).details;
+  if (!details || typeof details !== "object" || !("attempts" in details)) return [];
+  const attempts = (details as { attempts?: unknown }).attempts;
+  return Array.isArray(attempts)
+    ? attempts.filter((attempt): attempt is MarketProviderAttempt =>
+        Boolean(attempt)
+        && typeof attempt === "object"
+        && typeof (attempt as MarketProviderAttempt).provider === "string"
       )
     : [];
-  const quality = summarizeMarketDataQuality(
-    [...fresh, ...retained],
-    receivedAt,
-  );
-  return { quality, attempts: quality.attempts, warnings: quality.warnings };
+}
+
+function latestReceivedAt(values: string[]): string {
+  return values.slice().sort().at(-1) ?? new Date().toISOString();
+}
+
+function slowRefreshInterval(
+  session: ReturnType<typeof marketWorkspaceRefreshDecision>["session"],
+): number {
+  return session === "closed" || session === "holiday"
+    ? IDLE_SLOW_REFRESH_MS
+    : ACTIVE_SLOW_REFRESH_MS;
+}
+
+async function settleWithConcurrency<T>(
+  tasks: Array<() => Promise<T>>,
+  limit: number,
+): Promise<Array<PromiseSettledResult<T>>> {
+  const results = new Array<PromiseSettledResult<T>>(tasks.length);
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(limit, tasks.length) }, async () => {
+    while (nextIndex < tasks.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      try {
+        results[index] = { status: "fulfilled", value: await tasks[index]() };
+      } catch (reason) {
+        results[index] = { status: "rejected", reason };
+      }
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }

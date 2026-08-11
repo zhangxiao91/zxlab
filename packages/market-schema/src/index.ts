@@ -186,6 +186,8 @@ export function validateMarketSnapshot(value: unknown): MarketSnapshotValidation
   validateArray(value.capabilities, "capabilities", issues, validateCapability);
   if (!isRecord(value.quality)) issues.push("quality must be an object");
   else validateQuality(value.quality, issues);
+  validateRequestedCapabilities(value, issues);
+  validateAggregateQuality(value, issues);
   return { ok: issues.length === 0, issues };
 }
 
@@ -211,6 +213,7 @@ function validateQuote(value: unknown, path: string, issues: string[], requested
   requireString(value.source, `${path}.source`, issues);
   oneOf(value.quality, ["live", "cached", "stale", "conflicted", "unavailable"], `${path}.quality`, issues);
   if (typeof value.stale !== "boolean") issues.push(`${path}.stale must be boolean`);
+  if (value.quality === "live" && value.stale === true) issues.push(`${path}.live quality cannot be stale`);
   stringArray(value.warnings, `${path}.warnings`, issues);
   if (value.corroboration === undefined) issues.push(`${path}.corroboration is required`);
   else {
@@ -238,6 +241,33 @@ function validateCorroboration(value: unknown, path: string, issues: string[]) {
     nullableIso(item.marketTimestamp, `${itemPath}.marketTimestamp`, itemIssues);
     requireIso(item.receivedAt, `${itemPath}.receivedAt`, itemIssues);
   });
+  if (Array.isArray(value.observations) && (value.status === "corroborated" || value.status === "conflicted")) {
+    const providers = new Set(value.observations.flatMap((item) => isRecord(item) && typeof item.provider === "string" && item.provider ? [item.provider] : []));
+    if (providers.size < 2) issues.push(`${path}.${value.status} status requires observations from at least two providers`);
+  }
+  if (value.status === "not_requested") {
+    if (Array.isArray(value.observations) && value.observations.length > 0) issues.push(`${path}.not_requested status requires no observations`);
+    if (value.maxDeviationBps !== null) issues.push(`${path}.not_requested status requires maxDeviationBps null`);
+  }
+  if (value.status === "limited") {
+    if (Array.isArray(value.observations)) {
+      const providers = new Set(value.observations.flatMap((item) => isRecord(item) && typeof item.provider === "string" && item.provider ? [item.provider] : []));
+      if (providers.size >= 2) issues.push(`${path}.limited status requires observations from fewer than two providers`);
+    }
+    if (value.maxDeviationBps !== null) issues.push(`${path}.limited status requires maxDeviationBps null`);
+  }
+  if (value.status === "corroborated" && (
+    typeof value.maxDeviationBps !== "number"
+    || !Number.isFinite(value.maxDeviationBps)
+    || typeof value.thresholdBps !== "number"
+    || value.maxDeviationBps > value.thresholdBps
+  )) issues.push(`${path}.corroborated status requires maxDeviationBps at or below thresholdBps`);
+  if (value.status === "conflicted" && (
+    typeof value.maxDeviationBps !== "number"
+    || !Number.isFinite(value.maxDeviationBps)
+    || typeof value.thresholdBps !== "number"
+    || value.maxDeviationBps <= value.thresholdBps
+  )) issues.push(`${path}.conflicted status requires maxDeviationBps above thresholdBps`);
 }
 
 function validateBarSeries(value: unknown, path: string, issues: string[]) {
@@ -267,6 +297,9 @@ function validateStatus(value: unknown, path: string, issues: string[]) {
   oneOf(value.exchange, ["SSE", "SZSE"], `${path}.exchange`, issues);
   if (typeof value.open !== "boolean" && value.open !== null) issues.push(`${path}.open must be boolean or null`);
   oneOf(value.session, ["preopen", "open", "break", "closed", "holiday", "unknown"], `${path}.session`, issues);
+  if (value.open === true && value.session !== "open") issues.push(`${path}.open true requires session open`);
+  if (value.session === "open" && value.open !== true) issues.push(`${path}.session open requires open true`);
+  if (value.session === "unknown" && value.open !== null) issues.push(`${path}.session unknown requires open null`);
   requireIso(value.asOf, `${path}.asOf`, issues);
   requireIso(value.receivedAt, `${path}.receivedAt`, issues);
   if (typeof value.reliable !== "boolean") issues.push(`${path}.reliable must be boolean`);
@@ -292,6 +325,54 @@ function validateQuality(value: Record<string, unknown>, issues: string[]) {
   stringArray(value.warnings, "quality.warnings", issues);
   stringArray(value.unavailableCapabilities, "quality.unavailableCapabilities", issues);
   validateArray(value.attempts, "quality.attempts", issues, validateAttempt);
+}
+
+function validateRequestedCapabilities(snapshot: Record<string, unknown>, issues: string[]) {
+  if (!isRecord(snapshot.request) || !Array.isArray(snapshot.capabilities)) return;
+  const requiredCapabilityIds = new Set(snapshot.capabilities.flatMap((capability) =>
+    isRecord(capability) && capability.required === true && typeof capability.id === "string" ? [capability.id] : []
+  ));
+  for (const id of expectedCapabilityIds(snapshot.request)) {
+    if (!requiredCapabilityIds.has(id)) issues.push(`capabilities missing required requested capability ${id}`);
+  }
+}
+
+function expectedCapabilityIds(request: Record<string, unknown>): string[] {
+  if (!Array.isArray(request.include)) return [];
+  const include = new Set(request.include.filter((item): item is string => typeof item === "string"));
+  const instrumentIds = Array.isArray(request.instrumentIds) ? request.instrumentIds.filter((item): item is string => typeof item === "string") : [];
+  const intervals = Array.isArray(request.intervals) ? request.intervals.filter((item): item is MarketInterval => item === "1d" || item === "1m") : [];
+  const expected = new Set<string>();
+  if (include.has("quotes")) expected.add("quotes");
+  if (include.has("bars")) for (const instrumentId of instrumentIds) for (const interval of intervals) expected.add(`bars:${instrumentId}:${interval}`);
+  if (include.has("news")) expected.add("news");
+  if (include.has("announcements")) for (const instrumentId of instrumentIds) expected.add(`announcements:${instrumentId}`);
+  if (include.has("comparisons")) expected.add("comparisons");
+  return [...expected];
+}
+
+function validateAggregateQuality(snapshot: Record<string, unknown>, issues: string[]) {
+  if (!Array.isArray(snapshot.capabilities) || !isRecord(snapshot.quality)) return;
+  const requiredUnavailable = snapshot.capabilities.flatMap((capability) =>
+    isRecord(capability) && capability.required === true && capability.status === "unavailable" && typeof capability.id === "string" ? [capability.id] : []
+  );
+  const requiredStale = snapshot.capabilities.flatMap((capability) =>
+    isRecord(capability) && capability.required === true && capability.freshness === "stale" && typeof capability.id === "string" ? [capability.id] : []
+  );
+  if (requiredUnavailable.length) {
+    if (snapshot.quality.status === "operational") issues.push(`quality.status cannot be operational with required unavailable capabilities: ${requiredUnavailable.join(", ")}`);
+    if (snapshot.quality.reliable === true) issues.push(`quality.reliable cannot be true with required unavailable capabilities: ${requiredUnavailable.join(", ")}`);
+    if (snapshot.quality.freshness === "fresh") issues.push(`quality.freshness cannot be fresh with required unavailable capabilities: ${requiredUnavailable.join(", ")}`);
+    if (Array.isArray(snapshot.quality.unavailableCapabilities)) {
+      for (const id of requiredUnavailable) {
+        if (!snapshot.quality.unavailableCapabilities.includes(id)) issues.push(`quality.unavailableCapabilities must include ${id}`);
+      }
+    }
+  }
+  if (requiredStale.length) {
+    if (snapshot.quality.reliable === true) issues.push(`quality.reliable cannot be true with required stale capabilities: ${requiredStale.join(", ")}`);
+    if (snapshot.quality.freshness !== "stale") issues.push(`quality.freshness must be stale when required capabilities are stale: ${requiredStale.join(", ")}`);
+  }
 }
 
 function validateAttempt(value: unknown, path: string, issues: string[]) {

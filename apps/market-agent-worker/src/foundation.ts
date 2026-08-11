@@ -22,7 +22,34 @@ export class DeterministicMarketEventDetector {
 export interface PortfolioEvidenceInput { snapshot: PortfolioSnapshot; impact: RiskImpact | null; reliable: boolean; limitations: string[]; }
 
 export async function buildDeterministicCloseReview(command: MarketAgentCommand, snapshot: MarketSnapshot, events: MarketEvent[], runId: string, watchlistRevision = "unconfigured", portfolio?: PortfolioEvidenceInput): Promise<SealedEvidenceBundle> {
-  const items: EvidenceItem[] = snapshot.data.quotes.map((quote, index) => ({ id: `${runId}:quote:${index}`, kind: "market_fact", origin: "server-observed", value: { type: "quote", ...quote }, reliable: quote.quality === "live" && !quote.stale }));
+  const items: EvidenceItem[] = [{
+    id: `${runId}:snapshot:context`,
+    kind: "market_fact",
+    origin: "server-observed",
+    value: {
+      type: "snapshot_context",
+      asOf: snapshot.asOf,
+      receivedAt: snapshot.receivedAt,
+      marketTimestamp: snapshot.marketTimestamp,
+      quality: {
+        status: snapshot.quality.status,
+        reliable: snapshot.quality.reliable,
+        freshness: snapshot.quality.freshness,
+        warnings: snapshot.quality.warnings,
+        unavailableCapabilities: snapshot.quality.unavailableCapabilities,
+      },
+      markets: snapshot.data.status,
+      capabilities: snapshot.capabilities.map((capability) => ({
+        id: capability.id,
+        status: capability.status,
+        required: capability.required,
+        asOf: capability.asOf,
+        freshness: capability.freshness,
+        warnings: capability.warnings,
+      })),
+    },
+    reliable: snapshot.quality.reliable,
+  }, ...snapshot.data.quotes.map((quote, index) => ({ id: `${runId}:quote:${index}`, kind: "market_fact" as const, origin: "server-observed" as const, value: { type: "quote", ...quote }, reliable: quote.quality === "live" && !quote.stale }))];
   snapshot.data.bars.forEach((series, index) => items.push({ id: `${runId}:bars:${index}`, kind: "market_fact", origin: "server-observed", value: { type: "bar_series", ...series }, reliable: series.bars.length > 0 }));
   snapshot.data.news.forEach((news, index) => items.push({ id: `${runId}:news:${index}`, kind: "market_fact", origin: "server-observed", value: { evidenceType: "news", ...news }, reliable: Boolean(news.publishedAt) && news.warnings.length === 0 }));
   snapshot.data.announcements.forEach((announcement, index) => items.push({ id: `${runId}:announcement:${index}`, kind: "market_fact", origin: "server-observed", value: { evidenceType: "announcement", ...announcement }, reliable: Boolean(announcement.publishedAt) && announcement.warnings.length === 0 }));
@@ -93,6 +120,8 @@ export async function buildDeterministicAskEvidence(input: {
         type: "ask_plan",
         version: "ask-plan.v1",
         scope: input.command.scope,
+        selectedInstrumentId: input.command.instrumentId ?? null,
+        resolvedInstrumentCount: input.command.resolvedInstrumentIds.length,
         intervals: input.plan.intervals,
         include: input.plan.include,
         quoteMode: input.plan.quoteMode,
