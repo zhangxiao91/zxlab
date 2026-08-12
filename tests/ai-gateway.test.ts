@@ -159,11 +159,12 @@ test("Yuzi uses its bounded generation policy", () => {
 
 test("Market Agent may use only its bounded Gateway tasks", () => {
   assert.deepEqual(resolveTaskPolicy({ ...input, task: "market-agent-answer" }), {
-    timeoutMs: 45_000,
+    timeoutMs: 80_000,
     totalBudgetMs: 90_000,
     maxOutputTokens: 1_600,
     temperature: 0.2,
   });
+  assert.equal(resolveTaskPolicy({ ...input, task: "market-agent-close-review" }).timeoutMs, 80_000);
   assert.doesNotThrow(() =>
     enforceAITaskScope("market-agent", "market-agent-close-review", "market-agent-worker"),
   );
