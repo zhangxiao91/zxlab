@@ -20,6 +20,30 @@ test("forbidden trade instruction falls back deterministically", async () => {
   assert.equal(result.result.status, "partial"); assert.match(result.result.limitations.at(-1) ?? "", /降级/);
 });
 
+test("Chinese inference wording passes uncertainty validation", async () => {
+  const candidate = {
+    status: "success",
+    headline: "盘后观察",
+    summary: "当前没有显著事件。",
+    observations: [{
+      id: "inference-1",
+      class: "inference",
+      importance: "low",
+      title: "成交变化",
+      explanation: "根据现有证据推测，成交变化尚无法确认其持续性。",
+      evidenceIds: ["fact-1"],
+    }],
+    portfolioImpacts: [],
+    watchNext: [],
+    limitations: [],
+    evidenceFingerprint: evidence.fingerprint,
+  };
+  const narrator: Narrator = { async narrate() { return candidate; } };
+  const result = await narrateWithRepair(narrator, { workflow: command.workflow, evidence });
+  assert.equal(result.result.status, "success");
+  assert.equal(result.result.headline, candidate.headline);
+});
+
 test("a failed repair falls back without starting another generation", async () => {
   let generations = 0;
   let repairs = 0;

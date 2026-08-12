@@ -330,7 +330,7 @@ function validateObservation(value: unknown, path: string, evidenceIds: Set<stri
   if (!oneOf(value.importance, ["high", "medium", "low"])) issues.push(`${path}.importance is invalid`);
   for (const key of ["title", "explanation"] as const) if (typeof value[key] !== "string" || value[key].length > 3000) issues.push(`${path}.${key} is invalid`);
   if (!Array.isArray(value.evidenceIds) || value.evidenceIds.length === 0 || value.evidenceIds.some((id) => typeof id !== "string" || !evidenceIds.has(id))) issues.push(`${path}.evidenceIds must reference sealed evidence`);
-  if (value.class === "inference" && typeof value.explanation === "string" && !/[?？]|可能|或许|倾向|likely|may|could/i.test(value.explanation)) issues.push(`${path}.inference must use uncertainty language`);
+  if (value.class === "inference" && typeof value.explanation === "string" && !/[?？]|可能|或许|倾向|推测|推断|疑似|不确定|无法确认|不能确认|无法确定|不能确定|尚(?:待|需|无法)确认|尚不明确|有待观察|likely|may|might|could|uncertain|suggests?/i.test(value.explanation)) issues.push(`${path}.inference must use uncertainty language`);
 }
 
 async function hmac(value: string, secret: string): Promise<Uint8Array> {
