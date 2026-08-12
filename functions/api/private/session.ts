@@ -40,9 +40,15 @@ function document(returnTo: string, verified: boolean): string {
   const title = verified ? "统一授权已完成" : "统一授权暂时无法确认";
   const copy = verified ? "正在恢复刚才的操作。" : "请返回原页面后重新打开授权窗口。";
   const script = verified ? `<script>
-    const channel = new BroadcastChannel("zxlab-private-access");
-    channel.postMessage({ type: "zxlab:private-access-ready" });
-    channel.close();
+    const message = { type: "zxlab:private-access-ready" };
+    if (typeof BroadcastChannel === "function") {
+      const channel = new BroadcastChannel("zxlab-private-access");
+      channel.postMessage(message);
+      channel.close();
+    }
+    if (window.opener && !window.opener.closed) {
+      try { window.opener.postMessage(message, window.location.origin); } catch {}
+    }
     window.close();
     window.setTimeout(() => window.location.replace(${scriptValue(returnTo)}), 350);
   </script>` : "";

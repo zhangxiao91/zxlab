@@ -199,9 +199,18 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
     const submitLabel = document.querySelector<HTMLElement>("[data-submit-label]");
     const submitError = document.querySelector<HTMLElement>("[data-annotation-error]");
     const annotationAccessLink = document.querySelector<HTMLAnchorElement>("[data-annotation-access-link]");
+    const submitAnnotationForm = () => {
+      if (!form) return;
+      if (typeof form.requestSubmit === "function") {
+        form.requestSubmit();
+        return;
+      }
+      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    };
     annotationAccessLink?.addEventListener("click", (event) => {
       event.preventDefault();
-      window.open(annotationAccessLink.dataset.accessUrl ?? privateAccessUrl, "zxlab-private-access", "popup,width=560,height=720,noopener,noreferrer");
+      const popup = window.open(annotationAccessLink.dataset.accessUrl ?? privateAccessUrl, "zxlab-private-access", "popup,width=560,height=720");
+      if (!popup) window.location.assign(annotationAccessLink.dataset.accessUrl ?? privateAccessUrl);
     });
     const accessChannel = typeof BroadcastChannel === "function"
       ? new BroadcastChannel("zxlab-private-access")
@@ -319,7 +328,7 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
       if (itemOutput) itemOutput.textContent = itemTitle;
       hideMenu();
       setPanel(true);
-      if (semanticComment) window.setTimeout(() => form.requestSubmit(), 80);
+      if (semanticComment) window.setTimeout(submitAnnotationForm, 80);
     };
 
     const normalizeSelectedText = (value: string) => value.trim().replace(/\s+/g, " ");
@@ -609,7 +618,7 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
         pendingAccessRetry = false;
         if (submitError) submitError.hidden = true;
         if (annotationAccessLink) annotationAccessLink.hidden = true;
-        form?.requestSubmit();
+        submitAnnotationForm();
       } catch {
         // Keep the preserved comment and login action visible until Access is ready.
       } finally {
@@ -619,6 +628,10 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
 
     accessChannel?.addEventListener("message", (event) => {
       if (event.data?.type !== "zxlab:private-access-ready") return;
+      void resumePendingAnnotation();
+    });
+    window.addEventListener("message", (event) => {
+      if (event.origin !== window.location.origin || event.data?.type !== "zxlab:private-access-ready") return;
       void resumePendingAnnotation();
     });
     window.addEventListener("focus", () => {

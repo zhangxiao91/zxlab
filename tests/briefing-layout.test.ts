@@ -80,7 +80,12 @@ test("private annotation failures use the unified HTML access callback", async (
   assert.match(page, /error instanceof SignalApiError && error\.code === "SIGNAL_ACCESS_REQUIRED"/);
   assert.match(page, /new BroadcastChannel\("zxlab-private-access"\)/);
   assert.match(page, /event\.data\?\.type !== "zxlab:private-access-ready"/);
-  assert.match(page, /await getWatches\(\)[\s\S]*?form\?\.requestSubmit\(\)/);
+  assert.match(page, /window\.open/);
+  assert.match(page, /if \(!popup\) window\.location\.assign/);
+  assert.doesNotMatch(page, /popup,width=560,height=720,noopener,noreferrer/);
+  assert.match(page, /typeof form\.requestSubmit === "function"/);
+  assert.match(page, /form\.dispatchEvent\(new Event\("submit", \{ bubbles: true, cancelable: true \}\)\)/);
+  assert.match(page, /await getWatches\(\)[\s\S]*?submitAnnotationForm\(\)/);
   assert.match(await readFile(styleSource, "utf8"), /\.annotation-access-link\[hidden\]\s*\{\s*display:\s*none;/);
 });
 
