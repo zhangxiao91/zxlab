@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   inspectMarketAgentEnvironment,
   verifyMarketAgentRun,
+  verifyMarketAgentRuns,
 } from "./verify-market-agent.mjs";
 
 test("environment inspection verifies beta Pages and Worker contracts without secret values", async () => {
@@ -148,4 +149,28 @@ test("dedicated Run acceptance rejects fallback or deterministic narration", asy
       : { status: 200, body: JSON.stringify({ id: "run-2", status: "partial", result: { outcome: { narration: { source: "deterministic_fallback", provider: "openai", fallbackIndex: 1 } } } }) },
     wait: async () => {},
   }), /primary DeepSeek/);
+});
+
+test("dedicated acceptance requires every requested Run to stay on primary DeepSeek", async () => {
+  let created = 0;
+  const report = await verifyMarketAgentRuns({
+    runs: 3,
+    request: async ({ method, path }) => {
+      if (method === "POST") {
+        created += 1;
+        return { status: 202, body: JSON.stringify({ runId: `run-${created}` }) };
+      }
+      const runId = path.split("/").at(-1);
+      return { status: 200, body: JSON.stringify({
+        id: runId,
+        status: "success",
+        result: { outcome: { narration: { source: "model", provider: "deepseek", model: "deepseek-v4-flash", fallbackIndex: 0, gatewayRequestId: `gateway-${runId}` } } },
+      }) };
+    },
+    wait: async () => {},
+  });
+
+  assert.equal(report.ok, true);
+  assert.equal(report.runs.length, 3);
+  assert.deepEqual(report.runs.map((run) => run.runId), ["run-1", "run-2", "run-3"]);
 });

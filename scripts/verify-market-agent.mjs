@@ -15,6 +15,7 @@ const DEFAULT_INSTRUMENT = "SSE:600000";
 const TERMINAL_STATUSES = new Set(["success", "partial", "failed"]);
 const DEFAULT_TIMEOUT_MS = 240_000;
 const DEFAULT_POLL_INTERVAL_MS = 2_000;
+const DEFAULT_ACCEPTANCE_RUNS = 3;
 
 export async function inspectMarketAgentEnvironment({
   accountId,
@@ -128,6 +129,13 @@ export async function verifyMarketAgentRun({
   };
 }
 
+export async function verifyMarketAgentRuns({ runs = DEFAULT_ACCEPTANCE_RUNS, ...options }) {
+  if (!Number.isInteger(runs) || runs < 1 || runs > 10) throw new Error("Acceptance Runs must be an integer from 1 to 10.");
+  const reports = [];
+  for (let index = 0; index < runs; index += 1) reports.push(await verifyMarketAgentRun(options));
+  return { ok: true, requestedRuns: runs, runs: reports };
+}
+
 function check(name, ok, detail) { return { name, ok, detail }; }
 function binding(bindings, name) { return bindings.find((item) => item?.name === name); }
 function bindingText(bindings, name) { const item = binding(bindings, name); return item?.text ?? item?.value; }
@@ -187,7 +195,7 @@ function printUsage() {
 
 Usage:
   npm run verify:market-agent:env -- [--commit <git-sha>]
-  npm run verify:market-agent:run -- [--instrument SSE:600000]
+  npm run verify:market-agent:run -- [--instrument SSE:600000] [--runs 3]
 
 The environment check reads Cloudflare metadata using CLOUDFLARE_API_TOKEN and
 never prints secret values. The Run check reads the dedicated beta Access
@@ -221,7 +229,9 @@ async function main() {
   }
   if (command === "run") {
     const credentials = readDebugAccessCredentials();
-    const report = await verifyMarketAgentRun({
+    const rawRuns = flag(args, "--runs");
+    const report = await verifyMarketAgentRuns({
+      runs: rawRuns === undefined ? DEFAULT_ACCEPTANCE_RUNS : Number(rawRuns),
       instrument: flag(args, "--instrument") ?? DEFAULT_INSTRUMENT,
       request: (input) => debugRequest(input, credentials),
     });

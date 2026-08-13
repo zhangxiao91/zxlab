@@ -164,6 +164,29 @@ test("Market Agent routing uses its configured OpenAI fast fallback immediately 
   assert.equal(result.fallbackIndex, 1);
 });
 
+test("Market Agent retries malformed structured output on primary DeepSeek before fallback", async () => {
+  const adapter = new ScriptedAdapter([
+    success('{"status":"partial"'),
+    success('{"status":"success"}'),
+  ]);
+  const result = await generateAI({
+    ...input,
+    task: "market-agent-close-review",
+    responseFormat: { type: "json" },
+  }, {
+    candidates,
+    adapters: adapters(adapter),
+    sleep: async () => {},
+    jitterMs: () => 0,
+  });
+
+  assert.deepEqual(adapter.calls, ["deepseek-v4-flash-official", "deepseek-v4-flash-official"]);
+  assert.equal(result.provider, "deepseek");
+  assert.equal(result.fallbackIndex, 0);
+  assert.equal(result.attempts, 2);
+  assert.deepEqual(result.json, { status: "success" });
+});
+
 test("first candidate succeeds without fallback", async () => {
   const adapter = new ScriptedAdapter([success()]);
   const result = await generateAI(input, { candidates, adapters: adapters(adapter), jitterMs: () => 0 });
@@ -188,7 +211,12 @@ test("Market Agent may use only its bounded Gateway tasks", () => {
     maxOutputTokens: 1_600,
     temperature: 0.2,
   });
-  assert.equal(resolveTaskPolicy({ ...input, task: "market-agent-close-review" }).timeoutMs, 80_000);
+  assert.deepEqual(resolveTaskPolicy({ ...input, task: "market-agent-close-review" }), {
+    timeoutMs: 80_000,
+    totalBudgetMs: 90_000,
+    maxOutputTokens: 3_200,
+    temperature: 0,
+  });
   assert.doesNotThrow(() =>
     enforceAITaskScope("market-agent", "market-agent-close-review", "market-agent-worker"),
   );

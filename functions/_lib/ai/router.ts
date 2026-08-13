@@ -207,7 +207,10 @@ export async function generateAI(input: GenerateAIInput, options: AIGatewayOptio
             statusCode: error.statusCode ?? attemptStatusCode, normalizedErrorCode: error.code,
           });
           recordAttempt(candidate, fallbackIndex, Math.max(0, now() - attemptStartedAt), telemetryStatus(error.code), undefined, error.code, error.statusCode ?? attemptStatusCode);
-          if (error.retryable && retryIndex === 0) {
+          const retryMalformedMarketAgentJson = input.task.startsWith("market-agent-")
+            && candidate.providerInstance === "deepseek-official"
+            && error.code === "INVALID_STRUCTURED_OUTPUT";
+          if ((error.retryable || retryMalformedMarketAgentJson) && retryIndex === 0) {
             const delayMs = 250 + jitterMs();
             if (deadline - now() <= delayMs) throw new AIError("TIMEOUT", { cause: error, attempts });
             await sleep(delayMs);
