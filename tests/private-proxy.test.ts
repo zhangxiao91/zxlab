@@ -294,6 +294,28 @@ test("private Market Agent allowlist admits the bounded Ask lifecycle only", asy
   }
 });
 
+test("private Market Agent allowlist admits the read-only quality summary", async () => {
+  let forwardedUrl = "";
+  const response = await proxyPrivateRequest(
+    {
+      request: new Request("https://beta.zxlab.pages.dev/api/private/market-agent/quality"),
+      env: { ...env, MARKET_AGENT_API_URL: "https://market-agent.example.com" },
+    },
+    "market-agent",
+    "quality",
+    {
+      verifyAccess,
+      fetcher: async (input) => {
+        forwardedUrl = String(input);
+        return Response.json({ window: 50, metrics: { total: 0 } });
+      },
+    },
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(forwardedUrl, "https://market-agent.example.com/api/v1/private/market-agent/quality");
+});
+
 test("private Market Agent proxy rejects routes outside its narrow allowlist", async () => {
   let called = false;
   const response = await proxyPrivateRequest(
