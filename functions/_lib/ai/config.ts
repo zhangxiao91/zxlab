@@ -16,6 +16,7 @@ export interface AIEnv {
   OPENAI_TEXT_BASE_URL?: string;
   OPENAI_TEXT_API_KEY?: string;
   OPENAI_TEXT_MODEL?: string;
+  MARKET_AGENT_OPENAI_FALLBACK_MODEL?: string;
   AI_GATEWAY_ACCESS_TOKEN?: string;
   MARKET_AGENT_GATEWAY_TOKEN?: string;
   AI_GATEWAY_ALLOWED_ORIGINS?: string;
@@ -117,4 +118,21 @@ export function getDefaultModelChain(env: AIEnv): ModelCandidate[] {
 
   if (candidates.length === 0) throw new AIError("MISSING_CONFIGURATION");
   return candidates;
+}
+
+export function getMarketAgentOpenAIFallback(env: AIEnv): ModelCandidate | undefined {
+  const apiKey = configured(env, "OPENAI_TEXT_API_KEY");
+  const baseUrl = configured(env, "OPENAI_TEXT_BASE_URL");
+  const model = configured(env, "MARKET_AGENT_OPENAI_FALLBACK_MODEL");
+  if (!apiKey || !baseUrl || !model || model === configured(env, "OPENAI_TEXT_MODEL")) return undefined;
+  return {
+    id: "market-agent-openai-fallback",
+    tier: "openai-text",
+    provider: "openai",
+    providerInstance: "openai-text-configured",
+    adapter: "openai-compatible",
+    model,
+    baseUrl: normalizedBaseUrl(baseUrl),
+    apiKey,
+  };
 }

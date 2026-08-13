@@ -1,5 +1,5 @@
 import type { GenerateAIInput, GenerateAIResult } from "../../../src/lib/ai/types.ts";
-import { getDefaultModelChain, type AIEnv, type ModelCandidate } from "./config.ts";
+import { getDefaultModelChain, getMarketAgentOpenAIFallback, type AIEnv, type ModelCandidate } from "./config.ts";
 import { AIError, asAIError } from "./errors.ts";
 import { parseStructuredOutput } from "./json.ts";
 import { consoleAILogger, type AILogger, usageFields } from "./logger.ts";
@@ -45,10 +45,12 @@ async function resolveRoute(input: GenerateAIInput, options: AIGatewayOptions, r
   const defaultCandidates = getDefaultModelChain(options.env ?? {});
   const marketAgentRoute = input.task.startsWith("market-agent-");
   const configuredOpenAI = defaultCandidates.filter((candidate) => candidate.providerInstance === "openai-text-configured");
+  const marketAgentOpenAIFallback = marketAgentRoute ? getMarketAgentOpenAIFallback(options.env ?? {}) : undefined;
   const marketAgentOpenAIPrimary = marketAgentRoute && configuredOpenAI.length > 0;
   const candidates = marketAgentOpenAIPrimary
     ? [
         ...configuredOpenAI,
+        ...(marketAgentOpenAIFallback ? [marketAgentOpenAIFallback] : []),
         ...defaultCandidates.filter((candidate) => candidate.providerInstance !== "openai-text-configured"),
       ]
     : defaultCandidates;
