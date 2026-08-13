@@ -9,6 +9,7 @@ const clientSource = new URL("../src/features/briefing/client.ts", import.meta.u
 const headerSource = new URL("../src/features/briefing/components/BriefingHeader.astro", import.meta.url);
 const accessRecoverySource = new URL("../src/features/briefing/access-recovery.ts", import.meta.url);
 const pendingAnnotationSource = new URL("../src/features/briefing/pending-annotation.ts", import.meta.url);
+const requestRoutingSource = new URL("../src/features/briefing/request-routing.ts", import.meta.url);
 
 test("lead briefing heading remains in flow before the desktop reading columns become tight", async () => {
   const [page, styles] = await Promise.all([
@@ -46,9 +47,10 @@ test("Watch workspace keeps the 4x2 summary dense and exposes an explicit empty 
 });
 
 test("track remains a two-step Watch action and refreshes protected cross-device state", async () => {
-  const [page, client] = await Promise.all([
+  const [page, client, requestRouting] = await Promise.all([
     readFile(pageSource, "utf8"),
     readFile(clientSource, "utf8"),
+    readFile(requestRoutingSource, "utf8"),
   ]);
 
   assert.match(page, /data-watch-confirm-template/);
@@ -59,24 +61,27 @@ test("track remains a two-step Watch action and refreshes protected cross-device
   assert.match(page, /await createWatch\(\{ briefingId: seedBriefingId, briefingItemId: seedBriefingItemId, condition \}\)/);
   assert.match(page, /watches = await getWatches\(\)/);
   assert.match(page, /latest\.id !== briefingId \|\| latest\.generatedAt !== initialGeneratedAt/);
-  assert.match(client, /path === "\/api\/watches"/);
-  assert.match(client, /resolve\$\/\.test\(path\)/);
-  assert.doesNotMatch(client, /path\.startsWith\("\/api\/watches\/"\)/);
+  assert.match(requestRouting, /path === "\/api\/watches"/);
+  assert.match(requestRouting, /resolve\$\/\.test\(path\)/);
+  assert.doesNotMatch(requestRouting, /path\.startsWith\("\/api\/watches\/"\)/);
   assert.match(client, /apiRequest<WatchesResponse>\("\/api\/watches"\)/);
   assert.match(client, /`\/api\/watches\/\$\{encodeURIComponent\(id\)\}\/resolve`/);
 });
 
 test("private annotation failures use the unified HTML access callback", async () => {
-  const [client, page, recovery, pendingAnnotation] = await Promise.all([
+  const [client, page, recovery, pendingAnnotation, requestRouting] = await Promise.all([
     readFile(clientSource, "utf8"),
     readFile(pageSource, "utf8"),
     readFile(accessRecoverySource, "utf8"),
     readFile(pendingAnnotationSource, "utf8"),
+    readFile(requestRoutingSource, "utf8"),
   ]);
   const annotationPanel = await readFile(new URL("../src/features/briefing/components/AnnotationPanel.astro", import.meta.url), "utf8");
 
   assert.match(client, /export const privateAccessUrl = "\/api\/private\/session\?returnTo=\/briefing\/"/);
   assert.match(client, /privateApiBase = import\.meta\.env\.DEV \? apiBase : "\/api\/signal"/);
+  assert.match(client, /signalEndpoint\(path, apiBase, privateApiBase\)/);
+  assert.match(requestRouting, /path\.split\("\?", 1\)/);
   assert.doesNotMatch(client, /privateAccessUrl = "\/api\/private\/signal\/api\/watches"/);
   assert.match(client, /fallbackCause instanceof SignalApiError/);
   assert.match(annotationPanel, /data-annotation-access-link/);

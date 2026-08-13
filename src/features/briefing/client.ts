@@ -1,4 +1,5 @@
 import { createMockAnnotationResponse, createMockBriefing, updateMockMemoryCandidate } from "./mock";
+import { signalEndpoint } from "./request-routing";
 import type {
   AnnotationInput,
   AnnotationResponse,
@@ -42,8 +43,7 @@ export class SignalApiError extends Error {
 
 function endpoint(path: string): string {
   if (!apiBase) throw new SignalApiError("SIGNAL_API_NOT_CONFIGURED", "PUBLIC_SIGNAL_API_BASE is not configured", 503);
-  const privatePath = path === "/api/annotations" || path === "/api/memories" || path.startsWith("/api/memory-candidates/") || path.startsWith("/api/memory/") || path === "/api/watches" || /^\/api\/watches\/[^/]+\/resolve$/.test(path) || path.startsWith("/api/admin/");
-  return `${privatePath ? privateApiBase : apiBase}${path}`;
+  return signalEndpoint(path, apiBase, privateApiBase);
 }
 
 function networkMessage(cause: unknown): string {
