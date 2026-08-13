@@ -1356,6 +1356,223 @@
   line-height: 1.55;
 }
 
+/* Hallmark · pre-emit critique: P5 H5 E4 S5 R5 V4 */
+.market-review-report {
+  --report-accent-soft: color-mix(in oklch, var(--color-accent) 8%, var(--color-paper));
+  --report-warning-soft: color-mix(in oklch, var(--color-warning) 8%, var(--color-paper));
+  padding-block-start: var(--space-xl);
+}
+
+.market-review-report__masthead {
+  padding-block-end: var(--space-lg);
+  border-block-end: var(--rule-thin) solid var(--color-rule-2);
+}
+
+.market-review-report__masthead > div {
+  max-width: 68rem;
+}
+
+.market-review-report__masthead strong {
+  display: block;
+  max-width: 68rem;
+  margin-block-start: var(--space-xs);
+  font-family: var(--font-sans);
+  font-size: clamp(1.8rem, 4vw, 3.8rem);
+  font-style: normal;
+  font-weight: 620;
+  line-height: 1.03;
+  letter-spacing: -.04em;
+  overflow-wrap: anywhere;
+}
+
+.market-review-report__masthead > span {
+  color: var(--color-muted);
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.market-review-report__summary {
+  display: grid;
+  padding-block: clamp(2.5rem, 7vw, 6rem);
+  grid-template-columns: minmax(8rem, 3fr) minmax(0, 9fr);
+  gap: var(--space-lg);
+}
+
+.market-review-report__summary h2,
+.market-review-report__chapter h2 {
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+  font-style: normal;
+  font-weight: 650;
+  letter-spacing: .04em;
+}
+
+.market-review-report__summary p {
+  max-width: 58rem;
+  margin: 0;
+  color: var(--color-ink);
+  font-size: clamp(1.25rem, 2.4vw, 2rem);
+  font-weight: 480;
+  line-height: 1.48;
+  letter-spacing: -.02em;
+}
+
+.market-review-report__body {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  grid-auto-flow: dense;
+  border-block-start: var(--rule-thin) solid var(--color-rule-2);
+}
+
+.market-review-report__chapter {
+  grid-column: span 5;
+  min-width: 0;
+  padding: var(--space-xl) var(--space-lg) var(--space-xl) 0;
+  border-block-end: var(--rule-thin) solid var(--color-rule);
+}
+
+.market-review-report__chapter--wide {
+  grid-column: span 7;
+  border-inline-end: var(--rule-thin) solid var(--color-rule);
+}
+
+.market-review-report__chapter:not(.market-review-report__chapter--wide) {
+  padding-inline-start: var(--space-lg);
+  padding-inline-end: 0;
+}
+
+.market-review-report__chapter > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.market-review-report__chapter > header span {
+  color: var(--color-muted);
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+}
+
+.market-review-report__findings,
+.market-review-report__watchlist,
+.market-review-report__limitations ul {
+  display: grid;
+  margin: var(--space-lg) 0 0;
+  padding: 0;
+  gap: var(--space-lg);
+  list-style: none;
+}
+
+.market-review-report__finding {
+  min-width: 0;
+  padding-inline-start: var(--space-md);
+  border-inline-start: .18rem solid var(--color-positive);
+}
+
+.market-review-report__finding--inference { border-inline-start-color: var(--color-accent); }
+.market-review-report__finding--unknown { border-inline-start-color: var(--color-warning); }
+
+.market-review-report__finding > div {
+  display: grid;
+  gap: var(--space-2xs);
+}
+
+.market-review-report__finding > div span {
+  color: var(--color-muted);
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+}
+
+.market-review-report__finding > div strong,
+.market-review-report__watchlist strong {
+  font-size: var(--text-md);
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.market-review-report__finding > p,
+.market-review-report__watchlist p,
+.market-review-report__limitations li,
+.market-review-report__limitations > p {
+  margin-block-start: var(--space-xs);
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+  line-height: 1.65;
+}
+
+.market-review-report__finding details {
+  margin-block-start: var(--space-sm);
+}
+
+.market-review-report__finding summary,
+.market-review-report__technical summary {
+  width: fit-content;
+  color: var(--color-accent);
+  cursor: pointer;
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+  list-style: none;
+  white-space: nowrap;
+}
+
+.market-review-report__finding summary::-webkit-details-marker,
+.market-review-report__technical summary::-webkit-details-marker { display: none; }
+
+.market-review-report .agent-evidence-row {
+  display: flex;
+  margin-block-start: var(--space-xs);
+  flex-wrap: wrap;
+  gap: var(--space-2xs);
+}
+
+.market-review-report .agent-evidence-row code {
+  max-width: 100%;
+  padding: .25rem .4rem;
+  border: var(--rule-thin) solid var(--color-rule);
+  background: var(--color-paper-2);
+  overflow-wrap: anywhere;
+}
+
+.market-review-report__watchlist { counter-reset: watch; }
+
+.market-review-report__watchlist li {
+  position: relative;
+  padding-inline-start: 2.5rem;
+  counter-increment: watch;
+}
+
+.market-review-report__watchlist li::before {
+  position: absolute;
+  left: 0;
+  color: var(--color-accent);
+  font-family: var(--font-data);
+  font-size: var(--text-sm);
+  content: counter(watch, decimal-leading-zero);
+}
+
+.market-review-report__limitations {
+  background: var(--report-warning-soft);
+}
+
+.market-review-report__limitations li::marker { color: var(--color-warning); }
+
+.market-review-report__technical {
+  margin-block-start: var(--space-md);
+  padding-block: var(--space-sm);
+  border-block-start: var(--rule-thin) solid var(--color-rule);
+}
+
+.market-review-report__technical > code {
+  display: block;
+  margin-block-start: var(--space-xs);
+  color: var(--color-muted);
+  font-family: var(--font-data);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+
 .agent-conversation .agent-ask__evidence {
   border-color: var(--color-rule);
 }
@@ -1570,6 +1787,13 @@
     border-block-start: var(--rule-thin) solid var(--color-rule);
     border-inline-start: 0;
   }
+
+  .market-review-report__chapter,
+  .market-review-report__chapter--wide {
+    grid-column: 1 / -1;
+    padding-inline: 0;
+    border-inline-end: 0;
+  }
 }
 
 @media (max-width: 42rem) {
@@ -1664,6 +1888,20 @@
   .agent-conversation .agent-ask__feedback {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .market-review-report__masthead > span { white-space: normal; }
+
+  .market-review-report__summary {
+    grid-template-columns: minmax(0, 1fr);
+    padding-block: var(--space-xl);
+    gap: var(--space-sm);
+  }
+
+  .market-review-report__summary p { font-size: 1.2rem; }
+
+  .market-review-report__chapter {
+    padding-block: var(--space-lg);
   }
 
   .agent-conversation .agent-activity > header {

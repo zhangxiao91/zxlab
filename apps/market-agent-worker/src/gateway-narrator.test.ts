@@ -6,8 +6,9 @@ import type { EvidenceItem, SealedEvidenceBundle } from "@zxlab/market-agent-sch
 const evidence: SealedEvidenceBundle = { schemaVersion: "market-agent.v1", eventRuleVersion: "market-event.v1", profileId: "p1", workflow: "close_review", watchlistRevision: "w1", instrumentIds: [], items: [], contextUses: [], fingerprint: "sha256:g", sealedAt: "2026-08-05T00:00:00.000Z" };
 test("gateway narrator sends only the bounded task and sealed evidence", async () => {
   const narrator = new GatewayNarrator({ apiUrl: "https://gateway.example/api/ai/generate", token: "secret", fetcher: async (_url, init) => {
-    const body = JSON.parse(String(init?.body)) as { task: string; context: { source: string; operation: string; metadata: { contextVersion: string } }; messages: Array<{ content: string }> };
+    const body = JSON.parse(String(init?.body)) as { task: string; maxOutputTokens: number; context: { source: string; operation: string; metadata: { contextVersion: string } }; messages: Array<{ content: string }> };
     assert.equal(body.task, "market-agent-close-review"); assert.match(body.messages[1].content, /sha256:g/);
+    assert.equal(body.maxOutputTokens, 3200);
     assert.match(body.messages[0].content, /headline, summary, observations, portfolioImpacts, watchNext, limitations, and evidenceFingerprint/);
     assert.match(body.messages[0].content, /Copy evidenceContext\.source\.evidenceFingerprint exactly/);
     assert.match(body.messages[0].content, /Simplified Chinese/);

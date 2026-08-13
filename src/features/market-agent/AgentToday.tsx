@@ -1,4 +1,5 @@
-import { useEffect } from "react";
+import gsap from "gsap";
+import { useEffect, useRef } from "react";
 import type { TradingScreenAction, TradingScreenStatus } from "../trading/screen";
 import AskPanel, { RunActivity } from "./AskPanel";
 import { RunOutcomeSummary } from "./RunOutcomeSummary";
@@ -7,6 +8,7 @@ import {
   type AgentRunMode,
   type AgentRunView,
 } from "./client";
+import { buildMarketReviewReport } from "./market-review-report";
 import { useMarketAgentWorkspace } from "./useMarketAgentWorkspace";
 
 const date = (value: string) =>
@@ -33,7 +35,6 @@ export default function AgentToday({
   const {
     runs,
     latest,
-    events,
     askInstruments,
     bootstrap,
     loading,
@@ -137,7 +138,6 @@ export default function AgentToday({
         {setupNote && <p className="agent-setup-note">{setupNote}</p>}
         <section className="agent-conversation" aria-label="Agent 对话与执行记录">
           <LatestReviewThread
-            events={events}
             latest={latest}
             activeEvidenceId={activeRun}
             streamingAnswer={streamingAnswer}
@@ -372,18 +372,43 @@ export default function AgentToday({
 }
 
 function LatestReviewThread({
-  events,
   latest,
   activeEvidenceId,
   streamingAnswer,
   onToggle,
 }: {
-  events: AgentObservationView[];
   latest: AgentRunView | undefined;
   activeEvidenceId: string | null;
   streamingAnswer: string;
   onToggle: (evidenceId: string) => void;
 }) {
+  const reportElement = useRef<HTMLElement>(null);
+  const report = latest && latest.workflow !== "ask" && latest.result ? buildMarketReviewReport(latest.result) : null;
+  useEffect(() => {
+    if (!report || !reportElement.current || !latest) return;
+    let cancelled = false;
+    let context: gsap.Context | undefined;
+    void import("gsap/ScrollTrigger").then(({ ScrollTrigger }) => {
+      if (cancelled || !reportElement.current) return;
+      gsap.registerPlugin(ScrollTrigger);
+      context = gsap.context(() => {
+        gsap.fromTo(".market-review-report__summary span", { opacity: 0.18 }, {
+          opacity: 1,
+          stagger: 0.018,
+          ease: "none",
+          scrollTrigger: { trigger: ".market-review-report__summary", start: "top 88%", end: "bottom 56%", scrub: true },
+        });
+        gsap.fromTo(".market-review-report__chapter", { opacity: 0.25, y: 28 }, {
+          opacity: 1,
+          y: 0,
+          stagger: 0.08,
+          ease: "power2.out",
+          scrollTrigger: { trigger: ".market-review-report__body", start: "top 84%", end: "bottom 74%", scrub: 0.7 },
+        });
+      }, reportElement);
+    });
+    return () => { cancelled = true; context?.revert(); };
+  }, [latest?.id, report?.title]);
   if (!latest || latest.workflow === "ask") return null;
   return (
     <section className="agent-review-thread" aria-label="最近一次盘后复盘">
@@ -395,43 +420,56 @@ function LatestReviewThread({
         <p>{modeLabel(latest.result?.mode, latest.portfolioSnapshotId)} · 已确认观察列表</p>
       </article>
       <RunActivity status={latest.status} runId={latest.id} limitations={latest.result?.limitations} outcome={latest.result?.outcome} />
-      <article className="agent-message agent-message--assistant agent-review-result">
-        <header>
+      <article className="agent-message agent-message--assistant agent-review-result market-review-report" ref={reportElement}>
+        <header className="market-review-report__masthead">
           <div>
-            <span className={`agent-status agent-status--${latest.status}`}>{statusLabel(latest.status)}</span>
-            <strong>{latest.result?.headline ?? (streamingAnswer ? "正在流式生成复盘" : "正在收集已批准的市场事实")}</strong>
+            <span className={`agent-status agent-status--${latest.status}`}>{statusLabel(latest.status)} · {date(latest.createdAt)}</span>
+            <strong>{report?.title ?? (streamingAnswer ? "正在生成盘后复盘" : "正在收集已批准的市场事实")}</strong>
           </div>
-          <code>{latest.id}</code>
+          <span>{modeLabel(latest.result?.mode, latest.portfolioSnapshotId)}</span>
         </header>
-        <p className={streamingAnswer && !latest.result ? "agent-streamed-answer" : undefined}>
-          {(latest.result?.summary ?? streamingAnswer) || "事实收集完成后，复盘结果会出现在这里。"}
-          {streamingAnswer && !latest.result ? <span className="agent-stream-cursor" aria-hidden="true" /> : null}
-        </p>
-        <RunOutcomeSummary outcome={latest.result?.outcome} />
-        <div className="agent-review-result__evidence">
-          {events.map((event) => (
-            <details className={activeEvidenceId === event.id ? "is-active" : ""} key={event.id} open={activeEvidenceId === event.id}>
-              <summary onClick={(clickEvent) => { clickEvent.preventDefault(); onToggle(event.id); }}>
-                <span className={`agent-observation agent-observation--${event.class}`}>{observationLabel(event.class)}</span>
-                <strong>{event.title}</strong>
-              </summary>
-              <p>{event.explanation}</p>
-              <div className="agent-evidence-row">
-                {event.evidenceIds.map((id) => <code key={id}>{id}</code>)}
-              </div>
-            </details>
-          ))}
-          {!events.length && <p className="agent-empty">结论会在运行完成后连同证据引用显示。</p>}
-        </div>
-        {latest.result?.limitations.length ? (
-          <details className="agent-review-result__limitations">
-            <summary>数据限制 · {latest.result.limitations.length}</summary>
-            <ul>{latest.result.limitations.map((item) => <li key={item}>{item}</li>)}</ul>
-          </details>
-        ) : null}
+        <section className="market-review-report__summary" aria-label="执行摘要">
+          <h2>执行摘要</h2>
+          <p className={streamingAnswer && !report ? "agent-streamed-answer" : undefined}>
+            {((report?.executiveSummary ?? streamingAnswer) || "事实收集完成后，复盘报告会出现在这里。").split("").map((character, index) => <span key={`${character}-${index}`}>{character}</span>)}
+            {streamingAnswer && !report ? <span className="agent-stream-cursor" aria-hidden="true" /> : null}
+          </p>
+        </section>
+        {report ? <div className="market-review-report__body">
+          <ReportObservationChapter title="关键发现" items={report.findings} activeEvidenceId={activeEvidenceId} onToggle={onToggle} className="market-review-report__chapter--wide" />
+          <ReportObservationChapter title="持仓影响" items={report.portfolioImpacts} activeEvidenceId={activeEvidenceId} onToggle={onToggle} />
+          <section className="market-review-report__chapter market-review-report__chapter--wide">
+            <header><h2>后续观察</h2><span>{report.watchNext.length}</span></header>
+            {report.watchNext.length ? <ol className="market-review-report__watchlist">{report.watchNext.map((item, index) => <li key={`${item.condition}-${index}`}><strong>{item.condition}</strong><p>{item.reason}</p><EvidenceReferences ids={item.evidenceIds} /></li>)}</ol> : <p className="agent-empty">本次没有形成新的后续观察条件。</p>}
+          </section>
+          <section className="market-review-report__chapter market-review-report__limitations">
+            <header><h2>数据边界</h2><span>{report.limitations.length}</span></header>
+            {report.limitations.length ? <ul>{report.limitations.map((item) => <li key={item}>{item}</li>)}</ul> : <p>本次没有额外的数据质量限制。</p>}
+          </section>
+        </div> : null}
+        <details className="market-review-report__technical">
+          <summary>运行与模型信息</summary>
+          <code>{latest.id}</code>
+          <RunOutcomeSummary outcome={latest.result?.outcome} />
+        </details>
       </article>
     </section>
   );
+}
+
+function ReportObservationChapter({ title, items, activeEvidenceId, onToggle, className = "" }: { title: string; items: AgentObservationView[]; activeEvidenceId: string | null; onToggle: (evidenceId: string) => void; className?: string }) {
+  return <section className={`market-review-report__chapter ${className}`}>
+    <header><h2>{title}</h2><span>{items.length}</span></header>
+    {items.length ? <div className="market-review-report__findings">{items.map((item) => <article key={item.id} className={`market-review-report__finding market-review-report__finding--${item.class}`}>
+      <div><span>{observationLabel(item.class)}</span><strong>{item.title}</strong></div>
+      <p>{item.explanation}</p>
+      <details open={activeEvidenceId === item.id}><summary onClick={(event) => { event.preventDefault(); onToggle(item.id); }}>查看证据 · {item.evidenceIds.length}</summary><EvidenceReferences ids={item.evidenceIds} /></details>
+    </article>)}</div> : <p className="agent-empty">本次没有可确认的{title}。</p>}
+  </section>;
+}
+
+function EvidenceReferences({ ids }: { ids: string[] }) {
+  return <div className="agent-evidence-row">{ids.map((id) => <code key={id}>{id}</code>)}</div>;
 }
 
 function observationLabel(value: AgentObservationView["class"]) {
