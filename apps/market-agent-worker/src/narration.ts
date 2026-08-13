@@ -24,12 +24,11 @@ export interface GatewayNarrationSelection {
   gatewayRequestId: string;
 }
 
-const GATEWAY_SELECTION = Symbol("market-agent.gateway-selection");
+const GATEWAY_SELECTION = "__zxlabGatewaySelection";
 
 export function withGatewaySelection(narration: unknown, selection: GatewayNarrationSelection): unknown {
   if (!narration || typeof narration !== "object" || Array.isArray(narration)) return narration;
-  Object.defineProperty(narration, GATEWAY_SELECTION, { value: selection, enumerable: false });
-  return narration;
+  return { ...narration, [GATEWAY_SELECTION]: selection };
 }
 
 export class DeterministicNarrator implements Narrator {
@@ -126,8 +125,9 @@ export async function narrateWithRepair(narrator: Narrator, input: NarrationInpu
 
 function unwrapGatewayCandidate(candidate: unknown): { narration: unknown; selection?: GatewayNarrationSelection } {
   if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return { narration: candidate };
-  const selection = (candidate as Record<symbol, unknown>)[GATEWAY_SELECTION] as GatewayNarrationSelection | undefined;
-  return { narration: candidate, ...(selection ? { selection } : {}) };
+  const { [GATEWAY_SELECTION]: rawSelection, ...narration } = candidate as Record<string, unknown>;
+  const selection = rawSelection as GatewayNarrationSelection | undefined;
+  return { narration, ...(selection ? { selection } : {}) };
 }
 
 function modelProvenance(source: "model" | "model_repaired", selection?: GatewayNarrationSelection): NarrationProvenance {

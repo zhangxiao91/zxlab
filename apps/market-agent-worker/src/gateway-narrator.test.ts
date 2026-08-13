@@ -115,7 +115,7 @@ test("gateway returns on the terminal SSE event without waiting for the stream t
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       controller.enqueue(new TextEncoder().encode(
-        'event: done\ndata: {"type":"done","requestId":"request-open","data":{"json":{"status":"success","headline":"ok","summary":"ok","observations":[],"portfolioImpacts":[],"watchNext":[],"limitations":[],"evidenceFingerprint":"sha256:g"}}}\n\n',
+        'event: done\ndata: {"type":"done","requestId":"request-open","data":{"json":{"status":"success","headline":"ok","summary":"ok","observations":[],"portfolioImpacts":[],"watchNext":[],"limitations":[],"evidenceFingerprint":"sha256:g"},"provider":"deepseek","model":"deepseek-v4-flash","fallbackIndex":0}}\n\n',
       ));
     },
   });
@@ -125,8 +125,15 @@ test("gateway returns on the terminal SSE event without waiting for the stream t
     fetcher: async () => new Response(stream, { headers: { "content-type": "text/event-stream" } }),
   });
 
-  const result = await narrator.narrate({ workflow: "close_review", evidence }) as { headline: string };
-  assert.equal(result.headline, "ok");
+  const result = await (await import("./narration.ts")).narrateWithRepair(narrator, { workflow: "close_review", evidence });
+  assert.equal(result.result.headline, "ok");
+  assert.deepEqual(result.provenance, {
+    source: "model",
+    provider: "deepseek",
+    model: "deepseek-v4-flash",
+    fallbackIndex: 0,
+    gatewayRequestId: "request-open",
+  });
 });
 
 test("gateway receives a bounded session-aware projection instead of raw bar history", async () => {
