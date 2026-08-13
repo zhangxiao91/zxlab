@@ -24,13 +24,14 @@ export type AnnotationStreamEvent =
   | { type: "done"; response: AnnotationResponse }
   | { type: "error"; error: { message: string } };
 
-const configuredMode = import.meta.env.PUBLIC_SIGNAL_DATA_MODE;
+const clientEnv = import.meta.env ?? {};
+const configuredMode = clientEnv.PUBLIC_SIGNAL_DATA_MODE;
 const dataMode: "api" | "mock" = configuredMode === "api" || configuredMode === "mock"
   ? configuredMode
-  : import.meta.env.DEV ? "mock" : "api";
-const defaultApiBase = import.meta.env.DEV ? "" : "https://signal-api.zx-dx.xyz";
-const apiBase = String(import.meta.env.PUBLIC_SIGNAL_API_BASE ?? defaultApiBase).replace(/\/$/, "");
-const privateApiBase = import.meta.env.DEV ? apiBase : "/api/signal";
+  : clientEnv.DEV ? "mock" : "api";
+const defaultApiBase = clientEnv.DEV ? "" : "https://signal-api.zx-dx.xyz";
+const apiBase = String(clientEnv.PUBLIC_SIGNAL_API_BASE ?? defaultApiBase).replace(/\/$/, "");
+const privateApiBase = clientEnv.DEV ? apiBase : "/api/signal";
 export const privateAccessUrl = "/api/private/session?returnTo=/briefing/";
 let mockWatches: WatchDossier[] = [];
 
@@ -47,11 +48,7 @@ function endpoint(path: string): string {
 }
 
 function networkMessage(cause: unknown): string {
-  const message = cause instanceof Error ? cause.message : "Signal API unavailable";
-  if (/failed to fetch|load failed|networkerror|fetch failed/i.test(message)) {
-    return "需要先完成统一 Cloudflare Access 授权。打开授权窗口后会自动继续本次发送";
-  }
-  return message;
+  return cause instanceof Error ? cause.message : "Signal API unavailable";
 }
 
 async function apiRequest<T>(path: string, init?: RequestInit, timeoutMs = 8_000): Promise<T> {

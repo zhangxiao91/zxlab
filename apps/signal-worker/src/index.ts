@@ -2,7 +2,7 @@ import { SignalError } from "./lib/errors";
 import { corsHeaders, errorResponse, json } from "./lib/http";
 import { requireWriteAccess } from "./middleware/auth";
 import { handleAdmin } from "./routes/admin";
-import { handleAnnotations } from "./routes/annotations";
+import { handleAnnotations, type AnnotationDependencies } from "./routes/annotations";
 import { handleBriefingRead } from "./routes/briefings";
 import { handleCollection } from "./routes/collection";
 import { handleMemories } from "./routes/memories";
@@ -70,26 +70,38 @@ function isProtected(request: Request, pathname: string): boolean {
   return request.method === "GET" && pathname === "/api/memories";
 }
 
+export interface SignalWorkerDependencies {
+  annotations?: AnnotationDependencies;
+}
+
+export async function handleSignalFetch(
+  request: Request,
+  env: Env,
+  dependencies: SignalWorkerDependencies = {},
+): Promise<Response> {
+  const url = new URL(request.url);
+  try {
+    if (request.method === "OPTIONS") return withCors(new Response(null, { status: 204 }), request, env);
+    if (request.method === "GET" && url.pathname === "/health") return withCors(json({ ok: true, service: "zx-signal" }), request, env);
+    if (request.method === "GET" && url.pathname === "/internal/runtime/health") return runtimeHealth(request, env);
+    if (isProtected(request, url.pathname)) await requireWriteAccess(request, env, url.pathname);
+    const response = await handleBriefingRead(url.pathname, env)
+      ?? await handleCollection(request, url, env)
+      ?? await handleAdmin(request, url.pathname, env)
+      ?? await handleAnnotations(request, url.pathname, env, dependencies.annotations)
+      ?? await handleMemoryApi(request, url.pathname, env)
+      ?? await handleMemories(request, url.pathname, env)
+      ?? await handleWatches(request, url.pathname, env);
+    if (!response) throw new SignalError("BRIEFING_NOT_FOUND", "Route not found", 404);
+    return withCors(response, request, env);
+  } catch (error) {
+    return withCors(errorResponse(error, url.pathname), request, env);
+  }
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url);
-    try {
-      if (request.method === "OPTIONS") return withCors(new Response(null, { status: 204 }), request, env);
-      if (request.method === "GET" && url.pathname === "/health") return withCors(json({ ok: true, service: "zx-signal" }), request, env);
-      if (request.method === "GET" && url.pathname === "/internal/runtime/health") return runtimeHealth(request, env);
-      if (isProtected(request, url.pathname)) await requireWriteAccess(request, env, url.pathname);
-      const response = await handleBriefingRead(url.pathname, env)
-        ?? await handleCollection(request, url, env)
-        ?? await handleAdmin(request, url.pathname, env)
-        ?? await handleAnnotations(request, url.pathname, env)
-        ?? await handleMemoryApi(request, url.pathname, env)
-        ?? await handleMemories(request, url.pathname, env)
-        ?? await handleWatches(request, url.pathname, env);
-      if (!response) throw new SignalError("BRIEFING_NOT_FOUND", "Route not found", 404);
-      return withCors(response, request, env);
-    } catch (error) {
-      return withCors(errorResponse(error, url.pathname), request, env);
-    }
+    return handleSignalFetch(request, env);
   },
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     if (String(env.ZX_SIGNAL_SCHEDULE_ENABLED) !== "true") {

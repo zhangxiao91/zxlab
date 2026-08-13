@@ -16,7 +16,7 @@ interface PrivateProxyContext {
 }
 
 type PrivateService = "runtime" | "signal" | "market-agent";
-interface PrivateProxyDependencies {
+export interface PrivateProxyDependencies {
   verifyAccess?: typeof verifyCloudflareAccess;
   fetcher?: typeof fetch;
 }

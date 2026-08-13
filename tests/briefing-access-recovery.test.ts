@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { accessRecoveryPresentation } from "../src/features/briefing/access-recovery.ts";
+import { accessRecoveryPresentation, signalAccessRequired } from "../src/features/briefing/access-recovery.ts";
 
 function signalError(code: string, message: string, status: number): Error & { code: string; status: number } {
   return Object.assign(new Error(message), { code, status });
@@ -48,4 +48,12 @@ test("Access recovery preserves ordinary probe errors with their real code and m
       showAccessActions: false,
     },
   );
+});
+
+test("send failures only reopen Access for known session errors", () => {
+  assert.equal(signalAccessRequired(signalError("ACCESS_REQUIRED", "login required", 401)), true);
+  assert.equal(signalAccessRequired(signalError("SIGNAL_ACCESS_REQUIRED", "redirected", 401)), true);
+  assert.equal(signalAccessRequired(signalError("SIGNAL_API_UNAVAILABLE", "Failed to fetch", 503)), false);
+  assert.equal(signalAccessRequired(signalError("PRIVATE_UPSTREAM_AUTH_FAILED", "upstream rejected", 502)), false);
+  assert.equal(signalAccessRequired(new Error("Signal annotation failed")), false);
 });

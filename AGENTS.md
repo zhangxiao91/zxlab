@@ -89,3 +89,19 @@ After every visual or interface change, ensure the local Astro development serve
 如果在本项目里需要用到 OpenAI key，则使用 `/Users/zhangyang/Developer/.env` 里的 `baseurl` 和 `apikey`。
 
 Codex 跨 Session 调试 ZXLab 的 Cloudflare Access 时，先读取 `docs/access/codex-debug.md`，并使用其中的 Keychain 安全入口与验收边界。
+
+## 11. SIGNAL AUTHENTICATED SEND GATE
+
+Signal `/briefing/` 的高权限发送链路是 Browser → Pages → Runtime → Signal。涉及 annotation、Memory、Watch 或其他高权限 Signal 操作时，必须遵守以下门禁：
+
+1. 修改前先建立能够复现用户原始症状的红色反馈环。至少捕获实际 URL、HTTP method、status/error code；需要跨层诊断时，在用户复现前同时开启 Pages beta deployment、`zx-runtime`、`zx-signal` 三层 tail。
+2. `GET /api/signal/api/watches` 只能证明 Access session 与 read scope，不能替代 `POST + write scope + query + SSE` 验收。
+3. 所有 Signal 浏览器高权限请求必须通过同源 `/api/signal/*` Pages gateway。query string 不能改变 public/private 归属；修改路由、stream 或 fallback 时必须运行 `npm run test:signal-contract`。
+4. 普通 network/CORS/timeout 不能显示为 Access 失败。只有已知的 Access redirect、`ACCESS_REQUIRED` / `SIGNAL_ACCESS_REQUIRED`，或 session probe 返回的明确 Access 结论，才能提示用户重新授权；普通应用 401/403、scope 不足和上游服务鉴权失败不能触发重新登录。
+5. 本地完成前运行 `npm run verify:signal:local`。beta 发布还必须运行完整 `npm run build`，提交 Conventional Commit、推送 `beta`，并确认预期 commit SHA 的 Pages Preview 为 Active。
+6. 完成状态必须分开报告：本地测试通过、Preview 已部署、安全负例仍关闭、已认证真实用户流程通过。无凭据 401 和无副作用 invalid POST 只能证明安全边界或路由可达，不能证明 E2E。
+7. Signal 高权限变更只有在真实 Access 会话完成用户原始操作并确认结果可见后才能称为完成。annotation 还必须从当前 `/briefing/` 条目发出，收到终态 `done` 和可见回复；机器身份、GET probe 或其他高权限操作不能替代这一步。
+8. 浏览器自动化控制故障最多单独排查 15 分钟；之后切换到三层 tail、CLI、已连接 Chrome 或结构化人工复现，并把工具故障与应用根因分开记录。
+9. 跨层 transport trace 只能记录受限的 event、service、request ID、method、pathname、stage、status、duration 和错误码，不得记录自由文本 error message、query、Cookie、JWT、Access header、评论正文、选中文本、email 或任何 secret。若尚未实现安全 request ID，不得临时信任或回显浏览器提供的任意标识；先用绑定到确定 deployment 的 tail 做关联。
+
+本次事故复盘与已完成的真实 E2E 验收记录见 `docs/postmortems/signal-access-send-2026-08-13.md`。

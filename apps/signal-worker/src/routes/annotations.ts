@@ -3,7 +3,7 @@ import { readJson, json } from "../lib/http";
 import { AnnotationResponder } from "../services/annotation-responder";
 import { ProjectApiSignalLLM, type SignalLLM } from "../services/llm";
 
-interface AnnotationDependencies {
+export interface AnnotationDependencies {
   llm?: SignalLLM;
 }
 

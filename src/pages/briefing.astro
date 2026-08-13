@@ -129,7 +129,6 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
     import {
       getLatestBriefing,
       privateAccessUrl,
-      SignalApiError,
       submitAnnotationStream,
       getMemories,
       getWatches,
@@ -137,7 +136,7 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
       resolveWatch,
       updateMemoryCandidate,
     } from "../features/briefing/client";
-    import { accessRecoveryPresentation } from "../features/briefing/access-recovery";
+    import { accessRecoveryPresentation, signalAccessRequired } from "../features/briefing/access-recovery";
     import {
       clearPendingAnnotation,
       loadPendingAnnotation,
@@ -916,8 +915,7 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
         }
         if (submitLabel) submitLabel.textContent = "再次发送";
       } catch (error) {
-        const accessRequired = error instanceof SignalApiError
-          && (error.code === "SIGNAL_ACCESS_REQUIRED" || error.code === "ACCESS_REQUIRED");
+        const accessRequired = signalAccessRequired(error);
         pendingAccessRetry = accessRequired;
         if (accessRequired) {
           const draft = pendingAnnotationFromForm();

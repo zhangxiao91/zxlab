@@ -69,4 +69,68 @@ describe("Runtime private authentication", () => {
       expect((await runtimeWorker.fetch!(request, runtimeEnv)).status).toBe(404);
     }
   });
+
+  it("preserves the streaming annotation contract across the Signal bridge", async () => {
+    let forwarded: {
+      url: string;
+      method?: string;
+      authorization: string | null;
+      accept: string | null;
+      contentType: string | null;
+      body: string;
+    } | undefined;
+    const body = JSON.stringify({
+      briefingId: "briefing-real",
+      briefingItemId: "item-real",
+      selectedText: "一段需要复核的原文",
+      comment: "请验证这条判断。",
+      actionType: "challenge",
+    });
+    const runtimeEnv = {
+      ZX_RUNTIME_SERVICE_TOKEN: "runtime-service-secret",
+      RUNTIME_ALLOWED_ORIGINS: "https://beta.zxlab.pages.dev",
+      DB: {} as D1Database,
+      SIGNAL: {
+        fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+          const headers = new Headers(init?.headers);
+          forwarded = {
+            url: String(input),
+            method: init?.method,
+            authorization: headers.get("authorization"),
+            accept: headers.get("accept"),
+            contentType: headers.get("content-type"),
+            body: await new Response(init?.body).text(),
+          };
+          return new Response('data: {"type":"start"}\n\n', {
+            headers: { "content-type": "text/event-stream; charset=utf-8" },
+          });
+        },
+      },
+    } as unknown as Env;
+
+    const response = await runtimeWorker.fetch!(new Request(
+      "https://runtime.example/api/v1/private/signal/api/annotations?stream=1",
+      {
+        method: "POST",
+        headers: {
+          accept: "text/event-stream",
+          authorization: "Bearer runtime-service-secret",
+          "content-type": "application/json",
+        },
+        body,
+      },
+    ), runtimeEnv);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
+    expect(await response.text()).toBe('data: {"type":"start"}\n\n');
+    expect(forwarded).toEqual({
+      url: "https://signal.internal/api/annotations?stream=1",
+      method: "POST",
+      authorization: "Bearer runtime-service-secret",
+      accept: "text/event-stream",
+      contentType: "application/json",
+      body,
+    });
+  });
 });

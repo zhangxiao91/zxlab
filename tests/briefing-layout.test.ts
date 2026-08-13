@@ -79,7 +79,7 @@ test("private annotation failures use the unified HTML access callback", async (
   const annotationPanel = await readFile(new URL("../src/features/briefing/components/AnnotationPanel.astro", import.meta.url), "utf8");
 
   assert.match(client, /export const privateAccessUrl = "\/api\/private\/session\?returnTo=\/briefing\/"/);
-  assert.match(client, /privateApiBase = import\.meta\.env\.DEV \? apiBase : "\/api\/signal"/);
+  assert.match(client, /privateApiBase = clientEnv\.DEV \? apiBase : "\/api\/signal"/);
   assert.match(client, /signalEndpoint\(path, apiBase, privateApiBase\)/);
   assert.match(requestRouting, /path\.split\("\?", 1\)/);
   assert.doesNotMatch(client, /privateAccessUrl = "\/api\/private\/signal\/api\/watches"/);
@@ -88,7 +88,7 @@ test("private annotation failures use the unified HTML access callback", async (
   assert.match(annotationPanel, /href="\/api\/private\/session\?returnTo=\/briefing\/"/);
   assert.doesNotMatch(annotationPanel, /target="_blank"/);
   assert.match(annotationPanel, /完成授权并自动继续/);
-  assert.match(page, /error instanceof SignalApiError[\s\S]*?error\.code === "SIGNAL_ACCESS_REQUIRED" \|\| error\.code === "ACCESS_REQUIRED"/);
+  assert.match(page, /signalAccessRequired\(error\)/);
   assert.match(page, /new BroadcastChannel\("zxlab-private-access"\)/);
   assert.match(page, /event\.data\?\.type !== "zxlab:private-access-ready"/);
   assert.doesNotMatch(page, /window\.open/);

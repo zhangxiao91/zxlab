@@ -41,3 +41,7 @@ outputs/kai-html-eval-package/
 
 # local Codex handoff notes
 /docs/access/codex-debug.md
+
+# local postmortem drafts and evidence; keep only reviewed records explicitly
+/docs/postmortems/*
+!/docs/postmortems/signal-access-send-2026-08-13.md
