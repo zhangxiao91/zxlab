@@ -81,6 +81,11 @@ After every visual or interface change, ensure the local Astro development serve
 - Before committing a completed visual change, also run `npm run build`. Only commit when both the development route check and production build succeed.
 - When working on the `beta` branch, every completed implementation must be committed using the Conventional Commits specification, pushed to the remote repository, and deployed.
 
+## 10. CLOUDFLARE PREVIEW-FIRST SAFETY
+- Unless the user explicitly says otherwise, all Cloudflare construction, configuration, verification, and deployment MUST target the preview environment first.
+- Do not modify, deploy, migrate, bind, or rotate anything in the production environment without explicit user authorization for that specific production action.
+- By default, Cloudflare changes are limited to preview-scoped variables, secrets, bindings, routes, Pages previews, and preview Worker configuration or deployments. Always verify the target environment and config before running a write or deploy command.
+
 如果在本项目里需要用到 OpenAI key，则使用 `/Users/zhangyang/Developer/.env` 里的 `baseurl` 和 `apikey`。
 
 Codex 跨 Session 调试 ZXLab 的 Cloudflare Access 时，先读取 `docs/access/codex-debug.md`，并使用其中的 Keychain 安全入口与验收边界。
