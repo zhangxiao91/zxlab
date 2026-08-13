@@ -99,7 +99,7 @@ export async function verifyMarketAgentRun({
 
   const narration = run?.result?.outcome?.narration;
   const sourceIsModel = narration?.source === "model" || narration?.source === "model_repaired";
-  const primaryDeepSeek = run.status === "success"
+  const primaryDeepSeek = (run.status === "success" || run.status === "partial")
     && sourceIsModel
     && narration?.provider === "deepseek"
     && typeof narration?.model === "string"

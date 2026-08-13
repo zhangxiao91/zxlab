@@ -94,6 +94,22 @@ test("dedicated Run acceptance requires model narration from primary DeepSeek", 
   assert.deepEqual(calls, ["POST /api/private/market-agent/runs", "GET /api/private/market-agent/runs/run-1"]);
 });
 
+test("dedicated Run acceptance permits evidence-limited partial results from primary DeepSeek", async () => {
+  const report = await verifyMarketAgentRun({
+    request: async ({ method }) => method === "POST"
+      ? { status: 202, body: JSON.stringify({ runId: "run-partial" }) }
+      : { status: 200, body: JSON.stringify({
+          id: "run-partial",
+          status: "partial",
+          result: { outcome: { narration: { source: "model", provider: "deepseek", model: "deepseek-v4-flash", fallbackIndex: 0, gatewayRequestId: "gateway-partial" } } },
+        }) },
+    wait: async () => {},
+  });
+
+  assert.equal(report.ok, true);
+  assert.equal(report.status, "partial");
+});
+
 test("dedicated Run acceptance rejects fallback or deterministic narration", async () => {
   await assert.rejects(() => verifyMarketAgentRun({
     request: async ({ method }) => method === "POST"

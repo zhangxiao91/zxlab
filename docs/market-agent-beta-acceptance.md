@@ -35,6 +35,7 @@ npm run verify:market-agent:run
 ```
 
 The command creates and polls a `close_review` Run through the Keychain-backed
-debug Access path. Acceptance requires a successful model narration with
+debug Access path. Acceptance allows `success` or an evidence-limited `partial`
+Run, but requires a completed model narration with
 `provider=deepseek`, a DeepSeek model, `fallbackIndex=0`, and a Gateway request
 ID. A deterministic narration or any provider fallback fails the command.
