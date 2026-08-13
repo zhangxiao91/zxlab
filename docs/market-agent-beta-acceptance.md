@@ -13,6 +13,7 @@ Beta is isolated from Production at the Worker state boundary:
 - Pages Production remains bound to `zxlab-market-agent`;
 - the beta Worker owns `market-agent-beta`, `market-agent-runs-beta`, and
   `market-agent-runs-beta-dlq`;
+- beta has no cron trigger; acceptance Runs are created explicitly;
 - only the beta Worker points to
   `https://beta.zxlab.pages.dev/api/ai/generate`.
 
