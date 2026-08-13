@@ -31,86 +31,16 @@ export class GatewayNarrator implements Narrator {
       { role: "user", content: JSON.stringify({ workflow: input.workflow, evidenceContext, ephemeralConfirmedContext: input.confirmedContext ?? [], ...(ask ? { ask: { scope: input.askScope ?? input.evidence.ask?.scope, question: input.question?.trim() || null } } : {}), ...(repairIssues ? { repair: { validationIssues: repairIssues, instruction: "Correct only these validation failures and return the full JSON object." } } : {}) }) }
     ], temperature: ask ? 0.2 : 0, maxOutputTokens: ask ? 1600 : 1800, responseFormat: { type: "json" } };
     const fetcher = this.options.fetcher ?? fetch;
-    const streamUrl = this.options.apiUrl.replace(/\/generate\/?$/, "/stream");
-    const response = await fetcher(streamUrl, {
+    const response = await fetcher(this.options.apiUrl, {
       method: "POST",
-      headers: { authorization: `Bearer ${this.options.token}`, "content-type": "application/json", accept: "text/event-stream", "x-request-id": crypto.randomUUID() },
+      headers: { authorization: `Bearer ${this.options.token}`, "content-type": "application/json", accept: "application/json", "x-request-id": crypto.randomUUID() },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(this.options.timeoutMs ?? MARKET_AGENT_GATEWAY_REQUEST_TIMEOUT_MS),
     });
-    if (response.ok && response.headers.get("content-type")?.toLowerCase().startsWith("text/event-stream")) return parseGatewayNarration(await readTerminalEvent(response));
-    if (![404, 405, 501].includes(response.status)) { const payload = await safeJson(response); if (!response.ok) throw gatewayHttpError(response.status, payload); return parseGatewayNarration(payload); }
-    const fallback = await fetcher(this.options.apiUrl, { method: "POST", headers: { authorization: `Bearer ${this.options.token}`, "content-type": "application/json", accept: "application/json", "x-request-id": crypto.randomUUID() }, body: JSON.stringify(body), signal: AbortSignal.timeout(this.options.timeoutMs ?? MARKET_AGENT_GATEWAY_REQUEST_TIMEOUT_MS) });
-    const payload = await safeJson(fallback);
-    if (!fallback.ok) throw gatewayHttpError(fallback.status, payload);
+    const payload = await safeJson(response);
+    if (!response.ok) throw gatewayHttpError(response.status, payload);
     return parseGatewayNarration(payload);
   }
-}
-
-async function readTerminalEvent(response: Response): Promise<unknown> {
-  if (!response.body) throw new Error("MARKET_AGENT_GATEWAY_STREAM_INCOMPLETE");
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let bytes = 0;
-  let buffer = "";
-  let dataLines: string[] = [];
-  let latestAttempt: Record<string, unknown> | undefined;
-
-  const parseEvent = (): unknown | undefined => {
-    if (!dataLines.length) return undefined;
-    const data = dataLines.join("\n");
-    dataLines = [];
-    let event: Record<string, unknown>;
-    try { event = JSON.parse(data) as Record<string, unknown>; }
-    catch { throw new Error("MARKET_AGENT_GATEWAY_STREAM_INVALID_JSON"); }
-    if (event.type === "error") {
-      const error = record(event.error);
-      const code = typeof error?.code === "string" && /^[A-Z0-9_]{1,64}$/.test(error.code) ? error.code : "UNKNOWN";
-      throw new Error(`MARKET_AGENT_GATEWAY_STREAM_${code}`);
-    }
-    if (event.type === "attempt") {
-      latestAttempt = event;
-      return undefined;
-    }
-    if (event.type !== "done") return undefined;
-    const terminalData = record(event.data);
-    return {
-      data: terminalData && latestAttempt
-        ? { ...terminalData, provider: latestAttempt.provider, model: latestAttempt.model, fallbackIndex: latestAttempt.fallbackIndex }
-        : event.data,
-      requestId: event.requestId,
-    };
-  };
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    bytes += value.byteLength;
-    if (bytes > 512 * 1024) throw new Error("MARKET_AGENT_GATEWAY_RESPONSE_TOO_LARGE");
-    buffer += decoder.decode(value, { stream: true });
-    while (true) {
-      const newline = buffer.indexOf("\n");
-      if (newline < 0) break;
-      const line = buffer.slice(0, newline).replace(/\r$/, "");
-      buffer = buffer.slice(newline + 1);
-      if (!line) {
-        const terminal = parseEvent();
-        if (terminal !== undefined) {
-          void reader.cancel();
-          return terminal;
-        }
-      } else if (line.startsWith("data:")) {
-        dataLines.push(line.slice(5).trimStart());
-      }
-    }
-  }
-  buffer += decoder.decode();
-  if (buffer.trim()) {
-    for (const line of buffer.split(/\r?\n/)) if (line.startsWith("data:")) dataLines.push(line.slice(5).trimStart());
-  }
-  const terminal = parseEvent();
-  if (terminal !== undefined) return terminal;
-  throw new Error("MARKET_AGENT_GATEWAY_STREAM_INCOMPLETE");
 }
 
 async function safeJson(response: Response): Promise<unknown> { const raw = await response.text(); if (new TextEncoder().encode(raw).byteLength > 512 * 1024) throw new Error("MARKET_AGENT_GATEWAY_RESPONSE_TOO_LARGE"); try { return JSON.parse(raw) as unknown; } catch { throw new Error("MARKET_AGENT_GATEWAY_INVALID_JSON"); } }
