@@ -137,6 +137,7 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
       resolveWatch,
       updateMemoryCandidate,
     } from "../features/briefing/client";
+    import { accessRecoveryPresentation } from "../features/briefing/access-recovery";
     import { resolveLongTermThreads } from "../features/briefing/long-term-threads";
     import { briefingSessionStore } from "../features/briefing/store";
     import type {
@@ -199,6 +200,11 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
     const submitLabel = document.querySelector<HTMLElement>("[data-submit-label]");
     const submitError = document.querySelector<HTMLElement>("[data-annotation-error]");
     const annotationAccessLink = document.querySelector<HTMLAnchorElement>("[data-annotation-access-link]");
+    const annotationAccessSameTab = document.querySelector<HTMLAnchorElement>("[data-annotation-access-same-tab]");
+    const showAccessActions = (visible: boolean) => {
+      if (annotationAccessLink) annotationAccessLink.hidden = !visible;
+      if (annotationAccessSameTab) annotationAccessSameTab.hidden = !visible;
+    };
     const submitAnnotationForm = () => {
       if (!form) return;
       if (typeof form.requestSubmit === "function") {
@@ -303,7 +309,7 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
 			panelTrigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       form.reset();
       if (submitError) submitError.hidden = true;
-      if (annotationAccessLink) annotationAccessLink.hidden = true;
+      showAccessActions(false);
       result?.setAttribute("hidden", "");
       if (watchConfirm) watchConfirm.hidden = true;
       if (watchConfirmStatus) watchConfirmStatus.hidden = true;
@@ -617,10 +623,16 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
         renderWatchWorkspace();
         pendingAccessRetry = false;
         if (submitError) submitError.hidden = true;
-        if (annotationAccessLink) annotationAccessLink.hidden = true;
+        showAccessActions(false);
         submitAnnotationForm();
-      } catch {
-        // Keep the preserved comment and login action visible until Access is ready.
+      } catch (error) {
+        const presentation = accessRecoveryPresentation(error);
+        pendingAccessRetry = presentation.kind === "access-required";
+        if (submitError) {
+          submitError.hidden = false;
+          submitError.textContent = `${presentation.message} 评论内容已保留。`;
+        }
+        showAccessActions(presentation.showAccessActions);
       } finally {
         accessProbeInFlight = false;
       }
@@ -889,7 +901,7 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
             ? `发送失败：${error.message}。评论内容已保留，可直接重试。`
             : "发送失败，评论内容已保留。";
         }
-        if (annotationAccessLink) annotationAccessLink.hidden = !accessRequired;
+        showAccessActions(accessRequired);
         if (submitLabel) submitLabel.textContent = "重新发送";
       } finally {
         if (submit) submit.disabled = false;

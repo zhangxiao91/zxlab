@@ -7,6 +7,7 @@ const styleSource = new URL("../src/styles/briefing.css", import.meta.url);
 const watchWorkspaceSource = new URL("../src/features/briefing/components/WatchWorkspace.astro", import.meta.url);
 const clientSource = new URL("../src/features/briefing/client.ts", import.meta.url);
 const headerSource = new URL("../src/features/briefing/components/BriefingHeader.astro", import.meta.url);
+const accessRecoverySource = new URL("../src/features/briefing/access-recovery.ts", import.meta.url);
 
 test("lead briefing heading remains in flow before the desktop reading columns become tight", async () => {
   const [page, styles] = await Promise.all([
@@ -65,9 +66,10 @@ test("track remains a two-step Watch action and refreshes protected cross-device
 });
 
 test("private annotation failures use the unified HTML access callback", async () => {
-  const [client, page] = await Promise.all([
+  const [client, page, recovery] = await Promise.all([
     readFile(clientSource, "utf8"),
     readFile(pageSource, "utf8"),
+    readFile(accessRecoverySource, "utf8"),
   ]);
   const annotationPanel = await readFile(new URL("../src/features/briefing/components/AnnotationPanel.astro", import.meta.url), "utf8");
 
@@ -77,6 +79,7 @@ test("private annotation failures use the unified HTML access callback", async (
   assert.match(annotationPanel, /data-annotation-access-link/);
   assert.match(annotationPanel, /data-access-url="\/api\/private\/session\?returnTo=\/briefing\/"/);
   assert.match(annotationPanel, /href="\/api\/private\/session\?returnTo=\/briefing\/"/);
+  assert.match(annotationPanel, /data-annotation-access-same-tab/);
   assert.match(page, /error instanceof SignalApiError && error\.code === "SIGNAL_ACCESS_REQUIRED"/);
   assert.match(page, /new BroadcastChannel\("zxlab-private-access"\)/);
   assert.match(page, /event\.data\?\.type !== "zxlab:private-access-ready"/);
@@ -86,6 +89,10 @@ test("private annotation failures use the unified HTML access callback", async (
   assert.match(page, /typeof form\.requestSubmit === "function"/);
   assert.match(page, /form\.dispatchEvent\(new Event\("submit", \{ bubbles: true, cancelable: true \}\)\)/);
   assert.match(page, /await getWatches\(\)[\s\S]*?submitAnnotationForm\(\)/);
+  assert.match(page, /accessRecoveryPresentation\(error\)/);
+  assert.doesNotMatch(page, /catch\s*\{\s*\/\/ Keep the preserved comment and login action visible until Access is ready\./);
+  assert.match(recovery, /PRIVATE_UPSTREAM_AUTH_FAILED/);
+  assert.match(recovery, /授权返回后验证失败/);
   assert.match(await readFile(styleSource, "utf8"), /\.annotation-access-link\[hidden\]\s*\{\s*display:\s*none;/);
 });
 
