@@ -12,6 +12,8 @@ test("gateway narrator sends only the bounded task and sealed evidence", async (
     assert.match(body.messages[0].content, /headline, summary, observations, portfolioImpacts, watchNext, limitations, and evidenceFingerprint/);
     assert.match(body.messages[0].content, /Copy evidenceContext\.source\.evidenceFingerprint exactly/);
     assert.match(body.messages[0].content, /Simplified Chinese/);
+    assert.match(body.messages[0].content, /at most 4 observations, 3 portfolioImpacts, 3 watchNext items, and 6 limitations/);
+    assert.match(body.messages[0].content, /Limit each evidenceIds array to the 3 strongest/);
     assert.match(body.messages[0].content, /Do not translate JSON keys/);
     assert.deepEqual(body.context, { source: "market-agent-worker", operation: "close_review", metadata: { contextVersion: "narration-context.v1" } });
     return new Response(JSON.stringify({ ok: true, data: { json: { status: "success", headline: "ok", summary: "ok", observations: [], portfolioImpacts: [], watchNext: [], limitations: [], evidenceFingerprint: "sha256:g" }, text: "", provider: "fixture", model: "fixture", fallbackIndex: 0, latencyMs: 1 }, requestId: "r1" }), { status: 200, headers: { "content-type": "application/json" } });
