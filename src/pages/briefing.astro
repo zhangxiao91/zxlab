@@ -916,7 +916,8 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
         }
         if (submitLabel) submitLabel.textContent = "再次发送";
       } catch (error) {
-        const accessRequired = error instanceof SignalApiError && error.code === "SIGNAL_ACCESS_REQUIRED";
+        const accessRequired = error instanceof SignalApiError
+          && (error.code === "SIGNAL_ACCESS_REQUIRED" || error.code === "ACCESS_REQUIRED");
         pendingAccessRetry = accessRequired;
         if (accessRequired) {
           const draft = pendingAnnotationFromForm();

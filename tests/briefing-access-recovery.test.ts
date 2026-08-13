@@ -17,6 +17,17 @@ test("Access recovery keeps an actionable login path when the browser session is
   );
 });
 
+test("Access recovery also recognizes application-level Access rejection", () => {
+  assert.deepEqual(
+    accessRecoveryPresentation(signalError("ACCESS_REQUIRED", "login required", 401)),
+    {
+      kind: "access-required",
+      message: "Cloudflare Access 尚未在当前标签页生效。请重新授权，或改用当前标签页完成登录。",
+      showAccessActions: true,
+    },
+  );
+});
+
 test("Access recovery exposes upstream authentication failures instead of asking the user to log in again", () => {
   assert.deepEqual(
     accessRecoveryPresentation(signalError("PRIVATE_UPSTREAM_AUTH_FAILED", "Private service authentication failed.", 502)),

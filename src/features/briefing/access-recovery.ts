@@ -16,7 +16,7 @@ function signalError(error: unknown): error is SignalErrorLike {
 }
 
 export function accessRecoveryPresentation(error: unknown): AccessRecoveryPresentation {
-  if (signalError(error) && error.code === "SIGNAL_ACCESS_REQUIRED") {
+  if (signalError(error) && (error.code === "SIGNAL_ACCESS_REQUIRED" || error.code === "ACCESS_REQUIRED")) {
     return {
       kind: "access-required",
       message: "Cloudflare Access 尚未在当前标签页生效。请重新授权，或改用当前标签页完成登录。",

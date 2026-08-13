@@ -28,7 +28,7 @@ test("private access callback verifies Access before notifying the briefing", as
   assert.match(body, /zxlab:private-access-ready/);
   assert.match(body, /window\.close\(\)/);
   assert.match(body, /href="\/briefing\/"/);
-  assert.match(body, /fetch\("\/api\/private\/signal\/api\/watches"/);
+  assert.match(body, /fetch\("\/api\/signal\/api\/watches"/);
   assert.match(response.headers.get("content-security-policy") ?? "", /connect-src 'self'/);
 });
 
@@ -66,7 +66,7 @@ test("private access callback waits for a successful Signal probe before notifyi
   await new Promise((resolve) => setImmediate(resolve));
 
   assert.deepEqual(fetchCalls, [{
-    url: "/api/private/signal/api/watches",
+    url: "/api/signal/api/watches",
     credentials: "include",
     redirect: "manual",
   }]);

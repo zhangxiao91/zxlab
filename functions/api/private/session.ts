@@ -44,7 +44,7 @@ function document(returnTo: string, verified: boolean): string {
     const confirmSignalSession = async () => {
       const status = document.querySelector("[data-private-access-status]");
       try {
-        const response = await fetch("/api/private/signal/api/watches", {
+        const response = await fetch("/api/signal/api/watches", {
           credentials: "include",
           redirect: "manual",
         });

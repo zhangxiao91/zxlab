@@ -29,7 +29,7 @@ const dataMode: "api" | "mock" = configuredMode === "api" || configuredMode === 
   : import.meta.env.DEV ? "mock" : "api";
 const defaultApiBase = import.meta.env.DEV ? "" : "https://signal-api.zx-dx.xyz";
 const apiBase = String(import.meta.env.PUBLIC_SIGNAL_API_BASE ?? defaultApiBase).replace(/\/$/, "");
-const privateApiBase = import.meta.env.DEV ? apiBase : "/api/private/signal";
+const privateApiBase = import.meta.env.DEV ? apiBase : "/api/signal";
 export const privateAccessUrl = "/api/private/session?returnTo=/briefing/";
 let mockWatches: WatchDossier[] = [];
 
