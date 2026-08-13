@@ -24,10 +24,11 @@ export async function inspectMarketAgentEnvironment({
 }) {
   if (!accountId) throw new Error("Cloudflare account ID is required.");
   const base = `${CLOUDFLARE_API}/accounts/${encodeURIComponent(accountId)}`;
-  const [projectPayload, deploymentsPayload, workerPayload] = await Promise.all([
+  const [projectPayload, deploymentsPayload, workerPayload, routingProbe] = await Promise.all([
     fetchJson(`${base}/pages/projects/zxlab`),
     fetchJson(`${base}/pages/projects/zxlab/deployments?env=preview&per_page=20`),
     fetchJson(`${base}/workers/scripts/zxlab-market-agent-beta/settings`),
+    fetchJson("https://beta.zxlab.pages.dev/api/ai/routing-probe"),
   ]);
   const previewConfig = projectPayload?.result?.deployment_configs?.preview ?? {};
   const productionConfig = projectPayload?.result?.deployment_configs?.production ?? {};
@@ -60,6 +61,11 @@ export async function inspectMarketAgentEnvironment({
     check("Production Market Agent binding", productionMarketAgent === "zxlab-market-agent", productionMarketAgent === "zxlab-market-agent" ? "Production unchanged" : "must remain zxlab-market-agent"),
     check("deployed Worker gateway URL", deployedGatewayUrl === BETA_GATEWAY_URL, deployedGatewayUrl === BETA_GATEWAY_URL ? "beta" : "must target beta Gateway"),
     check("deployed Worker gateway token", bindingType(bindings, "MARKET_AGENT_GATEWAY_TOKEN") === "secret_text", "secret binding present"),
+    check(
+      "deployed Market Agent route",
+      routingProbe?.provider === "deepseek" && routingProbe?.fallbackIndex === 0 && routingProbe?.selectionReason === "market-agent-deepseek-primary",
+      routingProbe?.provider === "deepseek" ? "DeepSeek primary" : "deployed Gateway is not DeepSeek-first",
+    ),
   ];
   const warnings = Object.keys(previewVars)
     .filter((name) => /^DEEPSEEK_.+_MODEL$/.test(name))

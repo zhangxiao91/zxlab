@@ -34,6 +34,7 @@ test("environment inspection verifies beta Pages and Worker contracts without se
           { name: "MARKET_AGENT_GATEWAY_TOKEN", type: "secret_text" },
         ] },
       };
+      if (url.endsWith("/api/ai/routing-probe")) return { provider: "deepseek", model: "deepseek-v4-flash", fallbackIndex: 0, selectionReason: "market-agent-deepseek-primary" };
       throw new Error(`Unexpected URL: ${url}`);
     },
   });
@@ -61,6 +62,7 @@ test("environment inspection rejects a Production gateway URL and stale DeepSeek
         production: { services: { MARKET_AGENT_SERVICE: { service: "zxlab-market-agent", environment: "production" } } },
       } } };
       if (url.includes("/deployments")) return { result: [{ latest_stage: { status: "success" }, deployment_trigger: { metadata: { branch: "beta", commit_hash: "commit-1" } } }] };
+      if (url.endsWith("/api/ai/routing-probe")) return { provider: "openai", model: "gpt-5.5", fallbackIndex: 0, selectionReason: "market-agent-openai-primary" };
       return { result: { bindings: [
         { name: "MARKET_AGENT_GATEWAY_URL", type: "plain_text", text: "https://zx-dx.xyz/api/ai/generate" },
         { name: "MARKET_AGENT_GATEWAY_TOKEN", type: "secret_text" },
@@ -71,6 +73,35 @@ test("environment inspection rejects a Production gateway URL and stale DeepSeek
   assert.equal(report.ok, false);
   assert.match(report.checks.filter((check) => !check.ok).map((check) => check.name).join(" "), /local gateway URL|Preview Market Agent binding|deployed Worker gateway URL/);
   assert.match(report.warnings.join(" "), /DEEPSEEK_V4_PRO_MODEL/);
+});
+
+test("environment inspection rejects an OpenAI-first deployed routing probe", async () => {
+  const report = await inspectMarketAgentEnvironment({
+    accountId: "account-1",
+    localGatewayUrl: "https://beta.zxlab.pages.dev/api/ai/generate",
+    fetchJson: async (url) => {
+      if (url.endsWith("/pages/projects/zxlab")) return { result: { deployment_configs: {
+        preview: {
+          env_vars: {
+            DEEPSEEK_API_KEY: { type: "secret_text", value: "" },
+            MARKET_AGENT_GATEWAY_TOKEN: { type: "secret_text", value: "" },
+          },
+          services: { MARKET_AGENT_SERVICE: { service: "zxlab-market-agent-beta" } },
+        },
+        production: { services: { MARKET_AGENT_SERVICE: { service: "zxlab-market-agent" } } },
+      } } };
+      if (url.includes("/deployments")) return { result: [{ latest_stage: { status: "success" }, deployment_trigger: { metadata: { branch: "beta", commit_hash: "commit-1" } } }] };
+      if (url.endsWith("/workers/scripts/zxlab-market-agent-beta/settings")) return { result: { bindings: [
+        { name: "MARKET_AGENT_GATEWAY_URL", type: "plain_text", text: "https://beta.zxlab.pages.dev/api/ai/generate" },
+        { name: "MARKET_AGENT_GATEWAY_TOKEN", type: "secret_text" },
+      ] } };
+      if (url.endsWith("/api/ai/routing-probe")) return { provider: "openai", model: "gpt-5.5", fallbackIndex: 0, selectionReason: "market-agent-openai-primary" };
+      throw new Error(`Unexpected URL: ${url}`);
+    },
+  });
+
+  assert.equal(report.ok, false);
+  assert.match(report.checks.filter((check) => !check.ok).map((check) => check.name).join(" "), /deployed Market Agent route/);
 });
 
 test("dedicated Run acceptance requires model narration from primary DeepSeek", async () => {

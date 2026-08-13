@@ -32,6 +32,21 @@ export interface AIStreamObserver {
   reset(reason: "retry" | "fallback"): Promise<void>;
 }
 
+export function routeProbe(task: string, env: AIEnv): { provider: string; model: string; fallbackIndex: 0; selectionReason: string } {
+  const candidates = marketAgentCandidates(task, env);
+  const primary = candidates[0]!;
+  return {
+    provider: primary.provider,
+    model: primary.model,
+    fallbackIndex: 0,
+    selectionReason: task.startsWith("market-agent-") && primary.providerInstance === "deepseek-official"
+      ? "market-agent-deepseek-primary"
+      : task.startsWith("market-agent-")
+        ? "market-agent-fallback-no-deepseek"
+        : "deepseek-kimi-openai-fallback",
+  };
+}
+
 const defaultAdapters: AdapterMap = {
   "openai-compatible": new OpenAICompatibleAdapter(),
 };
@@ -71,6 +86,20 @@ async function resolveRoute(input: GenerateAIInput, options: AIGatewayOptions, r
   }).catch((error) => console.warn("ai.gateway.routing_telemetry_failed", requestId, error instanceof Error ? error.name : "unknown"));
   if (options.scheduleTelemetry) options.scheduleTelemetry(routingWrite); else void routingWrite;
   return { candidates, fixedRoute: true, selectionReason };
+}
+
+function marketAgentCandidates(task: string, env: AIEnv): ModelCandidate[] {
+  const defaultCandidates = getDefaultModelChain(env);
+  if (!task.startsWith("market-agent-")) return defaultCandidates;
+  const deepSeek = defaultCandidates.filter((candidate) => candidate.providerInstance === "deepseek-official");
+  const configuredOpenAI = defaultCandidates.filter((candidate) => candidate.providerInstance === "openai-text-configured");
+  const marketAgentOpenAIFallback = getMarketAgentOpenAIFallback(env);
+  return [
+    ...deepSeek,
+    ...(marketAgentOpenAIFallback ? [marketAgentOpenAIFallback] : []),
+    ...configuredOpenAI,
+    ...defaultCandidates.filter((candidate) => candidate.providerInstance !== "deepseek-official" && candidate.providerInstance !== "openai-text-configured"),
+  ];
 }
 
 function secureJitterMs(): number {
