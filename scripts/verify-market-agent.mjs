@@ -139,13 +139,19 @@ async function readLocalGatewayUrl() {
 }
 
 async function cloudflareFetcher(token, url) {
-  const response = await fetch(url, {
-    headers: { authorization: `Bearer ${token}`, accept: "application/json" },
-    signal: AbortSignal.timeout(20_000),
-  });
-  const payload = await response.json().catch(() => undefined);
-  if (!response.ok || payload?.success === false) throw new Error(`Cloudflare inspection failed with HTTP ${response.status}.`);
-  return payload;
+  let lastError;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      const response = await fetch(url, {
+        headers: { authorization: `Bearer ${token}`, accept: "application/json" },
+        signal: AbortSignal.timeout(20_000),
+      });
+      const payload = await response.json().catch(() => undefined);
+      if (!response.ok || payload?.success === false) throw new Error(`Cloudflare inspection failed with HTTP ${response.status}.`);
+      return payload;
+    } catch (error) { lastError = error; }
+  }
+  throw lastError;
 }
 
 async function resolveAccountId(token) {
