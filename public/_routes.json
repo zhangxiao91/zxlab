@@ -1,5 +1,5 @@
 {
   "version": 1,
-  "include": ["/api/ai/generate", "/api/ai/stream", "/api/holdings/parse-draft", "/api/private/*", "/api/risk/review", "/api/market/*", "/api/runtime/*", "/api/signal/*", "/api/status", "/api/status/devices", "/api/status/usage", "/api/status/usage/health", "/api/status/llm"],
+  "include": ["/api/ai/generate", "/api/ai/stream", "/api/ai/routing-probe", "/api/holdings/parse-draft", "/api/private/*", "/api/risk/review", "/api/market/*", "/api/runtime/*", "/api/signal/*", "/api/status", "/api/status/devices", "/api/status/usage", "/api/status/usage/health", "/api/status/llm"],
   "exclude": []
 }
