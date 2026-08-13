@@ -6,7 +6,7 @@ interface PrivateSessionDependencies { verifyAccess?: typeof verifyCloudflareAcc
 const headers = {
   "Content-Type": "text/html; charset=utf-8",
   "Cache-Control": "private, no-store",
-  "Content-Security-Policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
+  "Content-Security-Policy": "default-src 'none'; connect-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
   "Referrer-Policy": "no-referrer",
   "X-Content-Type-Options": "nosniff",
   "X-Robots-Tag": "noindex, nofollow",
@@ -38,19 +38,37 @@ function scriptValue(value: string): string {
 
 function document(returnTo: string, verified: boolean): string {
   const title = verified ? "统一授权已完成" : "统一授权暂时无法确认";
-  const copy = verified ? "正在恢复刚才的操作。" : "请返回原页面后重新打开授权窗口。";
+  const copy = verified ? "正在确认 Signal 私有会话。" : "请返回原页面后重新打开授权窗口。";
   const script = verified ? `<script>
     const message = { type: "zxlab:private-access-ready" };
-    if (typeof BroadcastChannel === "function") {
-      const channel = new BroadcastChannel("zxlab-private-access");
-      channel.postMessage(message);
-      channel.close();
-    }
-    if (window.opener && !window.opener.closed) {
-      try { window.opener.postMessage(message, window.location.origin); } catch {}
-    }
-    window.close();
-    window.setTimeout(() => window.location.replace(${scriptValue(returnTo)}), 350);
+    const confirmSignalSession = async () => {
+      const status = document.querySelector("[data-private-access-status]");
+      try {
+        const response = await fetch("/api/private/signal/api/watches", {
+          credentials: "include",
+          redirect: "manual",
+        });
+        if (response.status !== 200 || response.type === "opaqueredirect") {
+          throw new Error("Signal private session is not ready");
+        }
+        if (typeof BroadcastChannel === "function") {
+          const channel = new BroadcastChannel("zxlab-private-access");
+          channel.postMessage(message);
+          channel.close();
+        }
+        if (window.opener && !window.opener.closed) {
+          try { window.opener.postMessage(message, window.location.origin); } catch {}
+        }
+        window.close();
+        window.setTimeout(() => window.location.replace(${scriptValue(returnTo)}), 350);
+      } catch {
+        if (status) {
+          status.dataset.state = "waiting";
+          status.textContent = "Access 登录已完成，但 Signal 私有会话尚未可用。请保留此窗口并重新载入。";
+        }
+      }
+    };
+    void confirmSignalSession();
   </script>` : "";
   return `<!doctype html>
 <html lang="zh-CN">
@@ -71,7 +89,7 @@ function document(returnTo: string, verified: boolean): string {
     <main>
       <p>ZXLab Private Access</p>
       <h1>${title}</h1>
-      <p>${copy}</p>
+      <p data-private-access-status>${copy}</p>
       <a href="${escapeHtml(returnTo)}">返回 ZXLab</a>
     </main>
     ${script}
