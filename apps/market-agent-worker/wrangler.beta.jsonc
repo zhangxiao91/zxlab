@@ -1,0 +1,17 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "zxlab-market-agent-beta",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-19",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "d1_databases": [{ "binding": "DB", "database_name": "market-agent-beta", "database_id": "d0136fae-2a77-4fd6-9381-f58302740850", "migrations_dir": "migrations" }],
+  "services": [
+    { "binding": "MARKET_SNAPSHOT_SERVICE", "service": "zxlab-risk-market", "environment": "production" },
+    { "binding": "SIGNAL_MEMORY_SERVICE", "service": "zx-signal", "environment": "production" }
+  ],
+  "queues": { "producers": [{ "binding": "MARKET_AGENT_RUNS", "queue": "market-agent-runs-beta" }], "consumers": [{ "queue": "market-agent-runs-beta", "max_retries": 3, "dead_letter_queue": "market-agent-runs-beta-dlq" }, { "queue": "market-agent-runs-beta-dlq", "max_retries": 0 }] },
+  "triggers": { "crons": ["*/5 * * * *"] },
+  "vars": { "MARKET_AGENT_GENERATION_ENABLED": "true", "MARKET_AGENT_GATEWAY_URL": "https://beta.zxlab.pages.dev/api/ai/generate", "MARKET_AGENT_MAX_RECOVERY_GENERATIONS": "2" },
+  "secrets": { "required": ["MARKET_AGENT_GATEWAY_TOKEN", "MARKET_AGENT_PROXY_TOKEN", "ZX_RUNTIME_SERVICE_TOKEN"] }
+}

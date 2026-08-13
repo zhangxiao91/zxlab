@@ -9,7 +9,10 @@
     "typecheck": "tsc --noEmit --pretty false",
     "test": "node --experimental-strip-types --test src/*.test.ts",
     "db:migrate:local": "wrangler d1 migrations apply market-agent --local",
-    "deploy:dry": "wrangler deploy --dry-run"
+    "db:migrate:beta": "wrangler d1 migrations apply market-agent-beta --remote --config wrangler.beta.jsonc",
+    "deploy:dry": "wrangler deploy --dry-run",
+    "deploy:beta:dry": "wrangler deploy --dry-run --config wrangler.beta.jsonc",
+    "deploy:beta": "wrangler deploy --config wrangler.beta.jsonc"
   },
   "dependencies": { "@zxlab/market-agent-schema": "0.1.0", "@zxlab/market-schema": "0.1.0", "@zxlab/risk-domain": "0.1.0" },
   "devDependencies": { "typescript": "^6.0.3", "wrangler": "^4.110.0" }

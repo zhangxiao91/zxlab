@@ -44,19 +44,19 @@ async function resolveRoute(input: GenerateAIInput, options: AIGatewayOptions, r
   if (options.candidates) return { candidates: options.candidates, fixedRoute: false };
   const defaultCandidates = getDefaultModelChain(options.env ?? {});
   const marketAgentRoute = input.task.startsWith("market-agent-");
+  const deepSeek = defaultCandidates.filter((candidate) => candidate.providerInstance === "deepseek-official");
   const configuredOpenAI = defaultCandidates.filter((candidate) => candidate.providerInstance === "openai-text-configured");
   const marketAgentOpenAIFallback = marketAgentRoute ? getMarketAgentOpenAIFallback(options.env ?? {}) : undefined;
-  const marketAgentOpenAIPrimary = marketAgentRoute && configuredOpenAI.length > 0;
-  const candidates = marketAgentOpenAIPrimary
+  const marketAgentDeepSeekPrimary = marketAgentRoute && deepSeek.length > 0;
+  const candidates = marketAgentRoute
     ? [
-        ...configuredOpenAI,
+        ...deepSeek,
         ...(marketAgentOpenAIFallback ? [marketAgentOpenAIFallback] : []),
-        ...defaultCandidates.filter((candidate) => candidate.providerInstance !== "openai-text-configured"),
+        ...configuredOpenAI,
+        ...defaultCandidates.filter((candidate) => candidate.providerInstance !== "deepseek-official" && candidate.providerInstance !== "openai-text-configured"),
       ]
     : defaultCandidates;
-  const selectionReason = marketAgentOpenAIPrimary
-    ? "market-agent-openai-primary"
-    : "deepseek-kimi-openai-fallback";
+  const selectionReason = marketAgentDeepSeekPrimary ? "market-agent-deepseek-primary" : marketAgentRoute ? "market-agent-fallback-no-deepseek" : "deepseek-kimi-openai-fallback";
   const routingWrite = recordRoutingDecision(options.telemetryDb, {
     requestId,
     task: input.task,

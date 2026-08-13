@@ -19,6 +19,32 @@ test("gateway narrator sends only the bounded task and sealed evidence", async (
   assert.equal(result.headline, "ok");
 });
 
+test("gateway selection is preserved as safe narration provenance", async () => {
+  const narrator = new GatewayNarrator({
+    apiUrl: "https://gateway.example/api/ai/generate",
+    token: "secret",
+    fetcher: async () => Response.json({
+      ok: true,
+      data: {
+        json: { status: "success", headline: "ok", summary: "ok", observations: [], portfolioImpacts: [], watchNext: [], limitations: [], evidenceFingerprint: evidence.fingerprint },
+        provider: "deepseek",
+        model: "deepseek-v4-flash",
+        fallbackIndex: 0,
+      },
+      requestId: "gateway-request-1",
+    }),
+  });
+
+  const result = await (await import("./narration.ts")).narrateWithRepair(narrator, { workflow: "close_review", evidence });
+  assert.deepEqual(result.provenance, {
+    source: "model",
+    provider: "deepseek",
+    model: "deepseek-v4-flash",
+    fallbackIndex: 0,
+    gatewayRequestId: "gateway-request-1",
+  });
+});
+
 test("gateway receives ephemeral context but rejects reproducing its body during validation", async () => {
   const context = {
     memoryId: "memory-1",

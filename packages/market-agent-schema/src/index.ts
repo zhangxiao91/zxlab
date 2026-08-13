@@ -29,6 +29,10 @@ export interface EvidenceLimitation { code: string; capability?: string; severit
 export interface EvidenceAssessment { coverage: EvidenceCoverage; delivery: EvidenceDelivery; fallbackCapabilities: string[]; limitations: EvidenceLimitation[]; }
 export interface NarrationProvenance {
   source: "model" | "model_repaired" | "deterministic_fallback" | "unknown";
+  provider?: string;
+  model?: string;
+  fallbackIndex?: number;
+  gatewayRequestId?: string;
   failure?: { stage: "configuration" | "gateway" | "protocol" | "validation"; code: string; retryable: boolean };
 }
 export interface RunOutcome { execution: "completed"; narration: NarrationProvenance; evidence: EvidenceAssessment; mode: "market-only" | "portfolio-aware"; }

@@ -45,6 +45,8 @@
     "test:risk": "tsx --test tests/risk-engine.test.ts tests/risk-review-api.test.ts tests/risk-holdings-parser.test.ts tests/risk-dogfooding.test.ts tests/risk-market.test.ts tests/risk-portfolio-history.test.ts tests/private-proxy.test.ts tests/private-session.test.ts tests/access-actor.test.ts",
     "access:debug": "node scripts/zxlab-debug-request.mjs",
     "test:access-debug": "node --test scripts/zxlab-debug-request.test.mjs",
+    "verify:market-agent:env": "node scripts/verify-market-agent.mjs env",
+    "verify:market-agent:run": "node scripts/verify-market-agent.mjs run",
     "test:trading": "node --test --experimental-strip-types tests/trading-route.test.ts",
     "verify:status": "node --experimental-strip-types scripts/verify-status-usage.ts",
     "verify:pages-routes": "node scripts/check-pages-routes.mjs",

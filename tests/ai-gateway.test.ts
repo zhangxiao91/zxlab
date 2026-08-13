@@ -120,7 +120,7 @@ test("production routing reaches the configured OpenAI text fallback", async () 
   assert.equal(result.fallbackIndex, 2);
 });
 
-test("Market Agent routing prefers the configured OpenAI text candidate", async () => {
+test("Market Agent routing keeps DeepSeek as the primary candidate", async () => {
   const adapter = new ScriptedAdapter([success("market-agent")]);
   const result = await generateAI({ ...input, task: "market-agent-close-review" }, {
     env: {
@@ -134,13 +134,13 @@ test("Market Agent routing prefers the configured OpenAI text candidate", async 
     jitterMs: () => 0,
   });
 
-  assert.deepEqual(adapter.calls, ["openai-text-configured"]);
-  assert.equal(result.provider, "openai");
-  assert.equal(result.selectedTier, "openai-text");
-  assert.equal(result.selectionReason, "market-agent-openai-primary");
+  assert.deepEqual(adapter.calls, ["deepseek-v4-flash-official"]);
+  assert.equal(result.provider, "deepseek");
+  assert.equal(result.selectedTier, "deepseek-flash");
+  assert.equal(result.selectionReason, "market-agent-deepseek-primary");
 });
 
-test("Market Agent routing uses its configured OpenAI fast fallback before other providers", async () => {
+test("Market Agent routing uses its configured OpenAI fast fallback immediately after DeepSeek", async () => {
   const adapter = new ScriptedAdapter([
     new AIError("TIMEOUT", { fallbackAllowed: true }),
     success("fast fallback"),
@@ -158,7 +158,7 @@ test("Market Agent routing uses its configured OpenAI fast fallback before other
     jitterMs: () => 0,
   });
 
-  assert.deepEqual(adapter.calls, ["openai-text-configured", "market-agent-openai-fallback"]);
+  assert.deepEqual(adapter.calls, ["deepseek-v4-flash-official", "market-agent-openai-fallback"]);
   assert.equal(result.provider, "openai");
   assert.equal(result.model, "fast-model");
   assert.equal(result.fallbackIndex, 1);

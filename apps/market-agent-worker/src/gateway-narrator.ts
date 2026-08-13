@@ -1,6 +1,6 @@
 import type { AgentNarration, MarketAgentCommand, SealedEvidenceBundle } from "@zxlab/market-agent-schema";
 import { gatewayTaskForWorkflow } from "./gateway-policy.ts";
-import type { NarrationInput, Narrator } from "./narration.ts";
+import { withGatewaySelection, type GatewayNarrationSelection, type NarrationInput, type Narrator } from "./narration.ts";
 import { buildNarrationContext } from "./narration-context.ts";
 import { MARKET_AGENT_GATEWAY_REQUEST_TIMEOUT_MS } from "./runtime-budget.ts";
 
@@ -67,7 +67,7 @@ async function readTerminalEvent(response: Response): Promise<unknown> {
       const code = typeof error?.code === "string" && /^[A-Z0-9_]{1,64}$/.test(error.code) ? error.code : "UNKNOWN";
       throw new Error(`MARKET_AGENT_GATEWAY_STREAM_${code}`);
     }
-    return event.type === "done" ? { data: event.data } : undefined;
+    return event.type === "done" ? { data: event.data, requestId: event.requestId } : undefined;
   };
 
   while (true) {
@@ -108,9 +108,24 @@ function gatewayHttpError(status: number, value: unknown): Error { const root = 
 function parseGatewayNarration(value: unknown): AgentNarration | unknown {
   const root = record(value); if (!root) return value;
   const data = record(root.data); if (!data) return value;
-  if (data.json !== undefined) return data.json;
-  if (typeof data.text !== "string") return value;
-  const cleaned = data.text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  const narration = data.json !== undefined ? data.json : parseTextNarration(data.text);
+  const selection = gatewaySelection(root, data);
+  return selection ? withGatewaySelection(narration, selection) : narration;
+}
+function parseTextNarration(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  const cleaned = value.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
   try { return JSON.parse(cleaned) as unknown; } catch { return value; }
+}
+function gatewaySelection(root: Record<string, unknown>, data: Record<string, unknown>): GatewayNarrationSelection | undefined {
+  const provider = boundedIdentifier(data.provider, 48);
+  const model = boundedIdentifier(data.model, 96);
+  const gatewayRequestId = boundedIdentifier(root.requestId, 128);
+  const fallbackIndex = data.fallbackIndex;
+  if (!provider || !model || !gatewayRequestId || !Number.isInteger(fallbackIndex) || Number(fallbackIndex) < 0 || Number(fallbackIndex) > 16) return undefined;
+  return { provider, model, gatewayRequestId, fallbackIndex: Number(fallbackIndex) };
+}
+function boundedIdentifier(value: unknown, maxLength: number): string | undefined {
+  return typeof value === "string" && value.length > 0 && value.length <= maxLength && /^[a-z0-9._:-]+$/i.test(value) ? value : undefined;
 }
 function record(value: unknown): Record<string, unknown> | undefined { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined; }

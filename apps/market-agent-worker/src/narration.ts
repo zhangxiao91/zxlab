@@ -17,6 +17,21 @@ export interface Narrator {
   repair?(input: NarrationInput & { issues: string[] }): Promise<unknown>;
 }
 
+export interface GatewayNarrationSelection {
+  provider: string;
+  model: string;
+  fallbackIndex: number;
+  gatewayRequestId: string;
+}
+
+const GATEWAY_SELECTION = Symbol("market-agent.gateway-selection");
+
+export function withGatewaySelection(narration: unknown, selection: GatewayNarrationSelection): unknown {
+  if (!narration || typeof narration !== "object" || Array.isArray(narration)) return narration;
+  Object.defineProperty(narration, GATEWAY_SELECTION, { value: selection, enumerable: false });
+  return narration;
+}
+
 export class DeterministicNarrator implements Narrator {
   async narrate(input: NarrationInput): Promise<AgentNarration> {
     const facts = input.evidence.items.filter((item) => item.kind === "market_fact");
@@ -91,20 +106,32 @@ export async function narrateWithRepair(narrator: Narrator, input: NarrationInpu
       provenance: { source: "deterministic_fallback", failure: gatewayFailure(error) },
     };
   }
-  let issues = validateNarration(candidate, input);
-  if (!issues.length) return { result: candidate as AgentNarration, repaired: false, issues, provenance: { source: "model" } };
+  let unwrapped = unwrapGatewayCandidate(candidate);
+  let issues = validateNarration(unwrapped.narration, input);
+  if (!issues.length) return { result: unwrapped.narration as AgentNarration, repaired: false, issues, provenance: modelProvenance("model", unwrapped.selection) };
   const repair = input.repair ?? (narrator.repair ? (repairIssues: string[]) => narrator.repair!({ ...input, issues: repairIssues }) : undefined);
   if (repair) {
     try {
       candidate = await repair(issues);
-      issues = validateNarration(candidate, input);
-      if (!issues.length) return { result: candidate as AgentNarration, repaired: true, issues, provenance: { source: "model_repaired" } };
+      unwrapped = unwrapGatewayCandidate(candidate);
+      issues = validateNarration(unwrapped.narration, input);
+      if (!issues.length) return { result: unwrapped.narration as AgentNarration, repaired: true, issues, provenance: modelProvenance("model_repaired", unwrapped.selection) };
     } catch {
       issues = [...issues, "repair unavailable"];
     }
   }
   const fallback = await new DeterministicNarrator().narrate(input);
   return { result: { ...fallback, status: "partial", limitations: [...fallback.limitations, "叙事输出未通过安全校验，已降级为确定性结果。"] }, repaired: Boolean(repair), issues, provenance: { source: "deterministic_fallback", failure: { stage: "validation", code: "NARRATION_VALIDATION_FAILED", retryable: false } } };
+}
+
+function unwrapGatewayCandidate(candidate: unknown): { narration: unknown; selection?: GatewayNarrationSelection } {
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return { narration: candidate };
+  const selection = (candidate as Record<symbol, unknown>)[GATEWAY_SELECTION] as GatewayNarrationSelection | undefined;
+  return { narration: candidate, ...(selection ? { selection } : {}) };
+}
+
+function modelProvenance(source: "model" | "model_repaired", selection?: GatewayNarrationSelection): NarrationProvenance {
+  return { source, ...(selection ?? {}) };
 }
 
 function gatewayFailure(error: unknown): NonNullable<NarrationProvenance["failure"]> {
