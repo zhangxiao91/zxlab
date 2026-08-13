@@ -167,7 +167,13 @@ async function resolveAccountId(token) {
 async function debugRequest(input, credentials) {
   const args = ["--method", input.method, "--path", input.path];
   if (input.body !== undefined) args.push("--body", input.body);
-  return performDebugRequest(parseRequestArguments(args), credentials);
+  const request = parseRequestArguments(args);
+  let lastError;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try { return await performDebugRequest(request, credentials); }
+    catch (error) { lastError = error; }
+  }
+  throw lastError;
 }
 
 function printUsage() {
