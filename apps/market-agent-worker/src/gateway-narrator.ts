@@ -54,6 +54,7 @@ async function readTerminalEvent(response: Response): Promise<unknown> {
   let bytes = 0;
   let buffer = "";
   let dataLines: string[] = [];
+  let latestAttempt: Record<string, unknown> | undefined;
 
   const parseEvent = (): unknown | undefined => {
     if (!dataLines.length) return undefined;
@@ -67,7 +68,18 @@ async function readTerminalEvent(response: Response): Promise<unknown> {
       const code = typeof error?.code === "string" && /^[A-Z0-9_]{1,64}$/.test(error.code) ? error.code : "UNKNOWN";
       throw new Error(`MARKET_AGENT_GATEWAY_STREAM_${code}`);
     }
-    return event.type === "done" ? { data: event.data, requestId: event.requestId } : undefined;
+    if (event.type === "attempt") {
+      latestAttempt = event;
+      return undefined;
+    }
+    if (event.type !== "done") return undefined;
+    const terminalData = record(event.data);
+    return {
+      data: terminalData && latestAttempt
+        ? { ...terminalData, provider: latestAttempt.provider, model: latestAttempt.model, fallbackIndex: latestAttempt.fallbackIndex }
+        : event.data,
+      requestId: event.requestId,
+    };
   };
 
   while (true) {

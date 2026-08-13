@@ -136,6 +136,32 @@ test("gateway returns on the terminal SSE event without waiting for the stream t
   });
 });
 
+test("gateway preserves the last streamed attempt when done omits route metadata", async () => {
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode(
+        'event: attempt\ndata: {"type":"attempt","requestId":"request-attempt","provider":"deepseek","model":"deepseek-v4-flash","fallbackIndex":0,"attempt":1}\n\n'
+        + 'event: done\ndata: {"type":"done","requestId":"request-attempt","data":{"json":{"status":"success","headline":"ok","summary":"ok","observations":[],"portfolioImpacts":[],"watchNext":[],"limitations":[],"evidenceFingerprint":"sha256:g"}}}\n\n',
+      ));
+      controller.close();
+    },
+  });
+  const narrator = new GatewayNarrator({
+    apiUrl: "https://gateway.example/api/ai/generate",
+    token: "secret",
+    fetcher: async () => new Response(stream, { headers: { "content-type": "text/event-stream" } }),
+  });
+
+  const result = await (await import("./narration.ts")).narrateWithRepair(narrator, { workflow: "close_review", evidence });
+  assert.deepEqual(result.provenance, {
+    source: "model",
+    provider: "deepseek",
+    model: "deepseek-v4-flash",
+    fallbackIndex: 0,
+    gatewayRequestId: "request-attempt",
+  });
+});
+
 test("gateway receives a bounded session-aware projection instead of raw bar history", async () => {
   const bars = Array.from({ length: 240 }, (_, index) => ({
     instrumentId: "SSE:600000",
