@@ -35,7 +35,7 @@ export async function inspectMarketAgentEnvironment({
   const bindings = Array.isArray(workerPayload?.result?.bindings) ? workerPayload.result.bindings : [];
   const deployments = Array.isArray(deploymentsPayload?.result) ? deploymentsPayload.result : [];
   const betaDeployment = deployments.find((deployment) =>
-    deployment?.latest_stage?.status === "success"
+    ["active", "success"].includes(deployment?.latest_stage?.status)
       && deployment?.deployment_trigger?.metadata?.branch === "beta");
   const deployedCommit = betaDeployment?.deployment_trigger?.metadata?.commit_hash;
   const deployedGatewayUrl = bindingText(bindings, "MARKET_AGENT_GATEWAY_URL");
@@ -48,7 +48,7 @@ export async function inspectMarketAgentEnvironment({
     check("Preview MARKET_AGENT_GATEWAY_TOKEN", previewVars.MARKET_AGENT_GATEWAY_TOKEN?.type === "secret_text", "secret binding present"),
     check(
       "Preview DeepSeek base URL",
-      previewVars.DEEPSEEK_BASE_URL === undefined || previewVars.DEEPSEEK_BASE_URL?.value === "https://api.deepseek.com",
+      previewVars.DEEPSEEK_BASE_URL === undefined || canonicalDeepSeekUrl(previewVars.DEEPSEEK_BASE_URL?.value),
       previewVars.DEEPSEEK_BASE_URL === undefined ? "default" : "canonical",
     ),
     check(
@@ -127,6 +127,9 @@ function binding(bindings, name) { return bindings.find((item) => item?.name ===
 function bindingText(bindings, name) { const item = binding(bindings, name); return item?.text ?? item?.value; }
 function bindingType(bindings, name) { return binding(bindings, name)?.type; }
 function serviceName(services, name) { const item = services?.[name]; return item?.service ?? item?.service_name; }
+function canonicalDeepSeekUrl(value) {
+  return typeof value === "string" && ["https://api.deepseek.com", "https://api.deepseek.com/v1"].includes(value.trim().replace(/\/$/, ""));
+}
 function boundedString(value, maxLength) { return typeof value === "string" && value.length > 0 && value.length <= maxLength ? value : undefined; }
 function parseBody(body, label) {
   try { return JSON.parse(body); }

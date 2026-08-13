@@ -17,8 +17,8 @@ test("environment inspection verifies beta Pages and Worker contracts without se
           preview: {
             env_vars: {
               DEEPSEEK_API_KEY: { type: "secret_text", value: "" },
-              MARKET_AGENT_GATEWAY_TOKEN: { type: "secret_text", value: "" },
-              DEEPSEEK_BASE_URL: { type: "plain_text", value: "https://api.deepseek.com" },
+          MARKET_AGENT_GATEWAY_TOKEN: { type: "secret_text", value: "" },
+              DEEPSEEK_BASE_URL: { type: "plain_text", value: "https://api.deepseek.com/v1\n" },
             },
             services: { MARKET_AGENT_SERVICE: { service: "zxlab-market-agent-beta", environment: "production" } },
           },
@@ -26,7 +26,7 @@ test("environment inspection verifies beta Pages and Worker contracts without se
         } },
       };
       if (url.includes("/pages/projects/zxlab/deployments")) return {
-        result: [{ latest_stage: { status: "success" }, deployment_trigger: { metadata: { branch: "beta", commit_hash: "commit-1" } } }],
+        result: [{ latest_stage: { status: "active" }, deployment_trigger: { metadata: { branch: "beta", commit_hash: "commit-1" } } }],
       };
       if (url.endsWith("/workers/scripts/zxlab-market-agent-beta/settings")) return {
         result: { bindings: [
