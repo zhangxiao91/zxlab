@@ -8,6 +8,7 @@ const watchWorkspaceSource = new URL("../src/features/briefing/components/WatchW
 const clientSource = new URL("../src/features/briefing/client.ts", import.meta.url);
 const headerSource = new URL("../src/features/briefing/components/BriefingHeader.astro", import.meta.url);
 const accessRecoverySource = new URL("../src/features/briefing/access-recovery.ts", import.meta.url);
+const pendingAnnotationSource = new URL("../src/features/briefing/pending-annotation.ts", import.meta.url);
 
 test("lead briefing heading remains in flow before the desktop reading columns become tight", async () => {
   const [page, styles] = await Promise.all([
@@ -66,10 +67,11 @@ test("track remains a two-step Watch action and refreshes protected cross-device
 });
 
 test("private annotation failures use the unified HTML access callback", async () => {
-  const [client, page, recovery] = await Promise.all([
+  const [client, page, recovery, pendingAnnotation] = await Promise.all([
     readFile(clientSource, "utf8"),
     readFile(pageSource, "utf8"),
     readFile(accessRecoverySource, "utf8"),
+    readFile(pendingAnnotationSource, "utf8"),
   ]);
   const annotationPanel = await readFile(new URL("../src/features/briefing/components/AnnotationPanel.astro", import.meta.url), "utf8");
 
@@ -77,15 +79,14 @@ test("private annotation failures use the unified HTML access callback", async (
   assert.doesNotMatch(client, /privateAccessUrl = "\/api\/private\/signal\/api\/watches"/);
   assert.match(client, /fallbackCause instanceof SignalApiError/);
   assert.match(annotationPanel, /data-annotation-access-link/);
-  assert.match(annotationPanel, /data-access-url="\/api\/private\/session\?returnTo=\/briefing\/"/);
   assert.match(annotationPanel, /href="\/api\/private\/session\?returnTo=\/briefing\/"/);
-  assert.match(annotationPanel, /data-annotation-access-same-tab/);
+  assert.doesNotMatch(annotationPanel, /target="_blank"/);
+  assert.match(annotationPanel, /完成授权并自动继续/);
   assert.match(page, /error instanceof SignalApiError && error\.code === "SIGNAL_ACCESS_REQUIRED"/);
   assert.match(page, /new BroadcastChannel\("zxlab-private-access"\)/);
   assert.match(page, /event\.data\?\.type !== "zxlab:private-access-ready"/);
-  assert.match(page, /window\.open/);
-  assert.match(page, /if \(!popup\) window\.location\.assign/);
-  assert.doesNotMatch(page, /popup,width=560,height=720,noopener,noreferrer/);
+  assert.doesNotMatch(page, /window\.open/);
+  assert.match(page, /window\.location\.assign\(annotationAccessLink\.href \|\| privateAccessUrl\)/);
   assert.match(page, /typeof form\.requestSubmit === "function"/);
   assert.match(page, /form\.dispatchEvent\(new Event\("submit", \{ bubbles: true, cancelable: true \}\)\)/);
   assert.match(page, /await getWatches\(\)[\s\S]*?submitAnnotationForm\(\)/);
@@ -93,6 +94,11 @@ test("private annotation failures use the unified HTML access callback", async (
   assert.doesNotMatch(page, /catch\s*\{\s*\/\/ Keep the preserved comment and login action visible until Access is ready\./);
   assert.match(recovery, /PRIVATE_UPSTREAM_AUTH_FAILED/);
   assert.match(recovery, /授权返回后验证失败/);
+  assert.match(page, /savePendingAnnotation\(window\.sessionStorage, draft\)/);
+  assert.match(page, /loadPendingAnnotation\(window\.sessionStorage\)/);
+  assert.match(page, /clearPendingAnnotation\(window\.sessionStorage\)/);
+  assert.match(page, /restoredAnnotation[\s\S]*?void resumePendingAnnotation\(\)/);
+  assert.match(pendingAnnotation, /zxlab:pending-signal-annotation/);
   assert.match(await readFile(styleSource, "utf8"), /\.annotation-access-link\[hidden\]\s*\{\s*display:\s*none;/);
 });
 

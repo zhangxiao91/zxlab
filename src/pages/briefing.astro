@@ -138,6 +138,12 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
       updateMemoryCandidate,
     } from "../features/briefing/client";
     import { accessRecoveryPresentation } from "../features/briefing/access-recovery";
+    import {
+      clearPendingAnnotation,
+      loadPendingAnnotation,
+      savePendingAnnotation,
+      type PendingAnnotation,
+    } from "../features/briefing/pending-annotation";
     import { resolveLongTermThreads } from "../features/briefing/long-term-threads";
     import { briefingSessionStore } from "../features/briefing/store";
     import type {
@@ -200,10 +206,8 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
     const submitLabel = document.querySelector<HTMLElement>("[data-submit-label]");
     const submitError = document.querySelector<HTMLElement>("[data-annotation-error]");
     const annotationAccessLink = document.querySelector<HTMLAnchorElement>("[data-annotation-access-link]");
-    const annotationAccessSameTab = document.querySelector<HTMLAnchorElement>("[data-annotation-access-same-tab]");
     const showAccessActions = (visible: boolean) => {
       if (annotationAccessLink) annotationAccessLink.hidden = !visible;
-      if (annotationAccessSameTab) annotationAccessSameTab.hidden = !visible;
     };
     const submitAnnotationForm = () => {
       if (!form) return;
@@ -213,10 +217,28 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
       }
       form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     };
+    const pendingAnnotationFromForm = (): PendingAnnotation | null => {
+      if (!form) return null;
+      const values = new FormData(form);
+      const comment = String(values.get("comment") ?? "").trim();
+      const itemId = String(values.get("itemId") ?? "");
+      const selectedTextValue = String(values.get("selectedText") ?? "");
+      const action = String(values.get("action") ?? "") as AnnotationAction;
+      if (!briefingId || !itemId || !selectedTextValue || !comment) return null;
+      return {
+        briefingId,
+        briefingItemId: itemId,
+        itemTitle: itemOutput?.textContent ?? "日报条目",
+        selectedText: selectedTextValue,
+        comment,
+        action,
+      };
+    };
     annotationAccessLink?.addEventListener("click", (event) => {
       event.preventDefault();
-      const popup = window.open(annotationAccessLink.dataset.accessUrl ?? privateAccessUrl, "zxlab-private-access", "popup,width=560,height=720");
-      if (!popup) window.location.assign(annotationAccessLink.dataset.accessUrl ?? privateAccessUrl);
+      const draft = pendingAnnotationFromForm();
+      if (draft) savePendingAnnotation(window.sessionStorage, draft);
+      window.location.assign(annotationAccessLink.href || privateAccessUrl);
     });
     const accessChannel = typeof BroadcastChannel === "function"
       ? new BroadcastChannel("zxlab-private-access")
@@ -863,6 +885,7 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
         }
         if (!finalResponse) throw new Error("Signal stream ended before completion");
         const response = finalResponse;
+        clearPendingAnnotation(window.sessionStorage);
         session.annotations.push(response.annotation);
         session.replies.push(response.reply);
         if (!isTrackAction && response.memoryCandidate) session.memoryCandidates.push(response.memoryCandidate);
@@ -895,6 +918,10 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
       } catch (error) {
         const accessRequired = error instanceof SignalApiError && error.code === "SIGNAL_ACCESS_REQUIRED";
         pendingAccessRetry = accessRequired;
+        if (accessRequired) {
+          const draft = pendingAnnotationFromForm();
+          if (draft) savePendingAnnotation(window.sessionStorage, draft);
+        }
         if (submitError) {
           submitError.hidden = false;
           submitError.textContent = error instanceof Error
@@ -907,6 +934,28 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
         if (submit) submit.disabled = false;
       }
     });
+
+    const restoredAnnotation = loadPendingAnnotation(window.sessionStorage);
+    if (restoredAnnotation && form) {
+      briefingId = restoredAnnotation.briefingId;
+      selectedItem = [...document.querySelectorAll<HTMLElement>("[data-briefing-item]")]
+        .find((item) => item.dataset.briefingItem === restoredAnnotation.briefingItemId) ?? null;
+      selectedText = restoredAnnotation.selectedText;
+      (form.elements.namedItem("itemId") as HTMLInputElement).value = restoredAnnotation.briefingItemId;
+      (form.elements.namedItem("action") as HTMLInputElement).value = restoredAnnotation.action;
+      (form.elements.namedItem("selectedText") as HTMLInputElement).value = restoredAnnotation.selectedText;
+      (form.elements.namedItem("comment") as HTMLTextAreaElement).value = restoredAnnotation.comment;
+      if (selectionOutput) selectionOutput.textContent = `“${restoredAnnotation.selectedText}”`;
+      if (itemOutput) itemOutput.textContent = restoredAnnotation.itemTitle;
+      if (submitError) {
+        submitError.hidden = false;
+        submitError.textContent = "授权已返回，正在验证 Signal 私有会话并恢复发送。";
+      }
+      result?.setAttribute("hidden", "");
+      pendingAccessRetry = true;
+      setPanel(true);
+      void resumePendingAnnotation();
+    }
 
     window.addEventListener("pagehide", () => accessChannel?.close(), { once: true });
 
