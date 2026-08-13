@@ -1,4 +1,4 @@
-import type { AgentNarration, AgentObservation, AskScope, ConfirmedContext, MarketAgentCommand, SealedEvidenceBundle } from "@zxlab/market-agent-schema";
+import type { AgentNarration, AgentObservation, AskScope, ConfirmedContext, MarketAgentCommand, NarrationProvenance, SealedEvidenceBundle } from "@zxlab/market-agent-schema";
 import { validateAgentNarration } from "@zxlab/market-agent-schema";
 import { buildNarrationContext } from "./narration-context.ts";
 
@@ -78,7 +78,7 @@ function limitationMessages(value: unknown): string[] {
   return [];
 }
 
-export async function narrateWithRepair(narrator: Narrator, input: NarrationInput & { repair?: (issues: string[]) => Promise<unknown> }): Promise<{ result: AgentNarration; repaired: boolean; issues: string[] }> {
+export async function narrateWithRepair(narrator: Narrator, input: NarrationInput & { repair?: (issues: string[]) => Promise<unknown> }): Promise<{ result: AgentNarration; repaired: boolean; issues: string[]; provenance: NarrationProvenance }> {
   let candidate: unknown;
   try { candidate = await narrator.narrate(input); }
   catch (error) {
@@ -88,22 +88,35 @@ export async function narrateWithRepair(narrator: Narrator, input: NarrationInpu
       result: { ...fallback, status: "partial", limitations: [...fallback.limitations, `Gateway 暂不可用（${category}），已降级为确定性结果。`] },
       repaired: false,
       issues: [`gateway unavailable: ${category}`],
+      provenance: { source: "deterministic_fallback", failure: gatewayFailure(error) },
     };
   }
   let issues = validateNarration(candidate, input);
-  if (!issues.length) return { result: candidate as AgentNarration, repaired: false, issues };
+  if (!issues.length) return { result: candidate as AgentNarration, repaired: false, issues, provenance: { source: "model" } };
   const repair = input.repair ?? (narrator.repair ? (repairIssues: string[]) => narrator.repair!({ ...input, issues: repairIssues }) : undefined);
   if (repair) {
     try {
       candidate = await repair(issues);
       issues = validateNarration(candidate, input);
-      if (!issues.length) return { result: candidate as AgentNarration, repaired: true, issues };
+      if (!issues.length) return { result: candidate as AgentNarration, repaired: true, issues, provenance: { source: "model_repaired" } };
     } catch {
       issues = [...issues, "repair unavailable"];
     }
   }
   const fallback = await new DeterministicNarrator().narrate(input);
-  return { result: { ...fallback, status: "partial", limitations: [...fallback.limitations, "叙事输出未通过安全校验，已降级为确定性结果。"] }, repaired: Boolean(repair), issues };
+  return { result: { ...fallback, status: "partial", limitations: [...fallback.limitations, "叙事输出未通过安全校验，已降级为确定性结果。"] }, repaired: Boolean(repair), issues, provenance: { source: "deterministic_fallback", failure: { stage: "validation", code: "NARRATION_VALIDATION_FAILED", retryable: false } } };
+}
+
+function gatewayFailure(error: unknown): NonNullable<NarrationProvenance["failure"]> {
+  const message = error instanceof Error ? error.message : "";
+  if (message.includes("NOT_CONFIGURED")) return { stage: "configuration", code: "GATEWAY_NOT_CONFIGURED", retryable: false };
+  if (message.includes("ALL_CANDIDATES_FAILED")) return { stage: "gateway", code: "ALL_CANDIDATES_FAILED", retryable: true };
+  if (message.includes("CONTEXT_TOO_LONG")) return { stage: "gateway", code: "CONTEXT_TOO_LONG", retryable: false };
+  if (message.includes("INVALID_JSON") || message.includes("STREAM_INCOMPLETE") || message.includes("RESPONSE_TOO_LARGE")) return { stage: "protocol", code: "GATEWAY_PROTOCOL_ERROR", retryable: true };
+  if (/HTTP_(401|403)(?:_|$)/.test(message)) return { stage: "gateway", code: "GATEWAY_UNAUTHORIZED", retryable: false };
+  if (/HTTP_429(?:_|$)/.test(message)) return { stage: "gateway", code: "GATEWAY_RATE_LIMITED", retryable: true };
+  if (/HTTP_5\d\d(?:_|$)/.test(message) || message.includes("TIMEOUT")) return { stage: "gateway", code: "GATEWAY_UNAVAILABLE", retryable: true };
+  return { stage: "gateway", code: "GATEWAY_CONNECTION_FAILED", retryable: true };
 }
 
 function gatewayFailureCategory(error: unknown): string {

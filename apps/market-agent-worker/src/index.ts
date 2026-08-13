@@ -108,6 +108,7 @@ export default {
         return json({ runId: result.run.id, status: result.run.status, created: result.created }, 202);
       }
       if (path === "/runs" && request.method === "GET") return json({ runs: await runs.list(profile.profileId) });
+      if (path === "/quality" && request.method === "GET") return json({ window: 50, metrics: await runs.qualityMetrics(50) });
       if (path === "/today" && request.method === "GET") return json({ run: (await runs.list(profile.profileId, 1))[0] ?? null });
       if (path === "/export" && request.method === "GET") return json({ schemaVersion: "market-agent-export.v1", runs: await runs.list(profile.profileId) });
       const streamMatch = path.match(/^\/runs\/([^/]+)\/stream$/);

@@ -4,6 +4,8 @@ import { DeterministicMarketEventDetector, buildDeterministicCloseReview } from 
 import { DeterministicNarrator, narrateWithRepair, type Narrator } from "./narration.ts";
 import { evaluatePortfolioRiskImpact } from "./portfolio-risk-impact.ts";
 import type { ConfirmedContextReader } from "./confirmed-context.ts";
+import { assessEvidence } from "./evidence-assessment.ts";
+import { finalizeAgentResult } from "./run-outcome.ts";
 
 export interface CurrentMarketSnapshotReader { getCurrentSnapshot(input: { instrumentIds: string[]; intervals: Array<"1m" | "1d">; include: Array<"quotes" | "bars" | "news" | "announcements" | "comparisons">; quoteMode: "fallback" | "corroborated" }): Promise<MarketSnapshot>; }
 
@@ -25,6 +27,16 @@ export class CloseReviewService {
     await input.onProgress?.("generating");
     const narration = await narrateWithRepair(this.narrator, { workflow: input.command.workflow, evidence, confirmedContext: confirmedContext.contexts });
     await input.onProgress?.("validating");
-    return { evidence, repaired: narration.repaired, result: { ...narration.result, mode: portfolio?.reliable ? "portfolio-aware" : "market-only" } };
+    const mode = portfolio?.reliable ? "portfolio-aware" : "market-only";
+    return {
+      evidence,
+      repaired: narration.repaired,
+      result: finalizeAgentResult({
+        narration: narration.result,
+        provenance: narration.provenance,
+        evidence: assessEvidence(input.command.workflow, snapshot, mode === "portfolio-aware"),
+        mode,
+      }),
+    };
   }
 }

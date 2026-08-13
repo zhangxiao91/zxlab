@@ -5,6 +5,6 @@
   "type": "module",
   "dependencies": { "@zxlab/market-schema": "0.1.0" },
   "exports": { ".": "./src/index.ts" },
-  "scripts": { "typecheck": "tsc --noEmit" },
+  "scripts": { "test": "node --experimental-strip-types --test src/*.test.ts", "typecheck": "tsc --noEmit" },
   "devDependencies": { "typescript": "^6.0.3" }
 }

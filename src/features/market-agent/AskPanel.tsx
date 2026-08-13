@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import gsap from "gsap";
-import type { AskScope, SealedEvidenceBundle } from "@zxlab/market-agent-schema";
+import type { AskScope, RunOutcome, SealedEvidenceBundle } from "@zxlab/market-agent-schema";
+import { RunOutcomeSummary } from "./RunOutcomeSummary";
 import {
   getAgentRunEvidence,
   pollAgentRunUntilTerminal,
@@ -368,7 +369,7 @@ export default function AskPanel({
             <header><strong>{submittedPrompt?.title ?? selectedScope.label}</strong></header>
             <p>{submittedPrompt?.detail ?? selectedScope.description}</p>
           </article>
-          <RunActivity status={answer.status} runId={answer.id} limitations={answer.result?.limitations} />
+          <RunActivity status={answer.status} runId={answer.id} limitations={answer.result?.limitations} outcome={answer.result?.outcome} />
           <section className="agent-ask__answer agent-message agent-message--assistant">
             <header>
               <div>
@@ -380,6 +381,7 @@ export default function AskPanel({
             {answer.result ? (
               <>
                 <p className="agent-ask__summary">{answer.result.summary}</p>
+                <RunOutcomeSummary outcome={answer.result.outcome} />
                 <div className="agent-ask__answer-grid">
                   <ObservationGroup title="事实" observations={answer.result.observations.filter((item) => item.class === "fact")} onEvidence={setSelectedEvidenceId} />
                   <ObservationGroup title="推断" observations={answer.result.observations.filter((item) => item.class === "inference")} onEvidence={setSelectedEvidenceId} />
@@ -412,7 +414,7 @@ export default function AskPanel({
   );
 }
 
-export function RunActivity({ status, runId, limitations = [] }: { status?: string; runId?: string; limitations?: string[] }) {
+export function RunActivity({ status, runId, limitations = [], outcome }: { status?: string; runId?: string; limitations?: string[]; outcome?: RunOutcome }) {
   if (!status) return null;
   const activeIndex = runStageIndex(status);
   const finished = status === "success" || status === "partial";
@@ -429,7 +431,7 @@ export function RunActivity({ status, runId, limitations = [] }: { status?: stri
       </header>
       <ol>
         {runStages.map((stage, index) => {
-          const state = status === "partial" && degradedTool(stage.tool, limitations)
+          const state = status === "partial" && degradedTool(stage.tool, limitations, outcome)
             ? "degraded"
             : failed && index === activeIndex
             ? "failed"
@@ -469,9 +471,9 @@ function activityStateLabel(state: "complete" | "active" | "degraded" | "failed"
   return ({ complete: "完成", active: "进行中", degraded: "降级", failed: "中止", waiting: "等待" } as const)[state];
 }
 
-function degradedTool(tool: string, limitations: string[]) {
-  if (tool === "Agent Narrator") return limitations.some((item) => item.includes("Gateway"));
-  if (tool === "Market Snapshot") return limitations.some((item) => /数据限制|数据能力|行情|报价|市场事实/.test(item));
+function degradedTool(tool: string, limitations: string[], outcome?: RunOutcome) {
+  if (tool === "Agent Narrator") return outcome ? outcome.narration.source === "deterministic_fallback" : limitations.some((item) => item.includes("Gateway"));
+  if (tool === "Market Snapshot") return outcome ? outcome.evidence.coverage !== "sufficient" : limitations.some((item) => /数据限制|数据能力|行情|报价|市场事实/.test(item));
   return false;
 }
 

@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import type { TradingScreenAction, TradingScreenStatus } from "../trading/screen";
 import AskPanel, { RunActivity } from "./AskPanel";
+import { RunOutcomeSummary } from "./RunOutcomeSummary";
 import {
   type AgentObservationView,
   type AgentRunMode,
@@ -393,7 +394,7 @@ function LatestReviewThread({
         </header>
         <p>{modeLabel(latest.result?.mode, latest.portfolioSnapshotId)} · 已确认观察列表</p>
       </article>
-      <RunActivity status={latest.status} runId={latest.id} limitations={latest.result?.limitations} />
+      <RunActivity status={latest.status} runId={latest.id} limitations={latest.result?.limitations} outcome={latest.result?.outcome} />
       <article className="agent-message agent-message--assistant agent-review-result">
         <header>
           <div>
@@ -406,6 +407,7 @@ function LatestReviewThread({
           {(latest.result?.summary ?? streamingAnswer) || "事实收集完成后，复盘结果会出现在这里。"}
           {streamingAnswer && !latest.result ? <span className="agent-stream-cursor" aria-hidden="true" /> : null}
         </p>
+        <RunOutcomeSummary outcome={latest.result?.outcome} />
         <div className="agent-review-result__evidence">
           {events.map((event) => (
             <details className={activeEvidenceId === event.id ? "is-active" : ""} key={event.id} open={activeEvidenceId === event.id}>

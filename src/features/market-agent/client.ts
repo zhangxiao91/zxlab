@@ -1,5 +1,6 @@
 import type {
   AskScope,
+  RunOutcome,
   PortfolioSnapshotUpload,
   SealedEvidenceBundle,
 } from "@zxlab/market-agent-schema";
@@ -34,6 +35,7 @@ export interface AgentRunView {
     portfolioImpacts: AgentObservationView[];
     watchNext: Array<{ condition: string; reason: string; evidenceIds: string[] }>;
     limitations: string[];
+    outcome?: RunOutcome;
   };
 }
 

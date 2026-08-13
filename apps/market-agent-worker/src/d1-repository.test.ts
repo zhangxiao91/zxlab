@@ -67,3 +67,26 @@ test("Evidence lookup remains terminal and profile-scoped", async () => {
   assert.match(statement, /profile_id = \?/);
   assert.match(statement, /status IN \('success', 'partial'\)/);
 });
+
+test("quality metrics separate model completion from deterministic fallback", async () => {
+  const resultRows = [
+    {
+      result_json: JSON.stringify({
+        status: "success", headline: "model", summary: "model", observations: [], portfolioImpacts: [], watchNext: [], limitations: [], evidenceFingerprint: "sha256:model", mode: "market-only",
+        outcome: { execution: "completed", narration: { source: "model" }, evidence: { coverage: "sufficient", delivery: "fallback", fallbackCapabilities: ["announcements:SSE:600000"], limitations: [] }, mode: "market-only" },
+      }),
+    },
+    {
+      result_json: JSON.stringify({ status: "partial", headline: "fallback", summary: "fallback", observations: [], portfolioImpacts: [], watchNext: [], limitations: ["Gateway 暂不可用，已降级为确定性结果。"], evidenceFingerprint: "sha256:fallback", mode: "market-only" }),
+    },
+  ];
+  const db = {
+    prepare() {
+      return { bind() { return { async all() { return { results: resultRows }; } }; } };
+    },
+  } as unknown as D1Database;
+
+  const metrics = await new D1RunRepository(db).qualityMetrics();
+
+  assert.deepEqual(metrics, { total: 2, completed: 2, model: 1, modelRepaired: 0, deterministicFallback: 1, evidenceSufficient: 2, providerFallback: 1, portfolioAware: 0 });
+});

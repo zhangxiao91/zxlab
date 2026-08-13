@@ -48,6 +48,37 @@ test("morning brief keeps its workflow through sealed evidence and narration", a
   assert.match(result.result.headline, /盘前简报/);
 });
 
+test("a model-completed review stays successful when a usable provider fallback preserves evidence", async () => {
+  const fallbackSnapshot: MarketSnapshot = {
+    ...snapshot,
+    capabilities: [{
+      id: "announcements:SSE:600000",
+      status: "degraded",
+      required: true,
+      asOf: null,
+      receivedAt: snapshot.receivedAt,
+      freshness: "fresh",
+      warnings: [],
+      attempts: [
+        { provider: "cninfo-announcement", ok: false, latencyMs: 120, errorCode: "UPSTREAM_HTTP_ERROR", message: null },
+        { provider: "eastmoney-announcement", ok: true, latencyMs: 90, errorCode: null, message: null },
+      ],
+    }],
+    quality: { ...snapshot.quality, status: "degraded", reliable: true },
+  };
+  const service = new CloseReviewService(
+    { getCurrentSnapshot: async () => fallbackSnapshot },
+    { async narrate({ evidence }) { return { status: "partial", headline: "模型复盘完成", summary: "公告由备用来源提供。", observations: [], portfolioImpacts: [], watchNext: [], limitations: ["公告使用备用来源。"], evidenceFingerprint: evidence.fingerprint }; } },
+  );
+
+  const output = await service.execute({ runId: "run-fallback", command: { profileId: "p1", trigger: "manual", workflow: "close_review", idempotencyKey: "close-review-fallback" }, instrumentIds: ["SSE:600000"], watchlistRevision: "w1" });
+
+  assert.equal(output.result.status, "success");
+  assert.equal(output.result.outcome?.narration.source, "model");
+  assert.equal(output.result.outcome?.evidence.coverage, "sufficient");
+  assert.equal(output.result.outcome?.evidence.delivery, "fallback");
+});
+
 test("an expired portfolio snapshot stays out of the new evidence bundle", async () => {
   const portfolio: PortfolioSnapshot = {
     id: "expired-snapshot",

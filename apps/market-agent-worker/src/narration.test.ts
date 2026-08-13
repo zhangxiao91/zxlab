@@ -12,12 +12,23 @@ test("invalid model output is repaired once then accepted", async () => {
   const valid = { status: "success", headline: "ok", summary: "ok", observations: [{ id: "x", class: "fact", importance: "high", title: "x", explanation: "x", evidenceIds: ["fact-1"] }], portfolioImpacts: [], watchNext: [], limitations: [], evidenceFingerprint: evidence.fingerprint };
   const result = await narrateWithRepair(narrator, { workflow: command.workflow, evidence, repair: async () => valid });
   assert.equal(result.repaired, true); assert.equal(result.result.headline, "ok"); assert.equal(calls, 1);
+  assert.equal(result.provenance.source, "model_repaired");
 });
 
 test("forbidden trade instruction falls back deterministically", async () => {
   const narrator: Narrator = { async narrate() { return { status: "success", headline: "买入", summary: "buy now", observations: [], portfolioImpacts: [], watchNext: [], limitations: [], evidenceFingerprint: evidence.fingerprint }; } };
   const result = await narrateWithRepair(narrator, { workflow: command.workflow, evidence });
   assert.equal(result.result.status, "partial"); assert.match(result.result.limitations.at(-1) ?? "", /降级/);
+  assert.equal(result.provenance.source, "deterministic_fallback");
+  assert.equal(result.provenance.failure?.stage, "validation");
+});
+
+test("gateway failure exposes structured deterministic fallback provenance", async () => {
+  const narrator: Narrator = { async narrate() { throw new Error("MARKET_AGENT_GATEWAY_HTTP_503_ALL_CANDIDATES_FAILED"); } };
+  const result = await narrateWithRepair(narrator, { workflow: command.workflow, evidence });
+
+  assert.equal(result.provenance.source, "deterministic_fallback");
+  assert.deepEqual(result.provenance.failure, { stage: "gateway", code: "ALL_CANDIDATES_FAILED", retryable: true });
 });
 
 test("Chinese inference wording passes uncertainty validation", async () => {
@@ -42,6 +53,7 @@ test("Chinese inference wording passes uncertainty validation", async () => {
   const result = await narrateWithRepair(narrator, { workflow: command.workflow, evidence });
   assert.equal(result.result.status, "success");
   assert.equal(result.result.headline, candidate.headline);
+  assert.equal(result.provenance.source, "model");
 });
 
 test("a failed repair falls back without starting another generation", async () => {

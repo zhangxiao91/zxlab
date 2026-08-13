@@ -23,6 +23,15 @@ export type RunStatus = "queued" | "collecting" | "evidence_sealed" | "generatin
 export type EvidenceKind = "market_fact" | "market_event" | "portfolio_impact" | "confirmed_context" | "limitation" | "execution_plan" | "prior_run";
 export type ObservationClass = "fact" | "inference" | "unknown";
 export type ObservationImportance = "high" | "medium" | "low";
+export type EvidenceCoverage = "sufficient" | "limited" | "insufficient";
+export type EvidenceDelivery = "primary" | "fallback";
+export interface EvidenceLimitation { code: string; capability?: string; severity: "advisory" | "material" | "blocking"; message: string; }
+export interface EvidenceAssessment { coverage: EvidenceCoverage; delivery: EvidenceDelivery; fallbackCapabilities: string[]; limitations: EvidenceLimitation[]; }
+export interface NarrationProvenance {
+  source: "model" | "model_repaired" | "deterministic_fallback" | "unknown";
+  failure?: { stage: "configuration" | "gateway" | "protocol" | "validation"; code: string; retryable: boolean };
+}
+export interface RunOutcome { execution: "completed"; narration: NarrationProvenance; evidence: EvidenceAssessment; mode: "market-only" | "portfolio-aware"; }
 
 export interface BrowserRunIntent { workflow: Exclude<AgentWorkflow, "ask">; instrumentId?: string; question?: string; marketDate?: string; idempotencyKey: string; }
 export interface BrowserAskIntent { scope: AskScope; instrumentId?: string; question?: string; priorRunId?: string; idempotencyKey: string; }
@@ -65,7 +74,7 @@ export interface SealedEvidenceBundle {
 }
 export interface AgentObservation { id: string; class: ObservationClass; importance: ObservationImportance; title: string; explanation: string; evidenceIds: string[]; }
 export interface AgentNarration { status: "success" | "partial"; headline: string; summary: string; observations: AgentObservation[]; portfolioImpacts: AgentObservation[]; watchNext: Array<{ condition: string; reason: string; evidenceIds: string[] }>; limitations: string[]; evidenceFingerprint: string; }
-export interface AgentResult extends AgentNarration { mode: "market-only" | "portfolio-aware"; askScope?: AskScope; }
+export interface AgentResult extends AgentNarration { mode: "market-only" | "portfolio-aware"; askScope?: AskScope; outcome?: RunOutcome; }
 export interface PortfolioSnapshotPosition { instrumentId: string; quantity: number; averageCost: number; }
 export interface PortfolioSnapshotUpload {
   schemaVersion: typeof PORTFOLIO_SNAPSHOT_SCHEMA_VERSION;
@@ -88,6 +97,27 @@ export interface PortfolioSnapshot extends Omit<PortfolioSnapshotUpload, "client
 }
 export interface PortfolioSnapshotUploadValidation { snapshot: PortfolioSnapshotUpload | null; issues: string[]; }
 export interface AgentRun { id: string; profileId: string; workflow: AgentWorkflow; trigger: RunTrigger; status: RunStatus; idempotencyKey: string; commandHash: string; revisionOfRunId: string | null; portfolioSnapshotId: string | null; attempt: number; recoveryGeneration: number; createdAt: string; updatedAt: string; evidenceFingerprint: string | null; failure: { code: string; retryable: boolean } | null; result?: AgentResult; }
+
+export function compatibleAgentResult(result: AgentResult): AgentResult {
+  if (result.outcome) return result;
+  const limitations = result.limitations ?? [];
+  const deterministic = limitations.some((item) => /Gateway 暂不可用|叙事输出未通过|确定性结果/.test(item));
+  const evidenceLimitations = limitations
+    .filter((item) => !/Gateway 暂不可用|叙事输出未通过|确定性结果/.test(item))
+    .map((message): EvidenceLimitation => ({ code: "LEGACY_LIMITATION", severity: "material", message }));
+  const coverage: EvidenceCoverage = evidenceLimitations.length ? "limited" : "sufficient";
+  return {
+    ...result,
+    outcome: {
+      execution: "completed",
+      narration: deterministic
+        ? { source: "deterministic_fallback", failure: { stage: "gateway", code: "LEGACY_GATEWAY_FALLBACK", retryable: true } }
+        : { source: "unknown" },
+      evidence: { coverage, delivery: "primary", fallbackCapabilities: [], limitations: evidenceLimitations },
+      mode: result.mode,
+    },
+  };
+}
 
 export interface RunCreation { command: MarketAgentCommand; actorScope: string; commandHash: `sha256:${string}`; revisionOfRunId?: string; portfolioSnapshotId?: string | null; }
 export type RunClaimResult = { kind: "claimed"; lease: { run: AgentRun; leaseToken: string; attempt: number; leaseExpiresAt: string } } | { kind: "terminal" } | { kind: "leased"; retryAfter: string } | { kind: "missing" };

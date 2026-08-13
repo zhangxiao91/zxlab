@@ -15,6 +15,8 @@ import {
 import { narrateWithRepair, type Narrator, DeterministicNarrator } from "./narration.ts";
 import { evaluatePortfolioRiskImpact } from "./portfolio-risk-impact.ts";
 import type { ConfirmedContextReader } from "./confirmed-context.ts";
+import { assessEvidence } from "./evidence-assessment.ts";
+import { finalizeAgentResult } from "./run-outcome.ts";
 
 export interface AskPreviousRun {
   runId: string;
@@ -93,14 +95,17 @@ export class AskService {
       confirmedContext: confirmedContext.contexts,
     });
     await input.onProgress?.("validating");
+    const mode = portfolio?.reliable ? "portfolio-aware" : "market-only";
     return {
       evidence,
       repaired: narration.repaired,
-      result: {
-        ...narration.result,
-        mode: portfolio?.reliable ? "portfolio-aware" : "market-only",
+      result: finalizeAgentResult({
+        narration: narration.result,
+        provenance: narration.provenance,
+        evidence: assessEvidence(input.command.scope, snapshot, mode === "portfolio-aware"),
+        mode,
         askScope: input.command.scope,
-      },
+      }),
     };
   }
 }
