@@ -15,6 +15,7 @@ import { requireMarketAgentScope, resolveMarketAgentActor } from "./auth.ts";
 import { SignalMemoryAdapter } from "./confirmed-context.ts";
 import { createRunEventStream } from "./run-stream.ts";
 import { MARKET_AGENT_RUN_LEASE_MS } from "./runtime-budget.ts";
+import { D1RunArchiveRepository } from "./run-archive.ts";
 
 const repository = new MemoryRunRepository();
 type RunMessage = { runId: string; generation: number; kind: "initial" | "recovery" };
@@ -28,7 +29,7 @@ export default {
     if (path === "/health" && request.method === "GET") return json({ ok: true, service: "market-agent", generation: "evidence-bound-gateway" });
     if (!env.DB) return json({ error: "DATABASE_UNAVAILABLE" }, 503);
     try {
-      const actor = await resolveMarketAgentActor(request, env); requireMarketAgentScope(actor, request.method); const profiles = new D1ProfileRepository(env.DB); const profile = await profiles.resolve(await subjectHash(actor.ownerSubject, marketAgentProxySecret(env))); const runs = new D1RunRepository(env.DB); const snapshots = new D1PortfolioSnapshotRepository(env.DB);
+      const actor = await resolveMarketAgentActor(request, env); requireMarketAgentScope(actor, request.method); const profiles = new D1ProfileRepository(env.DB); const profile = await profiles.resolve(await subjectHash(actor.ownerSubject, marketAgentProxySecret(env))); const runs = new D1RunRepository(env.DB); const archive = new D1RunArchiveRepository(env.DB); const snapshots = new D1PortfolioSnapshotRepository(env.DB);
       if (path === "/profile" && request.method === "GET") return json(profile);
       if (path === "/watchlist" && request.method === "GET") return json({ profile, watchlist: await profiles.getWatchlist(profile.profileId) });
       if (path === "/watchlist" && request.method === "POST") {
@@ -107,10 +108,15 @@ export default {
         await relayOutbox(env, runs);
         return json({ runId: result.run.id, status: result.run.status, created: result.created }, 202);
       }
-      if (path === "/runs" && request.method === "GET") return json({ runs: await runs.list(profile.profileId) });
-      if (path === "/quality" && request.method === "GET") return json({ window: 50, metrics: await runs.qualityMetrics(50) });
-      if (path === "/today" && request.method === "GET") return json({ run: (await runs.list(profile.profileId, 1))[0] ?? null });
-      if (path === "/export" && request.method === "GET") return json({ schemaVersion: "market-agent-export.v1", runs: await runs.list(profile.profileId) });
+      if (path === "/runs" && request.method === "GET") {
+        const limit = boundedInteger(url.searchParams.get("limit"), 50, 100);
+        const cursor = url.searchParams.get("cursor");
+        if (cursor && cursor.length > 512) return json({ error: "RUN_ARCHIVE_CURSOR_INVALID" }, 400);
+        return json(await archive.list(profile.profileId, { limit, cursor }));
+      }
+      if (path === "/quality" && request.method === "GET") return json({ window: 50, metrics: await runs.qualityMetrics(profile.profileId, 50) });
+      if (path === "/today" && request.method === "GET") return json({ run: (await archive.list(profile.profileId, { limit: 1 })).runs[0] ?? null });
+      if (path === "/export" && request.method === "GET") return archive.createExportResponse(profile.profileId);
       const streamMatch = path.match(/^\/runs\/([^/]+)\/stream$/);
       if (streamMatch && request.method === "GET") {
         const run = await runs.get(streamMatch[1]);
@@ -123,33 +129,35 @@ export default {
         const evidence = await runs.getEvidence(evidenceMatch[1], profile.profileId);
         return evidence ? json({ runId: evidenceMatch[1], evidence }) : json({ error: "NOT_FOUND" }, 404);
       }
-      const match = path.match(/^\/runs\/([^/]+)$/); if (match && request.method === "GET") { const run = await runs.get(match[1]); return run?.profileId === profile.profileId ? json(run) : json({ error: "NOT_FOUND" }, 404); }
-      if (match && request.method === "DELETE") return await runs.delete(match[1], profile.profileId) ? json({ ok: true }) : json({ error: "NOT_FOUND" }, 404);
+      const match = path.match(/^\/runs\/([^/]+)$/); if (match && request.method === "GET") { const run = await archive.get(profile.profileId, match[1]); return run ? json(run) : json({ error: "NOT_FOUND" }, 404); }
+      if (match && request.method === "DELETE") { const tombstone = await archive.purgeRunPayload(profile.profileId, match[1]); return tombstone ? json({ ok: true, tombstone }) : json({ error: "NOT_FOUND" }, 404); }
       const feedback = path.match(/^\/runs\/([^/]+)\/feedback$/); if (feedback && request.method === "POST") { const run = await runs.get(feedback[1]); if (run?.profileId !== profile.profileId) return json({ error: "NOT_FOUND" }, 404); const body = await request.json() as { value?: unknown }; if (body.value !== "helpful" && body.value !== "fact_error" && body.value !== "missing_factor") return json({ error: "INVALID_FEEDBACK" }, 400); await runs.recordFeedback(feedback[1], profile.profileId, body.value); return json({ ok: true }); }
       const rerun = path.match(/^\/runs\/([^/]+)\/rerun$/); if (rerun && request.method === "POST") { const prior = await runs.get(rerun[1]); const priorCommand = await runs.getCommand(rerun[1]); if (prior?.profileId !== profile.profileId || !priorCommand) return json({ error: "NOT_FOUND" }, 404); const command = { ...priorCommand, trigger: "manual" as const, idempotencyKey: `rerun:${prior.id}:${crypto.randomUUID()}` }; const portfolioSnapshot = await snapshots.getCurrent(profile.profileId); const created = await runs.createQueued(command, { command, actorScope: profile.profileId, commandHash: await sha256(command), revisionOfRunId: prior.id, portfolioSnapshotId: isMarketAgentAskCommand(command) && !askEvidencePlan(command.scope).requiresPortfolioSnapshot ? null : portfolioSnapshot?.id ?? null }); await relayOutbox(env, runs); return json({ runId: created.run.id, status: created.run.status, revisionOfRunId: prior.id }, 202); }
       return json({ error: "NOT_FOUND" }, 404);
-    } catch (cause) { const code = cause instanceof Error ? cause.message : "INTERNAL_ERROR"; if (code === "ACTOR_SCOPE_REQUIRED") return json({ error: code }, 403); if (code.startsWith("ACTOR_")) return json({ error: code }, 401); if (code === "INVALID_WATCHLIST" || code.startsWith("INVALID_PORTFOLIO")) return json({ error: code }, 400); if (code === "IDEMPOTENCY_KEY_REUSED" || code === "PORTFOLIO_SNAPSHOT_NOT_CURRENT") return json({ error: code }, 409); return json({ error: "INTERNAL_ERROR" }, 500); }
+    } catch (cause) { const code = cause instanceof Error ? cause.message : "INTERNAL_ERROR"; if (code === "ACTOR_SCOPE_REQUIRED") return json({ error: code }, 403); if (code.startsWith("ACTOR_")) return json({ error: code }, 401); if (code === "INVALID_WATCHLIST" || code.startsWith("INVALID_PORTFOLIO") || code === "RUN_ARCHIVE_CURSOR_INVALID") return json({ error: code }, 400); if (code === "IDEMPOTENCY_KEY_REUSED" || code === "PORTFOLIO_SNAPSHOT_NOT_CURRENT") return json({ error: code }, 409); return json({ error: "INTERNAL_ERROR" }, 500); }
   },
   async queue(batch: MessageBatch<RunMessage>, env: Env): Promise<void> { if (batch.queue.endsWith("-dlq")) await processDeadLetters(batch, env); else await processQueue(batch, env); },
-  async scheduled(controller: ScheduledController, env: Env): Promise<void> { if (!env.DB) return; const runs = new D1RunRepository(env.DB); const now = new Date(controller.scheduledTime); await runs.sweepExpired(now.toISOString(), Number(env.MARKET_AGENT_MAX_RECOVERY_GENERATIONS ?? 2)); const workflow = scheduledWorkflowAt(now); if (workflow) { const decision = await decideScheduledWorkflow(workflow, now, productionTradingCalendar); if (decision.decision === "run") { const profiles = new D1ProfileRepository(env.DB); const snapshots = new D1PortfolioSnapshotRepository(env.DB); for (const profileId of await profiles.listBootstrappedProfileIds()) { const command: MarketAgentCommand = { profileId, trigger: "scheduled", workflow, marketDate: decision.marketDate, idempotencyKey: `scheduled:${workflow}:${decision.marketDate}` }; const portfolioSnapshot = await snapshots.getCurrent(profileId); await runs.createQueued(command, { command, actorScope: profileId, commandHash: await sha256(command), portfolioSnapshotId: portfolioSnapshot?.id ?? null }); } } else await runs.recordScheduleDecision({ workflow, marketDate: decision.marketDate, decision: decision.decision, calendarSource: decision.calendar.source, reason: decision.reason }); } await relayOutbox(env, runs); },
+  async scheduled(controller: ScheduledController, env: Env): Promise<void> { if (!env.DB) return; const runs = new D1RunRepository(env.DB); const profiles = new D1ProfileRepository(env.DB); const now = new Date(controller.scheduledTime); await runs.sweepExpired(now.toISOString(), Number(env.MARKET_AGENT_MAX_RECOVERY_GENERATIONS ?? 2)); const retentionDays = boundedInteger(env.MARKET_AGENT_RUN_RETENTION_DAYS, 365, 3650); const cutoff = new Date(now.getTime() - retentionDays * 24 * 60 * 60 * 1_000).toISOString(); await new D1RunArchiveRepository(env.DB).sweepRetentionAll({ cutoff, purgedAt: now.toISOString() }); const workflow = scheduledWorkflowAt(now); if (workflow) { const decision = await decideScheduledWorkflow(workflow, now, productionTradingCalendar); if (decision.decision === "run") { const snapshots = new D1PortfolioSnapshotRepository(env.DB); for (const profileId of await profiles.listBootstrappedProfileIds()) { const command: MarketAgentCommand = { profileId, trigger: "scheduled", workflow, marketDate: decision.marketDate, idempotencyKey: `scheduled:${workflow}:${decision.marketDate}` }; const portfolioSnapshot = await snapshots.getCurrent(profileId); await runs.createQueued(command, { command, actorScope: profileId, commandHash: await sha256(command), portfolioSnapshotId: portfolioSnapshot?.id ?? null }); } } else await runs.recordScheduleDecision({ workflow, marketDate: decision.marketDate, decision: decision.decision, calendarSource: decision.calendar.source, reason: decision.reason }); } await relayOutbox(env, runs); },
 } satisfies ExportedHandler<Env, RunMessage>;
 
 export async function processRun(runId: string, env: Env): Promise<"ack" | "retry"> {
   if (!env.DB) return "retry"; const runs = new D1RunRepository(env.DB); const claim = await runs.claim(runId, "market-agent-consumer", new Date().toISOString(), new Date(Date.now() + MARKET_AGENT_RUN_LEASE_MS).toISOString());
   if (claim.kind === "terminal" || claim.kind === "missing") return "ack"; if (claim.kind === "leased") return "retry";
   const command = await runs.getCommand(runId); if (!command) { await runs.fail(runId, claim.lease.leaseToken, "COMMAND_MISSING"); return "ack"; }
+  const checkpoint = await runs.getCheckpoint(runId, command.profileId);
   const profiles = new D1ProfileRepository(env.DB);
   const snapshots = new D1PortfolioSnapshotRepository(env.DB);
-  const watchlist = await profiles.getWatchlist(command.profileId); if (command.trigger === "scheduled" && !watchlist) { await runs.fail(runId, claim.lease.leaseToken, "WATCHLIST_BOOTSTRAP_REQUIRED"); return "ack"; }
+  const watchlist = await profiles.getWatchlist(command.profileId); if (!checkpoint && command.trigger === "scheduled" && !watchlist) { await runs.fail(runId, claim.lease.leaseToken, "WATCHLIST_BOOTSTRAP_REQUIRED"); return "ack"; }
   if (isMarketAgentAskCommand(command)) {
     const plan = askEvidencePlan(command.scope);
     if (!validResolvedAskScope(command.resolvedInstrumentIds)) { await runs.fail(runId, claim.lease.leaseToken, "ASK_SCOPE_INVALID"); return "ack"; }
-    const portfolioSnapshot = plan.requiresPortfolioSnapshot && claim.lease.run.portfolioSnapshotId
+    const portfolioSnapshot = !checkpoint && plan.requiresPortfolioSnapshot && claim.lease.run.portfolioSnapshotId
       ? await snapshots.getUsableForProfile(command.profileId, claim.lease.run.portfolioSnapshotId)
       : null;
-    if (plan.requiresPortfolioSnapshot && !portfolioSnapshot) { await runs.fail(runId, claim.lease.leaseToken, "PORTFOLIO_SNAPSHOT_NOT_CURRENT"); return "ack"; }
+    if (!checkpoint && plan.requiresPortfolioSnapshot && !portfolioSnapshot) { await runs.fail(runId, claim.lease.leaseToken, "PORTFOLIO_SNAPSHOT_NOT_CURRENT"); return "ack"; }
     let previous: AskPreviousRun | undefined;
-    if (plan.requiresPreviousRun) {
+    const previousCheckpoint = checkpoint ? null : await runs.getPreviousCheckpoint(runId, command.profileId);
+    if (!checkpoint && plan.requiresPreviousRun) {
       const prior = command.priorRunId ? await runs.get(command.priorRunId) : null;
       const evidence = prior?.profileId === command.profileId && terminalWithEvidence(prior)
         ? await runs.getEvidence(prior.id, command.profileId)
@@ -162,7 +170,7 @@ export async function processRun(runId: string, env: Env): Promise<"ack" | "retr
     }
     try {
       const reader = new MarketSnapshotAdapter({ service: env.MARKET_SNAPSHOT_SERVICE, baseUrl: env.MARKET_SNAPSHOT_URL });
-      const output = await new AskService(reader, narratorFor(env), contextReaderFor(env)).execute({ runId, command, watchlistRevision: watchlist?.revision ?? "ask-without-watchlist", portfolioSnapshot, previous, onProgress: (status) => advanceRun(runs, runId, claim.lease.leaseToken, status) });
+      const output = await new AskService(reader, narratorFor(env), contextReaderFor(env)).execute({ runId, command, watchlistRevision: watchlist?.revision ?? checkpoint?.evidence.watchlistRevision ?? "ask-without-watchlist", portfolioSnapshot, previous, previousSnapshot: previousCheckpoint?.snapshot, checkpoint: checkpoint ?? undefined, onCheckpoint: (value) => checkpointRun(runs, runId, command.profileId, claim.lease.leaseToken, value), onProgress: (status) => advanceRun(runs, runId, claim.lease.leaseToken, status) });
       await runs.complete(runId, claim.lease.leaseToken, output.evidence, output.result);
       return "ack";
     } catch {
@@ -170,11 +178,12 @@ export async function processRun(runId: string, env: Env): Promise<"ack" | "retr
       return "retry";
     }
   }
-  const portfolioSnapshot = claim.lease.run.portfolioSnapshotId ? await snapshots.getUsableForProfile(command.profileId, claim.lease.run.portfolioSnapshotId) : null;
-  const instrumentIds = [...new Set([...(command.instrumentId ? [command.instrumentId] : (watchlist?.items.map((item) => item.instrumentId) ?? [])), ...(portfolioSnapshot?.positions.map((item) => item.instrumentId) ?? [])])]; if (!instrumentIds.length) { await runs.fail(runId, claim.lease.leaseToken, "INSTRUMENT_SCOPE_EMPTY"); return "ack"; }
+  const portfolioSnapshot = !checkpoint && claim.lease.run.portfolioSnapshotId ? await snapshots.getUsableForProfile(command.profileId, claim.lease.run.portfolioSnapshotId) : null;
+  const instrumentIds = checkpoint?.evidence.instrumentIds ?? [...new Set([...(command.instrumentId ? [command.instrumentId] : (watchlist?.items.map((item) => item.instrumentId) ?? [])), ...(portfolioSnapshot?.positions.map((item) => item.instrumentId) ?? [])])]; if (!instrumentIds.length) { await runs.fail(runId, claim.lease.leaseToken, "INSTRUMENT_SCOPE_EMPTY"); return "ack"; }
   try {
     const reader = new MarketSnapshotAdapter({ service: env.MARKET_SNAPSHOT_SERVICE, baseUrl: env.MARKET_SNAPSHOT_URL });
-    const output = await new CloseReviewService(reader, narratorFor(env), contextReaderFor(env)).execute({ runId, command, instrumentIds, watchlistRevision: watchlist?.revision ?? "instrument-only", portfolioSnapshot, onProgress: (status) => advanceRun(runs, runId, claim.lease.leaseToken, status) });
+    const previous = checkpoint ? null : await runs.getPreviousCheckpoint(runId, command.profileId);
+    const output = await new CloseReviewService(reader, narratorFor(env), contextReaderFor(env)).execute({ runId, command, instrumentIds, watchlistRevision: watchlist?.revision ?? checkpoint?.evidence.watchlistRevision ?? "instrument-only", portfolioSnapshot, previous: previous?.snapshot, checkpoint: checkpoint ?? undefined, onCheckpoint: (value) => checkpointRun(runs, runId, command.profileId, claim.lease.leaseToken, value), onProgress: (status) => advanceRun(runs, runId, claim.lease.leaseToken, status) });
     await runs.complete(runId, claim.lease.leaseToken, output.evidence, output.result); return "ack";
   } catch { await runs.defer(runId, claim.lease.leaseToken, "CLOSE_REVIEW_RETRYABLE"); return "retry"; }
 }
@@ -197,9 +206,11 @@ async function sha256(value: unknown): Promise<`sha256:${string}`> { const bytes
 function terminalWithEvidence(run: { status: string; evidenceFingerprint: string | null }): boolean { return (run.status === "success" || run.status === "partial") && Boolean(run.evidenceFingerprint); }
 function validResolvedAskScope(ids: unknown): ids is string[] { return Array.isArray(ids) && ids.length > 0 && ids.length <= 200 && ids.every((id) => typeof id === "string" && /^(SSE|SZSE):\d{6}$/.test(id)) && new Set(ids).size === ids.length; }
 function sameInstrumentScope(left: string[], right: string[]): boolean { return left.length === right.length && [...left].sort().every((value, index) => value === [...right].sort()[index]); }
+function boundedInteger(value: string | null | undefined, fallback: number, maximum: number): number { const parsed = Number(value); return Number.isInteger(parsed) && parsed > 0 ? Math.min(parsed, maximum) : fallback; }
 function narratorFor(env: Env): GatewayNarrator | DeterministicNarrator { return env.MARKET_AGENT_GENERATION_ENABLED === "true" && env.MARKET_AGENT_GATEWAY_URL && env.MARKET_AGENT_GATEWAY_TOKEN ? new GatewayNarrator({ apiUrl: env.MARKET_AGENT_GATEWAY_URL, token: env.MARKET_AGENT_GATEWAY_TOKEN }) : new DeterministicNarrator(); }
-function contextReaderFor(env: Env): SignalMemoryAdapter { return new SignalMemoryAdapter({ service: env.SIGNAL_MEMORY_SERVICE, baseUrl: env.SIGNAL_MEMORY_URL, token: env.ZX_RUNTIME_SERVICE_TOKEN }); }
+function contextReaderFor(env: Env): SignalMemoryAdapter { return new SignalMemoryAdapter({ service: env.SIGNAL_MEMORY_SERVICE, baseUrl: env.SIGNAL_MEMORY_URL, token: env.MARKET_AGENT_MEMORY_TOKEN }); }
 async function advanceRun(runs: D1RunRepository, runId: string, leaseToken: string, status: "evidence_sealed" | "generating" | "validating"): Promise<void> { if (!await runs.advance(runId, leaseToken, status)) throw new Error("RUN_LEASE_LOST"); }
+async function checkpointRun(runs: D1RunRepository, runId: string, profileId: string, leaseToken: string, checkpoint: import("./run-checkpoint.ts").RunCheckpoint): Promise<void> { if (!await runs.checkpoint(runId, profileId, leaseToken, checkpoint)) throw new Error("RUN_LEASE_LOST"); }
 
 export { MemoryRunRepository } from "./foundation.ts";
 export { CloseReviewService } from "./close-review.ts";

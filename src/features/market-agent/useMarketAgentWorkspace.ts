@@ -5,7 +5,7 @@ import {
   deleteAgentRun,
   exportAgentRuns,
   getAgentProfile,
-  getAgentRuns,
+  getAgentRunPage,
   getPortfolioSnapshotControlState,
   pollAgentRunUntilTerminal,
   purgePortfolioSnapshotHistory,
@@ -42,6 +42,8 @@ export interface MarketAgentWorkspace {
     error: string | null;
     setupNote: string | null;
     deletingRunId: string | null;
+    loadingMoreRuns: boolean;
+    hasMoreRuns: boolean;
     activeEvidenceId: string | null;
   };
   watchlist: {
@@ -63,6 +65,7 @@ export interface MarketAgentWorkspace {
     confirmWatchlist(): Promise<void>;
     downloadRuns(): Promise<void>;
     removeRun(run: AgentRunView): Promise<void>;
+    loadMoreRuns(): Promise<void>;
     saveFeedback(runId: string, value: RunFeedback): Promise<void>;
     updateRun(run: AgentRunView): void;
     toggleEvidence(evidenceId: string): void;
@@ -87,6 +90,8 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
   const [setupNote, setSetupNote] = useState<string | null>(null);
   const [activeEvidenceId, setActiveEvidenceId] = useState<string | null>(null);
   const [deletingRunId, setDeletingRunId] = useState<string | null>(null);
+  const [nextRunsCursor, setNextRunsCursor] = useState<string | null>(null);
+  const [loadingMoreRuns, setLoadingMoreRuns] = useState(false);
   const [portfolioPreview, setPortfolioPreview] =
     useState<LocalPortfolioSnapshotPreview | null>(null);
   const [portfolioState, setPortfolioState] =
@@ -171,11 +176,12 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [nextRuns, nextProfile] = await Promise.all([
-        getAgentRuns(),
+      const [runPage, nextProfile] = await Promise.all([
+        getAgentRunPage(),
         getAgentProfile(),
       ]);
-      setRuns(nextRuns);
+      setRuns(runPage.runs);
+      setNextRunsCursor(runPage.nextCursor);
       setProfile(nextProfile);
       setError(null);
     } catch (cause) {
@@ -196,6 +202,24 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
       setPortfolioStateLoaded(true);
     }
   }, []);
+
+  const loadMoreRuns = useCallback(async () => {
+    if (!nextRunsCursor || loadingMoreRuns) return;
+    setLoadingMoreRuns(true);
+    try {
+      const page = await getAgentRunPage(nextRunsCursor);
+      setRuns((current) => {
+        const seen = new Set(current.map((run) => run.id));
+        return [...current, ...page.runs.filter((run) => !seen.has(run.id))];
+      });
+      setNextRunsCursor(page.nextCursor);
+      setError(null);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "更早的运行记录暂不可用");
+    } finally {
+      setLoadingMoreRuns(false);
+    }
+  }, [loadingMoreRuns, nextRunsCursor]);
 
   useEffect(() => {
     setLocalWatchlist(
@@ -247,7 +271,9 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
     try {
       const nextState = await stopPortfolioSnapshot(snapshot.id);
       setPortfolioState(nextState);
-      setRuns(await getAgentRuns());
+      const runPage = await getAgentRunPage();
+      setRuns(runPage.runs);
+      setNextRunsCursor(runPage.nextCursor);
       setPortfolioError(null);
       setPortfolioNote(
         nextState.detachedRunCount
@@ -269,7 +295,9 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
     try {
       const nextState = await purgePortfolioSnapshotHistory(purgeScope);
       setPortfolioState(nextState);
-      setRuns(await getAgentRuns());
+      const runPage = await getAgentRunPage();
+      setRuns(runPage.runs);
+      setNextRunsCursor(runPage.nextCursor);
       setPortfolioError(null);
       setPortfolioNote(
         `已清除 ${nextState.snapshots} 份快照及 ${nextState.runs} 条关联 Run；审计墓碑已保留。`,
@@ -333,10 +361,7 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
   const downloadRuns = useCallback(async () => {
     try {
       const exported = await exportAgentRuns();
-      const blob = new Blob([JSON.stringify(exported, null, 2)], {
-        type: "application/json",
-      });
-      const url = URL.createObjectURL(blob);
+      const url = URL.createObjectURL(exported);
       const link = document.createElement("a");
       link.href = url;
       link.download = `market-agent-runs-${new Date().toISOString().slice(0, 10)}.json`;
@@ -348,13 +373,13 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
   }, []);
 
   const removeRun = useCallback(async (run: AgentRunView) => {
-    if (!window.confirm(`删除 ${formatDate(run.createdAt)} 的复盘记录及其 Evidence？此操作无法恢复。`)) {
+    if (!window.confirm(`清除 ${formatDate(run.createdAt)} 的复盘正文及 Evidence？审计 fingerprint 与 tombstone 会保留，此操作无法恢复。`)) {
       return;
     }
     setDeletingRunId(run.id);
     try {
-      await deleteAgentRun(run.id);
-      setRuns((current) => current.filter((item) => item.id !== run.id));
+      const tombstone = await deleteAgentRun(run.id);
+      setRuns((current) => current.map((item) => item.id === run.id ? { ...item, result: undefined, payloadPurgedAt: tombstone.purgedAt } : item));
       if (activeEvidenceId === run.id) setActiveEvidenceId(null);
       setError(null);
     } catch (cause) {
@@ -402,6 +427,8 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
       error,
       setupNote,
       deletingRunId,
+      loadingMoreRuns,
+      hasMoreRuns: Boolean(nextRunsCursor),
       activeEvidenceId,
     },
     watchlist: {
@@ -423,6 +450,7 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
       confirmWatchlist,
       downloadRuns,
       removeRun,
+      loadMoreRuns,
       saveFeedback,
       updateRun,
       toggleEvidence,

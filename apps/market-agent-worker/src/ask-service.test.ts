@@ -112,6 +112,74 @@ test("Ask includes a bounded historical run only when the persisted scope matche
   assert.equal(output.evidence.ask?.priorRunId, "prior-run-1");
 });
 
+test("Ask seals a deterministic diff against the previous Ask Snapshot", async () => {
+  const current = marketSnapshot({ instrumentIds: ["SSE:600000"], intervals: ["1d", "1m"], include: ["quotes", "bars"], quoteMode: "corroborated" });
+  const previousSnapshot: MarketSnapshot = {
+    ...current,
+    asOf: "2026-08-06T08:00:00.000Z",
+    receivedAt: "2026-08-06T08:00:01.000Z",
+    data: { ...current.data, quotes: current.data.quotes.map((quote) => ({ ...quote, price: 10 })) },
+  };
+  const output = await new AskService({ getCurrentSnapshot: async () => current }).execute({
+    runId: "ask-run-diff",
+    command: ask(),
+    watchlistRevision: "watchlist-1",
+    previousSnapshot,
+  });
+
+  const diff = output.evidence.items.find((item) => item.kind === "snapshot_diff");
+  assert.ok(diff);
+  assert.equal((diff.value as { changes: Array<{ current?: number }> }).changes[0]?.current, 12);
+});
+
+test("Ask resumes a compare-previous-run checkpoint without rereading the prior Run or Market Facts", async () => {
+  const command = ask({
+    scope: "compare_previous_run",
+    priorRunId: "prior-run-1",
+    resolvedInstrumentIds: ["SSE:600000"],
+  });
+  const previous: AgentResult = {
+    status: "success",
+    headline: "Earlier review",
+    summary: "earlier",
+    observations: [],
+    portfolioImpacts: [],
+    watchNext: [],
+    limitations: [],
+    evidenceFingerprint: "sha256:previous",
+    mode: "market-only",
+  };
+  let checkpoint: Parameters<AskService["execute"]>[0]["checkpoint"];
+  const first = await new AskService({ getCurrentSnapshot: async (input) => marketSnapshot(input) }).execute({
+    runId: "ask-run-checkpoint",
+    command,
+    watchlistRevision: "watchlist-1",
+    previous: {
+      runId: "prior-run-1",
+      workflow: "close_review",
+      createdAt: "2026-08-06T08:00:00.000Z",
+      evidenceFingerprint: "sha256:previous",
+      result: previous,
+    },
+    onCheckpoint: async (value) => { checkpoint = value; },
+  });
+  assert.ok(checkpoint);
+
+  const resumed = await new AskService({
+    getCurrentSnapshot: async () => { throw new Error("Market Facts must not be recollected after evidence_sealed"); },
+  }, undefined, {
+    retrieve: async () => { throw new Error("Signal Memory must not be reread after evidence_sealed"); },
+  }).execute({
+    runId: "ask-run-checkpoint",
+    command,
+    watchlistRevision: "watchlist-1",
+    checkpoint,
+  });
+
+  assert.equal(resumed.evidence.fingerprint, first.evidence.fingerprint);
+  assert.equal(resumed.evidence.ask?.priorRunId, "prior-run-1");
+});
+
 test("Ask rejects a market response that does not echo the sealed fixed plan", async () => {
   const service = new AskService({
     getCurrentSnapshot: async (input) => marketSnapshot({ ...input, include: ["quotes", "news"] }),

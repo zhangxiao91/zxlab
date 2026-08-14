@@ -44,6 +44,7 @@ function ask(overrides: Partial<MarketAgentAskCommand> = {}): MarketAgentAskComm
 
 test("Ask input is scope-bound and cannot supply server-only planning fields", () => {
   assert.deepEqual(validateBrowserAskIntent({ scope: "today_change", instrumentId: "sse:600000", idempotencyKey: "ask-input-1" }), []);
+  assert.ok(validateBrowserAskIntent({ scope: "today_change", idempotencyKey: "question hidden in metadata" }).includes("idempotencyKey is invalid"));
   assert.match(
     validateBrowserAskIntent({ scope: "invent_a_tool", idempotencyKey: "ask-input-1", marketUrl: "https://example.invalid" }).join("\n"),
     /marketUrl is not allowed.*scope is invalid/s,

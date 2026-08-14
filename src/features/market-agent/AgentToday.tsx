@@ -43,6 +43,8 @@ export default function AgentToday({
     error,
     setupNote,
     deletingRunId,
+    loadingMoreRuns,
+    hasMoreRuns,
     activeEvidenceId: activeRun,
   } = agent;
   const { items: localWatchlist, syncing: syncBusy } = watchlist;
@@ -61,6 +63,7 @@ export default function AgentToday({
     confirmWatchlist,
     downloadRuns,
     removeRun,
+    loadMoreRuns,
     saveFeedback,
     updateRun,
     toggleEvidence,
@@ -342,10 +345,15 @@ export default function AgentToday({
             <button onClick={() => void downloadRuns()} disabled={!runs.length}>
               导出全部记录
             </button>
+            {hasMoreRuns && (
+              <button onClick={() => void loadMoreRuns()} disabled={loadingMoreRuns}>
+                {loadingMoreRuns ? "读取中" : "加载更早记录"}
+              </button>
+            )}
           </div>
           <div className="agent-run-list">
             {runs.length ? (
-              runs.slice(0, 8).map((run) => (
+              runs.map((run) => (
                 <RunRow
                   key={run.id}
                   run={run}
@@ -489,6 +497,7 @@ function RunRow({
   onDelete: () => void;
   deleting: boolean;
 }) {
+  const purged = Boolean(run.payloadPurgedAt);
   return (
     <article className="agent-run-row">
       <div>
@@ -501,24 +510,25 @@ function RunRow({
         </span>
       </div>
       <div>
-        <strong>{run.result?.headline ?? "Deterministic close review"}</strong>
-        <p>{run.result?.summary ?? "Evidence 正在收集或等待上游数据。"}</p>
+        <strong>{purged ? "正文已按保留策略清除" : run.result?.headline ?? "Deterministic close review"}</strong>
+        <p>{purged ? `审计 fingerprint 保留${run.evidenceFingerprint ? `：${run.evidenceFingerprint}` : ""}` : run.result?.summary ?? "Evidence 正在收集或等待上游数据。"}</p>
       </div>
       <div className="agent-feedback">
-        <button title="有帮助" onClick={() => void onFeedback("helpful")}>
+        <button title="有帮助" onClick={() => void onFeedback("helpful")} disabled={purged}>
           有帮助
         </button>
-        <button title="事实错误" onClick={() => void onFeedback("fact_error")}>
+        <button title="事实错误" onClick={() => void onFeedback("fact_error")} disabled={purged}>
           事实错误
         </button>
         <button
           title="缺少因素"
           onClick={() => void onFeedback("missing_factor")}
+          disabled={purged}
         >
           缺少因素
         </button>
-        <button title="删除本次记录" onClick={onDelete} disabled={deleting}>
-          {deleting ? "删除中" : "删除"}
+        <button title="删除本次记录" onClick={onDelete} disabled={deleting || purged}>
+          {purged ? "已清除" : deleting ? "删除中" : "删除"}
         </button>
       </div>
     </article>

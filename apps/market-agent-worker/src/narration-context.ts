@@ -366,13 +366,14 @@ function evidencePriority(item: EvidenceItem, scope: AskScope | undefined, selec
     : item.kind === "limitation" ? 1_900
       : item.kind === "execution_plan" ? 1_850
         : type === "market_status" ? 1_800
-          : item.kind === "market_event" ? 1_500
-            : item.kind === "portfolio_impact" ? 1_300
-              : item.kind === "prior_run" ? 1_250
-                : type === "quote" ? 1_100
-                  : evidenceType === "news" || evidenceType === "announcement" ? 1_000
-                    : type === "bar_series" ? 900
-                      : 500;
+          : item.kind === "snapshot_diff" ? 1_700
+            : item.kind === "market_event" ? 1_500
+              : item.kind === "portfolio_impact" ? 1_300
+                : item.kind === "prior_run" ? 1_250
+                  : type === "quote" ? 1_100
+                    : evidenceType === "news" || evidenceType === "announcement" ? 1_000
+                      : type === "bar_series" ? 900
+                        : 500;
   if (selectedInstrumentId && instrumentId === selectedInstrumentId) score += 350;
   if (scope === "data_quality" && (item.kind === "limitation" || type === "snapshot_context" || type === "market_status" || !item.reliable)) score += 800;
   if (scope === "news_and_announcements" && (evidenceType === "news" || evidenceType === "announcement")) score += 800;

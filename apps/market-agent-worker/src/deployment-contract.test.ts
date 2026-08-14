@@ -9,10 +9,12 @@ test("Market Agent beta calls the beta unified gateway without changing Producti
     queues: { producers: Array<{ queue: string }> };
     triggers?: { crons?: string[] };
     vars: { MARKET_AGENT_GATEWAY_URL?: string };
+    secrets: { required: string[] };
   };
   const productionConfig = JSON.parse(await readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8")) as {
     name: string;
     vars: { MARKET_AGENT_GATEWAY_URL?: string };
+    secrets: { required: string[] };
   };
   assert.equal(betaConfig.name, "zxlab-market-agent-beta");
   assert.equal(
@@ -24,4 +26,12 @@ test("Market Agent beta calls the beta unified gateway without changing Producti
   assert.equal(betaConfig.triggers, undefined);
   assert.equal(productionConfig.name, "zxlab-market-agent");
   assert.equal(productionConfig.vars.MARKET_AGENT_GATEWAY_URL, "https://zx-dx.xyz/api/ai/generate");
+  assert.ok(betaConfig.secrets.required.includes("MARKET_AGENT_MEMORY_TOKEN"));
+  assert.ok(productionConfig.secrets.required.includes("MARKET_AGENT_MEMORY_TOKEN"));
+});
+
+test("Market Agent uses its retrieve-only identity for Signal Memory", async () => {
+  const source = await readFile(new URL("./index.ts", import.meta.url), "utf8");
+  assert.match(source, /function contextReaderFor\(env: Env\): SignalMemoryAdapter \{ return new SignalMemoryAdapter\(\{[^}]*token: env\.MARKET_AGENT_MEMORY_TOKEN/);
+  assert.doesNotMatch(source, /function contextReaderFor\(env: Env\): SignalMemoryAdapter \{ return new SignalMemoryAdapter\(\{[^}]*token: env\.ZX_RUNTIME_SERVICE_TOKEN/);
 });

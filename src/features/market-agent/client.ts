@@ -24,6 +24,7 @@ export interface AgentRunView {
   createdAt: string;
   updatedAt: string;
   evidenceFingerprint: string | null;
+  payloadPurgedAt?: string | null;
   portfolioSnapshotId?: string | null;
   result?: {
     status: "success" | "partial";
@@ -37,6 +38,11 @@ export interface AgentRunView {
     limitations: string[];
     outcome?: RunOutcome;
   };
+}
+
+export interface AgentRunPage {
+  runs: AgentRunView[];
+  nextCursor: string | null;
 }
 
 export interface AgentAskIntent {
@@ -93,16 +99,23 @@ export class MarketAgentApiError extends Error {
 }
 
 export async function getAgentRuns(): Promise<AgentRunView[]> {
-  const response = await fetch("/api/private/market-agent/runs", {
+  return (await getAgentRunPage()).runs;
+}
+
+export async function getAgentRunPage(cursor?: string | null, limit = 20): Promise<AgentRunPage> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (cursor) params.set("cursor", cursor);
+  const response = await fetch(`/api/private/market-agent/runs?${params}`, {
     headers: { accept: "application/json" },
   });
   if (!response.ok) throw await apiError(response, "Agent Runs 暂不可用");
   const data = (await response.json()) as unknown;
-  return Array.isArray(data)
-    ? (data as AgentRunView[])
-    : Array.isArray((data as { runs?: unknown })?.runs)
-      ? (data as { runs: AgentRunView[] }).runs
-      : [];
+  if (Array.isArray(data)) return { runs: data as AgentRunView[], nextCursor: null };
+  const page = data as { runs?: unknown; nextCursor?: unknown };
+  return {
+    runs: Array.isArray(page?.runs) ? page.runs as AgentRunView[] : [],
+    nextCursor: typeof page?.nextCursor === "string" ? page.nextCursor : null,
+  };
 }
 
 export async function getAgentRun(runId: string, signal?: AbortSignal): Promise<AgentRunView> {
@@ -362,20 +375,23 @@ export async function sendRunFeedback(
   if (!response.ok) throw await apiError(response, "反馈未保存");
 }
 
-export async function exportAgentRuns(): Promise<unknown> {
+export async function exportAgentRuns(): Promise<Blob> {
   const response = await fetch("/api/private/market-agent/export", {
     headers: { accept: "application/json" },
   });
   if (!response.ok) throw await apiError(response, "记录导出失败");
-  return (await response.json()) as unknown;
+  return response.blob();
 }
 
-export async function deleteAgentRun(runId: string): Promise<void> {
+export async function deleteAgentRun(runId: string): Promise<{ runId: string; evidenceFingerprint: string | null; purgedAt: string; reason: "user_deleted" }> {
   const response = await fetch(
     `/api/private/market-agent/runs/${encodeURIComponent(runId)}`,
     { method: "DELETE", headers: { accept: "application/json" } },
   );
   if (!response.ok) throw await apiError(response, "记录删除失败");
+  const data = await response.json() as { tombstone?: unknown };
+  if (!data.tombstone || typeof data.tombstone !== "object") throw new MarketAgentApiError("RUN_TOMBSTONE_INVALID", "记录删除结果无效", response.status);
+  return data.tombstone as { runId: string; evidenceFingerprint: string | null; purgedAt: string; reason: "user_deleted" };
 }
 
 async function apiError(response: Response, fallback: string): Promise<MarketAgentApiError> {

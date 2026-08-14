@@ -16,6 +16,17 @@ Beta is isolated from Production at the Worker state boundary:
 - beta has no cron trigger; acceptance Runs are created explicitly;
 - only the beta Worker points to
   `https://beta.zxlab.pages.dev/api/ai/generate`.
+- Signal and the beta Market Agent share a dedicated encrypted
+  `MARKET_AGENT_MEMORY_TOKEN`; Signal accepts it only for
+  `POST /api/memory/retrieve`.
+- Apply Market Agent migrations through `0008_evidence_checkpoints.sql` before
+  deploying the Phase 6.5 Worker. Migrations `0007` and `0008` add archive
+  tombstones, keyset pagination indexes, checkpoint Events, and retention state.
+- beta intentionally has no cron trigger, so Preview acceptance can verify the
+  archive contract and migrations but not the scheduled retention trigger.
+- Signal Memory is a single-owner personal domain in Phase 6.5. Do not admit a
+  second independent owner until Signal Memory storage and retrieval are
+  owner-scoped.
 
 Run the environment gate after the beta Pages deployment and beta Worker deploy:
 

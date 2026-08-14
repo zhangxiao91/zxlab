@@ -1,4 +1,6 @@
 import { compatibleAgentResult, validateSealedEvidence, type AgentResult, type AgentRun, type MarketAgentCommand, type RunClaimResult, type RunCreation, type SealedEvidenceBundle } from "@zxlab/market-agent-schema";
+import { parseMarketSnapshot } from "@zxlab/market-schema";
+import { verifyRunCheckpoint, type RunCheckpoint } from "./run-checkpoint.ts";
 
 export class D1RunRepository {
   private readonly db: D1Database;
@@ -25,6 +27,31 @@ export class D1RunRepository {
       return null;
     }
   }
+  async checkpoint(runId: string, profileId: string, leaseToken: string, checkpoint: RunCheckpoint): Promise<boolean> {
+    if (checkpoint.evidence.profileId !== profileId || validateSealedEvidence(checkpoint.evidence).length || !await verifyRunCheckpoint(checkpoint)) return false;
+    const now = new Date().toISOString();
+    const statements = [
+      this.db.prepare("UPDATE agent_runs SET status = 'evidence_sealed', evidence_fingerprint = ?, evidence_json = ?, updated_at = ? WHERE id = ? AND profile_id = ? AND lease_token = ? AND status = 'collecting' AND NOT EXISTS (SELECT 1 FROM run_market_snapshots WHERE run_id = ?)").bind(checkpoint.evidence.fingerprint, JSON.stringify(checkpoint.evidence), now, runId, profileId, leaseToken, runId),
+      this.db.prepare("INSERT INTO run_market_snapshots (run_id, snapshot_json, fingerprint, created_at) SELECT ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM agent_runs WHERE id = ? AND profile_id = ? AND lease_token = ? AND status = 'evidence_sealed') ON CONFLICT(run_id) DO NOTHING").bind(runId, JSON.stringify(checkpoint.snapshot), checkpoint.integrityFingerprint, now, runId, profileId, leaseToken),
+      ...checkpoint.evidence.items.flatMap((item) => {
+        const event = item.kind === "market_event" && record(item.value);
+        if (!event || typeof event.dedupeKey !== "string") return [];
+        return [this.db.prepare("INSERT INTO run_market_events (id, run_id, event_json, dedupe_key, created_at) SELECT ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM agent_runs WHERE id = ? AND profile_id = ? AND lease_token = ? AND status = 'evidence_sealed')").bind(item.id, runId, JSON.stringify(item.value), event.dedupeKey, now, runId, profileId, leaseToken)];
+      }),
+    ];
+    const responses = await this.db.batch(statements);
+    return Boolean(responses[0]?.meta.changes);
+  }
+  async getCheckpoint(runId: string, profileId: string): Promise<RunCheckpoint | null> {
+    const row = await this.db.prepare("SELECT rms.snapshot_json, rms.fingerprint, ar.evidence_json FROM agent_runs ar JOIN run_market_snapshots rms ON rms.run_id = ar.id WHERE ar.id = ? AND ar.profile_id = ? AND ar.evidence_json IS NOT NULL AND ar.status IN ('collecting','evidence_sealed','generating','validating','retry_wait','success','partial')").bind(runId, profileId).first<{ snapshot_json: string; fingerprint: string; evidence_json: string }>();
+    const checkpoint = parseCheckpointRow(row, profileId);
+    return checkpoint && await verifyRunCheckpoint(checkpoint) ? checkpoint : null;
+  }
+  async getPreviousCheckpoint(runId: string, profileId: string): Promise<RunCheckpoint | null> {
+    const row = await this.db.prepare("SELECT rms.snapshot_json, rms.fingerprint, previous.evidence_json FROM agent_runs current JOIN agent_runs previous ON previous.profile_id = current.profile_id AND previous.workflow = current.workflow AND (previous.created_at < current.created_at OR (previous.created_at = current.created_at AND previous.id < current.id)) JOIN run_market_snapshots rms ON rms.run_id = previous.id WHERE current.id = ? AND current.profile_id = ? AND previous.status IN ('success','partial') AND previous.evidence_json IS NOT NULL ORDER BY previous.created_at DESC, previous.id DESC LIMIT 1").bind(runId, profileId).first<{ snapshot_json: string; fingerprint: string; evidence_json: string }>();
+    const checkpoint = parseCheckpointRow(row, profileId);
+    return checkpoint && await verifyRunCheckpoint(checkpoint) ? checkpoint : null;
+  }
   async list(profileId: string, limit = 50): Promise<AgentRun[]> { const result = await this.db.prepare("SELECT * FROM agent_runs WHERE profile_id = ? ORDER BY created_at DESC LIMIT ?").bind(profileId, limit).all<Record<string, unknown>>(); return result.results.map(rowToRun); }
   async delete(runId: string, profileId: string): Promise<boolean> {
     const deleted = await this.db.batch([
@@ -41,8 +68,8 @@ export class D1RunRepository {
   async findByIdempotencyKey(key: string): Promise<AgentRun | null> { const row = await this.db.prepare("SELECT * FROM agent_runs WHERE idempotency_key = ?").bind(key).first<Record<string, unknown>>(); return row ? rowToRun(row) : null; }
   async recordScheduleDecision(input: { workflow: "morning_brief" | "close_review"; marketDate: string; decision: "skipped" | "blocked"; calendarSource: string; reason: string }): Promise<void> { await this.db.prepare("INSERT INTO agent_schedule_decisions (workflow, market_date, decision, calendar_source, reason, decided_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(workflow, market_date) DO NOTHING").bind(input.workflow, input.marketDate, input.decision, input.calendarSource, input.reason, new Date().toISOString()).run(); }
   async runtimeHealth(): Promise<{ retryWait: number; pendingDispatches: number }> { const [runs, outbox] = await this.db.batch([this.db.prepare("SELECT COUNT(*) AS retry_wait FROM agent_runs WHERE status = 'retry_wait'"), this.db.prepare("SELECT COUNT(*) AS pending_dispatches FROM run_dispatch_outbox WHERE status = 'pending'")]); const runCounts = (runs.results?.[0] ?? {}) as Record<string, unknown>; const outboxCounts = (outbox.results?.[0] ?? {}) as Record<string, unknown>; return { retryWait: Number(runCounts.retry_wait ?? 0), pendingDispatches: Number(outboxCounts.pending_dispatches ?? 0) }; }
-  async qualityMetrics(limit = 50): Promise<{ total: number; completed: number; model: number; modelRepaired: number; deterministicFallback: number; evidenceSufficient: number; providerFallback: number; portfolioAware: number }> {
-    const result = await this.db.prepare("SELECT result_json FROM agent_runs WHERE result_json IS NOT NULL ORDER BY created_at DESC LIMIT ?").bind(limit).all<{ result_json: string }>();
+  async qualityMetrics(profileId: string, limit = 50): Promise<{ total: number; completed: number; model: number; modelRepaired: number; deterministicFallback: number; evidenceSufficient: number; providerFallback: number; portfolioAware: number }> {
+    const result = await this.db.prepare("SELECT result_json FROM agent_runs WHERE profile_id = ? AND result_json IS NOT NULL ORDER BY created_at DESC LIMIT ?").bind(profileId, limit).all<{ result_json: string }>();
     const runs = result.results.flatMap((row) => { try { return [compatibleAgentResult(JSON.parse(row.result_json) as AgentResult)]; } catch { return []; } });
     return {
       total: runs.length,
@@ -92,4 +119,20 @@ export class D1RunRepository {
   }
 }
 
+function parseCheckpointRow(row: { snapshot_json: string; fingerprint: string; evidence_json: string } | null | undefined, profileId: string): RunCheckpoint | null {
+  if (!row?.snapshot_json || !row.evidence_json) return null;
+  try {
+    const snapshot = parseMarketSnapshot(JSON.parse(row.snapshot_json) as unknown);
+    const evidence = JSON.parse(row.evidence_json) as unknown;
+    if (validateSealedEvidence(evidence).length) return null;
+    const sealed = evidence as SealedEvidenceBundle;
+    if (sealed.profileId !== profileId) return null;
+    if (!/^sha256:[a-f0-9]{64}$/.test(row.fingerprint)) return null;
+    return { snapshot, evidence: sealed, integrityFingerprint: row.fingerprint as `sha256:${string}` };
+  } catch {
+    return null;
+  }
+}
+
 function rowToRun(row: Record<string, unknown>): AgentRun { return { id: String(row.id), profileId: String(row.profile_id), workflow: row.workflow as AgentRun["workflow"], trigger: row.trigger as AgentRun["trigger"], status: row.status as AgentRun["status"], idempotencyKey: String(row.idempotency_key), commandHash: String(row.command_hash), revisionOfRunId: row.revision_of_run_id ? String(row.revision_of_run_id) : null, portfolioSnapshotId: row.portfolio_snapshot_id ? String(row.portfolio_snapshot_id) : null, attempt: Number(row.attempt ?? 0), recoveryGeneration: Number(row.recovery_generation ?? 0), createdAt: String(row.created_at), updatedAt: String(row.updated_at), evidenceFingerprint: row.evidence_fingerprint ? String(row.evidence_fingerprint) : null, failure: row.failure_json ? JSON.parse(String(row.failure_json)) : null, ...(row.result_json ? { result: compatibleAgentResult(JSON.parse(String(row.result_json)) as AgentResult) } : {}) }; }
+function record(value: unknown): Record<string, unknown> | null { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null; }

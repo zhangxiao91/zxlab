@@ -101,6 +101,7 @@ export class D1PortfolioSnapshotRepository {
       ...snapshots.results.map((snapshot) => this.db.prepare("INSERT INTO portfolio_purge_tombstones (id, profile_id, snapshot_id, snapshot_fingerprint, purged_at, purged_run_count, scope) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(crypto.randomUUID(), profileId, snapshot.id, snapshot.fingerprint, now, countBySnapshot.get(snapshot.id) ?? 0, scope)),
       this.db.prepare(`DELETE FROM agent_feedback WHERE profile_id = ? AND run_id IN (${runScope})`).bind(profileId, ...runBindings),
       this.db.prepare(`DELETE FROM market_events WHERE run_id IN (${runScope})`).bind(...runBindings),
+      this.db.prepare(`DELETE FROM run_market_events WHERE run_id IN (${runScope})`).bind(...runBindings),
       this.db.prepare(`DELETE FROM run_market_snapshots WHERE run_id IN (${runScope})`).bind(...runBindings),
       this.db.prepare(`DELETE FROM run_dispatch_outbox WHERE run_id IN (${runScope})`).bind(...runBindings),
       this.db.prepare(`DELETE FROM dead_letter_records WHERE run_id IN (${runScope})`).bind(...runBindings),

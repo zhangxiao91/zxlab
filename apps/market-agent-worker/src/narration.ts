@@ -35,6 +35,7 @@ export class DeterministicNarrator implements Narrator {
   async narrate(input: NarrationInput): Promise<AgentNarration> {
     const facts = input.evidence.items.filter((item) => item.kind === "market_fact");
     const events = input.evidence.items.filter((item) => item.kind === "market_event");
+    const snapshotDiffs = input.evidence.items.filter((item) => item.kind === "snapshot_diff");
     const marketState = deterministicMarketState(input.evidence);
     const eventObservations: AgentObservation[] = events.map((item, index) => {
       const event = item.value as { instrumentId: string | null; kind: string; actual: number | string | null };
@@ -45,7 +46,24 @@ export class DeterministicNarrator implements Narrator {
       .filter((item) => input.workflow === "ask" || record(item.value)?.type === "quote")
       .slice(0, input.workflow === "ask" ? 24 : 12)
       .flatMap((item, index) => askFactObservation(item, index, marketState));
-    const observations = [...factObservations, ...eventObservations];
+    const diffObservations: AgentObservation[] = snapshotDiffs.flatMap((item, itemIndex) => {
+      const value = record(item.value);
+      const changes = Array.isArray(value?.changes) ? value.changes : [];
+      return changes.slice(0, 12).flatMap((raw, changeIndex) => {
+        const change = record(raw);
+        if (change?.kind !== "quote_price" || typeof change.instrumentId !== "string") return [];
+        const deltaBps = Number(change.deltaBps);
+        return [{
+          id: `deterministic-diff-${itemIndex}-${changeIndex}`,
+          class: item.reliable ? "fact" as const : "unknown" as const,
+          importance: Number.isFinite(deltaBps) && Math.abs(deltaBps) >= 1000 ? "high" as const : "medium" as const,
+          title: `${change.instrumentId} 较上次冻结快照发生变化`,
+          explanation: item.reliable && Number.isFinite(deltaBps) ? `确定性差分为 ${deltaBps} bps。` : "冻结快照存在变化，但底层数据质量不足，当前只能标记为未知。",
+          evidenceIds: [item.id],
+        }];
+      });
+    });
+    const observations = [...factObservations, ...diffObservations, ...eventObservations];
     const portfolioImpacts: AgentObservation[] = input.evidence.items.flatMap((item, index) => {
       const value = item.value as { type?: unknown; impact?: { marketValue?: unknown; unrealizedPnl?: unknown; concentration?: unknown } };
       if (item.kind !== "portfolio_impact" || !item.reliable || value.type !== "risk_impact" || !value.impact) return [];

@@ -125,9 +125,9 @@ test("portfolio history purge remains profile-scoped and cascades associated run
     ),
   );
   const cascades = statements.filter((statement) =>
-    /DELETE FROM (agent_feedback|market_events|run_market_snapshots|run_dispatch_outbox|dead_letter_records|agent_runs)/.test(statement.sql),
+    /DELETE FROM (agent_feedback|market_events|run_market_events|run_market_snapshots|run_dispatch_outbox|dead_letter_records|agent_runs)/.test(statement.sql),
   );
-  assert.equal(cascades.length, 6);
+  assert.equal(cascades.length, 7);
   for (const statement of cascades) {
     assert.match(statement.sql, /agent_runs WHERE profile_id = \?/);
     assert.ok(statement.values.includes("profile-owner"));

@@ -20,7 +20,7 @@ export type AskScope = typeof ASK_SCOPES[number];
 export type AgentWorkflow = "morning_brief" | "close_review" | "inspect_instrument" | "portfolio_impact" | "ask";
 export type RunTrigger = "manual" | "scheduled" | "bot";
 export type RunStatus = "queued" | "collecting" | "evidence_sealed" | "generating" | "validating" | "retry_wait" | "success" | "partial" | "failed";
-export type EvidenceKind = "market_fact" | "market_event" | "portfolio_impact" | "confirmed_context" | "limitation" | "execution_plan" | "prior_run";
+export type EvidenceKind = "market_fact" | "market_event" | "snapshot_diff" | "portfolio_impact" | "confirmed_context" | "limitation" | "execution_plan" | "prior_run";
 export type ObservationClass = "fact" | "inference" | "unknown";
 export type ObservationImportance = "high" | "medium" | "low";
 export type EvidenceCoverage = "sufficient" | "limited" | "insufficient";
@@ -176,7 +176,7 @@ export function validateBrowserRunIntent(value: unknown): string[] {
   const issues: string[] = [];
   if (!isRecord(value)) return ["intent must be an object"];
   if (!oneOf(value.workflow, ["morning_brief", "close_review", "inspect_instrument", "portfolio_impact"])) issues.push("workflow is invalid");
-  if (typeof value.idempotencyKey !== "string" || value.idempotencyKey.length < 8 || value.idempotencyKey.length > 180) issues.push("idempotencyKey is invalid");
+  if (!validIdempotencyKey(value.idempotencyKey)) issues.push("idempotencyKey is invalid");
   if (value.instrumentId !== undefined && (typeof value.instrumentId !== "string" || value.instrumentId.length > 32)) issues.push("instrumentId is invalid");
   if (value.question !== undefined && (typeof value.question !== "string" || value.question.length > 4000 || value.workflow !== "inspect_instrument")) issues.push("question is invalid");
   if (value.marketDate !== undefined && (typeof value.marketDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value.marketDate))) issues.push("marketDate is invalid");
@@ -189,7 +189,7 @@ export function validateBrowserAskIntent(value: unknown): string[] {
   if (!isRecord(value)) return ["ask intent must be an object"];
   exactKeys(value, ["scope", "instrumentId", "question", "priorRunId", "idempotencyKey"], "ask", issues);
   if (!oneOf(value.scope, ASK_SCOPES)) issues.push("scope is invalid");
-  if (typeof value.idempotencyKey !== "string" || value.idempotencyKey.length < 8 || value.idempotencyKey.length > 180) issues.push("idempotencyKey is invalid");
+  if (!validIdempotencyKey(value.idempotencyKey)) issues.push("idempotencyKey is invalid");
   if (value.instrumentId !== undefined && (typeof value.instrumentId !== "string" || !/^(SSE|SZSE):\d{6}$/i.test(value.instrumentId.trim()))) issues.push("instrumentId is invalid");
   if (value.question !== undefined && (typeof value.question !== "string" || value.question.trim().length > 800)) issues.push("question is invalid");
   if (value.priorRunId !== undefined && (typeof value.priorRunId !== "string" || !/^[A-Za-z0-9._:-]{1,120}$/.test(value.priorRunId))) issues.push("priorRunId is invalid");
@@ -200,6 +200,10 @@ export function validateBrowserAskIntent(value: unknown): string[] {
 
 export function isMarketAgentAskCommand(command: MarketAgentCommand): command is MarketAgentAskCommand {
   return command.workflow === "ask";
+}
+
+function validIdempotencyKey(value: unknown): value is string {
+  return typeof value === "string" && /^[A-Za-z0-9._:-]{8,180}$/.test(value);
 }
 
 export function normalizePortfolioSnapshotUpload(value: unknown, now = Date.now()): PortfolioSnapshotUploadValidation {

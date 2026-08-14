@@ -98,3 +98,24 @@ test("relative-performance context carries selected rank and prioritizes the sel
   assert.equal(breadth.observedCount, 3);
   assert.ok(context.evidence.findIndex((item) => item.id === "quote-selected") < context.evidence.findIndex((item) => item.id === "quote-middle"));
 });
+
+test("close review keeps the point-in-time Snapshot diff ahead of a large quote set", () => {
+  const quotes: EvidenceItem[] = Array.from({ length: 120 }, (_, index) => ({
+    id: `quote-${index}`,
+    kind: "market_fact",
+    origin: "server-observed",
+    reliable: true,
+    value: { type: "quote", instrumentId: `SSE:${String(600000 + index).padStart(6, "0")}`, price: 10 + index, previousClose: 10, quality: "live", stale: false },
+  }));
+  const diff: EvidenceItem = {
+    id: "snapshot-diff",
+    kind: "snapshot_diff",
+    origin: "server-observed",
+    reliable: true,
+    value: { previousAsOf: "2026-08-06T08:00:00.000Z", currentAsOf: "2026-08-07T08:00:00.000Z", changes: [{ kind: "quote_price", instrumentId: "SSE:600000", previous: 10, current: 11, delta: 1, deltaBps: 1000 }] },
+  };
+
+  const context = buildNarrationContext({ evidence: evidence([...quotes, diff]), workflow: "close_review" });
+
+  assert.ok(context.evidence.some((item) => item.id === "snapshot-diff"));
+});

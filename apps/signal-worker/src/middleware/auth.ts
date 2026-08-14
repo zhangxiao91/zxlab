@@ -52,13 +52,22 @@ function bridgeMemoryRoute(request: Request, pathname: string): boolean {
   return request.method === "POST" && pathname === "/api/memory/items";
 }
 
+function marketAgentMemoryRoute(request: Request, pathname: string): boolean {
+  return request.method === "POST" && pathname === "/api/memory/retrieve";
+}
+
 export async function requireWriteAccess(request: Request, env: Env, pathname = new URL(request.url).pathname): Promise<void> {
   const bridgeToken = String(env.ZX_MEMORY_BRIDGE_TOKEN ?? "").trim();
+  const marketAgentToken = String(env.MARKET_AGENT_MEMORY_TOKEN ?? "").trim();
   const authorization = request.headers.get("authorization") ?? "";
   const providedBearer = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
   const runtimeToken = String(env.ZX_RUNTIME_SERVICE_TOKEN ?? "").trim();
+  if (marketAgentToken && providedBearer && (marketAgentToken === runtimeToken || marketAgentToken === bridgeToken) && await safeEqual(providedBearer, marketAgentToken)) {
+    throw new SignalError("UNAUTHORIZED", "The Market Agent Memory identity is not isolated", 401);
+  }
   if (runtimeToken && providedBearer && await safeEqual(providedBearer, runtimeToken)) return;
   if (bridgeToken && bridgeMemoryRoute(request, pathname) && providedBearer && await safeEqual(providedBearer, bridgeToken)) return;
+  if (marketAgentToken && marketAgentMemoryRoute(request, pathname) && providedBearer && await safeEqual(providedBearer, marketAgentToken)) return;
 
   if (String(env.ENVIRONMENT) === "development") {
     if (providedBearer && await safeEqual(providedBearer, env.ZX_SIGNAL_WRITE_TOKEN)) return;

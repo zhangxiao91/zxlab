@@ -3,6 +3,8 @@ import type { RiskImpact } from "@zxlab/risk-domain";
 import type { AgentResult, AgentRun, ConfirmedContext, ConfirmedContextUse, EvidenceItem, MarketAgentAskCommand, MarketAgentCommand, MarketEvent, PortfolioSnapshot, RunClaimResult, RunCreation, SealedEvidenceBundle } from "@zxlab/market-agent-schema";
 import { EVENT_RULE_VERSION, MARKET_AGENT_SCHEMA_VERSION, eventEvidenceId, isMarketAgentAskCommand } from "@zxlab/market-agent-schema";
 import type { AskEvidencePlan } from "./ask-plan.ts";
+import type { RunCheckpoint } from "./run-checkpoint.ts";
+import { diffMarketSnapshots } from "./snapshot-diff.ts";
 
 export interface EventDetectionRules { absoluteMoveBps: number; }
 
@@ -21,7 +23,7 @@ export class DeterministicMarketEventDetector {
 
 export interface PortfolioEvidenceInput { snapshot: PortfolioSnapshot; impact: RiskImpact | null; reliable: boolean; limitations: string[]; }
 
-export async function buildDeterministicCloseReview(command: MarketAgentCommand, snapshot: MarketSnapshot, events: MarketEvent[], runId: string, watchlistRevision = "unconfigured", portfolio?: PortfolioEvidenceInput, confirmedContext?: { contexts: ConfirmedContext[]; limitations: string[] }): Promise<SealedEvidenceBundle> {
+export async function buildDeterministicCloseReview(command: MarketAgentCommand, snapshot: MarketSnapshot, events: MarketEvent[], runId: string, watchlistRevision = "unconfigured", portfolio?: PortfolioEvidenceInput, confirmedContext?: { contexts: ConfirmedContext[]; limitations: string[] }, previous?: MarketSnapshot): Promise<SealedEvidenceBundle> {
   const items: EvidenceItem[] = [{
     id: `${runId}:snapshot:context`,
     kind: "market_fact",
@@ -54,6 +56,8 @@ export async function buildDeterministicCloseReview(command: MarketAgentCommand,
   snapshot.data.news.forEach((news, index) => items.push({ id: `${runId}:news:${index}`, kind: "market_fact", origin: "server-observed", value: { evidenceType: "news", ...news }, reliable: externalTextReliable(news.publishedAt, news.warnings) }));
   snapshot.data.announcements.forEach((announcement, index) => items.push({ id: `${runId}:announcement:${index}`, kind: "market_fact", origin: "server-observed", value: { evidenceType: "announcement", ...announcement }, reliable: externalTextReliable(announcement.publishedAt, announcement.warnings) }));
   snapshot.data.status.forEach((status, index) => items.push({ id: `${runId}:status:${index}`, kind: "market_fact", origin: "server-observed", value: { type: "market_status", ...status }, reliable: status.reliable }));
+  const snapshotDiff = previous ? diffMarketSnapshots(previous, snapshot) : null;
+  if (snapshotDiff) items.push({ id: `${runId}:snapshot-diff`, kind: "snapshot_diff", origin: "server-observed", value: snapshotDiff, reliable: Boolean(previous?.quality.reliable && snapshot.quality.reliable) });
   for (const capability of snapshot.capabilities.filter(materialCapabilityLimitation)) items.push({ id: `${runId}:limitation:${items.length}`, kind: "limitation", origin: "server-observed", value: { capability: capability.id, status: capability.status, freshness: capability.freshness, warnings: capability.warnings }, reliable: true });
   if (!snapshot.quality.reliable || snapshot.quality.warnings.length) items.push({ id: `${runId}:limitation:quality`, kind: "limitation", origin: "server-observed", value: { quality: snapshot.quality.status, freshness: snapshot.quality.freshness, warnings: snapshot.quality.warnings, unavailableCapabilities: snapshot.quality.unavailableCapabilities }, reliable: true });
   if (portfolio) {
@@ -89,7 +93,7 @@ export async function buildDeterministicCloseReview(command: MarketAgentCommand,
   const commandForFingerprint = isMarketAgentAskCommand(command)
     ? { workflow: command.workflow, profileId: command.profileId, scope: command.scope, instrumentId: command.instrumentId ?? null, priorRunId: command.priorRunId ?? null, resolvedInstrumentIds: command.resolvedInstrumentIds }
     : { workflow: command.workflow, profileId: command.profileId, instrumentId: command.instrumentId ?? null, marketDate: command.marketDate ?? null };
-  const canonical = stableFingerprint({ command: commandForFingerprint, snapshot, events, watchlistRevision, portfolio: portfolio ? portfolio.reliable ? { snapshot: portfolio.snapshot, impact: portfolio.impact, limitations: portfolio.limitations } : { snapshotId: portfolio.snapshot.id, reliable: false, limitations: portfolio.limitations } : null, contextUses });
+  const canonical = stableFingerprint({ command: commandForFingerprint, snapshot, snapshotDiff, events, watchlistRevision, portfolio: portfolio ? portfolio.reliable ? { snapshot: portfolio.snapshot, impact: portfolio.impact, limitations: portfolio.limitations } : { snapshotId: portfolio.snapshot.id, reliable: false, limitations: portfolio.limitations } : null, contextUses });
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical)));
   return { schemaVersion: MARKET_AGENT_SCHEMA_VERSION, eventRuleVersion: EVENT_RULE_VERSION, profileId: command.profileId, workflow: command.workflow, watchlistRevision, instrumentIds: snapshot.request.instrumentIds, items, contextUses, fingerprint: `sha256:${[...digest].map((byte) => byte.toString(16).padStart(2, "0")).join("")}`, sealedAt: new Date().toISOString() };
 }
@@ -104,6 +108,7 @@ export async function buildDeterministicAskEvidence(input: {
   portfolio?: PortfolioEvidenceInput;
   confirmedContext?: { contexts: ConfirmedContext[]; limitations: string[] };
   previous?: { runId: string; workflow: string; createdAt: string; evidenceFingerprint: string; result: AgentResult };
+  previousSnapshot?: MarketSnapshot;
 }): Promise<SealedEvidenceBundle> {
   const base = await buildDeterministicCloseReview(
     input.command,
@@ -113,6 +118,7 @@ export async function buildDeterministicAskEvidence(input: {
     input.watchlistRevision,
     input.portfolio,
     input.confirmedContext,
+    input.previousSnapshot,
   );
   const items: EvidenceItem[] = [
     ...base.items,
@@ -193,6 +199,7 @@ function materialCapabilityLimitation(capability: MarketSnapshot["capabilities"]
 
 export class MemoryRunRepository {
   private readonly runs = new Map<string, AgentRun>();
+  private readonly checkpoints = new Map<string, RunCheckpoint>();
   async createQueued(command: MarketAgentCommand, request: RunCreation): Promise<{ run: AgentRun; created: boolean }> {
     const existing = [...this.runs.values()].find((run) => run.profileId === command.profileId && run.idempotencyKey === command.idempotencyKey);
     if (existing) { if (existing.commandHash !== request.commandHash) throw new Error("IDEMPOTENCY_KEY_REUSED"); return { run: existing, created: false }; }
@@ -201,6 +208,21 @@ export class MemoryRunRepository {
     this.runs.set(run.id, run); return { run, created: true };
   }
   async get(runId: string) { return this.runs.get(runId) ?? null; }
+  async checkpoint(runId: string, profileId: string, leaseToken: string, checkpoint: RunCheckpoint): Promise<boolean> {
+    const run = this.runs.get(runId);
+    const leased = run as (AgentRun & { leaseToken?: string }) | undefined;
+    if (!run || run.profileId !== profileId || leased?.leaseToken !== leaseToken || run.status !== "collecting") return false;
+    run.status = "evidence_sealed";
+    run.evidenceFingerprint = checkpoint.evidence.fingerprint;
+    run.updatedAt = new Date().toISOString();
+    this.checkpoints.set(runId, structuredClone(checkpoint));
+    return true;
+  }
+  async getCheckpoint(runId: string, profileId: string): Promise<RunCheckpoint | null> {
+    const run = this.runs.get(runId);
+    const checkpoint = this.checkpoints.get(runId);
+    return run?.profileId === profileId && checkpoint ? structuredClone(checkpoint) : null;
+  }
   async findByIdempotencyKey(key: string) { return [...this.runs.values()].find((run) => run.idempotencyKey === key) ?? null; }
   async claim(runId: string, workerId: string, now: string, leaseExpiresAt: string): Promise<RunClaimResult> {
     const run = this.runs.get(runId); if (!run) return { kind: "missing" }; const leased = run as AgentRun & { leaseOwner?: string; leaseToken?: string; leaseExpiresAt?: string }; if (["success", "partial", "failed"].includes(run.status)) return { kind: "terminal" }; if (leased.leaseExpiresAt && leased.leaseExpiresAt > now) return { kind: "leased", retryAfter: leased.leaseExpiresAt };

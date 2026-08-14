@@ -31,6 +31,23 @@ test("gateway failure exposes structured deterministic fallback provenance", asy
   assert.deepEqual(result.provenance.failure, { stage: "gateway", code: "ALL_CANDIDATES_FAILED", retryable: true });
 });
 
+test("deterministic narration preserves a reliable point-in-time Snapshot diff", async () => {
+  const withDiff: SealedEvidenceBundle = {
+    ...evidence,
+    items: [...evidence.items, {
+      id: "snapshot-diff",
+      kind: "snapshot_diff",
+      origin: "server-observed",
+      reliable: true,
+      value: { previousAsOf: "2026-08-04T08:00:00.000Z", currentAsOf: "2026-08-05T08:00:00.000Z", changes: [{ kind: "quote_price", instrumentId: "SSE:600000", previous: 10, current: 11, delta: 1, deltaBps: 1000 }] },
+    }],
+  };
+
+  const result = await new DeterministicNarrator().narrate({ workflow: "close_review", evidence: withDiff });
+
+  assert.ok(result.observations.some((item) => item.title.includes("较上次") && item.evidenceIds.includes("snapshot-diff")));
+});
+
 test("Chinese inference wording passes uncertainty validation", async () => {
   const candidate = {
     status: "success",

@@ -16,6 +16,33 @@ test("close review seals evidence before narration", async () => {
   assert.ok(result.result.observations.some((item) => item.evidenceIds.includes(eventEvidence.id)));
 });
 
+test("close review resumes the same sealed Evidence Bundle without recollecting Market Facts", async () => {
+  let checkpoint: Parameters<CloseReviewService["execute"]>[0]["checkpoint"];
+  const first = await new CloseReviewService({ getCurrentSnapshot: async () => snapshot }).execute({
+    runId: "run-checkpoint",
+    command: { profileId: "p1", trigger: "manual", workflow: "close_review", idempotencyKey: "close-review-checkpoint" },
+    instrumentIds: ["SSE:600000"],
+    watchlistRevision: "w1",
+    onCheckpoint: async (value) => { checkpoint = value; },
+  });
+  assert.ok(checkpoint);
+
+  const resumed = await new CloseReviewService({
+    getCurrentSnapshot: async () => { throw new Error("Market Facts must not be recollected after evidence_sealed"); },
+  }, undefined, {
+    retrieve: async () => { throw new Error("Signal Memory must not be reread after evidence_sealed"); },
+  }).execute({
+    runId: "run-checkpoint",
+    command: { profileId: "p1", trigger: "manual", workflow: "close_review", idempotencyKey: "close-review-checkpoint" },
+    instrumentIds: ["SSE:600000"],
+    watchlistRevision: "w1",
+    checkpoint,
+  });
+
+  assert.equal(resumed.evidence.fingerprint, first.evidence.fingerprint);
+  assert.equal(resumed.evidence.sealedAt, first.evidence.sealedAt);
+});
+
 test("close review seals only context references while passing context ephemerally", async () => {
   const item = {
     memoryId: "memory-close",
@@ -46,6 +73,36 @@ test("morning brief keeps its workflow through sealed evidence and narration", a
   const result = await service.execute({ runId: "run-morning", command: { profileId: "p1", trigger: "scheduled", workflow: "morning_brief", idempotencyKey: "morning-brief-1" }, instrumentIds: ["SSE:600000"], watchlistRevision: "w1" });
   assert.equal(result.evidence.workflow, "morning_brief");
   assert.match(result.result.headline, /盘前简报/);
+});
+
+test("close review seals a deterministic point-in-time diff against the prior frozen Market Snapshot", async () => {
+  const previous: MarketSnapshot = {
+    ...snapshot,
+    asOf: "2026-08-04T08:00:00.000Z",
+    receivedAt: "2026-08-04T08:00:01.000Z",
+    data: {
+      ...snapshot.data,
+      quotes: snapshot.data.quotes.map((quote) => ({ ...quote, price: 11, receivedAt: "2026-08-04T08:00:01.000Z", marketTimestamp: "2026-08-04T07:59:00.000Z" })),
+    },
+  };
+  const output = await new CloseReviewService({ getCurrentSnapshot: async () => snapshot }).execute({
+    runId: "run-diff",
+    command: { profileId: "p1", trigger: "manual", workflow: "close_review", idempotencyKey: "close-review-diff" },
+    instrumentIds: ["SSE:600000"],
+    watchlistRevision: "w1",
+    previous,
+  });
+
+  const diff = output.evidence.items.find((item) => item.kind === "snapshot_diff");
+  assert.ok(diff);
+  assert.deepEqual((diff.value as { changes: unknown[] }).changes[0], {
+    kind: "quote_price",
+    instrumentId: "SSE:600000",
+    previous: 11,
+    current: 12,
+    delta: 1,
+    deltaBps: 909,
+  });
 });
 
 test("a model-completed review stays successful when a usable provider fallback preserves evidence", async () => {

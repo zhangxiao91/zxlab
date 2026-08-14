@@ -68,6 +68,43 @@ describe("Cloudflare Access authentication", () => {
     )).rejects.toMatchObject({ code: "UNAUTHORIZED" });
   });
 
+  it("allows the Market Agent token only to retrieve Memory", async () => {
+    const env = accessEnv({ MARKET_AGENT_MEMORY_TOKEN: "market-agent-memory-secret" });
+    const headers = { authorization: "Bearer market-agent-memory-secret" };
+    await expect(requireWriteAccess(
+      new Request("https://signal.example/api/memory/retrieve", { method: "POST", headers }),
+      env,
+    )).resolves.toBeUndefined();
+    await expect(requireWriteAccess(
+      new Request("https://signal.example/api/memory/items", { method: "POST", headers }),
+      env,
+    )).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    await expect(requireWriteAccess(
+      new Request("https://signal.example/api/memory/events", { method: "POST", headers }),
+      env,
+    )).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    await expect(requireWriteAccess(
+      new Request("https://signal.example/api/memory/consolidate", { method: "POST", headers }),
+      env,
+    )).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    await expect(requireWriteAccess(
+      new Request("https://signal.example/api/memory/items", { method: "GET", headers }),
+      env,
+    )).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  });
+
+  it("fails closed when the Market Agent token collides with a broader service identity", async () => {
+    const headers = { authorization: "Bearer shared-secret" };
+    await expect(requireWriteAccess(
+      new Request("https://signal.example/api/memory/items", { method: "POST", headers }),
+      accessEnv({ MARKET_AGENT_MEMORY_TOKEN: "shared-secret", ZX_RUNTIME_SERVICE_TOKEN: "shared-secret" }),
+    )).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    await expect(requireWriteAccess(
+      new Request("https://signal.example/api/memory/items", { method: "POST", headers }),
+      accessEnv({ MARKET_AGENT_MEMORY_TOKEN: "shared-secret", ZX_MEMORY_BRIDGE_TOKEN: "shared-secret" }),
+    )).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  });
+
   it("allows the Runtime service token across protected service-binding routes", async () => {
     const env = accessEnv({ ZX_RUNTIME_SERVICE_TOKEN: "runtime-service-secret" });
     const headers = { authorization: "Bearer runtime-service-secret" };

@@ -943,6 +943,7 @@ Service binding 只证明请求走内部路由，不自动携带或证明最终�
 - Market Agent -> AI Gateway：独立的 `MARKET_AGENT_GATEWAY_TOKEN` 或 service identity，只允许 `market-agent-*` task。
 - Market Agent -> Signal Memory：service binding + scoped caller identity/token，或 HTTPS + 专用 server-only scoped token；两种路径都只能 retrieve/propose。
 - Runtime -> Market Agent health：`ZX_RUNTIME_SERVICE_TOKEN`。
+- Market Agent -> Signal confirmed context：独立 `MARKET_AGENT_MEMORY_TOKEN`，仅允许 `POST /api/memory/retrieve`，不能创建、修改、consolidate 或管理 Memory。
 
 ### 12.2 权限矩阵
 
@@ -977,14 +978,14 @@ POST /api/private/market-agent/runs                 -> 202 queued
 GET  /api/private/market-agent/runs/:id
 POST /api/private/market-agent/runs/:id/feedback
 GET  /api/private/market-agent/profile
-GET  /api/private/market-agent/export
+GET  /api/private/market-agent/export                    # 完整分页导出 v2
 POST /api/private/market-agent/operations/propose
 POST /api/private/market-agent/operations/:id/confirm
 ```
 
 `POST /runs` 只接受 workflow、marketDate、instrumentId、可选 question 和可选 `revisionOfRunId`，不接受 quote、Market Event、`reliable` 或 Evidence Bundle。手动和 bot 请求必须发送 `Idempotency-Key`；普通网络重试复用原 key，用户主动 rerun 使用新 key。接口只创建 queued Run 并返回 `202 { runId, status: "queued" }`，客户端使用 `GET /runs/:id` 轮询 terminal 状态。
 
-Profile、Watchlist、Portfolio Snapshot、Run/Evidence purge、Alert Rule、DLQ replay 和投递设置的写入必须经过第 6.1 节封闭的 `ConfigProposalCommand` / confirm，不增加通用 PATCH 或任意 JSON 存储接口。`GET /export` 只导出当前 actor/profile 在 UI 可见且仍在保留期内的数据，使用响应大小上限和审计，不返回 Secret、原始外部正文或 ephemeral Memory 内容。
+Profile、Watchlist、Portfolio Snapshot、Run/Evidence purge、Alert Rule、DLQ replay 和投递设置的写入必须经过第 6.1 节封闭的 `ConfigProposalCommand` / confirm，不增加通用 PATCH 或任意 JSON 存储接口。Runs 使用 `createdAt + id` keyset cursor 分页；`GET /export` 遍历当前 actor/profile 的全部页面并返回 `market-agent-run-export.v2`，不返回 Secret 或 ephemeral Memory 内容。Run payload 删除和保留期清理置空正文、Evidence、冻结 Snapshot/Event，保留 metadata、fingerprint 和 tombstone。
 
 ## 13. AI Gateway 集成
 
@@ -1369,6 +1370,28 @@ npm run build
 - 每个问题最多一次模型生成和一次 repair。
 - 超出 scope 的问题不会触发任意工具访问。
 - 页面和 bot 对相同 Bundle 产生一致结构化结果。
+
+### Phase 6.5：可重放 Evidence 与研究历史
+
+交付：
+
+- 在 `evidence_sealed` 状态原子持久化 Run Evidence、冻结 Market Snapshot 和 Market Event；模型阶段失败后复用同一 checkpoint，不重新采集 Market Facts。
+- 使用同 profile、同 workflow 最近一条终态冻结 Snapshot 生成确定性 point-in-time diff；diff 进入 Evidence fingerprint、模型上下文和 deterministic fallback。
+- Run 历史改用稳定 keyset pagination；普通列表只返回 summary projection，完整导出以增量 JSON 流遍历全部页面，不再截断为最近 50 条或在 Worker 内存中累积全年 Evidence。
+- 默认 365 天 payload retention；到期或用户清除后删除正文、Evidence、冻结 Snapshot/Event，保留 Run metadata、fingerprint 和审计 tombstone。
+- Market Agent 读取 Signal Confirmed Context 使用 retrieve-only `MARKET_AGENT_MEMORY_TOKEN`，不再复用 Runtime 宽权限身份。
+- checkpoint 额外保存 Snapshot + Evidence 的独立完整性哈希，首次 seal 后 repository 不允许覆盖；增加冻结历史 replay evaluator，独立校验 profile/workflow/scope/checkpoint integrity 和 Snapshot diff，防止历史 fixture 静默漂移。
+
+Phase 6.5 的 Signal Confirmed Context 仍以 zxlab 的单 owner 个人部署为边界；Signal Memory 当前是全局个人域，不应把同一部署开放给多个互不信任的 owner。多 owner 部署必须先为 Memory schema、create/retrieve/revision 增加 owner scope，不能只依赖 Market Agent `profileId` 做逻辑隔离。
+
+退出标准：
+
+- consumer 在 Evidence 封存后崩溃并重试时，Snapshot `asOf`、Evidence `sealedAt` 和 fingerprint 保持不变。
+- 同 workflow 连续 Run 的差分完全由冻结 Snapshot 计算；没有 previous checkpoint 时不伪造变化。
+- cursor 分页无重复、无遗漏且严格 profile-scoped；export 包含全部保留期内 metadata，并明确标识已清理 payload。
+- retention 与用户清理不会留下可读取的正文、Evidence、Snapshot 或 Event payload。
+- `MARKET_AGENT_MEMORY_TOKEN` 调用除 retrieve 之外的 Signal Memory route 必须失败。
+- 冻结 replay fixture 可在不访问网络、行情 provider 或模型的情况下重复验证。
 
 ### Phase 7：Alerts 与多渠道投递
 
