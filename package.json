@@ -48,6 +48,8 @@
     "test:signal-web": "tsx --test tests/briefing-layout.test.ts tests/briefing-access-recovery.test.ts tests/briefing-pending-annotation.test.ts tests/private-session.test.ts tests/private-proxy.test.ts tests/signal-client-contract.test.ts tests/signal-client-routing.test.ts tests/signal-session-proxy.test.ts",
     "verify:signal:local": "npm run test:signal-web && npm test --workspace runtime-worker && npm test --workspace signal-worker && npm run typecheck",
     "access:debug": "node scripts/zxlab-debug-request.mjs",
+    "access:debug:install": "zsh scripts/build-zxlab-access-proxy.sh",
+    "access:debug:setup": "npm run access:debug:install && node scripts/zxlab-debug-request.mjs migrate",
     "test:access-debug": "node --test scripts/zxlab-debug-request.test.mjs",
     "verify:market-agent:env": "node scripts/verify-market-agent.mjs env",
     "verify:market-agent:run": "node scripts/verify-market-agent.mjs run",

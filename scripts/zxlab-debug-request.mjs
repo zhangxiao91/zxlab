@@ -1,112 +1,95 @@
 #!/usr/bin/env node
 
-import { execFileSync } from "node:child_process";
-import { pathToFileURL } from "node:url";
+import { existsSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
-const DEBUG_ORIGIN = "https://debug-beta.zxlab.pages.dev";
-const KEYCHAIN_ACCOUNT = "codex";
-const KEYCHAIN_CLIENT_ID = "zxlab.debug-access.client-id";
-const KEYCHAIN_CLIENT_SECRET = "zxlab.debug-access.client-secret";
-const PRIVATE_MARKET_AGENT_PREFIX = "/api/private/market-agent/";
+const PROXY_BINARY = fileURLToPath(new URL("./.bin/zxlab-access-proxy", import.meta.url));
+const SIMPLE_OPERATIONS = new Set([
+  "status",
+  "migrate",
+  "provision",
+  "profile",
+  "today",
+  "quality",
+  "watchlist-status",
+]);
 
-export function parseRequestArguments(argv) {
-  const request = { method: "GET", path: "/api/private/market-agent/profile", body: undefined };
-  for (let index = 0; index < argv.length; index += 1) {
-    const argument = argv[index];
-    if (argument === "--method") request.method = requiredValue(argv, ++index, argument).toUpperCase();
-    else if (argument === "--path") request.path = requiredValue(argv, ++index, argument);
-    else if (argument === "--body") request.body = requiredValue(argv, ++index, argument);
-    else if (argument === "--help" || argument === "-h") return { help: true };
-    else throw new Error(`Unknown argument: ${argument}`);
+export function parseProxyArguments(argv) {
+  if (argv.length === 0) return ["profile"];
+  const [operation, ...rest] = argv;
+  if (operation === "--help" || operation === "-h") return ["help"];
+  if (SIMPLE_OPERATIONS.has(operation)) {
+    if (rest.length !== 0) throw new Error(`${operation} does not accept arguments.`);
+    return [operation];
   }
-
-  if (!["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"].includes(request.method)) {
-    throw new Error(`Unsupported HTTP method: ${request.method}`);
+  if (operation === "run-create") {
+    if (rest.length !== 2 || rest[0] !== "--instrument" || !rest[1] || rest[1].startsWith("--")) {
+      throw new Error("run-create requires --instrument <canonical-id>.");
+    }
+    return [operation, ...rest];
   }
-  if (!request.path.startsWith(PRIVATE_MARKET_AGENT_PREFIX) || request.path.includes("\\") || request.path.includes("\0")) {
-    throw new Error(`Path must stay under ${PRIVATE_MARKET_AGENT_PREFIX}`);
+  if (operation === "run-status") {
+    if (rest.length !== 2 || rest[0] !== "--run-id" || !rest[1] || rest[1].startsWith("--")) {
+      throw new Error("run-status requires --run-id <id>.");
+    }
+    return [operation, ...rest];
   }
-  const url = new URL(request.path, DEBUG_ORIGIN);
-  if (url.origin !== DEBUG_ORIGIN || !url.pathname.startsWith(PRIVATE_MARKET_AGENT_PREFIX)) {
-    throw new Error("Request URL escaped the dedicated ZXLab debug origin.");
-  }
-  if ((request.method === "GET" || request.method === "HEAD") && request.body !== undefined) {
-    throw new Error(`${request.method} requests cannot include --body.`);
-  }
-  if (request.body !== undefined) JSON.parse(request.body);
-  return { help: false, ...request, url };
+  throw new Error("Unknown operation. Arbitrary methods, paths, bodies, and URLs are not supported.");
 }
 
-export function readDebugAccessCredentials(readPassword = readKeychainPassword) {
-  const clientId = readPassword(KEYCHAIN_CLIENT_ID).trim();
-  const clientSecret = readPassword(KEYCHAIN_CLIENT_SECRET).trim();
-  if (!clientId || !clientSecret) throw new Error("ZXLab debug Access credentials are incomplete in Keychain.");
-  return { clientId, clientSecret };
-}
-
-export async function performDebugRequest(request, credentials, fetcher = fetch) {
-  const response = await fetcher(request.url, {
-    method: request.method,
-    headers: {
-      accept: "application/json",
-      ...(request.body === undefined ? {} : { "content-type": "application/json" }),
-      "CF-Access-Client-Id": credentials.clientId,
-      "CF-Access-Client-Secret": credentials.clientSecret,
-    },
-    ...(request.body === undefined ? {} : { body: request.body }),
-    redirect: "manual",
-    signal: AbortSignal.timeout(15_000),
+export function runAccessProxy(argv, runner = spawnSync, binaryExists = existsSync) {
+  const arguments_ = parseProxyArguments(argv);
+  if (arguments_[0] === "help") return { help: true };
+  if (!binaryExists(PROXY_BINARY)) {
+    throw new Error("ZXLab Access proxy is not installed. Run npm run access:debug:install first.");
+  }
+  const result = runner(PROXY_BINARY, arguments_, {
+    encoding: "utf8",
+    stdio: ["inherit", "pipe", "pipe"],
+    timeout: 30_000,
   });
-  return {
-    status: response.status,
-    location: response.headers.get("location"),
-    body: request.method === "HEAD" ? "" : await response.text(),
-  };
-}
-
-function readKeychainPassword(service) {
-  try {
-    return execFileSync("/usr/bin/security", ["find-generic-password", "-a", KEYCHAIN_ACCOUNT, "-s", service, "-w"], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    });
-  } catch {
-    throw new Error(`Missing Keychain item: ${service} (account ${KEYCHAIN_ACCOUNT}).`);
+  if (result.error) throw new Error("ZXLab Access proxy could not be started.");
+  if (result.status !== 0) {
+    const message = result.stderr?.trim();
+    throw new Error(message || "ZXLab Access proxy request failed.");
   }
-}
-
-function requiredValue(argv, index, flag) {
-  const value = argv[index];
-  if (!value || value.startsWith("--")) throw new Error(`${flag} requires a value.`);
-  return value;
+  try {
+    return JSON.parse(result.stdout);
+  } catch {
+    throw new Error("ZXLab Access proxy returned invalid output.");
+  }
 }
 
 function printHelp() {
-  console.log(`ZXLab dedicated Agent debug request
+  console.log(`ZXLab dedicated native Access proxy
 
 Usage:
   npm run access:debug
-  npm run access:debug -- --path /api/private/market-agent/today
-  npm run access:debug -- --method POST --path /api/private/market-agent/ask --body '{"scope":"today_change"}'
+  npm run access:debug -- status
+  npm run access:debug -- today
+  npm run access:debug -- quality
+  npm run access:debug -- watchlist-status
+  npm run access:debug -- run-create --instrument SSE:600000
+  npm run access:debug -- run-status --run-id <id>
 
-Credentials are read directly from macOS Keychain and are never printed. The
-origin is fixed to ${DEBUG_ORIGIN}; redirects are not followed.`);
+One-time setup in an interactive terminal:
+  npm run access:debug:setup
+
+The signed native proxy owns Keychain access and the pinned HTTPS request. It
+never returns credentials or raw private response bodies to Node or Codex.`);
 }
 
 async function main() {
-  const request = parseRequestArguments(process.argv.slice(2));
-  if (request.help) return printHelp();
-  const result = await performDebugRequest(request, readDebugAccessCredentials());
-  console.log(`HTTP ${result.status}`);
-  if (result.location) console.log(`Location: ${new URL(result.location, DEBUG_ORIGIN).origin}`);
-  if (result.body) console.log(result.body);
-  if (result.status < 200 || result.status >= 300) process.exitCode = 1;
+  const result = runAccessProxy(process.argv.slice(2));
+  if (result.help) return printHelp();
+  console.log(JSON.stringify(result, null, 2));
+  if (result.ok === false) process.exitCode = 1;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((error) => {
-    console.error(error instanceof Error ? error.message : "ZXLab debug request failed.");
+    console.error(error instanceof Error ? error.message : "ZXLab Access proxy failed.");
     process.exitCode = 1;
   });
 }
-

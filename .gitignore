@@ -12,6 +12,7 @@ node_modules/
 **/__pycache__/
 **/.pytest_cache/
 **/*.egg-info/
+/scripts/.bin/
 
 # logs
 npm-debug.log*

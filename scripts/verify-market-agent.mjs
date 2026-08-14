@@ -4,9 +4,7 @@ import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 
 import {
-  parseRequestArguments,
-  performDebugRequest,
-  readDebugAccessCredentials,
+  runAccessProxy,
 } from "./zxlab-debug-request.mjs";
 
 const CLOUDFLARE_API = "https://api.cloudflare.com/client/v4";
@@ -178,13 +176,39 @@ async function resolveAccountId(token) {
   return accounts[0].id;
 }
 
-async function debugRequest(input, credentials) {
-  const args = ["--method", input.method, "--path", input.path];
-  if (input.body !== undefined) args.push("--body", input.body);
-  const request = parseRequestArguments(args);
+async function debugRequest(input) {
+  let args;
+  if (input.method === "POST" && input.path === "/api/private/market-agent/runs") {
+    const body = parseBody(input.body, "Run creation input");
+    const instrument = boundedString(body.instrumentId, 64);
+    if (!instrument) throw new Error("Market Agent Run creation requires an instrument.");
+    args = ["run-create", "--instrument", instrument];
+  } else {
+    const match = input.method === "GET" && input.path.match(/^\/api\/private\/market-agent\/runs\/([A-Za-z0-9][A-Za-z0-9._:-]{0,127})$/);
+    if (!match) throw new Error("Market Agent verification requested an unsupported proxy operation.");
+    args = ["run-status", "--run-id", match[1]];
+  }
   let lastError;
   for (let attempt = 0; attempt < 4; attempt += 1) {
-    try { return await performDebugRequest(request, credentials); }
+    try {
+      const report = runAccessProxy(args);
+      return {
+        status: report.httpStatus,
+        body: JSON.stringify({
+          runId: report.runId,
+          id: report.runId,
+          status: report.runStatus,
+          created: report.created,
+          result: report.provider ? { outcome: { narration: {
+            source: report.source,
+            provider: report.provider,
+            model: report.model,
+            fallbackIndex: report.fallbackIndex,
+            gatewayRequestId: report.gatewayRequestId,
+          } } } : undefined,
+        }),
+      };
+    }
     catch (error) { lastError = error; }
   }
   throw lastError;
@@ -199,7 +223,7 @@ Usage:
 
 The environment check reads Cloudflare metadata using CLOUDFLARE_API_TOKEN and
 never prints secret values. The Run check reads the dedicated beta Access
-credentials directly from macOS Keychain.`);
+credentials only inside the signed native proxy.`);
 }
 
 function flag(argv, name) {
@@ -228,12 +252,11 @@ async function main() {
     return;
   }
   if (command === "run") {
-    const credentials = readDebugAccessCredentials();
     const rawRuns = flag(args, "--runs");
     const report = await verifyMarketAgentRuns({
       runs: rawRuns === undefined ? DEFAULT_ACCEPTANCE_RUNS : Number(rawRuns),
       instrument: flag(args, "--instrument") ?? DEFAULT_INSTRUMENT,
-      request: (input) => debugRequest(input, credentials),
+      request: debugRequest,
     });
     console.log(JSON.stringify(report, null, 2));
     return;
