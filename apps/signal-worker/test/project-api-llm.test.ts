@@ -110,12 +110,13 @@ describe("ProjectApiSignalLLM", () => {
     const fetcher = vi.fn<typeof fetch>(async (input, init) => {
       expect(String(input)).toContain("/api/ai/stream");
       expect(init?.headers).toMatchObject({
-        Authorization: "Bearer test-gateway-token",
+        Authorization: "Bearer runtime-service-secret",
         "Content-Type": "application/json",
         Accept: "text/event-stream",
       });
-      const body = JSON.parse(String(init?.body)) as { task: string; messages: Array<{ content: string }>; responseFormat: { type: string } };
+      const body = JSON.parse(String(init?.body)) as { task: string; messages: Array<{ content: string }>; responseFormat: { type: string }; context?: { source?: string } };
       expect(body.task).toBe("signal-annotation-reply");
+      expect(body.context).toEqual({ source: "signal-worker" });
       expect(body.responseFormat).toEqual({ type: "json" });
       expect(body.messages[0]?.content).toContain("The output JSON must match this schema exactly");
       return gatewayStream({

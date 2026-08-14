@@ -103,6 +103,7 @@ stream 与 non-stream fallback 是两条不同状态路径：只有 fetch 抛异
 - `npm run test:signal-web`：Signal briefing/Access/Pages 的完整根测试集合。
 - `npm run verify:signal:local`：Signal Web、Runtime Worker、Signal Worker 与根 typecheck。
 - 根 `npm run build` 前置执行 `test:signal-contract`，避免 beta build 在关键合同失败时继续。
+- `npm run test:signal-model-contract`：锁定 Signal Worker 的 Gateway transport identity、`source=signal-worker` 和 Pages `signal-*` task scope；根 build 同样前置执行。
 
 合同测试至少覆盖：
 
@@ -112,6 +113,13 @@ stream 与 non-stream fallback 是两条不同状态路径：只有 fetch 抛异
 - Runtime 保留 annotation query、method、body、content type 与 SSE；
 - Signal entrypoint 接受 Runtime bearer 和 `actionType` body，并产生终态 `done`；
 - generic network failure 和 SSE error 不得伪装为 Access failure。
+- `The model request failed` 必须先由 `model_invocations.error_code` 分类；Gateway 401 且没有 routing event 证明失败发生在 Provider 之前。
+
+### 模型 transport 后续故障
+
+2026-08-13，发送链鉴权修复并验收后，annotation 又连续失败。Signal D1 显示最近 12 次 `annotation-reply` 都在约 30–80ms 内以 `GATEWAY_401_UNAUTHORIZED` 结束；最后一次成功发生在 10:26，11:37 起全部 401，且失败请求没有产生新的 `llm_routing_events`。因此根因不是额度、限流、超时或模型 JSON，而是 Signal 与 Pages 之间重复维护的 AI Gateway shared secret 已漂移。
+
+修复后 Signal→Pages Gateway 复用已经由 Browser→Pages→Runtime→Signal 链验证一致的 `ZX_RUNTIME_SERVICE_TOKEN`。Pages 将其解析为独立 `signal` caller，只允许 `signal-*` task 且要求 `context.source=signal-worker`；旧 `ZX_SIGNAL_LLM_API_TOKEN` 从运行配置和类型中移除。这样减少一份跨服务共享 secret，同时不扩大普通 Gateway、Market Agent 或浏览器权限。
 
 ### 调试与发布
 

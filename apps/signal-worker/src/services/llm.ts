@@ -60,6 +60,10 @@ interface JsonRunOptions<T> {
   onGatewayReset?: () => void;
 }
 
+function gatewayToken(env: Env): string {
+  return String(env.ZX_RUNTIME_SERVICE_TOKEN ?? "").trim();
+}
+
 function partialJsonStringField(source: string, field: string): string | undefined {
   const key = `"${field}"`;
   const keyIndex = source.indexOf(key);
@@ -208,7 +212,7 @@ export class ProjectApiSignalLLM implements SignalLLM {
       const result = await requestGatewayJson({
         fetcher: this.fetcher,
         apiUrl: this.env.ZX_SIGNAL_LLM_API_URL,
-        token: this.env.ZX_SIGNAL_LLM_API_TOKEN,
+        token: gatewayToken(this.env),
         invocationId,
         body: {
           task: options.gatewayTask,
@@ -221,6 +225,7 @@ export class ProjectApiSignalLLM implements SignalLLM {
             : options.gatewayTask === "signal-editorial-filter" ? 8_000
             : options.gatewayTask === "signal-memory-extraction" ? 800 : 1_200,
           responseFormat: { type: "json" },
+          context: { source: "signal-worker" },
         },
         onDelta: options.onGatewayDelta,
         onReset: options.onGatewayReset,

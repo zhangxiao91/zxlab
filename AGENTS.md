@@ -103,5 +103,6 @@ Signal `/briefing/` 的高权限发送链路是 Browser → Pages → Runtime �
 7. Signal 高权限变更只有在真实 Access 会话完成用户原始操作并确认结果可见后才能称为完成。annotation 还必须从当前 `/briefing/` 条目发出，收到终态 `done` 和可见回复；机器身份、GET probe 或其他高权限操作不能替代这一步。
 8. 浏览器自动化控制故障最多单独排查 15 分钟；之后切换到三层 tail、CLI、已连接 Chrome 或结构化人工复现，并把工具故障与应用根因分开记录。
 9. 跨层 transport trace 只能记录受限的 event、service、request ID、method、pathname、stage、status、duration 和错误码，不得记录自由文本 error message、query、Cookie、JWT、Access header、评论正文、选中文本、email 或任何 secret。若尚未实现安全 request ID，不得临时信任或回显浏览器提供的任意标识；先用绑定到确定 deployment 的 tail 做关联。
+10. 出现 `The model request failed` 时，先只读查询 Signal D1 `model_invocations.error_code` 和 Gateway `llm_usage_events` / `llm_routing_events`。`GATEWAY_401_UNAUTHORIZED` 且没有新 routing event 表示请求在模型路由前被 Gateway 拒绝，不能归因于额度或 Provider。Signal 调项目 Gateway 必须复用 `ZX_RUNTIME_SERVICE_TOKEN`，并以 `source=signal-worker` 限定到 `signal-*` tasks；修改这条模型边界必须运行 `npm run test:signal-model-contract`。
 
 本次事故复盘与已完成的真实 E2E 验收记录见 `docs/postmortems/signal-access-send-2026-08-13.md`。

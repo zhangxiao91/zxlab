@@ -69,7 +69,7 @@ npm run deploy:dry --workspace signal-worker
 | --- | --- |
 | `DB` | D1 `zx-signal` |
 | `ZX_SIGNAL_LLM_API_URL` | ZXLab 项目网关 `/api/ai/stream` |
-| `ZX_SIGNAL_LLM_API_TOKEN` | 与 Pages `AI_GATEWAY_ACCESS_TOKEN` 相同的服务端 Secret |
+| `ZX_RUNTIME_SERVICE_TOKEN` | Signal、Runtime 与 Pages 已共享的内部 transport identity；Signal 调项目 Gateway 时只具 `signal-*` task scope |
 | `ZX_SIGNAL_LLM_LABEL` | 日报与回复中使用的逻辑模型标签 |
 | `ZX_SIGNAL_USER_AGENT` | arXiv 等要求明确客户端身份的上游请求标识 |
 | `ZX_SIGNAL_ALLOWED_ORIGINS` | 精确的 CORS origin 列表 |

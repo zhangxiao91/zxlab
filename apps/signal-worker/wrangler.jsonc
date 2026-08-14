@@ -31,7 +31,7 @@
     "CF_ACCESS_AUD": "7559429b1da91fe218c27db2cdee8c70cec97195d9b86a0effea1b1916f84e64"
   },
   "secrets": {
-    "required": ["ZX_SIGNAL_LLM_API_TOKEN", "ZX_SIGNAL_WRITE_TOKEN", "ZX_MEMORY_BRIDGE_TOKEN", "ZX_RUNTIME_SERVICE_TOKEN"]
+    "required": ["ZX_SIGNAL_WRITE_TOKEN", "ZX_MEMORY_BRIDGE_TOKEN", "ZX_RUNTIME_SERVICE_TOKEN"]
   },
   "observability": {
     "enabled": true,

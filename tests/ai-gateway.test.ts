@@ -11,7 +11,7 @@ import { generateAI, streamAI } from "../functions/_lib/ai/router.ts";
 import { validateGenerateAIInput } from "../functions/_lib/ai/validation.ts";
 import { estimateLLMCost, normalizeUsage, type LLMUsageDatabase } from "../functions/_lib/ai/telemetry.ts";
 import { resolveTaskPolicy } from "../functions/_lib/ai/task-policies.ts";
-import { enforceAITaskScope } from "../functions/_lib/ai/abuse.ts";
+import { enforceAIAccess, enforceAITaskScope } from "../functions/_lib/ai/abuse.ts";
 
 const candidates: ModelCandidate[] = [
   { id: "deepseek-v4-flash-official", tier: "deepseek-flash", provider: "deepseek", providerInstance: "deepseek-official", adapter: "openai-compatible", model: "deepseek-v4-flash", baseUrl: "https://api.deepseek.com", apiKey: "deep-secret" },
@@ -229,6 +229,26 @@ test("Market Agent may use only its bounded Gateway tasks", () => {
   );
   assert.throws(
     () => enforceAITaskScope("market-agent", "market-agent-answer", "other-service"),
+    (error: unknown) => error instanceof AIError && error.code === "UNAUTHORIZED",
+  );
+});
+
+test("Signal authenticates with the shared Runtime transport token and stays task-scoped", async () => {
+  const caller = await enforceAIAccess(new Request("https://beta.zxlab.pages.dev/api/ai/stream", {
+    headers: { authorization: "Bearer runtime-transport-token" },
+  }), {
+    ENVIRONMENT: "production",
+    ZX_RUNTIME_SERVICE_TOKEN: "runtime-transport-token",
+  });
+
+  assert.equal(caller, "signal");
+  assert.doesNotThrow(() => enforceAITaskScope(caller, "signal-annotation-reply", "signal-worker"));
+  assert.throws(
+    () => enforceAITaskScope(caller, "notes-summary", "signal-worker"),
+    (error: unknown) => error instanceof AIError && error.code === "UNAUTHORIZED",
+  );
+  assert.throws(
+    () => enforceAITaskScope(caller, "signal-annotation-reply", "other-service"),
     (error: unknown) => error instanceof AIError && error.code === "UNAUTHORIZED",
   );
 });

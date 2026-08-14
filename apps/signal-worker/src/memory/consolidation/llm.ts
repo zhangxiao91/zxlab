@@ -24,7 +24,7 @@ export class MemoryConsolidationLLM {
       const result = await requestGatewayJson({
         fetcher: this.fetcher,
         apiUrl: this.env.ZX_SIGNAL_LLM_API_URL,
-        token: this.env.ZX_SIGNAL_LLM_API_TOKEN,
+        token: String(this.env.ZX_RUNTIME_SERVICE_TOKEN ?? "").trim(),
         invocationId,
         body: {
           task: "signal-memory-consolidation",
@@ -35,6 +35,7 @@ export class MemoryConsolidationLLM {
           temperature: 0,
           maxOutputTokens: 1_600,
           responseFormat: { type: "json" },
+          context: { source: "signal-worker" },
         },
       });
       const parsed = this.validate(responseValue(result), events, memories);
