@@ -22,6 +22,8 @@ interface StoredRun {
   created_at: string;
   updated_at: string;
   payload_purged_at: string | null;
+  feedback_value: string | null;
+  feedback_updated_at: string | null;
 }
 
 function storedRun(id: string, profileId: string, createdAt: string): StoredRun {
@@ -45,6 +47,8 @@ function storedRun(id: string, profileId: string, createdAt: string): StoredRun 
     created_at: createdAt,
     updated_at: createdAt,
     payload_purged_at: null,
+    feedback_value: null,
+    feedback_updated_at: null,
   };
 }
 
@@ -62,7 +66,7 @@ function fakeArchiveDb(initialRows: StoredRun[]): D1Database {
         .filter((row) => !cursorCreatedAt || row.created_at < cursorCreatedAt || (row.created_at === cursorCreatedAt && row.id < String(cursorId)))
         .sort((left, right) => right.created_at.localeCompare(left.created_at) || right.id.localeCompare(left.id))
         .slice(0, limit)
-        .map((row) => sql.startsWith("SELECT *") ? row : { ...row, command_json: null, evidence_json: null });
+        .map((row) => sql.startsWith("SELECT *") || sql.includes("agent_runs.*") ? row : { ...row, command_json: null, evidence_json: null });
       return { results };
     }
     if (sql.includes("FROM agent_runs WHERE id = ? AND profile_id = ?") && !sql.startsWith("SELECT id, evidence_fingerprint")) {
@@ -161,6 +165,32 @@ test("run archive cursor pagination is stable and profile-scoped", async () => {
   const second = await archive.list("profile-owner", { limit: 2, cursor: first.nextCursor });
   assert.deepEqual(second.runs.map((run) => run.id), ["run-a"]);
   assert.equal(second.nextCursor, null);
+});
+
+test("run archive list and get expose the owning profile's persisted feedback", async () => {
+  const saved = {
+    ...storedRun("run-feedback", "profile-owner", "2026-08-14T00:00:00.000Z"),
+    feedback_value: "helpful",
+    feedback_updated_at: "2026-08-15T01:02:03.000Z",
+  };
+  const archive = new D1RunArchiveRepository(fakeArchiveDb([
+    saved,
+    {
+      ...storedRun("run-private", "profile-other", "2026-08-14T00:00:00.000Z"),
+      feedback_value: "fact_error",
+      feedback_updated_at: "2026-08-15T02:03:04.000Z",
+    },
+  ]));
+
+  const page = await archive.list("profile-owner");
+  const run = await archive.get("profile-owner", "run-feedback");
+
+  assert.deepEqual(page.runs[0]?.feedback, {
+    value: "helpful",
+    updatedAt: "2026-08-15T01:02:03.000Z",
+  });
+  assert.deepEqual(run?.feedback, page.runs[0]?.feedback);
+  assert.equal(page.runs.some((item) => item.id === "run-private"), false);
 });
 
 test("run archive export follows every page and returns the complete profile history", async () => {

@@ -1,14 +1,17 @@
 import gsap from "gsap";
 import { useEffect, useRef } from "react";
+import type { AgentFeedback, AgentFeedbackValue } from "@zxlab/market-agent-schema";
 import type { TradingScreenAction, TradingScreenStatus } from "../trading/screen";
 import AskPanel, { RunActivity } from "./AskPanel";
 import { RunOutcomeSummary } from "./RunOutcomeSummary";
+import { RunFeedbackControl } from "./RunFeedbackControl";
 import {
   type AgentObservationView,
   type AgentRunMode,
   type AgentRunView,
 } from "./client";
 import { buildMarketReviewReport } from "./market-review-report";
+import { portfolioActionLabel, runExportLabel } from "./action-state";
 import { useMarketAgentWorkspace } from "./useMarketAgentWorkspace";
 
 const date = (value: string) =>
@@ -46,6 +49,9 @@ export default function AgentToday({
     loadingMoreRuns,
     hasMoreRuns,
     activeEvidenceId: activeRun,
+    exportBusy,
+    exportNote,
+    exportError,
   } = agent;
   const { items: localWatchlist, syncing: syncBusy } = watchlist;
   const {
@@ -53,6 +59,7 @@ export default function AgentToday({
     state: portfolioState,
     stateLoaded: portfolioStateLoaded,
     busy: portfolioBusy,
+    action: portfolioAction,
     error: portfolioError,
     note: portfolioNote,
     purgeScope,
@@ -150,6 +157,7 @@ export default function AgentToday({
             runs={runs}
             instruments={askInstruments}
             onRunUpdate={updateRun}
+            onSaveFeedback={saveFeedback}
           />
         </section>
         <details className="agent-context">
@@ -179,7 +187,7 @@ export default function AgentToday({
             </p>
           )}
           {portfolioNote && (
-            <p className="agent-portfolio__note">{portfolioNote}</p>
+            <p className="agent-portfolio__note" aria-live="polite">{portfolioNote}</p>
           )}
           <div className="agent-portfolio__grid">
             <article className="agent-portfolio__local">
@@ -224,7 +232,7 @@ export default function AgentToday({
                     onClick={() => void syncLocalPortfolioSnapshot()}
                     disabled={portfolioBusy}
                   >
-                    {portfolioBusy ? "正在同步" : "同步这份持仓快照"}
+                    {portfolioActionLabel(portfolioAction, "sync")}
                   </button>
                 </>
               ) : (
@@ -255,7 +263,7 @@ export default function AgentToday({
                     onClick={() => void stopUsingPortfolioSnapshot()}
                     disabled={portfolioBusy}
                   >
-                    停止后续使用
+                    {portfolioActionLabel(portfolioAction, "stop")}
                   </button>
                 )}
               </header>
@@ -326,7 +334,7 @@ export default function AgentToday({
                   onClick={() => void confirmPortfolioPurge()}
                   disabled={portfolioBusy}
                 >
-                  {portfolioBusy ? "正在清除" : "确认清除"}
+                  {portfolioActionLabel(portfolioAction, "purge")}
                 </button>
               </div>
             </aside>
@@ -342,8 +350,11 @@ export default function AgentToday({
             <small>查看证据、反馈或导出已封存结果</small>
           </summary>
           <div className="agent-runs__toolbar">
-            <button onClick={() => void downloadRuns()} disabled={!runs.length}>
-              导出全部记录
+            <span data-tone={exportError ? "error" : exportNote ? "success" : "neutral"} aria-live="polite">
+              {exportError ?? exportNote ?? "导出包含完整结构化 Run 与审计信息。"}
+            </span>
+            <button onClick={() => void downloadRuns()} disabled={!runs.length || exportBusy}>
+              {runExportLabel(exportBusy)}
             </button>
             {hasMoreRuns && (
               <button onClick={() => void loadMoreRuns()} disabled={loadingMoreRuns}>
@@ -492,8 +503,8 @@ function RunRow({
 }: {
   run: AgentRunView;
   onFeedback: (
-    value: "helpful" | "fact_error" | "missing_factor",
-  ) => Promise<void>;
+    value: AgentFeedbackValue,
+  ) => Promise<AgentFeedback>;
   onDelete: () => void;
   deleting: boolean;
 }) {
@@ -513,21 +524,14 @@ function RunRow({
         <strong>{purged ? "正文已按保留策略清除" : run.result?.headline ?? "Deterministic close review"}</strong>
         <p>{purged ? `审计 fingerprint 保留${run.evidenceFingerprint ? `：${run.evidenceFingerprint}` : ""}` : run.result?.summary ?? "Evidence 正在收集或等待上游数据。"}</p>
       </div>
-      <div className="agent-feedback">
-        <button title="有帮助" onClick={() => void onFeedback("helpful")} disabled={purged}>
-          有帮助
-        </button>
-        <button title="事实错误" onClick={() => void onFeedback("fact_error")} disabled={purged}>
-          事实错误
-        </button>
+      <div className="agent-run-actions">
+        <RunFeedbackControl feedback={run.feedback} disabled={purged} onSubmit={onFeedback} />
         <button
-          title="缺少因素"
-          onClick={() => void onFeedback("missing_factor")}
-          disabled={purged}
+          className="agent-run-delete"
+          title="删除本次记录"
+          onClick={onDelete}
+          disabled={deleting || purged}
         >
-          缺少因素
-        </button>
-        <button title="删除本次记录" onClick={onDelete} disabled={deleting || purged}>
           {purged ? "已清除" : deleting ? "删除中" : "删除"}
         </button>
       </div>

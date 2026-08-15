@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { D1RunRepository } from "./d1-repository.ts";
+import { applyRunFeedback, D1RunRepository } from "./d1-repository.ts";
 import type { SealedEvidenceBundle } from "@zxlab/market-agent-schema";
 import type { MarketSnapshot } from "@zxlab/market-schema";
 import { checkpointSnapshotPayload, createRunCheckpoint } from "./run-checkpoint.ts";
@@ -36,6 +36,74 @@ test("schedule decisions never create an Agent Run", async () => {
   await new D1RunRepository(db).recordScheduleDecision({ workflow: "morning_brief", marketDate: "2026-10-05", decision: "skipped", calendarSource: "official", reason: "MARKET_CLOSED" });
   assert.match(statement, /INSERT INTO agent_schedule_decisions/);
   assert.doesNotMatch(statement, /agent_runs/);
+});
+
+test("feedback upsert returns the persisted profile-scoped resource", async () => {
+  let statement = "";
+  let boundValues: unknown[] = [];
+  const db = {
+    prepare(sql: string) {
+      statement = sql;
+      return {
+        bind(...values: unknown[]) {
+          boundValues = values;
+          return { async run() { return { meta: { changes: 1 } }; } };
+        },
+      };
+    },
+  } as unknown as D1Database;
+
+  const feedback = await new D1RunRepository(db).recordFeedback(
+    "run-1",
+    "profile-owner",
+    "missing_factor",
+    "2026-08-15T01:02:03.000Z",
+  );
+
+  assert.deepEqual(feedback, {
+    value: "missing_factor",
+    updatedAt: "2026-08-15T01:02:03.000Z",
+  });
+  assert.match(statement, /ON CONFLICT\(run_id, profile_id\)/);
+  assert.deepEqual(boundValues.slice(1), [
+    "run-1",
+    "profile-owner",
+    "missing_factor",
+    "2026-08-15T01:02:03.000Z",
+  ]);
+});
+
+test("feedback application validates values and hides cross-profile runs", async () => {
+  const rows = new Map([
+    ["run-owner", runRepositoryRow("run-owner", "profile-owner")],
+    ["run-private", runRepositoryRow("run-private", "profile-other")],
+  ]);
+  const db = {
+    prepare(sql: string) {
+      return {
+        bind(...values: unknown[]) {
+          return {
+            async first() {
+              return sql === "SELECT * FROM agent_runs WHERE id = ?"
+                ? rows.get(String(values[0])) ?? null
+                : null;
+            },
+            async run() { return { meta: { changes: 1 } }; },
+          };
+        },
+      };
+    },
+  } as unknown as D1Database;
+  const repository = new D1RunRepository(db);
+
+  const saved = await applyRunFeedback(repository, "run-owner", "profile-owner", "helpful");
+  const invalid = await applyRunFeedback(repository, "run-owner", "profile-owner", "liked");
+  const crossProfile = await applyRunFeedback(repository, "run-private", "profile-owner", "helpful");
+
+  assert.equal(saved.kind, "saved");
+  assert.equal(saved.kind === "saved" ? saved.feedback.value : null, "helpful");
+  assert.deepEqual(invalid, { kind: "invalid" });
+  assert.deepEqual(crossProfile, { kind: "not_found" });
 });
 
 test("Evidence lookup remains terminal and profile-scoped", async () => {
@@ -224,6 +292,26 @@ function checkpointSnapshot(): MarketSnapshot {
     data: { quotes: [], bars: [], news: [], announcements: [], status: [] },
     capabilities: [{ id: "quotes", status: "unavailable", required: true, asOf: null, receivedAt: "2026-08-14T00:00:01.000Z", freshness: "unknown", warnings: ["fixture unavailable"], attempts: [] }],
     quality: { status: "unavailable", reliable: false, freshness: "unknown", warnings: ["fixture unavailable"], attempts: [], unavailableCapabilities: ["quotes"] },
+  };
+}
+
+function runRepositoryRow(id: string, profileId: string): Record<string, unknown> {
+  return {
+    id,
+    profile_id: profileId,
+    workflow: "close_review",
+    trigger: "manual",
+    status: "success",
+    idempotency_key: `key-${id}`,
+    command_hash: `sha256:${id}`,
+    revision_of_run_id: null,
+    portfolio_snapshot_id: null,
+    attempt: 1,
+    recovery_generation: 0,
+    created_at: "2026-08-15T00:00:00.000Z",
+    updated_at: "2026-08-15T00:00:00.000Z",
+    evidence_fingerprint: null,
+    failure_json: null,
   };
 }
 

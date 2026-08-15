@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import gsap from "gsap";
-import type { AskScope, RunOutcome, SealedEvidenceBundle } from "@zxlab/market-agent-schema";
+import type { AgentFeedbackValue, AskScope, RunOutcome, SealedEvidenceBundle } from "@zxlab/market-agent-schema";
 import { RunOutcomeSummary } from "./RunOutcomeSummary";
+import { RunFeedbackControl } from "./RunFeedbackControl";
 import {
   getAgentRunEvidence,
   pollAgentRunUntilTerminal,
-  sendRunFeedback,
   startAgentAsk,
   streamAgentRun,
   type AgentObservationView,
@@ -72,12 +72,14 @@ interface AskPanelProps {
   runs: AgentRunView[];
   instruments: string[];
   onRunUpdate: (run: AgentRunView) => void;
+  onSaveFeedback: (runId: string, value: AgentFeedbackValue) => Promise<NonNullable<AgentRunView["feedback"]>>;
 }
 
 export default function AskPanel({
   runs,
   instruments,
   onRunUpdate,
+  onSaveFeedback,
 }: AskPanelProps) {
   const [scope, setScope] = useState<AskScope>("today_change");
   const [instrumentId, setInstrumentId] = useState("");
@@ -89,8 +91,6 @@ export default function AskPanel({
   const [evidence, setEvidence] = useState<SealedEvidenceBundle | null>(null);
   const [selectedEvidenceId, setSelectedEvidenceId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [feedbackBusy, setFeedbackBusy] = useState(false);
-  const [feedbackNote, setFeedbackNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const requestKey = useRef(crypto.randomUUID());
   const panel = useRef<HTMLElement>(null);
@@ -108,6 +108,10 @@ export default function AskPanel({
     () => evidence?.items.find((item) => item.id === selectedEvidenceId) ?? null,
     [evidence, selectedEvidenceId],
   );
+
+  useEffect(() => {
+    setAnswer((current) => syncAnswerFeedback(current, runs));
+  }, [answer?.id, runs]);
 
   useEffect(() => {
     if (!answer || !panel.current) return;
@@ -191,7 +195,6 @@ export default function AskPanel({
   function resetDraft(clearAnswer = false) {
     requestKey.current = crypto.randomUUID();
     setError(null);
-    setFeedbackNote(null);
     if (clearAnswer) {
       setAnswer(null);
       setSubmittedPrompt(null);
@@ -241,7 +244,6 @@ export default function AskPanel({
       setEvidence(null);
       setSelectedEvidenceId(null);
       setStreamedAnswer("");
-      setFeedbackNote(null);
       setError(null);
       requestKey.current = crypto.randomUUID();
     } catch (cause) {
@@ -251,23 +253,12 @@ export default function AskPanel({
     }
   }
 
-  async function sendFeedback(value: "helpful" | "fact_error" | "missing_factor") {
-    if (!answer) return;
-    setFeedbackBusy(true);
-    try {
-      await sendRunFeedback(answer.id, value);
-      setFeedbackNote(
-        value === "helpful"
-          ? "已记录为有帮助。"
-          : value === "fact_error"
-            ? "已记录为事实错误。"
-            : "已记录为遗漏关键因素。",
-      );
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "反馈未保存");
-    } finally {
-      setFeedbackBusy(false);
-    }
+  async function saveAnswerFeedback(value: AgentFeedbackValue) {
+    if (!answer) throw new Error("当前没有可反馈的运行记录。");
+    const runId = answer.id;
+    const feedback = await onSaveFeedback(runId, value);
+    setAnswer((current) => current?.id === runId ? { ...current, feedback } : current);
+    return feedback;
   }
 
   return (
@@ -394,12 +385,7 @@ export default function AskPanel({
                 {answer.result.portfolioImpacts.length > 0 && <ObservationGroup title="持仓影响" observations={answer.result.portfolioImpacts} onEvidence={setSelectedEvidenceId} />}
                 <EvidencePanel evidence={evidence} selected={selectedEvidence} />
                 <footer className="agent-ask__feedback">
-                  <span>{feedbackNote ?? "反馈只用于改进后续运行，不会改写本次记录。"}</span>
-                  <div>
-                    <button type="button" disabled={feedbackBusy} onClick={() => void sendFeedback("helpful")}>有帮助</button>
-                    <button type="button" disabled={feedbackBusy} onClick={() => void sendFeedback("fact_error")}>事实错误</button>
-                    <button type="button" disabled={feedbackBusy} onClick={() => void sendFeedback("missing_factor")}>遗漏关键因素</button>
-                  </div>
+                  <RunFeedbackControl feedback={answer.feedback} onSubmit={saveAnswerFeedback} />
                 </footer>
               </>
             ) : streamedAnswer ? (
@@ -412,6 +398,22 @@ export default function AskPanel({
       )}
     </section>
   );
+}
+
+export function syncAnswerFeedback(
+  answer: AgentRunView | null,
+  runs: AgentRunView[],
+): AgentRunView | null {
+  if (!answer) return null;
+  const matchingRun = runs.find((run) => run.id === answer.id);
+  if (!matchingRun || matchingRun.feedback === undefined) return answer;
+  if (
+    answer.feedback?.value === matchingRun.feedback?.value
+    && answer.feedback?.updatedAt === matchingRun.feedback?.updatedAt
+  ) {
+    return answer;
+  }
+  return { ...answer, feedback: matchingRun.feedback };
 }
 
 export function RunActivity({ status, runId, limitations = [], outcome }: { status?: string; runId?: string; limitations?: string[]; outcome?: RunOutcome }) {

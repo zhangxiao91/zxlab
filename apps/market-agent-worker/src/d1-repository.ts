@@ -1,4 +1,4 @@
-import { compatibleAgentResult, validateSealedEvidence, type AgentResult, type AgentRun, type MarketAgentCommand, type RunClaimResult, type RunCreation, type SealedEvidenceBundle } from "@zxlab/market-agent-schema";
+import { compatibleAgentResult, validateSealedEvidence, type AgentFeedback, type AgentFeedbackValue, type AgentResult, type AgentRun, type MarketAgentCommand, type RunClaimResult, type RunCreation, type SealedEvidenceBundle } from "@zxlab/market-agent-schema";
 import { checkpointSnapshotPayload, parseCheckpointSnapshotPayload, verifyRunCheckpoint, type RunCheckpoint } from "./run-checkpoint.ts";
 
 export class D1RunRepository {
@@ -65,7 +65,10 @@ export class D1RunRepository {
     ]);
     return Boolean(deleted.at(-1)?.meta.changes);
   }
-  async recordFeedback(runId: string, profileId: string, value: string): Promise<void> { await this.db.prepare("INSERT INTO agent_feedback (id, run_id, profile_id, value, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(run_id, profile_id) DO UPDATE SET value = excluded.value, created_at = excluded.created_at").bind(crypto.randomUUID(), runId, profileId, value, new Date().toISOString()).run(); }
+  async recordFeedback(runId: string, profileId: string, value: AgentFeedbackValue, updatedAt = new Date().toISOString()): Promise<AgentFeedback> {
+    await this.db.prepare("INSERT INTO agent_feedback (id, run_id, profile_id, value, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(run_id, profile_id) DO UPDATE SET value = excluded.value, created_at = excluded.created_at").bind(crypto.randomUUID(), runId, profileId, value, updatedAt).run();
+    return { value, updatedAt };
+  }
   async findByIdempotencyKey(key: string): Promise<AgentRun | null> { const row = await this.db.prepare("SELECT * FROM agent_runs WHERE idempotency_key = ?").bind(key).first<Record<string, unknown>>(); return row ? rowToRun(row) : null; }
   async recordScheduleDecision(input: { workflow: "morning_brief" | "close_review"; marketDate: string; decision: "skipped" | "blocked"; calendarSource: string; reason: string }): Promise<void> { await this.db.prepare("INSERT INTO agent_schedule_decisions (workflow, market_date, decision, calendar_source, reason, decided_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(workflow, market_date) DO NOTHING").bind(input.workflow, input.marketDate, input.decision, input.calendarSource, input.reason, new Date().toISOString()).run(); }
   async runtimeHealth(): Promise<{ retryWait: number; pendingDispatches: number }> { const [runs, outbox] = await this.db.batch([this.db.prepare("SELECT COUNT(*) AS retry_wait FROM agent_runs WHERE status = 'retry_wait'"), this.db.prepare("SELECT COUNT(*) AS pending_dispatches FROM run_dispatch_outbox WHERE status = 'pending'")]); const runCounts = (runs.results?.[0] ?? {}) as Record<string, unknown>; const outboxCounts = (outbox.results?.[0] ?? {}) as Record<string, unknown>; return { retryWait: Number(runCounts.retry_wait ?? 0), pendingDispatches: Number(outboxCounts.pending_dispatches ?? 0) }; }
@@ -120,6 +123,23 @@ export class D1RunRepository {
   }
 }
 
+export type ApplyRunFeedbackOutcome =
+  | { kind: "saved"; feedback: AgentFeedback }
+  | { kind: "invalid" }
+  | { kind: "not_found" };
+
+export async function applyRunFeedback(
+  repository: Pick<D1RunRepository, "get" | "recordFeedback">,
+  runId: string,
+  profileId: string,
+  value: unknown,
+): Promise<ApplyRunFeedbackOutcome> {
+  const run = await repository.get(runId);
+  if (run?.profileId !== profileId) return { kind: "not_found" };
+  if (!isAgentFeedbackValue(value)) return { kind: "invalid" };
+  return { kind: "saved", feedback: await repository.recordFeedback(runId, profileId, value) };
+}
+
 function parseCheckpointRow(row: { snapshot_json: string; fingerprint: string; evidence_json: string } | null | undefined, profileId: string): RunCheckpoint | null {
   if (!row?.snapshot_json || !row.evidence_json) return null;
   try {
@@ -137,3 +157,4 @@ function parseCheckpointRow(row: { snapshot_json: string; fingerprint: string; e
 
 function rowToRun(row: Record<string, unknown>): AgentRun { return { id: String(row.id), profileId: String(row.profile_id), workflow: row.workflow as AgentRun["workflow"], trigger: row.trigger as AgentRun["trigger"], status: row.status as AgentRun["status"], idempotencyKey: String(row.idempotency_key), commandHash: String(row.command_hash), revisionOfRunId: row.revision_of_run_id ? String(row.revision_of_run_id) : null, portfolioSnapshotId: row.portfolio_snapshot_id ? String(row.portfolio_snapshot_id) : null, attempt: Number(row.attempt ?? 0), recoveryGeneration: Number(row.recovery_generation ?? 0), createdAt: String(row.created_at), updatedAt: String(row.updated_at), evidenceFingerprint: row.evidence_fingerprint ? String(row.evidence_fingerprint) : null, failure: row.failure_json ? JSON.parse(String(row.failure_json)) : null, ...(row.result_json ? { result: compatibleAgentResult(JSON.parse(String(row.result_json)) as AgentResult) } : {}) }; }
 function record(value: unknown): Record<string, unknown> | null { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null; }
+function isAgentFeedbackValue(value: unknown): value is AgentFeedbackValue { return value === "helpful" || value === "fact_error" || value === "missing_factor"; }

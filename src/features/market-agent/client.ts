@@ -1,4 +1,6 @@
 import type {
+  AgentFeedback,
+  AgentFeedbackValue,
   AskScope,
   RunOutcome,
   PortfolioSnapshotUpload,
@@ -26,6 +28,7 @@ export interface AgentRunView {
   evidenceFingerprint: string | null;
   payloadPurgedAt?: string | null;
   portfolioSnapshotId?: string | null;
+  feedback?: AgentFeedback | null;
   result?: {
     status: "success" | "partial";
     headline: string;
@@ -362,8 +365,8 @@ export async function startAgentAsk(
 
 export async function sendRunFeedback(
   runId: string,
-  value: "helpful" | "fact_error" | "missing_factor",
-): Promise<void> {
+  value: AgentFeedbackValue,
+): Promise<AgentFeedback> {
   const response = await fetch(
     `/api/private/market-agent/runs/${encodeURIComponent(runId)}/feedback`,
     {
@@ -373,6 +376,11 @@ export async function sendRunFeedback(
     },
   );
   if (!response.ok) throw await apiError(response, "反馈未保存");
+  const payload = (await response.json()) as { feedback?: AgentFeedback };
+  if (!payload.feedback) {
+    throw new MarketAgentApiError("INVALID_FEEDBACK_RESPONSE", "反馈已提交，但服务器没有返回保存状态。", 502);
+  }
+  return payload.feedback;
 }
 
 export async function exportAgentRuns(): Promise<Blob> {

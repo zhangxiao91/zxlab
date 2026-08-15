@@ -19,6 +19,8 @@ export const ASK_SCOPES = [
 export type AskScope = typeof ASK_SCOPES[number];
 export type AgentWorkflow = "morning_brief" | "close_review" | "inspect_instrument" | "portfolio_impact" | "ask";
 export type RunTrigger = "manual" | "scheduled" | "bot";
+export type AgentFeedbackValue = "helpful" | "fact_error" | "missing_factor";
+export interface AgentFeedback { value: AgentFeedbackValue; updatedAt: string; }
 export type RunStatus = "queued" | "collecting" | "evidence_sealed" | "generating" | "validating" | "retry_wait" | "success" | "partial" | "failed";
 export type EvidenceKind = "market_fact" | "market_event" | "snapshot_diff" | "portfolio_impact" | "confirmed_context" | "limitation" | "execution_plan" | "prior_run";
 export type ObservationClass = "fact" | "inference" | "unknown";

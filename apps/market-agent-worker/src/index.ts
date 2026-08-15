@@ -18,6 +18,7 @@ import { createRunEventStream } from "./run-stream.ts";
 import { MARKET_AGENT_RUN_LEASE_MS } from "./runtime-budget.ts";
 import { D1RunArchiveRepository } from "./run-archive.ts";
 import { settleRunFailure } from "./run-failure-policy.ts";
+import { handleRunFeedbackRequest } from "./run-feedback-route.ts";
 
 const repository = new MemoryRunRepository();
 type RunMessage = { runId: string; generation: number; kind: "initial" | "recovery" };
@@ -133,7 +134,10 @@ export default {
       }
       const match = path.match(/^\/runs\/([^/]+)$/); if (match && request.method === "GET") { const run = await archive.get(profile.profileId, match[1]); return run ? json(run) : json({ error: "NOT_FOUND" }, 404); }
       if (match && request.method === "DELETE") { const tombstone = await archive.purgeRunPayload(profile.profileId, match[1]); return tombstone ? json({ ok: true, tombstone }) : json({ error: "NOT_FOUND" }, 404); }
-      const feedback = path.match(/^\/runs\/([^/]+)\/feedback$/); if (feedback && request.method === "POST") { const run = await runs.get(feedback[1]); if (run?.profileId !== profile.profileId) return json({ error: "NOT_FOUND" }, 404); const body = await request.json() as { value?: unknown }; if (body.value !== "helpful" && body.value !== "fact_error" && body.value !== "missing_factor") return json({ error: "INVALID_FEEDBACK" }, 400); await runs.recordFeedback(feedback[1], profile.profileId, body.value); return json({ ok: true }); }
+      const feedback = path.match(/^\/runs\/([^/]+)\/feedback$/);
+      if (feedback && request.method === "POST") {
+        return handleRunFeedbackRequest(request, runs, feedback[1], profile.profileId);
+      }
       const rerun = path.match(/^\/runs\/([^/]+)\/rerun$/); if (rerun && request.method === "POST") { const prior = await runs.get(rerun[1]); const priorCommand = await runs.getCommand(rerun[1]); if (prior?.profileId !== profile.profileId || !priorCommand) return json({ error: "NOT_FOUND" }, 404); const command = { ...priorCommand, trigger: "manual" as const, idempotencyKey: `rerun:${prior.id}:${crypto.randomUUID()}` }; const portfolioSnapshot = await snapshots.getCurrent(profile.profileId); const created = await runs.createQueued(command, { command, actorScope: profile.profileId, commandHash: await sha256(command), revisionOfRunId: prior.id, portfolioSnapshotId: isMarketAgentAskCommand(command) && !askEvidencePlan(command.scope).requiresPortfolioSnapshot ? null : portfolioSnapshot?.id ?? null }); await relayOutbox(env, runs); return json({ runId: created.run.id, status: created.run.status, revisionOfRunId: prior.id }, 202); }
       return json({ error: "NOT_FOUND" }, 404);
     } catch (cause) { const code = cause instanceof Error ? cause.message : "INTERNAL_ERROR"; if (code === "ACTOR_SCOPE_REQUIRED") return json({ error: code }, 403); if (code.startsWith("ACTOR_")) return json({ error: code }, 401); if (code === "INVALID_WATCHLIST" || code.startsWith("INVALID_PORTFOLIO") || code === "RUN_ARCHIVE_CURSOR_INVALID") return json({ error: code }, 400); if (code === "IDEMPOTENCY_KEY_REUSED" || code === "PORTFOLIO_SNAPSHOT_NOT_CURRENT") return json({ error: code }, 409); return json({ error: "INTERNAL_ERROR" }, 500); }

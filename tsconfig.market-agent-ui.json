@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "types": ["node"]
+  },
+  "include": [
+    ".astro/types.d.ts",
+    "src/features/market-agent/**/*.ts",
+    "src/features/market-agent/**/*.tsx",
+    "tests/market-agent-activity.test.ts",
+    "tests/market-agent-feedback.test.ts",
+    "tests/market-agent-action-state.test.ts"
+  ],
+  "exclude": ["dist", "apps", "services", "node_modules"]
+}

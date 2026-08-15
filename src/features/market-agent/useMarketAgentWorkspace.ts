@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { AgentFeedback, AgentFeedbackValue } from "@zxlab/market-agent-schema";
 import { loadMarketWatchlist } from "../market/watchlist";
 import { LocalPortfolioRepository } from "../risk/ledger";
 import {
@@ -26,8 +27,16 @@ import {
   previewLocalPortfolioSnapshot,
   type LocalPortfolioSnapshotPreview,
 } from "./portfolio-snapshot";
-
-type RunFeedback = "helpful" | "fact_error" | "missing_factor";
+import {
+  completePortfolioWrite,
+  portfolioRecheckNotice,
+  type PortfolioAction,
+} from "./action-state";
+import {
+  enqueueRunFeedback,
+  mergeRunPageWithCurrentFeedback,
+  mergeRunWithCurrentFeedback,
+} from "./run-state";
 
 export interface MarketAgentWorkspace {
   agent: {
@@ -45,6 +54,9 @@ export interface MarketAgentWorkspace {
     loadingMoreRuns: boolean;
     hasMoreRuns: boolean;
     activeEvidenceId: string | null;
+    exportBusy: boolean;
+    exportNote: string | null;
+    exportError: string | null;
   };
   watchlist: {
     items: AgentWatchlistItem[];
@@ -55,6 +67,7 @@ export interface MarketAgentWorkspace {
     state: PortfolioSnapshotControlState | null;
     stateLoaded: boolean;
     busy: boolean;
+    action: PortfolioAction | null;
     error: string | null;
     note: string | null;
     purgeScope: PortfolioPurgeScope | null;
@@ -66,7 +79,7 @@ export interface MarketAgentWorkspace {
     downloadRuns(): Promise<void>;
     removeRun(run: AgentRunView): Promise<void>;
     loadMoreRuns(): Promise<void>;
-    saveFeedback(runId: string, value: RunFeedback): Promise<void>;
+    saveFeedback(runId: string, value: AgentFeedbackValue): Promise<AgentFeedback>;
     updateRun(run: AgentRunView): void;
     toggleEvidence(evidenceId: string): void;
     refreshPortfolioPreview(): LocalPortfolioSnapshotPreview;
@@ -92,30 +105,37 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
   const [deletingRunId, setDeletingRunId] = useState<string | null>(null);
   const [nextRunsCursor, setNextRunsCursor] = useState<string | null>(null);
   const [loadingMoreRuns, setLoadingMoreRuns] = useState(false);
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportNote, setExportNote] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
   const [portfolioPreview, setPortfolioPreview] =
     useState<LocalPortfolioSnapshotPreview | null>(null);
   const [portfolioState, setPortfolioState] =
     useState<PortfolioSnapshotControlState | null>(null);
   const [portfolioStateLoaded, setPortfolioStateLoaded] = useState(false);
-  const [portfolioBusy, setPortfolioBusy] = useState(false);
+  const [portfolioAction, setPortfolioAction] = useState<PortfolioAction | null>(null);
   const [portfolioError, setPortfolioError] = useState<string | null>(null);
   const [portfolioNote, setPortfolioNote] = useState<string | null>(null);
   const [purgeScope, setPurgeScope] = useState<PortfolioPurgeScope | null>(null);
   const activeStreams = useRef(new Map<string, AbortController>());
+  const feedbackQueues = useRef(new Map<string, Promise<AgentFeedback>>());
 
   const updateRun = useCallback((run: AgentRunView) => {
     setRuns((current) => {
       const index = current.findIndex((item) => item.id === run.id);
       if (index < 0) return [run, ...current];
       const existing = current[index];
+      const next = mergeRunWithCurrentFeedback(existing, run);
       if (
-        existing.status === run.status
-        && existing.updatedAt === run.updatedAt
-        && existing.evidenceFingerprint === run.evidenceFingerprint
+        existing.status === next.status
+        && existing.updatedAt === next.updatedAt
+        && existing.evidenceFingerprint === next.evidenceFingerprint
+        && existing.feedback?.value === next.feedback?.value
+        && existing.feedback?.updatedAt === next.feedback?.updatedAt
       ) {
         return current;
       }
-      return current.map((item) => item.id === run.id ? run : item);
+      return current.map((item) => item.id === next.id ? next : item);
     });
   }, []);
 
@@ -173,6 +193,18 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
     return preview;
   }, []);
 
+  const recheckPortfolioPreview = useCallback(() => {
+    const preview = refreshPortfolioPreview();
+    const notice = portfolioRecheckNotice(
+      preview.upload
+        ? `本机快照包含 ${preview.positionCount} 个持仓，可用于同步。`
+        : preview.issues[0] ?? "本机暂时没有可同步的持仓快照。",
+    );
+    setPortfolioError(notice.error);
+    setPortfolioNote(notice.note);
+    return preview;
+  }, [refreshPortfolioPreview]);
+
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
@@ -180,7 +212,7 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
         getAgentRunPage(),
         getAgentProfile(),
       ]);
-      setRuns(runPage.runs);
+      setRuns((current) => mergeRunPageWithCurrentFeedback(current, runPage.runs));
       setNextRunsCursor(runPage.nextCursor);
       setProfile(nextProfile);
       setError(null);
@@ -244,10 +276,13 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
   const syncLocalPortfolioSnapshot = useCallback(async () => {
     const preview = refreshPortfolioPreview();
     if (!preview.upload) {
+      setPortfolioNote(null);
       setPortfolioError(preview.issues[0] ?? "本机持仓快照尚不能同步。");
       return;
     }
-    setPortfolioBusy(true);
+    setPortfolioAction("syncing");
+    setPortfolioError(null);
+    setPortfolioNote(null);
     try {
       const nextState = await syncPortfolioSnapshot(preview.upload);
       setPortfolioState(nextState);
@@ -256,59 +291,74 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
         `已同步 ${preview.positionCount} 个持仓；将在 ${formatDate(preview.upload.expiresAt)} 后自动失效。`,
       );
     } catch (cause) {
+      setPortfolioNote(null);
       setPortfolioError(
         cause instanceof Error ? cause.message : "持仓快照同步失败",
       );
     } finally {
-      setPortfolioBusy(false);
+      setPortfolioAction(null);
     }
   }, [refreshPortfolioPreview]);
 
   const stopUsingPortfolioSnapshot = useCallback(async () => {
     const snapshot = portfolioState?.snapshot;
     if (!snapshot) return;
-    setPortfolioBusy(true);
+    setPortfolioAction("stopping");
+    setPortfolioError(null);
+    setPortfolioNote(null);
     try {
-      const nextState = await stopPortfolioSnapshot(snapshot.id);
-      setPortfolioState(nextState);
-      const runPage = await getAgentRunPage();
-      setRuns(runPage.runs);
-      setNextRunsCursor(runPage.nextCursor);
-      setPortfolioError(null);
-      setPortfolioNote(
-        nextState.detachedRunCount
+      const completion = await completePortfolioWrite(
+        () => stopPortfolioSnapshot(snapshot.id),
+        () => getAgentRunPage(),
+        (nextState) => nextState.detachedRunCount
           ? `已停止后续使用，并将 ${nextState.detachedRunCount} 个排队 Run 切回仅市场模式。`
           : "已停止后续使用；后续 Run 将保持仅市场模式。",
       );
+      setPortfolioState(completion.writeResult);
+      const refreshed = completion.refreshResult;
+      if (refreshed) {
+        setRuns((current) => mergeRunPageWithCurrentFeedback(current, refreshed.runs));
+        setNextRunsCursor(refreshed.nextCursor);
+      }
+      setPortfolioError(completion.notice.error);
+      setPortfolioNote(completion.notice.note);
     } catch (cause) {
+      setPortfolioNote(null);
       setPortfolioError(
         cause instanceof Error ? cause.message : "停止使用持仓快照失败",
       );
     } finally {
-      setPortfolioBusy(false);
+      setPortfolioAction(null);
     }
   }, [portfolioState?.snapshot]);
 
   const confirmPortfolioPurge = useCallback(async () => {
     if (!purgeScope) return;
-    setPortfolioBusy(true);
+    setPortfolioAction("purging");
+    setPortfolioError(null);
+    setPortfolioNote(null);
     try {
-      const nextState = await purgePortfolioSnapshotHistory(purgeScope);
-      setPortfolioState(nextState);
-      const runPage = await getAgentRunPage();
-      setRuns(runPage.runs);
-      setNextRunsCursor(runPage.nextCursor);
-      setPortfolioError(null);
-      setPortfolioNote(
-        `已清除 ${nextState.snapshots} 份快照及 ${nextState.runs} 条关联 Run；审计墓碑已保留。`,
+      const completion = await completePortfolioWrite(
+        () => purgePortfolioSnapshotHistory(purgeScope),
+        () => getAgentRunPage(),
+        (nextState) => `已清除 ${nextState.snapshots} 份快照及 ${nextState.runs} 条关联 Run；审计墓碑已保留。`,
       );
+      setPortfolioState(completion.writeResult);
+      const refreshed = completion.refreshResult;
+      if (refreshed) {
+        setRuns((current) => mergeRunPageWithCurrentFeedback(current, refreshed.runs));
+        setNextRunsCursor(refreshed.nextCursor);
+      }
+      setPortfolioError(completion.notice.error);
+      setPortfolioNote(completion.notice.note);
       setPurgeScope(null);
     } catch (cause) {
+      setPortfolioNote(null);
       setPortfolioError(
         cause instanceof Error ? cause.message : "清除持仓快照历史失败",
       );
     } finally {
-      setPortfolioBusy(false);
+      setPortfolioAction(null);
     }
   }, [purgeScope]);
 
@@ -359,6 +409,10 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
   }, [profile?.bootstrap, updateRun]);
 
   const downloadRuns = useCallback(async () => {
+    if (exportBusy) return;
+    setExportBusy(true);
+    setExportNote("正在准备运行记录导出文件。");
+    setExportError(null);
     try {
       const exported = await exportAgentRuns();
       const url = URL.createObjectURL(exported);
@@ -367,10 +421,14 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
       link.download = `market-agent-runs-${new Date().toISOString().slice(0, 10)}.json`;
       link.click();
       URL.revokeObjectURL(url);
+      setExportNote("导出文件已准备并开始下载。");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "记录导出失败");
+      setExportNote(null);
+      setExportError(cause instanceof Error ? cause.message : "记录导出失败");
+    } finally {
+      setExportBusy(false);
     }
-  }, []);
+  }, [exportBusy]);
 
   const removeRun = useCallback(async (run: AgentRunView) => {
     if (!window.confirm(`清除 ${formatDate(run.createdAt)} 的复盘正文及 Evidence？审计 fingerprint 与 tombstone 会保留，此操作无法恢复。`)) {
@@ -379,7 +437,12 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
     setDeletingRunId(run.id);
     try {
       const tombstone = await deleteAgentRun(run.id);
-      setRuns((current) => current.map((item) => item.id === run.id ? { ...item, result: undefined, payloadPurgedAt: tombstone.purgedAt } : item));
+      setRuns((current) => current.map((item) => item.id === run.id ? {
+        ...item,
+        result: undefined,
+        feedback: null,
+        payloadPurgedAt: tombstone.purgedAt,
+      } : item));
       if (activeEvidenceId === run.id) setActiveEvidenceId(null);
       setError(null);
     } catch (cause) {
@@ -389,15 +452,19 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
     }
   }, [activeEvidenceId]);
 
-  const saveFeedback = useCallback(async (
+  const saveFeedback = useCallback((
     runId: string,
-    value: RunFeedback,
+    value: AgentFeedbackValue,
   ) => {
-    try {
-      await sendRunFeedback(runId, value);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "反馈未保存");
-    }
+    return enqueueRunFeedback(feedbackQueues.current, runId, async () => {
+        const feedback = await sendRunFeedback(runId, value);
+        setRuns((current) => current.map((run) => (
+          run.id === runId
+            ? mergeRunWithCurrentFeedback(run, { ...run, feedback })
+            : run
+        )));
+        return feedback;
+      });
   }, []);
 
   const toggleEvidence = useCallback((evidenceId: string) => {
@@ -430,6 +497,9 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
       loadingMoreRuns,
       hasMoreRuns: Boolean(nextRunsCursor),
       activeEvidenceId,
+      exportBusy,
+      exportNote,
+      exportError,
     },
     watchlist: {
       items: localWatchlist,
@@ -439,7 +509,8 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
       preview: portfolioPreview,
       state: portfolioState,
       stateLoaded: portfolioStateLoaded,
-      busy: portfolioBusy,
+      busy: portfolioAction !== null,
+      action: portfolioAction,
       error: portfolioError,
       note: portfolioNote,
       purgeScope,
@@ -454,7 +525,7 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
       saveFeedback,
       updateRun,
       toggleEvidence,
-      refreshPortfolioPreview,
+      refreshPortfolioPreview: recheckPortfolioPreview,
       syncLocalPortfolioSnapshot,
       stopUsingPortfolioSnapshot,
       requestPortfolioPurge: setPurgeScope,

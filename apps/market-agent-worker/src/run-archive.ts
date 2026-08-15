@@ -1,3 +1,5 @@
+import type { AgentFeedback, AgentFeedbackValue } from "@zxlab/market-agent-schema";
+
 export interface RunArchiveRecord {
   id: string;
   workflow: string;
@@ -17,6 +19,7 @@ export interface RunArchiveRecord {
   createdAt: string;
   updatedAt: string;
   payloadPurgedAt: string | null;
+  feedback: AgentFeedback | null;
 }
 
 export interface RunArchivePage {
@@ -66,7 +69,7 @@ export class D1RunArchiveRepository {
   private async listPage(profileId: string, options: RunArchiveListOptions, includePayload: boolean): Promise<RunArchivePage> {
     const limit = Math.max(1, Math.min(100, Math.trunc(options.limit ?? 50)));
     const cursor = options.cursor ? decodeCursor(options.cursor) : null;
-    const columns = includePayload ? "SELECT *" : summaryColumns();
+    const columns = includePayload ? payloadColumns() : summaryColumns();
     const statement = cursor
       ? this.db.prepare(`${columns} FROM agent_runs WHERE profile_id = ? AND (created_at < ? OR (created_at = ? AND id < ?)) ORDER BY created_at DESC, id DESC LIMIT ?`).bind(profileId, cursor.createdAt, cursor.createdAt, cursor.id, limit + 1)
       : this.db.prepare(`${columns} FROM agent_runs WHERE profile_id = ? ORDER BY created_at DESC, id DESC LIMIT ?`).bind(profileId, limit + 1);
@@ -240,7 +243,15 @@ function parseJson(value: unknown): unknown | null {
 }
 
 function summaryColumns(): string {
-  return "SELECT id, workflow, trigger, status, idempotency_key, command_hash, revision_of_run_id, portfolio_snapshot_id, attempt, recovery_generation, evidence_fingerprint, failure_json, NULL AS command_json, result_json, NULL AS evidence_json, created_at, updated_at, payload_purged_at";
+  return `SELECT id, workflow, trigger, status, idempotency_key, command_hash, revision_of_run_id, portfolio_snapshot_id, attempt, recovery_generation, evidence_fingerprint, failure_json, NULL AS command_json, result_json, NULL AS evidence_json, created_at, updated_at, payload_purged_at, ${feedbackColumns()}`;
+}
+
+function payloadColumns(): string {
+  return `SELECT agent_runs.*, ${feedbackColumns()}`;
+}
+
+function feedbackColumns(): string {
+  return "(SELECT value FROM agent_feedback WHERE run_id = agent_runs.id AND profile_id = agent_runs.profile_id) AS feedback_value, (SELECT created_at FROM agent_feedback WHERE run_id = agent_runs.id AND profile_id = agent_runs.profile_id) AS feedback_updated_at";
 }
 
 function rowToArchiveRecord(row: Record<string, unknown>): RunArchiveRecord {
@@ -263,5 +274,15 @@ function rowToArchiveRecord(row: Record<string, unknown>): RunArchiveRecord {
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
     payloadPurgedAt: row.payload_purged_at ? String(row.payload_purged_at) : null,
+    feedback: archiveFeedback(row.feedback_value, row.feedback_updated_at),
   };
+}
+
+function archiveFeedback(value: unknown, updatedAt: unknown): AgentFeedback | null {
+  if (!isAgentFeedbackValue(value) || typeof updatedAt !== "string" || !updatedAt) return null;
+  return { value, updatedAt };
+}
+
+function isAgentFeedbackValue(value: unknown): value is AgentFeedbackValue {
+  return value === "helpful" || value === "fact_error" || value === "missing_factor";
 }
