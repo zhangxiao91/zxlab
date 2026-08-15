@@ -3,7 +3,10 @@ import test from "node:test";
 import { CloseReviewService } from "./close-review.ts";
 import type { PortfolioSnapshot } from "@zxlab/market-agent-schema";
 import type { MarketSnapshot } from "@zxlab/market-schema";
+import { calculateResearchFactBundleFingerprint } from "@zxlab/research-fact-schema";
+import { researchFactBundleFixture } from "@zxlab/research-fact-schema/fixtures";
 import { canonicalMemoryRevisionHash } from "./confirmed-context.ts";
+import { createRunCheckpoint } from "./run-checkpoint.ts";
 
 const snapshot: MarketSnapshot = { schemaVersion: "market-snapshot.v1", asOf: "2026-08-05T08:00:00.000Z", receivedAt: "2026-08-05T08:00:01.000Z", marketTimestamp: "2026-08-05T07:59:00.000Z", request: { instrumentIds: ["SSE:600000"], intervals: ["1d"], include: ["quotes"], quoteMode: "corroborated" }, data: { quotes: [{ instrumentId: "SSE:600000", price: 12, previousClose: 10, open: 10, high: 12, low: 10, volume: 100, turnover: 1200, marketTimestamp: "2026-08-05T07:59:00.000Z", receivedAt: "2026-08-05T08:00:01.000Z", source: "fixture", quality: "live", stale: false, warnings: [], corroboration: { mode: "corroborated", status: "corroborated", thresholdBps: 50, maxDeviationBps: 10, observations: [] } }], bars: [], news: [], announcements: [], status: [] }, capabilities: [], quality: { status: "operational", reliable: true, freshness: "fresh", warnings: [], attempts: [], unavailableCapabilities: [] } };
 
@@ -41,6 +44,68 @@ test("close review resumes the same sealed Evidence Bundle without recollecting 
 
   assert.equal(resumed.evidence.fingerprint, first.evidence.fingerprint);
   assert.equal(resumed.evidence.sealedAt, first.evidence.sealedAt);
+});
+
+test("close review seals price-context Research Facts and does not recollect them after checkpoint", async () => {
+  const research = researchFactBundleFixture();
+  research.purpose = "price_context";
+  research.planVersion = "price-context.v1";
+  research.fingerprint = await calculateResearchFactBundleFingerprint(research);
+  let researchCalls = 0;
+  let checkpoint: Parameters<CloseReviewService["execute"]>[0]["checkpoint"];
+  const first = await new CloseReviewService(
+    { getCurrentSnapshot: async () => ({ ...snapshot, asOf: research.observationCutoff }) },
+    undefined,
+    undefined,
+    {
+      async materialize(input) {
+        researchCalls += 1;
+        assert.deepEqual(input, {
+          purpose: "price_context",
+          instrumentIds: ["SSE:600000"],
+          observationCutoff: research.observationCutoff,
+        });
+        return research;
+      },
+    },
+  ).execute({
+    runId: "run-research-checkpoint",
+    command: { profileId: "p1", trigger: "manual", workflow: "close_review", idempotencyKey: "close-review-research" },
+    instrumentIds: ["SSE:600000"],
+    watchlistRevision: "w1",
+    onCheckpoint: async (value) => { checkpoint = value; },
+  });
+
+  assert.equal(researchCalls, 1);
+  assert.equal(checkpoint?.research?.fingerprint, research.fingerprint);
+  assert.equal(first.evidence.items.filter((item) => (item.value as { type?: unknown })?.type === "research_fact").length, research.facts.length);
+  checkpoint = await createRunCheckpoint(checkpoint!.snapshot, {
+    ...checkpoint!.evidence,
+    items: [...checkpoint!.evidence.items, {
+      id: "run-research-checkpoint:research:limitation:scope",
+      kind: "limitation",
+      origin: "server-observed",
+      reliable: true,
+      value: { type: "research_scope", code: "RESEARCH_SCOPE_PARTIAL", includedInstrumentIds: ["SSE:600000"], omittedInstrumentIds: ["SSE:600001", "SSE:600002", "SSE:600003"] },
+    }],
+  }, checkpoint!.research);
+
+  const resumed = await new CloseReviewService(
+    { getCurrentSnapshot: async () => { throw new Error("Market Facts must not be recollected after evidence_sealed"); } },
+    undefined,
+    undefined,
+    { materialize: async () => { throw new Error("Research Facts must not be recollected after evidence_sealed"); } },
+  ).execute({
+    runId: "run-research-checkpoint",
+    command: { profileId: "p1", trigger: "manual", workflow: "close_review", idempotencyKey: "close-review-research" },
+    instrumentIds: ["SSE:600000"],
+    watchlistRevision: "w1",
+    checkpoint,
+  });
+
+  assert.equal(resumed.evidence.fingerprint, first.evidence.fingerprint);
+  assert.equal(researchCalls, 1);
+  assert.match(resumed.result.outcome?.evidence.limitations.find((item) => item.code === "RESEARCH_SCOPE_PARTIAL")?.message ?? "", /另有 3 个标的/);
 });
 
 test("close review seals only context references while passing context ephemerally", async () => {

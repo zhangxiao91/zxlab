@@ -12,6 +12,30 @@ _Avoid_: Raw data, truth
 An immutable view of the required Market Facts and their data quality at one observation point.
 _Avoid_: Dashboard state, latest data
 
+**Research Fact Bundle**:
+An immutable, purpose-scoped set of historical, reference, document, and calendar Market Facts materialized under one knowledge cutoff and deterministic research plan.
+_Avoid_: Market Snapshot v2, research context, tool output
+
+**Research Plan**:
+A versioned policy that fixes which Research Facts, windows, formulas, mappings, and quality thresholds a research purpose requires.
+_Avoid_: Prompt plan, model tool plan
+
+**Knowledge Cutoff**:
+The server-created latest retrieval time of the source artifacts admitted to a Research Fact Bundle.
+_Avoid_: Market time, caller cutoff
+
+**Observation Cutoff**:
+The latest market or effective time that a Market Fact may describe in one Research Fact request.
+_Avoid_: Retrieval time, Knowledge Cutoff
+
+**Instrument Mapping**:
+An effective-dated relationship from an instrument to a benchmark, industry, industry index, or index membership, supported by a versioned taxonomy or an explicit profile comparison choice.
+_Avoid_: Model-selected peer, inferred benchmark
+
+**Research Document Version**:
+An immutable normalized version of an announcement or filing whose content digest and stable paragraph identifiers support exact citation and version comparison.
+_Avoid_: Announcement text, latest PDF
+
 **Market Event**:
 A deterministic, rule-identified change detected from one or more Market Snapshots.
 _Avoid_: Signal, recommendation, insight

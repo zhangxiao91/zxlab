@@ -11,6 +11,7 @@
     "apps/runtime-worker",
     "apps/market-agent-worker",
     "packages/market-schema",
+    "packages/research-fact-schema",
     "packages/market-agent-schema",
     "packages/risk-domain",
     "packages/signal-schema",

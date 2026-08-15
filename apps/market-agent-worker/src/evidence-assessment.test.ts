@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { MarketSnapshot } from "@zxlab/market-schema";
+import { researchFactBundleFixture } from "@zxlab/research-fact-schema/fixtures";
 import { assessEvidence } from "./evidence-assessment.ts";
 
 const snapshot: MarketSnapshot = {
@@ -46,4 +47,17 @@ test("portfolio impact requires a current portfolio snapshot", () => {
 
   assert.equal(assessment.coverage, "insufficient");
   assert.equal(assessment.limitations[0]?.code, "PORTFOLIO_SNAPSHOT_REQUIRED");
+});
+
+test("research coverage keeps the subject, metric, window, and sample counts", () => {
+  const research = researchFactBundleFixture();
+  const baseline = research.capabilities.find((capability) => capability.id === "market_baselines")!;
+  baseline.status = "degraded";
+  baseline.warnings = ["INSUFFICIENT_SAMPLE"];
+  baseline.limitations = [{ code: "INSUFFICIENT_SAMPLE", subjectId: "SSE:600000", baselineType: "realized_volatility", window: 250, actual: 180, required: 251, retryable: false }];
+
+  const assessment = assessEvidence("relative_performance", snapshot, false, research);
+
+  assert.equal(assessment.coverage, "limited");
+  assert.match(assessment.limitations.find((item) => item.code === "INSUFFICIENT_SAMPLE")?.message ?? "", /SSE:600000 realized_volatility:250.*180\/251/);
 });

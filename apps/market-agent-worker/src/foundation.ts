@@ -1,4 +1,5 @@
 import type { MarketSnapshot } from "@zxlab/market-schema";
+import type { ResearchFact, ResearchFactBundle } from "@zxlab/research-fact-schema";
 import type { RiskImpact } from "@zxlab/risk-domain";
 import type { AgentResult, AgentRun, ConfirmedContext, ConfirmedContextUse, EvidenceItem, MarketAgentAskCommand, MarketAgentCommand, MarketEvent, PortfolioSnapshot, RunClaimResult, RunCreation, SealedEvidenceBundle } from "@zxlab/market-agent-schema";
 import { EVENT_RULE_VERSION, MARKET_AGENT_SCHEMA_VERSION, eventEvidenceId, isMarketAgentAskCommand } from "@zxlab/market-agent-schema";
@@ -23,7 +24,7 @@ export class DeterministicMarketEventDetector {
 
 export interface PortfolioEvidenceInput { snapshot: PortfolioSnapshot; impact: RiskImpact | null; reliable: boolean; limitations: string[]; }
 
-export async function buildDeterministicCloseReview(command: MarketAgentCommand, snapshot: MarketSnapshot, events: MarketEvent[], runId: string, watchlistRevision = "unconfigured", portfolio?: PortfolioEvidenceInput, confirmedContext?: { contexts: ConfirmedContext[]; limitations: string[] }, previous?: MarketSnapshot): Promise<SealedEvidenceBundle> {
+export async function buildDeterministicCloseReview(command: MarketAgentCommand, snapshot: MarketSnapshot, events: MarketEvent[], runId: string, watchlistRevision = "unconfigured", portfolio?: PortfolioEvidenceInput, confirmedContext?: { contexts: ConfirmedContext[]; limitations: string[] }, previous?: MarketSnapshot, research?: ResearchFactBundle, researchOmittedInstrumentIds: string[] = []): Promise<SealedEvidenceBundle> {
   const items: EvidenceItem[] = [{
     id: `${runId}:snapshot:context`,
     kind: "market_fact",
@@ -56,6 +57,49 @@ export async function buildDeterministicCloseReview(command: MarketAgentCommand,
   snapshot.data.news.forEach((news, index) => items.push({ id: `${runId}:news:${index}`, kind: "market_fact", origin: "server-observed", value: { evidenceType: "news", ...news }, reliable: externalTextReliable(news.publishedAt, news.warnings) }));
   snapshot.data.announcements.forEach((announcement, index) => items.push({ id: `${runId}:announcement:${index}`, kind: "market_fact", origin: "server-observed", value: { evidenceType: "announcement", ...announcement }, reliable: externalTextReliable(announcement.publishedAt, announcement.warnings) }));
   snapshot.data.status.forEach((status, index) => items.push({ id: `${runId}:status:${index}`, kind: "market_fact", origin: "server-observed", value: { type: "market_status", ...status }, reliable: status.reliable }));
+  research?.facts.forEach((fact, index) => items.push({
+    id: `${runId}:research:${index}`,
+    kind: "market_fact",
+    origin: "server-observed",
+    value: {
+      type: "research_fact",
+      researchFingerprint: research.fingerprint,
+      planVersion: research.planVersion,
+      purpose: research.purpose,
+      fact,
+    },
+    reliable: researchFactReliable(fact),
+  }));
+  research?.capabilities.filter((capability) => capability.status !== "operational" || capability.warnings.length > 0).forEach((capability, index) => items.push({
+    id: `${runId}:research:limitation:${index}`,
+    kind: "limitation",
+    origin: "server-observed",
+    value: {
+      type: "research_capability",
+      researchFingerprint: research.fingerprint,
+      capability: capability.id,
+      required: capability.required,
+      status: capability.status,
+      asOf: capability.asOf,
+      warnings: capability.warnings,
+      limitations: capability.limitations,
+      errorCode: capability.error?.code ?? null,
+      retryable: capability.error?.retryable ?? false,
+    },
+    reliable: true,
+  }));
+  if (researchOmittedInstrumentIds.length) items.push({
+    id: `${runId}:research:limitation:scope`,
+    kind: "limitation",
+    origin: "server-observed",
+    value: {
+      type: "research_scope",
+      code: "RESEARCH_SCOPE_PARTIAL",
+      includedInstrumentIds: research?.instrumentIds ?? [],
+      omittedInstrumentIds: [...researchOmittedInstrumentIds].sort(),
+    },
+    reliable: true,
+  });
   const snapshotDiff = previous ? diffMarketSnapshots(previous, snapshot) : null;
   if (snapshotDiff) items.push({ id: `${runId}:snapshot-diff`, kind: "snapshot_diff", origin: "server-observed", value: snapshotDiff, reliable: Boolean(previous?.quality.reliable && snapshot.quality.reliable) });
   for (const capability of snapshot.capabilities.filter(materialCapabilityLimitation)) items.push({ id: `${runId}:limitation:${items.length}`, kind: "limitation", origin: "server-observed", value: { capability: capability.id, status: capability.status, freshness: capability.freshness, warnings: capability.warnings }, reliable: true });
@@ -93,7 +137,7 @@ export async function buildDeterministicCloseReview(command: MarketAgentCommand,
   const commandForFingerprint = isMarketAgentAskCommand(command)
     ? { workflow: command.workflow, profileId: command.profileId, scope: command.scope, instrumentId: command.instrumentId ?? null, priorRunId: command.priorRunId ?? null, resolvedInstrumentIds: command.resolvedInstrumentIds }
     : { workflow: command.workflow, profileId: command.profileId, instrumentId: command.instrumentId ?? null, marketDate: command.marketDate ?? null };
-  const canonical = stableFingerprint({ command: commandForFingerprint, snapshot, snapshotDiff, events, watchlistRevision, portfolio: portfolio ? portfolio.reliable ? { snapshot: portfolio.snapshot, impact: portfolio.impact, limitations: portfolio.limitations } : { snapshotId: portfolio.snapshot.id, reliable: false, limitations: portfolio.limitations } : null, contextUses });
+  const canonical = stableFingerprint({ command: commandForFingerprint, snapshot, research: research ?? null, researchOmittedInstrumentIds: [...researchOmittedInstrumentIds].sort(), snapshotDiff, events, watchlistRevision, portfolio: portfolio ? portfolio.reliable ? { snapshot: portfolio.snapshot, impact: portfolio.impact, limitations: portfolio.limitations } : { snapshotId: portfolio.snapshot.id, reliable: false, limitations: portfolio.limitations } : null, contextUses });
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical)));
   return { schemaVersion: MARKET_AGENT_SCHEMA_VERSION, eventRuleVersion: EVENT_RULE_VERSION, profileId: command.profileId, workflow: command.workflow, watchlistRevision, instrumentIds: snapshot.request.instrumentIds, items, contextUses, fingerprint: `sha256:${[...digest].map((byte) => byte.toString(16).padStart(2, "0")).join("")}`, sealedAt: new Date().toISOString() };
 }
@@ -109,6 +153,8 @@ export async function buildDeterministicAskEvidence(input: {
   confirmedContext?: { contexts: ConfirmedContext[]; limitations: string[] };
   previous?: { runId: string; workflow: string; createdAt: string; evidenceFingerprint: string; result: AgentResult };
   previousSnapshot?: MarketSnapshot;
+  research?: ResearchFactBundle;
+  researchOmittedInstrumentIds?: string[];
 }): Promise<SealedEvidenceBundle> {
   const base = await buildDeterministicCloseReview(
     input.command,
@@ -119,6 +165,8 @@ export async function buildDeterministicAskEvidence(input: {
     input.portfolio,
     input.confirmedContext,
     input.previousSnapshot,
+    input.research,
+    input.researchOmittedInstrumentIds,
   );
   const items: EvidenceItem[] = [
     ...base.items,
@@ -181,6 +229,16 @@ export async function buildDeterministicAskEvidence(input: {
   };
 }
 
+export function sealedResearchOmittedInstrumentCount(evidence: SealedEvidenceBundle): number {
+  for (const item of evidence.items) {
+    if (item.kind !== "limitation" || !item.value || typeof item.value !== "object" || Array.isArray(item.value)) continue;
+    const value = item.value as Record<string, unknown>;
+    if (value.type !== "research_scope" || value.code !== "RESEARCH_SCOPE_PARTIAL" || !Array.isArray(value.omittedInstrumentIds)) continue;
+    return value.omittedInstrumentIds.filter((instrumentId): instrumentId is string => typeof instrumentId === "string").length;
+  }
+  return 0;
+}
+
 function toContextUses(contexts: ConfirmedContext[]): ConfirmedContextUse[] {
   const usedAt = new Date().toISOString();
   return contexts.map((context) => ({ memoryId: context.memoryId, role: context.role, revisionHash: context.revisionHash, usedAt }));
@@ -195,6 +253,10 @@ function materialCapabilityLimitation(capability: MarketSnapshot["capabilities"]
   if (capability.status === "unavailable") return true;
   if (capability.freshness === "stale" || capability.freshness === "unknown") return true;
   return capability.warnings.length > 0;
+}
+
+function researchFactReliable(fact: ResearchFact): boolean {
+  return fact.quality.reliable && fact.quality.status === "operational" && fact.quality.coverage.actual >= fact.quality.coverage.required;
 }
 
 export class MemoryRunRepository {

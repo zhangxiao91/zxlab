@@ -1393,6 +1393,35 @@ Phase 6.5 的 Signal Confirmed Context 仍以 zxlab 的单 owner 个人部署为
 - `MARKET_AGENT_MEMORY_TOKEN` 调用除 retrieve 之外的 Signal Memory route 必须失败。
 - 冻结 replay fixture 可在不访问网络、行情 provider 或模型的情况下重复验证。
 
+### Phase 6.6：Research Fact Plane v2
+
+Research Fact Plane 与 `MarketSnapshot` 是并列模块：Snapshot 继续表达一个当前观察点，Research Fact Plane 按固定 observation cutoff、服务端生成的 knowledge cutoff 和版本化 Research Plan 生成历史、映射、财报、估值、文档与日历事实。Market Agent 只能提交 research purpose、标的范围和来自 Snapshot 的 observation cutoff，不能选择 knowledge cutoff、provider、公式、窗口、quality 或组装事实。
+
+第一条 vertical slice 交付：
+
+- 显式、带有效期与 revision 的 benchmark mapping；没有映射时返回 unknown，不猜测 benchmark。
+- 20/60/250 个已完成交易日的收益、成交量中位数和年化已实现波动率基线；换手/成交额算子在后续 baseline slice 增加。
+- benchmark 交易日对齐后的确定性相对收益。
+- 每个事实的 provider、source as-of、retrieval time、coverage、quality、公式版本、输入和舍入口径 provenance。
+- `today_change`、`relative_performance` 和 close review 在 Evidence seal 前读取 Research Fact Bundle；checkpoint 和 fingerprint 同时冻结该 Bundle，replay 不重新采集。
+
+后续 slices 依次增加：
+
+- 财报关键指标、同比/环比、财报 revision 与 point-in-time 可得性。
+- 估值区间、历史分位与无意义/样本不足语义。
+- 公告与财报全文、稳定段落引用、文档版本和确定性 diff。
+- 公司行动、财报日和宏观事件日历。
+
+共同退出标准：
+
+- 数字只来自版本化确定性算子；模型关闭时数值与 quality 不变。
+- `N` 日收益和波动率至少有 `N + 1` 个有效收盘价；不足时不得缩短窗口冒充结果。
+- `sourceAsOf` 不得晚于 observation cutoff；`retrievedAt` 不得晚于服务端生成的 knowledge cutoff。
+- 第一条 slice 只接受近实时 observation cutoff，不声称可从当前 provider 响应重建任意历史知识时点；任意历史 knowledge cutoff 必须等待 append-only source artifact 与 `firstObservedAt` 存储。
+- mapping、报表、估值样本、文档和日历均按有效期或不可变版本引用。
+- 普通 provider 失败返回 partial Bundle 和 limitation；非法请求、鉴权或完整性失败才中止整个 materialization。
+- 所有 Research Fact 可从 Observation 追溯到 source、formula、as-of、retrieval 和 data-quality provenance。
+
 ### Phase 7：Alerts 与多渠道投递
 
 交付：

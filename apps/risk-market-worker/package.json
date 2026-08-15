@@ -5,9 +5,13 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
+    "deploy:beta": "wrangler deploy --config wrangler.beta.jsonc",
     "types": "wrangler types",
     "typecheck": "wrangler types && tsc --noEmit",
-    "test": "node --test --experimental-transform-types src/*.test.ts"
+    "test": "node --test --experimental-transform-types src/*.test.ts src/research/*.test.ts"
+  },
+  "dependencies": {
+    "@zxlab/research-fact-schema": "file:../../packages/research-fact-schema"
   },
   "devDependencies": {
     "typescript": "^6.0.3",

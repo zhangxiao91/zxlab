@@ -25,6 +25,7 @@ import {
   loadQuotes,
   runCorroboratedQuote,
   runWithFallback,
+  projectDailyHistoryForResearch,
 } from "./index.ts";
 import worker from "./index.ts";
 import { validateMarketSnapshot } from "../../../packages/market-schema/src/index.ts";
@@ -243,6 +244,38 @@ test("falls back sequentially and preserves attempt diagnostics", async () => {
   assert.equal(result.source, "backup-1");
   assert.equal(result.fallbackUsed, true);
   assert.deepEqual(result.attempts.map((item) => [item.provider, item.ok]), [["primary", false], ["backup-1", true]]);
+});
+
+test("schema failure takes precedence over pure and mixed provider exhaustion", async () => {
+  const cases = [
+    [
+      { name: "schema-a", load: async () => parseTonghuashunDailyBars("SSE:600000", "invalid") },
+      { name: "schema-b", load: async () => parseTonghuashunDailyBars("SSE:600000", "still invalid") },
+    ],
+    [
+      { name: "schema", load: async () => parseTonghuashunDailyBars("SSE:600000", "invalid") },
+      { name: "transport", load: async () => { throw new Error("network unavailable"); } },
+    ],
+  ];
+  for (const providers of cases) {
+    await assert.rejects(
+      runWithFallback("daily-bars", providers),
+      (error: unknown) => Boolean(error && typeof error === "object" && "code" in error && (error as { code: unknown }).code === "UPSTREAM_SCHEMA_CHANGED"),
+    );
+  }
+});
+
+test("research daily-history projection rejects missing required close or volume", () => {
+  for (const invalid of [{ close: null, volume: 100 }, { close: 10, volume: null }]) {
+    const loaded = {
+      data: [{ instrumentId: "SSE:600000", timestamp: "2026-08-14T07:00:00.000Z", open: 10, high: 11, low: 9, ...invalid, turnover: 1000, source: "fixture" }],
+      meta: { source: "fixture", receivedAt: "2026-08-14T07:00:01.000Z", warnings: [] },
+    };
+    assert.throws(
+      () => projectDailyHistoryForResearch("SSE:600000", loaded),
+      (error: unknown) => Boolean(error && typeof error === "object" && "code" in error && (error as { code: unknown }).code === "UPSTREAM_SCHEMA_CHANGED"),
+    );
+  }
 });
 
 test("corroborated quotes become conflicted only when independent sources exceed the threshold", async () => {

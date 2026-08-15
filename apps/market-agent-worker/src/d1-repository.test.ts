@@ -3,7 +3,9 @@ import test from "node:test";
 import { D1RunRepository } from "./d1-repository.ts";
 import type { SealedEvidenceBundle } from "@zxlab/market-agent-schema";
 import type { MarketSnapshot } from "@zxlab/market-schema";
-import { createRunCheckpoint } from "./run-checkpoint.ts";
+import { checkpointSnapshotPayload, createRunCheckpoint } from "./run-checkpoint.ts";
+import { calculateResearchFactBundleFingerprint } from "@zxlab/research-fact-schema";
+import { researchFactBundleFixture } from "@zxlab/research-fact-schema/fixtures";
 
 test("run deletion scopes every evidence-related delete to the owning profile", async () => {
   const statements: Array<{ sql: string; values: unknown[] }> = [];
@@ -116,6 +118,53 @@ test("previous checkpoint lookup returns the latest terminal Run from the same p
   assert.match(statement, /previous\.profile_id = current\.profile_id/);
   assert.match(statement, /previous\.workflow = current\.workflow/);
   assert.match(statement, /ORDER BY previous\.created_at DESC/);
+});
+
+test("checkpoint lookup restores the frozen Research Facts from the versioned snapshot payload", async () => {
+  const snapshot = checkpointSnapshot();
+  const evidence = checkpointEvidence();
+  const research = researchFactBundleFixture();
+  research.fingerprint = await calculateResearchFactBundleFingerprint(research);
+  const expectedCheckpoint = await createRunCheckpoint(snapshot, evidence, research);
+  const db = {
+    prepare() {
+      return {
+        bind() {
+          return {
+            async first() {
+              return {
+                snapshot_json: JSON.stringify(checkpointSnapshotPayload(expectedCheckpoint)),
+                evidence_json: JSON.stringify(evidence),
+                fingerprint: expectedCheckpoint.integrityFingerprint,
+              };
+            },
+          };
+        },
+      };
+    },
+  } as unknown as D1Database;
+
+  const checkpoint = await new D1RunRepository(db).getCheckpoint("run-1", "profile-owner");
+
+  assert.deepEqual(checkpoint, expectedCheckpoint);
+});
+
+test("an existing invalid sealed checkpoint is not treated as absent", async () => {
+  const db = {
+    prepare() {
+      return {
+        bind() {
+          return {
+            async first() {
+              return { snapshot_json: "{invalid", evidence_json: JSON.stringify(checkpointEvidence()), fingerprint: `sha256:${"0".repeat(64)}` };
+            },
+          };
+        },
+      };
+    },
+  } as unknown as D1Database;
+
+  await assert.rejects(new D1RunRepository(db).getCheckpoint("run-1", "profile-owner"), /RUN_CHECKPOINT_INVALID/);
 });
 
 test("checkpoint write reports a lost lease instead of claiming sealed state", async () => {

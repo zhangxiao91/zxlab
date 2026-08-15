@@ -9,6 +9,7 @@ import type {
   MarketQuoteMode,
   MarketSnapshotInclude,
 } from "@zxlab/market-schema";
+import type { ResearchPurpose } from "@zxlab/research-fact-schema";
 import type { WatchlistItemInput } from "./profile-repository.ts";
 
 export interface AskEvidencePlan {
@@ -23,6 +24,7 @@ export interface AskEvidencePlan {
   include: MarketSnapshotInclude[];
   quoteMode: MarketQuoteMode;
   requiresCorroboratedQuotes: boolean;
+  researchPurpose?: ResearchPurpose;
 }
 
 export const ASK_PLAN_VERSION = "ask-plan.v1" as const;
@@ -40,6 +42,7 @@ const plans: Record<AskScope, AskEvidencePlan> = {
     include: ["quotes", "bars"],
     quoteMode: "corroborated",
     requiresCorroboratedQuotes: true,
+    researchPurpose: "price_context",
   },
   relative_performance: {
     scope: "relative_performance",
@@ -53,6 +56,7 @@ const plans: Record<AskScope, AskEvidencePlan> = {
     include: ["quotes", "bars"],
     quoteMode: "corroborated",
     requiresCorroboratedQuotes: true,
+    researchPurpose: "relative_performance",
   },
   news_and_announcements: {
     scope: "news_and_announcements",

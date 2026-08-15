@@ -56,10 +56,13 @@ test("Ask input is scope-bound and cannot supply server-only planning fields", (
 });
 
 test("every Ask scope resolves through a static market request plan", () => {
+  assert.equal(askEvidencePlan("today_change").researchPurpose, "price_context");
   const relative = askEvidencePlan("relative_performance");
   assert.deepEqual(relative.include, ["quotes", "bars"]);
   assert.equal(relative.requiresCorroboratedQuotes, true);
+  assert.equal(relative.researchPurpose, "relative_performance");
   assert.equal(askEvidencePlan("news_and_announcements").quoteMode, "fallback");
+  assert.equal(askEvidencePlan("news_and_announcements").researchPurpose, undefined);
 });
 
 test("Ask scope resolution rejects missing requirements without expanding the request", () => {

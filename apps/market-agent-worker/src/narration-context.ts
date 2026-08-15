@@ -196,11 +196,22 @@ function compactEvidenceValue(value: Record<string, unknown> | null): Record<str
   if (!value) return { type: "unknown", value: bounded(value, 0, 8) };
   if (value.type === "bar_series") return compactBarSeries(value);
   if (value.type === "quote") return compactQuote(value);
+  if (value.type === "research_fact") return compactResearchFact(value);
   if (value.type === "snapshot_context") return compactSnapshotContext(value);
   if (value.evidenceType === "news" || value.evidenceType === "announcement") return compactExternalText(value);
   if (value.type === "portfolio_snapshot") return compactPortfolioSnapshot(value);
   if (value.type === "previous_run") return compactPreviousRun(value);
   return bounded(value, 0, 32) as Record<string, unknown>;
+}
+
+function compactResearchFact(value: Record<string, unknown>): Record<string, unknown> {
+  return {
+    type: "research_fact",
+    researchFingerprint: truncatedString(value.researchFingerprint, 160),
+    planVersion: truncatedString(value.planVersion, 160),
+    purpose: stringValue(value.purpose),
+    fact: bounded(value.fact, 0, 32),
+  };
 }
 
 function compactBarSeries(value: Record<string, unknown>): Record<string, unknown> {
@@ -361,7 +372,7 @@ function evidencePriority(item: EvidenceItem, scope: AskScope | undefined, selec
   const value = record(item.value);
   const type = stringValue(value?.type);
   const evidenceType = stringValue(value?.evidenceType);
-  const instrumentId = stringValue(value?.instrumentId);
+  const instrumentId = stringValue(value?.instrumentId) ?? stringValue(record(value?.fact)?.subjectId);
   let score = type === "snapshot_context" ? 2_000
     : item.kind === "limitation" ? 1_900
       : item.kind === "execution_plan" ? 1_850
@@ -371,6 +382,7 @@ function evidencePriority(item: EvidenceItem, scope: AskScope | undefined, selec
               : item.kind === "portfolio_impact" ? 1_300
                 : item.kind === "prior_run" ? 1_250
                   : type === "quote" ? 1_100
+                    : type === "research_fact" ? 1_200
                     : evidenceType === "news" || evidenceType === "announcement" ? 1_000
                       : type === "bar_series" ? 900
                         : 500;
@@ -378,6 +390,7 @@ function evidencePriority(item: EvidenceItem, scope: AskScope | undefined, selec
   if (scope === "data_quality" && (item.kind === "limitation" || type === "snapshot_context" || type === "market_status" || !item.reliable)) score += 800;
   if (scope === "news_and_announcements" && (evidenceType === "news" || evidenceType === "announcement")) score += 800;
   if (scope === "relative_performance" && type === "quote") score += 700 + Math.min(250, Math.abs(quoteMovePct(value)) * 10);
+  if (scope === "relative_performance" && type === "research_fact") score += 900;
   if (scope === "portfolio_impact" && item.kind === "portfolio_impact") score += 800;
   if (scope === "compare_previous_run" && item.kind === "prior_run") score += 1_000;
   return score;

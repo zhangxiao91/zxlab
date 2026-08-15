@@ -3,6 +3,9 @@ import { projectCachedLoadResult } from "./cache-policy.ts";
 import { applyIntradayFreshnessDecision, assessDailyBarFreshness, assessIntradayFreshness } from "./freshness.ts";
 import { readCurrentMarketSnapshot, type SnapshotLoadResult } from "./snapshot.ts";
 import { DEFAULT_QUOTE_CONFLICT_THRESHOLD_BPS, type MarketFactQuality, type MarketFreshness, type MarketQuoteMode, type QuoteCorroboration, type TradingCalendar } from "../../../packages/market-schema/src/index.ts";
+import type { ResearchFactPlane as ResearchFactPlaneInterface, ResearchFactRequest } from "@zxlab/research-fact-schema";
+import { ResearchFactPlane, type DailyHistoryResult } from "./research/fact-plane.ts";
+import { StaticVersionedBenchmarkMappingRegistry } from "./research/benchmark-mappings.ts";
 
 type NullableNumber = number | null;
 type Quality = MarketFactQuality;
@@ -446,6 +449,9 @@ export async function runWithFallback<T>(capability: Capability, providers: Prov
       console.warn(JSON.stringify({ event: "market_provider_failed", capability, provider: provider.name, code: known.code, message: known.message }));
     }
   }
+  if (attempts.some((attempt) => attempt.errorCode === "UPSTREAM_SCHEMA_CHANGED")) {
+    throw new GatewayError("UPSTREAM_SCHEMA_CHANGED", `${capability} 至少一个 Provider 返回不兼容结构`, 502);
+  }
   throw new AllProvidersFailedError(capability, attempts);
 }
 
@@ -509,7 +515,7 @@ function dailyProviders(instrumentId: string): Provider<StandardBar[]>[] {
   const code = instrumentToCode(instrumentId);
   const baiduUrl = `https://finance.pae.baidu.com/selfselect/getstockquotation?all=1&isIndex=false&isBk=false&isBlock=false&isFutures=false&isStock=true&newFormat=1&group=quotation_kline_ab&finClientType=pc&code=${code.symbol}&ktype=1`;
   return [
-    { name: "tencent-kline", load: async (fetcher) => parseTencentDailyBars(instrumentId, code.prefixed, await (await upstream(fetcher, `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${code.prefixed},day,,,180,qfq`)).json()) },
+    { name: "tencent-kline", load: async (fetcher) => parseTencentDailyBars(instrumentId, code.prefixed, await (await upstream(fetcher, `https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=${code.prefixed},day,,,400,qfq`)).json()) },
     { name: "baidu-gushitong", load: async (fetcher) => parseBaiduDailyBars(instrumentId, await (await upstream(fetcher, baiduUrl, { accept: "application/vnd.finance-web.v1+json", origin: "https://gushitong.baidu.com", referer: "https://gushitong.baidu.com/" })).json()) },
     { name: "tonghuashun-kline", load: async (fetcher) => parseTonghuashunDailyBars(instrumentId, await (await upstream(fetcher, `https://d.10jqka.com.cn/v6/line/hs_${code.symbol}/01/last.js`, { referer: "https://stockpage.10jqka.com.cn/" })).text()) },
   ];
@@ -616,6 +622,7 @@ function withQuoteDiagnostics(result: FallbackResult<StandardQuote>): StandardQu
 }
 
 function json(data: unknown, status = 200, cache = "no-store") { return new Response(JSON.stringify(data), { status, headers: { ...CORS, "cache-control": cache } }); }
+function privateJson(data: unknown, status = 200) { return new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } }); }
 
 async function cached<T>(request: Request, seconds: number, ctx: ExecutionContext, loader: () => Promise<LoadResult<T>>) {
   const cache = await caches.open("risk-market-v2");
@@ -767,6 +774,69 @@ async function loadStatus(exchange: "SSE" | "SZSE"): Promise<SnapshotLoadResult<
   return { data, meta: { capability: `status:${exchange}`, capabilityStatus: data.quality, asOf: data.asOf, receivedAt: data.receivedAt, freshness: data.freshness, warnings: data.warnings } };
 }
 
+function productionResearchFactPlane(): ResearchFactPlane {
+  return new ResearchFactPlane({
+    benchmarkMappings: new StaticVersionedBenchmarkMappingRegistry(),
+    history: {
+      async loadDailyHistory(input) {
+        const loaded = await loadBars(input.instrumentId, "1d");
+        return projectDailyHistoryForResearch(input.instrumentId, loaded);
+      },
+    },
+  });
+}
+
+export function projectDailyHistoryForResearch(instrumentId: string, loaded: LoadResult<StandardBar[]>): DailyHistoryResult {
+  if (!loaded.data.length || loaded.data.some((bar) => !Number.isFinite(bar.close) || !Number.isFinite(bar.volume))) {
+    throw new GatewayError("UPSTREAM_SCHEMA_CHANGED", "Daily history contains invalid required fields", 502);
+  }
+  const provider = typeof loaded.meta.source === "string" ? loaded.meta.source : "risk-market-daily-bars";
+  const retrievedAt = typeof loaded.meta.receivedAt === "string" ? loaded.meta.receivedAt : new Date().toISOString();
+  const warnings = Array.isArray(loaded.meta.warnings) ? loaded.meta.warnings.filter((item): item is string => typeof item === "string") : [];
+  if (loaded.meta.fallbackUsed === true) warnings.push("PROVIDER_FALLBACK_USED");
+  return {
+    instrumentId,
+    provider,
+    providerVersion: "risk-market-daily-bars.v1",
+    retrievedAt,
+    bars: loaded.data.map((bar) => ({
+      sessionDate: bar.timestamp.slice(0, 10),
+      close: String(bar.close),
+      volume: String(bar.volume),
+      turnover: typeof bar.turnover === "number" ? String(bar.turnover) : null,
+    })),
+    warnings,
+  };
+}
+
+export async function handleResearchFactRequest(request: Request, serviceToken: string | undefined, plane: ResearchFactPlaneInterface): Promise<Response> {
+  const provided = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
+  if (!serviceToken || provided !== serviceToken) return privateJson({ error: { code: "UNAUTHORIZED", message: "Market research service token is required" } }, 401);
+  if (request.method !== "POST") return privateJson({ error: { code: "METHOD_NOT_ALLOWED", message: "Research facts require POST" } }, 405);
+  const declaredLength = Number(request.headers.get("content-length") ?? "0");
+  if (Number.isFinite(declaredLength) && declaredLength > 32_768) return privateJson({ error: { code: "PAYLOAD_TOO_LARGE", message: "Research fact request exceeds 32768 bytes" } }, 413);
+  let payload: unknown;
+  try {
+    const body = await request.text();
+    if (body.length > 32_768) return privateJson({ error: { code: "PAYLOAD_TOO_LARGE", message: "Research fact request exceeds 32768 bytes" } }, 413);
+    payload = JSON.parse(body);
+  } catch {
+    return privateJson({ error: { code: "INVALID_JSON", message: "Request body must be valid JSON" } }, 400);
+  }
+  try {
+    const data = await plane.materialize(payload as ResearchFactRequest);
+    return privateJson({ data });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (message.startsWith("Invalid ResearchFactRequest:")) return privateJson({ error: { code: "INVALID_RESEARCH_FACT_REQUEST", message } }, 400);
+    if (message === "UNSUPPORTED_RESEARCH_PURPOSE") return privateJson({ error: { code: message, message: "Research purpose is not implemented" } }, 422);
+    if (message === "OBSERVATION_CUTOFF_OUT_OF_RANGE") return privateJson({ error: { code: message, message: "observationCutoff must be within the previous 15 minutes", retryable: false } }, 400);
+    if (message === "RESEARCH_HISTORY_INTEGRITY_FAILURE") return privateJson({ error: { code: message, message: "Research history failed integrity validation", retryable: false } }, 502);
+    console.error(JSON.stringify({ event: "research_fact_error", code: "RESEARCH_FACT_MATERIALIZATION_FAILED", path: new URL(request.url).pathname }));
+    return privateJson({ error: { code: "RESEARCH_FACT_MATERIALIZATION_FAILED", message: "Research facts could not be materialized" } }, 502);
+  }
+}
+
 async function route(request: Request, ctx: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
   const segments = url.pathname.split("/").filter(Boolean);
@@ -831,6 +901,7 @@ function uniqueQuery(value: string | null): string[] { return [...new Set((value
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    if (new URL(request.url).pathname === "/api/market/research/facts") return handleResearchFactRequest(request, (env as Env & { MARKET_RESEARCH_TOKEN?: string }).MARKET_RESEARCH_TOKEN, productionResearchFactPlane());
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
     if (request.method !== "GET") return json({ error: { code: "METHOD_NOT_ALLOWED", message: "仅支持 GET" } }, 405);
     if (new URL(request.url).pathname === "/internal/runtime/health") {

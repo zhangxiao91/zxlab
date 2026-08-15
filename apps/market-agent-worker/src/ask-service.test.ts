@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentResult, MarketAgentAskCommand } from "@zxlab/market-agent-schema";
 import type { MarketSnapshot, MarketSnapshotRequest } from "@zxlab/market-schema";
+import { calculateResearchFactBundleFingerprint } from "@zxlab/research-fact-schema";
+import { researchFactBundleFixture } from "@zxlab/research-fact-schema/fixtures";
 import { AskService } from "./ask-service.ts";
+import { createRunCheckpoint } from "./run-checkpoint.ts";
 
 function ask(overrides: Partial<MarketAgentAskCommand> = {}): MarketAgentAskCommand {
   return {
@@ -178,6 +181,94 @@ test("Ask resumes a compare-previous-run checkpoint without rereading the prior 
 
   assert.equal(resumed.evidence.fingerprint, first.evidence.fingerprint);
   assert.equal(resumed.evidence.ask?.priorRunId, "prior-run-1");
+});
+
+test("relative performance seals Research Facts once and resumes without recollecting them", async () => {
+  const command = ask({ scope: "relative_performance", instrumentId: "SSE:600000" });
+  const research = researchFactBundleFixture();
+  research.fingerprint = await calculateResearchFactBundleFingerprint(research);
+  let researchCalls = 0;
+  let checkpoint: Parameters<AskService["execute"]>[0]["checkpoint"];
+  const first = await new AskService(
+    { getCurrentSnapshot: async (input) => ({ ...marketSnapshot(input), asOf: research.observationCutoff }) },
+    undefined,
+    undefined,
+    {
+      async materialize(input) {
+        researchCalls += 1;
+        assert.deepEqual(input, {
+          purpose: "relative_performance",
+          instrumentIds: ["SSE:600000"],
+          selectedInstrumentId: "SSE:600000",
+          observationCutoff: "2026-08-14T07:00:00.000Z",
+        });
+        return research;
+      },
+    },
+  ).execute({
+    runId: "ask-run-research",
+    command,
+    watchlistRevision: "watchlist-1",
+    onCheckpoint: async (value) => { checkpoint = value; },
+  });
+
+  assert.equal(researchCalls, 1);
+  assert.equal(checkpoint?.research?.fingerprint, research.fingerprint);
+  assert.equal(first.evidence.items.filter((item) => (item.value as { type?: unknown })?.type === "research_fact").length, research.facts.length);
+  assert.ok(first.evidence.items.some((item) => item.kind === "limitation" && JSON.stringify(item.value).includes("CAPABILITY_NOT_IMPLEMENTED")));
+  checkpoint = await createRunCheckpoint(checkpoint!.snapshot, {
+    ...checkpoint!.evidence,
+    items: [...checkpoint!.evidence.items, {
+      id: "ask-run-research:research:limitation:scope",
+      kind: "limitation",
+      origin: "server-observed",
+      reliable: true,
+      value: { type: "research_scope", code: "RESEARCH_SCOPE_PARTIAL", includedInstrumentIds: ["SSE:600000"], omittedInstrumentIds: ["SSE:600001", "SSE:600002"] },
+    }],
+  }, checkpoint!.research);
+
+  const resumed = await new AskService(
+    { getCurrentSnapshot: async () => { throw new Error("Market Facts must not be recollected after evidence_sealed"); } },
+    undefined,
+    undefined,
+    { materialize: async () => { throw new Error("Research Facts must not be recollected after evidence_sealed"); } },
+  ).execute({
+    runId: "ask-run-research",
+    command,
+    watchlistRevision: "watchlist-1",
+    checkpoint,
+  });
+
+  assert.equal(resumed.evidence.fingerprint, first.evidence.fingerprint);
+  assert.equal(researchCalls, 1);
+  assert.match(resumed.result.outcome?.evidence.limitations.find((item) => item.code === "RESEARCH_SCOPE_PARTIAL")?.message ?? "", /另有 2 个标的/);
+});
+
+test("Ask never recollects Research Facts for a legacy checkpoint without research", async () => {
+  let checkpoint: Parameters<AskService["execute"]>[0]["checkpoint"];
+  await new AskService({ getCurrentSnapshot: async (input) => marketSnapshot(input) }).execute({
+    runId: "ask-run-legacy-checkpoint",
+    command: ask({ instrumentId: "SSE:600000" }),
+    watchlistRevision: "watchlist-1",
+    onCheckpoint: async (value) => { checkpoint = value; },
+  });
+  assert.ok(checkpoint);
+  assert.equal(checkpoint.research, undefined);
+
+  const resumed = await new AskService(
+    { getCurrentSnapshot: async () => { throw new Error("Market Facts must not be recollected after evidence_sealed"); } },
+    undefined,
+    undefined,
+    { materialize: async () => { throw new Error("Legacy checkpoint must not trigger Research Fact collection"); } },
+  ).execute({
+    runId: "ask-run-legacy-checkpoint",
+    command: ask({ instrumentId: "SSE:600000" }),
+    watchlistRevision: "watchlist-1",
+    checkpoint,
+  });
+
+  assert.equal(resumed.evidence.fingerprint, checkpoint.evidence.fingerprint);
+  assert.equal(resumed.result.outcome?.evidence.limitations.some((item) => item.code === "RESEARCH_SCOPE_PARTIAL"), false);
 });
 
 test("Ask rejects a market response that does not echo the sealed fixed plan", async () => {

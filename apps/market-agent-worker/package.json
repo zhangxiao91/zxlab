@@ -14,6 +14,6 @@
     "deploy:beta:dry": "wrangler deploy --dry-run --config wrangler.beta.jsonc",
     "deploy:beta": "wrangler deploy --config wrangler.beta.jsonc"
   },
-  "dependencies": { "@zxlab/market-agent-schema": "0.1.0", "@zxlab/market-schema": "0.1.0", "@zxlab/risk-domain": "0.1.0" },
+  "dependencies": { "@zxlab/market-agent-schema": "0.1.0", "@zxlab/market-schema": "0.1.0", "@zxlab/research-fact-schema": "0.1.0", "@zxlab/risk-domain": "0.1.0" },
   "devDependencies": { "typescript": "^6.0.3", "wrangler": "^4.110.0" }
 }

@@ -9,6 +9,7 @@ import { D1PortfolioSnapshotRepository, type PortfolioPurgeScope } from "./portf
 import { GatewayNarrator } from "./gateway-narrator.ts";
 import { DeterministicNarrator } from "./narration.ts";
 import { MarketSnapshotAdapter } from "./snapshot-reader.ts";
+import { ResearchFactAdapter } from "./research-fact-reader.ts";
 import { productionTradingCalendar } from "@zxlab/market-schema/calendar";
 import { decideScheduledWorkflow, scheduledWorkflowAt } from "./schedule.ts";
 import { requireMarketAgentScope, resolveMarketAgentActor } from "./auth.ts";
@@ -16,6 +17,7 @@ import { SignalMemoryAdapter } from "./confirmed-context.ts";
 import { createRunEventStream } from "./run-stream.ts";
 import { MARKET_AGENT_RUN_LEASE_MS } from "./runtime-budget.ts";
 import { D1RunArchiveRepository } from "./run-archive.ts";
+import { settleRunFailure } from "./run-failure-policy.ts";
 
 const repository = new MemoryRunRepository();
 type RunMessage = { runId: string; generation: number; kind: "initial" | "recovery" };
@@ -144,7 +146,15 @@ export async function processRun(runId: string, env: Env): Promise<"ack" | "retr
   if (!env.DB) return "retry"; const runs = new D1RunRepository(env.DB); const claim = await runs.claim(runId, "market-agent-consumer", new Date().toISOString(), new Date(Date.now() + MARKET_AGENT_RUN_LEASE_MS).toISOString());
   if (claim.kind === "terminal" || claim.kind === "missing") return "ack"; if (claim.kind === "leased") return "retry";
   const command = await runs.getCommand(runId); if (!command) { await runs.fail(runId, claim.lease.leaseToken, "COMMAND_MISSING"); return "ack"; }
-  const checkpoint = await runs.getCheckpoint(runId, command.profileId);
+  let checkpoint: Awaited<ReturnType<D1RunRepository["getCheckpoint"]>>;
+  try { checkpoint = await runs.getCheckpoint(runId, command.profileId); }
+  catch (cause) {
+    if (cause instanceof Error && cause.message === "RUN_CHECKPOINT_INVALID") {
+      await runs.fail(runId, claim.lease.leaseToken, "RUN_CHECKPOINT_INVALID");
+      return "ack";
+    }
+    throw cause;
+  }
   const profiles = new D1ProfileRepository(env.DB);
   const snapshots = new D1PortfolioSnapshotRepository(env.DB);
   const watchlist = await profiles.getWatchlist(command.profileId); if (!checkpoint && command.trigger === "scheduled" && !watchlist) { await runs.fail(runId, claim.lease.leaseToken, "WATCHLIST_BOOTSTRAP_REQUIRED"); return "ack"; }
@@ -170,12 +180,11 @@ export async function processRun(runId: string, env: Env): Promise<"ack" | "retr
     }
     try {
       const reader = new MarketSnapshotAdapter({ service: env.MARKET_SNAPSHOT_SERVICE, baseUrl: env.MARKET_SNAPSHOT_URL });
-      const output = await new AskService(reader, narratorFor(env), contextReaderFor(env)).execute({ runId, command, watchlistRevision: watchlist?.revision ?? checkpoint?.evidence.watchlistRevision ?? "ask-without-watchlist", portfolioSnapshot, previous, previousSnapshot: previousCheckpoint?.snapshot, checkpoint: checkpoint ?? undefined, onCheckpoint: (value) => checkpointRun(runs, runId, command.profileId, claim.lease.leaseToken, value), onProgress: (status) => advanceRun(runs, runId, claim.lease.leaseToken, status) });
+      const output = await new AskService(reader, narratorFor(env), contextReaderFor(env), researchReaderFor(env)).execute({ runId, command, watchlistRevision: watchlist?.revision ?? checkpoint?.evidence.watchlistRevision ?? "ask-without-watchlist", portfolioSnapshot, previous, previousSnapshot: previousCheckpoint?.snapshot, checkpoint: checkpoint ?? undefined, onCheckpoint: (value) => checkpointRun(runs, runId, command.profileId, claim.lease.leaseToken, value), onProgress: (status) => advanceRun(runs, runId, claim.lease.leaseToken, status) });
       await runs.complete(runId, claim.lease.leaseToken, output.evidence, output.result);
       return "ack";
-    } catch {
-      await runs.defer(runId, claim.lease.leaseToken, "ASK_RETRYABLE");
-      return "retry";
+    } catch (cause) {
+      return settleRunFailure(runs, runId, claim.lease.leaseToken, cause, "ASK_RETRYABLE");
     }
   }
   const portfolioSnapshot = !checkpoint && claim.lease.run.portfolioSnapshotId ? await snapshots.getUsableForProfile(command.profileId, claim.lease.run.portfolioSnapshotId) : null;
@@ -183,9 +192,9 @@ export async function processRun(runId: string, env: Env): Promise<"ack" | "retr
   try {
     const reader = new MarketSnapshotAdapter({ service: env.MARKET_SNAPSHOT_SERVICE, baseUrl: env.MARKET_SNAPSHOT_URL });
     const previous = checkpoint ? null : await runs.getPreviousCheckpoint(runId, command.profileId);
-    const output = await new CloseReviewService(reader, narratorFor(env), contextReaderFor(env)).execute({ runId, command, instrumentIds, watchlistRevision: watchlist?.revision ?? checkpoint?.evidence.watchlistRevision ?? "instrument-only", portfolioSnapshot, previous: previous?.snapshot, checkpoint: checkpoint ?? undefined, onCheckpoint: (value) => checkpointRun(runs, runId, command.profileId, claim.lease.leaseToken, value), onProgress: (status) => advanceRun(runs, runId, claim.lease.leaseToken, status) });
+    const output = await new CloseReviewService(reader, narratorFor(env), contextReaderFor(env), researchReaderFor(env)).execute({ runId, command, instrumentIds, watchlistRevision: watchlist?.revision ?? checkpoint?.evidence.watchlistRevision ?? "instrument-only", portfolioSnapshot, previous: previous?.snapshot, checkpoint: checkpoint ?? undefined, onCheckpoint: (value) => checkpointRun(runs, runId, command.profileId, claim.lease.leaseToken, value), onProgress: (status) => advanceRun(runs, runId, claim.lease.leaseToken, status) });
     await runs.complete(runId, claim.lease.leaseToken, output.evidence, output.result); return "ack";
-  } catch { await runs.defer(runId, claim.lease.leaseToken, "CLOSE_REVIEW_RETRYABLE"); return "retry"; }
+  } catch (cause) { return settleRunFailure(runs, runId, claim.lease.leaseToken, cause, "CLOSE_REVIEW_RETRYABLE"); }
 }
 
 export async function processQueue(batch: MessageBatch<RunMessage>, env: Env): Promise<void> { for (const message of batch.messages) { const body = message.body; if (!body || typeof body.runId !== "string") { message.ack(); continue; } const disposition = await processRun(body.runId, env); if (disposition === "ack") message.ack(); else message.retry({ delaySeconds: 30 }); } }
@@ -209,6 +218,7 @@ function sameInstrumentScope(left: string[], right: string[]): boolean { return 
 function boundedInteger(value: string | null | undefined, fallback: number, maximum: number): number { const parsed = Number(value); return Number.isInteger(parsed) && parsed > 0 ? Math.min(parsed, maximum) : fallback; }
 function narratorFor(env: Env): GatewayNarrator | DeterministicNarrator { return env.MARKET_AGENT_GENERATION_ENABLED === "true" && env.MARKET_AGENT_GATEWAY_URL && env.MARKET_AGENT_GATEWAY_TOKEN ? new GatewayNarrator({ apiUrl: env.MARKET_AGENT_GATEWAY_URL, token: env.MARKET_AGENT_GATEWAY_TOKEN }) : new DeterministicNarrator(); }
 function contextReaderFor(env: Env): SignalMemoryAdapter { return new SignalMemoryAdapter({ service: env.SIGNAL_MEMORY_SERVICE, baseUrl: env.SIGNAL_MEMORY_URL, token: env.MARKET_AGENT_MEMORY_TOKEN }); }
+function researchReaderFor(env: Env): ResearchFactAdapter { return new ResearchFactAdapter({ service: env.MARKET_SNAPSHOT_SERVICE, baseUrl: env.MARKET_SNAPSHOT_URL, token: env.MARKET_RESEARCH_TOKEN }); }
 async function advanceRun(runs: D1RunRepository, runId: string, leaseToken: string, status: "evidence_sealed" | "generating" | "validating"): Promise<void> { if (!await runs.advance(runId, leaseToken, status)) throw new Error("RUN_LEASE_LOST"); }
 async function checkpointRun(runs: D1RunRepository, runId: string, profileId: string, leaseToken: string, checkpoint: import("./run-checkpoint.ts").RunCheckpoint): Promise<void> { if (!await runs.checkpoint(runId, profileId, leaseToken, checkpoint)) throw new Error("RUN_LEASE_LOST"); }
 

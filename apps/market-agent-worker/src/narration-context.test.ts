@@ -99,6 +99,43 @@ test("relative-performance context carries selected rank and prioritizes the sel
   assert.ok(context.evidence.findIndex((item) => item.id === "quote-selected") < context.evidence.findIndex((item) => item.id === "quote-middle"));
 });
 
+test("relative-performance context retains deterministic Research Facts with formula provenance", () => {
+  const quotes: EvidenceItem[] = Array.from({ length: 40 }, (_, index) => ({
+    id: `quote-${index}`,
+    kind: "market_fact",
+    origin: "server-observed",
+    reliable: true,
+    value: { type: "quote", instrumentId: `SSE:${String(600000 + index).padStart(6, "0")}`, price: 10 + index, previousClose: 10, quality: "live", stale: false },
+  }));
+  const research: EvidenceItem = {
+    id: "research-baseline",
+    kind: "market_fact",
+    origin: "server-observed",
+    reliable: true,
+    value: {
+      type: "research_fact",
+      researchFingerprint: "sha256:research",
+      planVersion: "relative-performance.v1",
+      purpose: "relative_performance",
+      fact: {
+        id: "baseline:SSE:600000:price_return:20",
+        kind: "market_baseline",
+        subjectId: "SSE:600000",
+        baselineType: "price_return",
+        window: 20,
+        value: { decimal: "0.1234", unit: "ratio" },
+        formula: { id: "price.total_return", version: "1", inputArtifactIds: ["bars:fixture"] },
+      },
+    },
+  };
+
+  const context = buildNarrationContext({ evidence: evidence([...quotes, research], "relative_performance"), workflow: "ask", askScope: "relative_performance" });
+  const projected = context.evidence.find((item) => item.id === research.id);
+
+  assert.ok(projected);
+  assert.equal(((projected.value.fact as { formula?: { version?: string } }).formula?.version), "1");
+});
+
 test("close review keeps the point-in-time Snapshot diff ahead of a large quote set", () => {
   const quotes: EvidenceItem[] = Array.from({ length: 120 }, (_, index) => ({
     id: `quote-${index}`,

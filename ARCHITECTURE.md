@@ -133,6 +133,27 @@ The current production-facing path favors Cloudflare boundaries: market data and
 LLM review are exposed through Pages Functions or Workers, while the browser
 submits explicit evidence snapshots instead of credentials or mutable plans.
 
+### Market and Research Facts
+
+`apps/risk-market-worker` owns external market provider adapters, normalized
+current Market Facts, fallback and corroboration policy, trading-calendar
+freshness, and Research Fact materialization. Its two deep interfaces have
+different time semantics:
+
+- `MarketSnapshot` is an immutable view at one current observation point.
+- `ResearchFactBundle` is an immutable purpose-scoped view of historical,
+  reference, document, and calendar facts available by a knowledge cutoff.
+
+Research Plans inside the Worker fix the required capabilities, mappings,
+windows, deterministic operators, and quality thresholds. Market Agent callers
+select a purpose only; browsers and models cannot select providers, formulas,
+or fact quality. The Agent seals the returned Bundle and fingerprint alongside
+the current Snapshot before narration, so retry and replay never re-fetch newer
+research material.
+
+The internal research route uses a dedicated Market-to-Agent credential. It is
+not a browser route and does not reuse the Runtime health identity.
+
 ### zxtoolkit
 
 `apps/zxtoolkit` is a separate device toolkit that includes:
