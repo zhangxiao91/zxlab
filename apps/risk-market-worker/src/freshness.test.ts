@@ -16,10 +16,65 @@ test("accepts the latest official close across a multi-day holiday", async () =>
   assert.equal(decision.expectedCloseDate, "2026-09-30");
 });
 
+test("accepts a provider post-close observation from the effective trading date over the weekend", async () => {
+  const calendar = new OfficialCnTradingCalendar();
+  const receivedAtByWeekendDay = [
+    "2026-08-15T07:52:55.693Z",
+    "2026-08-16T07:52:55.693Z",
+  ];
+
+  const decisions = await Promise.all(receivedAtByWeekendDay.map((receivedAt) => assessIntradayFreshness({
+    exchange: "SSE",
+    marketTimestamp: "2026-08-14T16:14:55+08:00",
+    receivedAt,
+  }, calendar)));
+
+  assert.deepEqual(
+    decisions.map((decision) => [decision.session, decision.freshness, decision.stale, decision.expectedCloseDate]),
+    [
+      ["holiday", "fresh", false, "2026-08-14"],
+      ["holiday", "fresh", false, "2026-08-14"],
+    ],
+  );
+});
+
+test("does not promote a non-close or older trading-day observation over the weekend", async () => {
+  const calendar = new OfficialCnTradingCalendar();
+  const decisions = await Promise.all([
+    "2026-08-14T14:00:00+08:00",
+    "2026-08-13T16:14:55+08:00",
+  ].map((marketTimestamp) => assessIntradayFreshness({
+    exchange: "SSE",
+    marketTimestamp,
+    receivedAt: "2026-08-15T07:52:55.693Z",
+  }, calendar)));
+
+  assert.deepEqual(
+    decisions.map((decision) => [decision.freshness, decision.stale, decision.expectedCloseDate]),
+    [
+      ["stale", true, "2026-08-14"],
+      ["stale", true, "2026-08-14"],
+    ],
+  );
+});
+
 test("accepts the previous trading close during preopen", async () => {
   const decision = await assessIntradayFreshness({
     exchange: "SZSE",
     marketTimestamp: "2026-08-03T07:00:00.000Z",
+    receivedAt: "2026-08-04T01:20:00.000Z",
+  }, new OfficialCnTradingCalendar());
+
+  assert.equal(decision.session, "preopen");
+  assert.equal(decision.freshness, "fresh");
+  assert.equal(decision.stale, false);
+  assert.equal(decision.expectedCloseDate, "2026-08-03");
+});
+
+test("accepts a provider post-close observation from the effective trading date during preopen", async () => {
+  const decision = await assessIntradayFreshness({
+    exchange: "SZSE",
+    marketTimestamp: "2026-08-03T16:14:55+08:00",
     receivedAt: "2026-08-04T01:20:00.000Z",
   }, new OfficialCnTradingCalendar());
 

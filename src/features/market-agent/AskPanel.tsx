@@ -471,9 +471,14 @@ function activityStateLabel(state: "complete" | "active" | "degraded" | "failed"
   return ({ complete: "完成", active: "进行中", degraded: "降级", failed: "中止", waiting: "等待" } as const)[state];
 }
 
-function degradedTool(tool: string, limitations: string[], outcome?: RunOutcome) {
+export function degradedTool(tool: string, limitations: string[], outcome?: RunOutcome) {
   if (tool === "Agent Narrator") return outcome ? outcome.narration.source === "deterministic_fallback" : limitations.some((item) => item.includes("Gateway"));
-  if (tool === "Market Snapshot") return outcome ? outcome.evidence.coverage !== "sufficient" : limitations.some((item) => /数据限制|数据能力|行情|报价|市场事实/.test(item));
+  if (tool === "Market Snapshot") return outcome
+    ? outcome.evidence.limitations.some((item) => item.code === "MARKET_SNAPSHOT_UNRELIABLE" || Boolean(item.capability && !item.capability.startsWith("research:")))
+    : limitations.some((item) => /数据限制|数据能力|行情|报价|市场事实/.test(item));
+  if (tool === "Evidence Assembler") return outcome
+    ? outcome.evidence.limitations.some((item) => item.code === "RESEARCH_SCOPE_PARTIAL" || item.capability?.startsWith("research:"))
+    : false;
   return false;
 }
 

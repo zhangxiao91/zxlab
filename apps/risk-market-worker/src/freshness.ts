@@ -59,7 +59,7 @@ export async function assessIntradayFreshness(
     const expectedCloseDate = await previousTradingDate(status.calendarDate, calendar);
     const fresh = expectedCloseDate != null
       && input.marketTimestamp != null
-      && isSessionClose(input.marketTimestamp, expectedCloseDate, 15 * 60);
+      && isEffectiveCloseObservation(input.marketTimestamp, input.receivedAt, expectedCloseDate);
     return {
       freshness: fresh ? "fresh" : expectedCloseDate ? "stale" : "unknown",
       stale: !fresh,
@@ -79,7 +79,7 @@ export async function assessIntradayFreshness(
       && isTimely(input.marketTimestamp, input.receivedAt);
     const previousClose = expectedCloseDate != null
       && input.marketTimestamp != null
-      && isSessionClose(input.marketTimestamp, expectedCloseDate, 15 * 60);
+      && isEffectiveCloseObservation(input.marketTimestamp, input.receivedAt, expectedCloseDate);
     const fresh = timelyAuction || previousClose;
     return {
       freshness: fresh ? "fresh" : expectedCloseDate ? "stale" : "unknown",
@@ -128,8 +128,7 @@ export async function assessIntradayFreshness(
       : await previousTradingDate(status.calendarDate, calendar);
     const fresh = expectedCloseDate != null
       && input.marketTimestamp != null
-      && (isSessionClose(input.marketTimestamp, expectedCloseDate, 15 * 60)
-        || isSameDayPostCloseObservation(input.marketTimestamp, input.receivedAt, expectedCloseDate));
+      && isEffectiveCloseObservation(input.marketTimestamp, input.receivedAt, expectedCloseDate);
     return {
       freshness: fresh ? "fresh" : expectedCloseDate ? "stale" : "unknown",
       stale: !fresh,
@@ -222,6 +221,11 @@ function isSameDayPostCloseObservation(marketTimestamp: string, receivedAt: stri
     && isSameShanghaiDate(marketTimestamp, date)
     && minutes !== null
     && minutes >= 15 * 60;
+}
+
+function isEffectiveCloseObservation(marketTimestamp: string, receivedAt: string, date: string): boolean {
+  return isSessionClose(marketTimestamp, date, 15 * 60)
+    || isSameDayPostCloseObservation(marketTimestamp, receivedAt, date);
 }
 
 async function previousTradingDate(date: string, calendar: TradingCalendar): Promise<string | null> {

@@ -3,7 +3,7 @@
 ## Contexts
 
 - [Personal Market Agent](./docs/market-agent/CONTEXT.md) — turns normalized market facts, Risk impact, and confirmed personal context into private evidence-bound observations and review runs.
-- [Market](./apps/risk-market-worker/src/index.ts) — owns provider adapters, current normalized market facts, capability quality, fallback behavior, and versioned Research Fact materialization.
+- [Market](./apps/risk-market-worker/CONTEXT.md) — owns provider adapters, current normalized market facts, capability quality, fallback behavior, and versioned Research Fact materialization.
 - [Risk](./docs/risk-mvp-architecture.md) — owns the local ledger, deterministic portfolio replay, risk rules, and portfolio evidence.
 - [Signal](./docs/zx-signal.md) — owns canonical durable Memory and its candidate/review lifecycle.
 - [AI Gateway](./docs/ai-gateway.md) — owns model policy, routing, fallback, protocol handling, and usage telemetry.

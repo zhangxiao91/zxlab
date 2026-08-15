@@ -27,6 +27,33 @@ test("a usable fallback provider keeps evidence sufficient", () => {
   assert.deepEqual(assessment.fallbackCapabilities, ["announcements:SSE:600000"]);
 });
 
+test("today change treats the effective trading date as sufficient over the weekend", () => {
+  const weekend: MarketSnapshot = {
+    ...snapshot,
+    asOf: "2026-08-15T07:52:55.693Z",
+    receivedAt: "2026-08-15T07:52:56.331Z",
+    marketTimestamp: "2026-08-14T16:14:55+08:00",
+    request: { instrumentIds: ["SSE:600000"], intervals: ["1d", "1m"], include: ["quotes", "bars"], quoteMode: "corroborated" },
+    data: {
+      quotes: [],
+      bars: [],
+      news: [],
+      announcements: [],
+      status: [{ exchange: "SSE", open: false, session: "holiday", calendarDate: "2026-08-15", marketTimestamp: "2026-08-15T07:52:55.693Z", asOf: "2026-08-15T07:52:55.693Z", receivedAt: "2026-08-15T07:52:55.693Z", freshness: "fresh", quality: "operational", reliable: true, source: "sse-calendar-2026", warnings: [] }],
+    },
+    capabilities: [
+      { id: "quotes", status: "operational", required: true, asOf: "2026-08-14T16:14:55+08:00", receivedAt: "2026-08-15T07:52:55.693Z", freshness: "fresh", warnings: [], attempts: [] },
+      { id: "status:SSE", status: "operational", required: true, asOf: "2026-08-15T07:52:55.693Z", receivedAt: "2026-08-15T07:52:55.693Z", freshness: "fresh", warnings: [], attempts: [] },
+    ],
+    quality: { status: "operational", reliable: true, freshness: "fresh", warnings: [], attempts: [], unavailableCapabilities: [] },
+  };
+
+  const assessment = assessEvidence("today_change", weekend, false);
+
+  assert.equal(assessment.coverage, "sufficient");
+  assert.deepEqual(assessment.limitations, []);
+});
+
 test("an unavailable required capability limits evidence", () => {
   const unavailable: MarketSnapshot = {
     ...snapshot,

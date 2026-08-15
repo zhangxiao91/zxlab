@@ -107,6 +107,29 @@ test("keeps the latest Friday close current over the weekend", async () => {
   assert.doesNotMatch(quote.warnings.join(" "), /过期/);
 });
 
+test("keeps a Friday provider post-close update operational throughout the weekend", async () => {
+  const fields = Array(38).fill("");
+  fields[3] = "11.19"; fields[4] = "11.27"; fields[5] = "11.23"; fields[6] = "882977"; fields[30] = "20260814161455"; fields[33] = "11.26"; fields[34] = "11.10";
+  const receivedAtByWeekendDay = [
+    "2026-08-15T07:52:55.693Z",
+    "2026-08-16T07:52:55.693Z",
+  ];
+
+  const results = await Promise.all(receivedAtByWeekendDay.map((receivedAt) => loadQuotes(["SSE:600000"], "fallback", {
+    fetcher: async () => new Response(`v_sh600000="${fields.join("~")}";`),
+    now: () => new Date(receivedAt),
+    calendar: new OfficialCnTradingCalendar(),
+  })));
+
+  assert.deepEqual(
+    results.map((result) => [result.data[0]?.quality, result.data[0]?.stale, result.meta.capabilityStatus, result.meta.freshness]),
+    [
+      ["live", false, "operational", "fresh"],
+      ["live", false, "operational", "fresh"],
+    ],
+  );
+});
+
 test("keeps the same-day close current after the market closes", async () => {
   const fields = Array(38).fill("");
   fields[3] = "11.19"; fields[4] = "11.27"; fields[5] = "11.23"; fields[6] = "882977"; fields[30] = "20260807150000"; fields[33] = "11.26"; fields[34] = "11.10";
