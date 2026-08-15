@@ -76,6 +76,21 @@ test("private access callback waits for a successful Signal probe before notifyi
   assert.equal((openerMessages[0] as { type?: string }).type, "zxlab:private-access-ready");
 });
 
+test("private access callback verifies the Market Agent session for Market recovery", async () => {
+  const response = await completePrivateAccess(
+    {
+      request: new Request("https://beta.zxlab.pages.dev/api/private/session?service=market-agent&returnTo=/lab/trading/?view=review%26mode=market"),
+      env,
+    },
+    { verifyAccess: async () => ({ sub: "access-user-1" }) as never },
+  );
+  const body = await response.text();
+
+  assert.match(body, /正在确认 Market Agent 私有会话/);
+  assert.match(body, /fetch\("\/api\/private\/market-agent\/profile"/);
+  assert.doesNotMatch(body, /Signal 私有会话尚未可用/);
+});
+
 test("private access callback does not report success when the Signal probe is not ready", async () => {
   const response = await completePrivateAccess(
     {

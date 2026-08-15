@@ -1,5 +1,5 @@
 import gsap from "gsap";
-import { useEffect, useRef } from "react";
+import React, { useEffect, useRef } from "react";
 import type { AgentFeedback, AgentFeedbackValue } from "@zxlab/market-agent-schema";
 import type { TradingScreenAction, TradingScreenStatus } from "../trading/screen";
 import AskPanel, { RunActivity } from "./AskPanel";
@@ -9,6 +9,7 @@ import {
   type AgentObservationView,
   type AgentRunMode,
   type AgentRunView,
+  marketAgentAccessUrl,
 } from "./client";
 import { buildMarketReviewReport } from "./market-review-report";
 import { portfolioActionLabel, runExportLabel } from "./action-state";
@@ -44,6 +45,7 @@ export default function AgentToday({
     reviewBusy: busy,
     streamingAnswer,
     error,
+    accessRequired,
     setupNote,
     deletingRunId,
     loadingMoreRuns,
@@ -114,9 +116,7 @@ export default function AgentToday({
             <span>{latest ? `最近运行 ${date(latest.updatedAt)}` : "尚无运行记录"}</span>
           </div>
         </header>
-        {error && (
-          <p className="review-status review-status--warning">{error}</p>
-        )}
+        <AgentErrorNotice error={error} accessRequired={accessRequired} />
         {bootstrap === "required" && (
           <section className="agent-bootstrap" aria-label="观察列表启动">
             <div>
@@ -386,6 +386,26 @@ export default function AgentToday({
         <p>Market Agent 只读市场事实，不连接交易执行。</p>
         <a href="/lab/market">Market Center</a>
       </footer>}
+    </div>
+  );
+}
+
+export function AgentErrorNotice({
+  error,
+  accessRequired,
+}: {
+  error: string | null;
+  accessRequired: boolean;
+}) {
+  if (!error) return null;
+  return (
+    <div className="review-status review-status--warning agent-access-warning" role="status">
+      <span>{error}</span>
+      {accessRequired && (
+        <a href={marketAgentAccessUrl} target="_blank" rel="noreferrer">
+          重新授权
+        </a>
+      )}
     </div>
   );
 }

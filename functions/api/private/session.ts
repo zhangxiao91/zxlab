@@ -2,6 +2,7 @@ import { RiskReviewError, verifyCloudflareAccess, type RiskReviewEnv } from "../
 
 interface FunctionContext { request: Request; env: RiskReviewEnv }
 interface PrivateSessionDependencies { verifyAccess?: typeof verifyCloudflareAccess }
+interface PrivateSessionTarget { label: string; probe: string }
 
 const headers = {
   "Content-Type": "text/html; charset=utf-8",
@@ -36,20 +37,26 @@ function scriptValue(value: string): string {
   return JSON.stringify(value).replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
 }
 
-function document(returnTo: string, verified: boolean): string {
+function sessionTarget(request: Request): PrivateSessionTarget {
+  return new URL(request.url).searchParams.get("service") === "market-agent"
+    ? { label: "Market Agent", probe: "/api/private/market-agent/profile" }
+    : { label: "Signal", probe: "/api/signal/api/watches" };
+}
+
+function document(returnTo: string, verified: boolean, target: PrivateSessionTarget): string {
   const title = verified ? "统一授权已完成" : "统一授权暂时无法确认";
-  const copy = verified ? "正在确认 Signal 私有会话。" : "请返回原页面后重新打开授权窗口。";
+  const copy = verified ? `正在确认 ${target.label} 私有会话。` : "请返回原页面后重新打开授权窗口。";
   const script = verified ? `<script>
     const message = { type: "zxlab:private-access-ready" };
-    const confirmSignalSession = async () => {
+    const confirmPrivateSession = async () => {
       const status = document.querySelector("[data-private-access-status]");
       try {
-        const response = await fetch("/api/signal/api/watches", {
+        const response = await fetch(${scriptValue(target.probe)}, {
           credentials: "include",
           redirect: "manual",
         });
         if (response.status !== 200 || response.type === "opaqueredirect") {
-          throw new Error("Signal private session is not ready");
+          throw new Error("Private session is not ready");
         }
         if (typeof BroadcastChannel === "function") {
           const channel = new BroadcastChannel("zxlab-private-access");
@@ -64,11 +71,11 @@ function document(returnTo: string, verified: boolean): string {
       } catch {
         if (status) {
           status.dataset.state = "waiting";
-          status.textContent = "Access 登录已完成，但 Signal 私有会话尚未可用。请保留此窗口并重新载入。";
+          status.textContent = "Access 登录已完成，但 ${target.label} 私有会话尚未可用。请保留此窗口并重新载入。";
         }
       }
     };
-    void confirmSignalSession();
+    void confirmPrivateSession();
   </script>` : "";
   return `<!doctype html>
 <html lang="zh-CN">
@@ -102,14 +109,15 @@ export async function completePrivateAccess(
   dependencies: PrivateSessionDependencies = {},
 ): Promise<Response> {
   const returnTo = safeReturnTo(context.request);
+  const target = sessionTarget(context.request);
   try {
     await (dependencies.verifyAccess ?? verifyCloudflareAccess)(context.request, context.env);
-    return new Response(document(returnTo, true), { status: 200, headers });
+    return new Response(document(returnTo, true, target), { status: 200, headers });
   } catch (cause) {
     const error = cause instanceof RiskReviewError
       ? cause
       : new RiskReviewError("ACCESS_UNAVAILABLE", "Cloudflare Access 暂时无法校验。", 503, { cause });
-    return new Response(document(returnTo, false), { status: error.status, headers });
+    return new Response(document(returnTo, false, target), { status: error.status, headers });
   }
 }
 

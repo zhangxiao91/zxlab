@@ -101,6 +101,67 @@ export class MarketAgentApiError extends Error {
   }
 }
 
+export const marketAgentAccessUrl = "/api/private/session?service=market-agent&returnTo=%2Flab%2Ftrading%2F%3Fview%3Dreview%26mode%3Dmarket";
+
+const accessRequiredMessage = "Cloudflare Access 登录状态已失效，请重新授权后刷新。";
+const networkFailedMessage = "无法连接 Market Agent，请检查网络后重试。";
+
+export function marketAgentAccessRequired(error: unknown): boolean {
+  return error instanceof MarketAgentApiError && error.code === "ACCESS_REQUIRED";
+}
+
+async function marketAgentFetch(
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+): Promise<Response> {
+  let response: Response;
+  try {
+    response = await fetch(input, {
+      credentials: "same-origin",
+      redirect: "manual",
+      ...init,
+    });
+  } catch (cause) {
+    if (init.signal?.aborted || (cause instanceof Error && cause.name === "AbortError")) {
+      throw cause;
+    }
+    if (await privateAccessRequired()) {
+      throw new MarketAgentApiError("ACCESS_REQUIRED", accessRequiredMessage, 401);
+    }
+    throw new MarketAgentApiError(
+      "MARKET_AGENT_NETWORK_FAILED",
+      networkFailedMessage,
+      503,
+    );
+  }
+
+  if (accessRedirect(response)) {
+    throw new MarketAgentApiError("ACCESS_REQUIRED", accessRequiredMessage, 401);
+  }
+  return response;
+}
+
+async function privateAccessRequired(): Promise<boolean> {
+  try {
+    const response = await fetch(marketAgentAccessUrl, {
+      credentials: "same-origin",
+      redirect: "manual",
+      cache: "no-store",
+      headers: { accept: "application/json" },
+      signal: AbortSignal.timeout(4_500),
+    });
+    return accessRedirect(response) || response.status === 401 || response.status === 403;
+  } catch {
+    return false;
+  }
+}
+
+function accessRedirect(response: Response): boolean {
+  return response.type === "opaqueredirect"
+    || response.status === 0
+    || (response.status >= 300 && response.status < 400);
+}
+
 export async function getAgentRuns(): Promise<AgentRunView[]> {
   return (await getAgentRunPage()).runs;
 }
@@ -108,7 +169,7 @@ export async function getAgentRuns(): Promise<AgentRunView[]> {
 export async function getAgentRunPage(cursor?: string | null, limit = 20): Promise<AgentRunPage> {
   const params = new URLSearchParams({ limit: String(limit) });
   if (cursor) params.set("cursor", cursor);
-  const response = await fetch(`/api/private/market-agent/runs?${params}`, {
+  const response = await marketAgentFetch(`/api/private/market-agent/runs?${params}`, {
     headers: { accept: "application/json" },
   });
   if (!response.ok) throw await apiError(response, "Agent Runs 暂不可用");
@@ -122,7 +183,7 @@ export async function getAgentRunPage(cursor?: string | null, limit = 20): Promi
 }
 
 export async function getAgentRun(runId: string, signal?: AbortSignal): Promise<AgentRunView> {
-  const response = await fetch(
+  const response = await marketAgentFetch(
     `/api/private/market-agent/runs/${encodeURIComponent(runId)}`,
     { headers: { accept: "application/json" }, signal },
   );
@@ -141,7 +202,7 @@ export async function streamAgentRun(
   handlers: AgentRunStreamHandlers,
   options: { signal?: AbortSignal; fetcher?: typeof fetch } = {},
 ): Promise<AgentRunView> {
-  const response = await (options.fetcher ?? fetch)(
+  const response = await (options.fetcher ?? marketAgentFetch)(
     `/api/private/market-agent/runs/${encodeURIComponent(runId)}/stream`,
     { headers: { accept: "text/event-stream" }, signal: options.signal },
   );
@@ -232,7 +293,7 @@ export async function pollAgentRunUntilTerminal(
 export async function getAgentRunEvidence(
   runId: string,
 ): Promise<SealedEvidenceBundle> {
-  const response = await fetch(
+  const response = await marketAgentFetch(
     `/api/private/market-agent/runs/${encodeURIComponent(runId)}/evidence`,
     { headers: { accept: "application/json" } },
   );
@@ -249,7 +310,7 @@ export async function getAgentRunEvidence(
 }
 
 export async function getAgentProfile(): Promise<AgentProfileView> {
-  const response = await fetch("/api/private/market-agent/profile", {
+  const response = await marketAgentFetch("/api/private/market-agent/profile", {
     headers: { accept: "application/json" },
   });
   if (!response.ok) throw await apiError(response, "Profile 暂不可用");
@@ -263,7 +324,7 @@ export async function syncAgentWatchlist(
   profile: AgentProfileView;
   watchlist: { revision: string; items: AgentWatchlistItem[] };
 }> {
-  const response = await fetch("/api/private/market-agent/watchlist", {
+  const response = await marketAgentFetch("/api/private/market-agent/watchlist", {
     method: "POST",
     headers: { "content-type": "application/json", accept: "application/json" },
     body: JSON.stringify({ revision, items }),
@@ -276,7 +337,7 @@ export async function syncAgentWatchlist(
 }
 
 export async function getPortfolioSnapshotControlState(): Promise<PortfolioSnapshotControlState> {
-  const response = await fetch("/api/private/market-agent/portfolio-snapshot", {
+  const response = await marketAgentFetch("/api/private/market-agent/portfolio-snapshot", {
     headers: { accept: "application/json" },
   });
   if (!response.ok) throw await apiError(response, "持仓快照状态暂不可用");
@@ -286,7 +347,7 @@ export async function getPortfolioSnapshotControlState(): Promise<PortfolioSnaps
 export async function syncPortfolioSnapshot(
   snapshot: PortfolioSnapshotUpload,
 ): Promise<PortfolioSnapshotControlState> {
-  const response = await fetch("/api/private/market-agent/portfolio-snapshot", {
+  const response = await marketAgentFetch("/api/private/market-agent/portfolio-snapshot", {
     method: "POST",
     headers: { "content-type": "application/json", accept: "application/json" },
     body: JSON.stringify(snapshot),
@@ -298,7 +359,7 @@ export async function syncPortfolioSnapshot(
 export async function stopPortfolioSnapshot(
   snapshotId: string,
 ): Promise<PortfolioSnapshotControlState & { stopped: boolean; detachedRunCount: number }> {
-  const response = await fetch("/api/private/market-agent/portfolio-snapshot/stop", {
+  const response = await marketAgentFetch("/api/private/market-agent/portfolio-snapshot/stop", {
     method: "POST",
     headers: { "content-type": "application/json", accept: "application/json" },
     body: JSON.stringify({ snapshotId }),
@@ -313,7 +374,7 @@ export async function stopPortfolioSnapshot(
 export async function purgePortfolioSnapshotHistory(
   scope: PortfolioPurgeScope,
 ): Promise<PortfolioSnapshotControlState & { snapshots: number; runs: number }> {
-  const response = await fetch("/api/private/market-agent/portfolio-snapshot/purge", {
+  const response = await marketAgentFetch("/api/private/market-agent/portfolio-snapshot/purge", {
     method: "POST",
     headers: { "content-type": "application/json", accept: "application/json" },
     body: JSON.stringify({ scope, confirmation: "purge-portfolio-history" }),
@@ -328,7 +389,7 @@ export async function purgePortfolioSnapshotHistory(
 export async function startCloseReview(
   idempotencyKey = crypto.randomUUID(),
 ): Promise<{ runId: string; status: string }> {
-  const response = await fetch("/api/private/market-agent/runs", {
+  const response = await marketAgentFetch("/api/private/market-agent/runs", {
     method: "POST",
     headers: { "content-type": "application/json", accept: "application/json" },
     body: JSON.stringify({ workflow: "close_review", idempotencyKey }),
@@ -341,7 +402,7 @@ export async function startAgentAsk(
   intent: AgentAskIntent,
   idempotencyKey = crypto.randomUUID(),
 ): Promise<{ runId: string; status: string; created: boolean; scope: AskScope }> {
-  const response = await fetch("/api/private/market-agent/ask", {
+  const response = await marketAgentFetch("/api/private/market-agent/ask", {
     method: "POST",
     headers: { "content-type": "application/json", accept: "application/json" },
     body: JSON.stringify({
@@ -367,7 +428,7 @@ export async function sendRunFeedback(
   runId: string,
   value: AgentFeedbackValue,
 ): Promise<AgentFeedback> {
-  const response = await fetch(
+  const response = await marketAgentFetch(
     `/api/private/market-agent/runs/${encodeURIComponent(runId)}/feedback`,
     {
       method: "POST",
@@ -384,7 +445,7 @@ export async function sendRunFeedback(
 }
 
 export async function exportAgentRuns(): Promise<Blob> {
-  const response = await fetch("/api/private/market-agent/export", {
+  const response = await marketAgentFetch("/api/private/market-agent/export", {
     headers: { accept: "application/json" },
   });
   if (!response.ok) throw await apiError(response, "记录导出失败");
@@ -392,7 +453,7 @@ export async function exportAgentRuns(): Promise<Blob> {
 }
 
 export async function deleteAgentRun(runId: string): Promise<{ runId: string; evidenceFingerprint: string | null; purgedAt: string; reason: "user_deleted" }> {
-  const response = await fetch(
+  const response = await marketAgentFetch(
     `/api/private/market-agent/runs/${encodeURIComponent(runId)}`,
     { method: "DELETE", headers: { accept: "application/json" } },
   );

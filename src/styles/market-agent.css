@@ -44,6 +44,9 @@ html:has(.agent-app), body:has(.agent-app) { overflow-x: clip; }
 .agent-portfolio__header > a { flex: 0 0 auto; padding: .8rem 1rem; border: 1px solid var(--risk-line); border-radius: .45rem; color: #f0eee5; font-size: .68rem; text-decoration: none; white-space: nowrap; }
 .agent-portfolio__header > a:hover { border-color: var(--agent-cyan); color: var(--agent-cyan); }
 .agent-portfolio > .review-status { margin: 1.4rem 0 0; }
+.agent-access-warning { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.agent-access-warning a { flex: none; color: inherit; font-weight: 700; text-underline-offset: .2em; }
+.agent-access-warning a:focus-visible { outline: 2px solid currentColor; outline-offset: .2rem; }
 .agent-portfolio__note { margin: 1.4rem 0 0; color: var(--agent-cyan); font-family: var(--font-mono); font-size: .66rem; line-height: 1.55; }
 .agent-portfolio__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 2rem; border: 1px solid var(--risk-line); background: var(--risk-line); gap: 1px; }
 .agent-portfolio__local, .agent-portfolio__server { min-width: 0; padding: clamp(1.25rem, 2.5vw, 1.9rem); background: var(--risk-panel); }

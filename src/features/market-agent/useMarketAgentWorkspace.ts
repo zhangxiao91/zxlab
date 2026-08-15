@@ -8,6 +8,7 @@ import {
   getAgentProfile,
   getAgentRunPage,
   getPortfolioSnapshotControlState,
+  marketAgentAccessRequired,
   pollAgentRunUntilTerminal,
   purgePortfolioSnapshotHistory,
   sendRunFeedback,
@@ -49,6 +50,7 @@ export interface MarketAgentWorkspace {
     reviewBusy: boolean;
     streamingAnswer: string;
     error: string | null;
+    accessRequired: boolean;
     setupNote: string | null;
     deletingRunId: string | null;
     loadingMoreRuns: boolean;
@@ -99,7 +101,10 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
   const [reviewBusy, setReviewBusy] = useState(false);
   const [streamingAnswers, setStreamingAnswers] = useState<Record<string, string>>({});
   const [syncBusy, setSyncBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [agentIssue, setAgentIssue] = useState<{
+    message: string;
+    accessRequired: boolean;
+  } | null>(null);
   const [setupNote, setSetupNote] = useState<string | null>(null);
   const [activeEvidenceId, setActiveEvidenceId] = useState<string | null>(null);
   const [deletingRunId, setDeletingRunId] = useState<string | null>(null);
@@ -119,6 +124,17 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
   const [purgeScope, setPurgeScope] = useState<PortfolioPurgeScope | null>(null);
   const activeStreams = useRef(new Map<string, AbortController>());
   const feedbackQueues = useRef(new Map<string, Promise<AgentFeedback>>());
+
+  const clearAgentIssue = useCallback(() => setAgentIssue(null), []);
+  const reportAgentIssue = useCallback((cause: unknown, fallback: string) => {
+    setAgentIssue({
+      message: cause instanceof Error ? cause.message : fallback,
+      accessRequired: marketAgentAccessRequired(cause),
+    });
+  }, []);
+  const reportLocalIssue = useCallback((message: string) => {
+    setAgentIssue({ message, accessRequired: false });
+  }, []);
 
   const updateRun = useCallback((run: AgentRunView) => {
     setRuns((current) => {
@@ -167,23 +183,26 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
           clearStreamingAnswer(runId);
         },
       }, { signal: controller.signal });
-      setError(null);
+      clearAgentIssue();
     } catch (cause) {
       if (controller.signal.aborted) return;
       try {
         const run = await pollAgentRunUntilTerminal(runId, updateRun, controller.signal);
         updateRun(run);
         clearStreamingAnswer(runId);
-        setError(null);
+        clearAgentIssue();
       } catch (fallbackCause) {
         if (!controller.signal.aborted) {
-          setError(fallbackCause instanceof Error ? fallbackCause.message : cause instanceof Error ? cause.message : "Agent 运行状态暂不可用");
+          reportAgentIssue(
+            fallbackCause instanceof Error ? fallbackCause : cause,
+            "Agent 运行状态暂不可用",
+          );
         }
       }
     } finally {
       activeStreams.current.delete(runId);
     }
-  }, [clearStreamingAnswer, updateRun]);
+  }, [clearAgentIssue, clearStreamingAnswer, reportAgentIssue, updateRun]);
 
   const refreshPortfolioPreview = useCallback(() => {
     const preview = previewLocalPortfolioSnapshot(
@@ -215,9 +234,9 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
       setRuns((current) => mergeRunPageWithCurrentFeedback(current, runPage.runs));
       setNextRunsCursor(runPage.nextCursor);
       setProfile(nextProfile);
-      setError(null);
+      clearAgentIssue();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Agent 暂不可用");
+      reportAgentIssue(cause, "Agent 暂不可用");
     } finally {
       setLoading(false);
     }
@@ -233,7 +252,7 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
     } finally {
       setPortfolioStateLoaded(true);
     }
-  }, []);
+  }, [clearAgentIssue, reportAgentIssue]);
 
   const loadMoreRuns = useCallback(async () => {
     if (!nextRunsCursor || loadingMoreRuns) return;
@@ -245,13 +264,13 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
         return [...current, ...page.runs.filter((run) => !seen.has(run.id))];
       });
       setNextRunsCursor(page.nextCursor);
-      setError(null);
+      clearAgentIssue();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "更早的运行记录暂不可用");
+      reportAgentIssue(cause, "更早的运行记录暂不可用");
     } finally {
       setLoadingMoreRuns(false);
     }
-  }, [loadingMoreRuns, nextRunsCursor]);
+  }, [clearAgentIssue, loadingMoreRuns, nextRunsCursor, reportAgentIssue]);
 
   useEffect(() => {
     setLocalWatchlist(
@@ -364,7 +383,7 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
 
   const confirmWatchlist = useCallback(async () => {
     if (!localWatchlist.length) {
-      setError("Market Center 中没有可同步的观察标的。");
+      reportLocalIssue("Market Center 中没有可同步的观察标的。");
       return;
     }
     setSyncBusy(true);
@@ -375,17 +394,17 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
       setSetupNote(
         `已确认 ${result.watchlist.items.length} 个标的，revision ${result.watchlist.revision}`,
       );
-      setError(null);
+      clearAgentIssue();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "观察列表同步失败");
+      reportAgentIssue(cause, "观察列表同步失败");
     } finally {
       setSyncBusy(false);
     }
-  }, [localWatchlist]);
+  }, [clearAgentIssue, localWatchlist, reportAgentIssue, reportLocalIssue]);
 
   const runReview = useCallback(async () => {
     if (profile?.bootstrap === "required") {
-      setError("请先确认并同步观察列表。");
+      reportLocalIssue("请先确认并同步观察列表。");
       return;
     }
     setReviewBusy(true);
@@ -400,13 +419,13 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
         updatedAt: now,
         evidenceFingerprint: null,
       });
-      setError(null);
+      clearAgentIssue();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "复盘启动失败");
+      reportAgentIssue(cause, "复盘启动失败");
     } finally {
       setReviewBusy(false);
     }
-  }, [profile?.bootstrap, updateRun]);
+  }, [clearAgentIssue, profile?.bootstrap, reportAgentIssue, reportLocalIssue, updateRun]);
 
   const downloadRuns = useCallback(async () => {
     if (exportBusy) return;
@@ -444,28 +463,38 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
         payloadPurgedAt: tombstone.purgedAt,
       } : item));
       if (activeEvidenceId === run.id) setActiveEvidenceId(null);
-      setError(null);
+      clearAgentIssue();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "记录删除失败");
+      reportAgentIssue(cause, "记录删除失败");
     } finally {
       setDeletingRunId(null);
     }
-  }, [activeEvidenceId]);
+  }, [activeEvidenceId, clearAgentIssue, reportAgentIssue]);
 
   const saveFeedback = useCallback((
     runId: string,
     value: AgentFeedbackValue,
   ) => {
     return enqueueRunFeedback(feedbackQueues.current, runId, async () => {
+      try {
         const feedback = await sendRunFeedback(runId, value);
         setRuns((current) => current.map((run) => (
           run.id === runId
             ? mergeRunWithCurrentFeedback(run, { ...run, feedback })
             : run
         )));
+        clearAgentIssue();
         return feedback;
-      });
-  }, []);
+      } catch (cause) {
+        if (marketAgentAccessRequired(cause)) {
+          reportAgentIssue(cause, "需要重新授权。");
+        } else {
+          clearAgentIssue();
+        }
+        throw cause;
+      }
+    });
+  }, [clearAgentIssue, reportAgentIssue]);
 
   const toggleEvidence = useCallback((evidenceId: string) => {
     setActiveEvidenceId((current) => current === evidenceId ? null : evidenceId);
@@ -491,7 +520,8 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
       loading,
       reviewBusy,
       streamingAnswer: latest ? streamingAnswers[latest.id] ?? "" : "",
-      error,
+      error: agentIssue?.message ?? null,
+      accessRequired: agentIssue?.accessRequired ?? false,
       setupNote,
       deletingRunId,
       loadingMoreRuns,

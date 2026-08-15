@@ -2,13 +2,18 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { sendRunFeedback } from "../src/features/market-agent/client.ts";
+import {
+  getAgentRun,
+  MarketAgentApiError,
+  sendRunFeedback,
+} from "../src/features/market-agent/client.ts";
 import {
   createRunFeedbackState,
   runFeedbackReducer,
   RunFeedbackControl,
 } from "../src/features/market-agent/RunFeedbackControl.tsx";
 import { syncAnswerFeedback } from "../src/features/market-agent/AskPanel.tsx";
+import { AgentErrorNotice } from "../src/features/market-agent/AgentToday.tsx";
 import {
   enqueueRunFeedback,
   mergeRunPageWithCurrentFeedback,
@@ -24,6 +29,93 @@ test("run feedback client returns the persisted feedback resource", async (conte
   const feedback = await sendRunFeedback("run-1", "helpful");
 
   assert.deepEqual(feedback, { value: "helpful", updatedAt });
+});
+
+test("private API redirects become an explicit Access recovery error", async (context) => {
+  const calls: Array<RequestInit | undefined> = [];
+  context.mock.method(globalThis, "fetch", async (
+    _input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => {
+    calls.push(init);
+    return new Response(null, { status: 302 });
+  });
+
+  await assert.rejects(
+    sendRunFeedback("run-1", "helpful"),
+    (error: unknown) => error instanceof MarketAgentApiError
+      && error.code === "ACCESS_REQUIRED"
+      && error.status === 401,
+  );
+  assert.equal(calls[0]?.redirect, "manual");
+  assert.equal(calls[0]?.credentials, "same-origin");
+});
+
+test("a rejected private fetch probes Access before classifying the failure", async (context) => {
+  let call = 0;
+  context.mock.method(globalThis, "fetch", async () => {
+    call += 1;
+    if (call === 1) throw new TypeError("Failed to fetch");
+    return new Response(null, { status: 302 });
+  });
+
+  await assert.rejects(
+    sendRunFeedback("run-1", "helpful"),
+    (error: unknown) => error instanceof MarketAgentApiError
+      && error.code === "ACCESS_REQUIRED",
+  );
+  assert.equal(call, 2);
+});
+
+test("an unavailable Access probe preserves a network diagnosis", async (context) => {
+  context.mock.method(globalThis, "fetch", async () => {
+    throw new TypeError("Failed to fetch");
+  });
+
+  await assert.rejects(
+    sendRunFeedback("run-1", "helpful"),
+    (error: unknown) => error instanceof MarketAgentApiError
+      && error.code === "MARKET_AGENT_NETWORK_FAILED"
+      && !error.message.includes("Access"),
+  );
+});
+
+test("an intentional request abort is not rewritten as a network or Access failure", async (context) => {
+  let call = 0;
+  context.mock.method(globalThis, "fetch", async () => {
+    call += 1;
+    throw new DOMException("Aborted", "AbortError");
+  });
+  const controller = new AbortController();
+  controller.abort();
+
+  await assert.rejects(
+    getAgentRun("run-1", controller.signal),
+    (error: unknown) => error instanceof DOMException && error.name === "AbortError",
+  );
+  assert.equal(call, 1);
+});
+
+test("Access failures expose an explicit reauthorization action", () => {
+  const source = renderToStaticMarkup(createElement(AgentErrorNotice, {
+    error: "Cloudflare Access 登录状态已失效，请重新授权后刷新。",
+    accessRequired: true,
+  }));
+
+  assert.match(source, /重新授权/);
+  assert.match(source, /\/api\/private\/session\?service=market-agent&amp;returnTo=/);
+  assert.match(source, /target="_blank"/);
+});
+
+test("network failures do not expose a misleading reauthorization action", () => {
+  const source = renderToStaticMarkup(createElement(AgentErrorNotice, {
+    error: "无法连接 Market Agent，请检查网络后重试。",
+    accessRequired: false,
+  }));
+
+  assert.match(source, /检查网络后重试/);
+  assert.doesNotMatch(source, /重新授权/);
+  assert.doesNotMatch(source, /api\/private\/session/);
 });
 
 test("run feedback state moves through saving, saved, and retryable error", () => {
