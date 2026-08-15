@@ -4,6 +4,18 @@ ZXLab uses a signed native macOS helper for cross-session machine checks against
 isolated `debug-beta` Access application. The helper, rather than Node or Codex,
 owns both Keychain reads and the outbound HTTPS request.
 
+The Node wrapper starts the helper through `launchctl asuser` for the current
+macOS login UID. This is required because a Codex background process is outside
+the interactive login bootstrap and otherwise receives `errSecInteractionNotAllowed`
+even when the helper's Keychain ACL is correct. It does not grant another user
+or application access to the credentials.
+
+Codex managed shell execution must also use the approved sandbox-external rule
+for `npm run access:debug`; the restricted sandbox blocks login Keychain access
+before the helper ACL is evaluated. Ordinary interactive Terminal use does not
+need this escalation. The approval changes only the process sandbox and never
+exposes the Keychain values to Codex.
+
 ## Security boundary
 
 - The destination is compiled as `https://debug-beta.zxlab.pages.dev`.

@@ -5,6 +5,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const PROXY_BINARY = fileURLToPath(new URL("./.bin/zxlab-access-proxy", import.meta.url));
+const LAUNCHCTL = "/bin/launchctl";
 const SIMPLE_OPERATIONS = new Set([
   "status",
   "migrate",
@@ -38,13 +39,16 @@ export function parseProxyArguments(argv) {
   throw new Error("Unknown operation. Arbitrary methods, paths, bodies, and URLs are not supported.");
 }
 
-export function runAccessProxy(argv, runner = spawnSync, binaryExists = existsSync) {
+export function runAccessProxy(argv, runner = spawnSync, binaryExists = existsSync, userID = process.getuid?.()) {
   const arguments_ = parseProxyArguments(argv);
   if (arguments_[0] === "help") return { help: true };
   if (!binaryExists(PROXY_BINARY)) {
     throw new Error("ZXLab Access proxy is not installed. Run npm run access:debug:install first.");
   }
-  const result = runner(PROXY_BINARY, arguments_, {
+  if (!Number.isInteger(userID) || userID < 1) {
+    throw new Error("ZXLab Access proxy requires a macOS login user.");
+  }
+  const result = runner(LAUNCHCTL, ["asuser", String(userID), PROXY_BINARY, ...arguments_], {
     encoding: "utf8",
     stdio: ["inherit", "pipe", "pipe"],
     timeout: 30_000,
@@ -77,7 +81,8 @@ One-time setup in an interactive terminal:
   npm run access:debug:setup
 
 The signed native proxy owns Keychain access and the pinned HTTPS request. It
-never returns credentials or raw private response bodies to Node or Codex.`);
+is launched inside the current macOS login session and never returns credentials
+or raw private response bodies to Node or Codex.`);
 }
 
 async function main() {

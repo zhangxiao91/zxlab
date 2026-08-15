@@ -17,13 +17,20 @@ test("debug operations are enumerated and arbitrary requests are rejected", () =
 });
 
 test("Node receives only the native proxy JSON summary", () => {
-  const result = runAccessProxy(["profile"], (binary, arguments_, options) => {
-    assert.match(binary, /scripts\/\.bin\/zxlab-access-proxy$/);
-    assert.deepEqual(arguments_, ["profile"]);
+  const result = runAccessProxy(["profile"], (launcher, arguments_, options) => {
+    assert.equal(launcher, "/bin/launchctl");
+    assert.match(arguments_[2], /scripts\/\.bin\/zxlab-access-proxy$/);
+    assert.deepEqual(arguments_.slice(0, 2), ["asuser", "501"]);
+    assert.deepEqual(arguments_.slice(3), ["profile"]);
     assert.equal(options.stdio[0], "inherit");
     return { status: 0, stdout: '{"ok":true,"httpStatus":200,"bootstrap":"complete"}\n', stderr: "" };
-  }, () => true);
+  }, () => true, 501);
   assert.deepEqual(result, { ok: true, httpStatus: 200, bootstrap: "complete" });
+});
+
+test("the wrapper fails closed without a valid login user", () => {
+  assert.throws(() => runAccessProxy(["status"], () => undefined, () => true, null), /login user/);
+  assert.throws(() => runAccessProxy(["status"], () => undefined, () => true, 0), /login user/);
 });
 
 test("native proxy compiles and its allowlist self-test passes", () => {
