@@ -74,6 +74,9 @@ test("a selected Gateway model must return a two-to-four sentence research lead"
 
   assert.equal(calls, 2);
   assert.equal(result.provenance.source, "deterministic_fallback");
+  assert.equal(result.provenance.provider, "deepseek");
+  assert.equal(result.provenance.gatewayRequestId, "gateway-request-2");
+  assert.deepEqual(result.provenance.failure?.validationCategories, ["summary_length"]);
   assert.match(result.issues.join("\n"), /summary must contain 2 to 4 sentences/);
 });
 

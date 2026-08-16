@@ -21,6 +21,7 @@ test("forbidden trade instruction falls back deterministically", async () => {
   assert.equal(result.result.status, "partial"); assert.match(result.result.limitations.at(-1) ?? "", /降级/);
   assert.equal(result.provenance.source, "deterministic_fallback");
   assert.equal(result.provenance.failure?.stage, "validation");
+  assert.deepEqual(result.provenance.failure?.validationCategories, ["trading_policy"]);
 });
 
 test("gateway failure exposes structured deterministic fallback provenance", async () => {
@@ -89,6 +90,7 @@ test("model narration cannot calculate or fill a number absent from sealed facts
 
   assert.equal(result.provenance.source, "deterministic_fallback");
   assert.match(result.issues.join("\n"), /numeric claims must match sealed deterministic facts: 20%/);
+  assert.deepEqual(result.provenance.failure?.validationCategories, ["numeric_grounding"]);
 });
 
 test("an unrelated execution-plan count cannot ground a numeric quote claim", async () => {

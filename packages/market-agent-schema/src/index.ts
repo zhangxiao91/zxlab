@@ -30,13 +30,30 @@ export type EvidenceCoverage = "sufficient" | "limited" | "insufficient";
 export type EvidenceDelivery = "primary" | "fallback";
 export interface EvidenceLimitation { code: string; capability?: string; severity: "advisory" | "material" | "blocking"; message: string; }
 export interface EvidenceAssessment { coverage: EvidenceCoverage; delivery: EvidenceDelivery; fallbackCapabilities: string[]; limitations: EvidenceLimitation[]; }
+export type NarrationValidationCategory =
+  | "schema"
+  | "summary_length"
+  | "context_leakage"
+  | "citation_scope"
+  | "numeric_grounding"
+  | "evidence_reliability"
+  | "material_limitations"
+  | "trading_policy"
+  | "repair_unavailable"
+  | "unknown";
 export interface NarrationProvenance {
   source: "model" | "model_repaired" | "deterministic_fallback" | "unknown";
   provider?: string;
   model?: string;
   fallbackIndex?: number;
   gatewayRequestId?: string;
-  failure?: { stage: "configuration" | "gateway" | "protocol" | "validation"; code: string; retryable: boolean };
+  failure?: {
+    stage: "configuration" | "gateway" | "protocol" | "validation";
+    code: string;
+    retryable: boolean;
+    /** Bounded diagnostic categories only. Never persist validator messages or model output. */
+    validationCategories?: NarrationValidationCategory[];
+  };
 }
 export interface RunOutcome { execution: "completed"; narration: NarrationProvenance; evidence: EvidenceAssessment; mode: "market-only" | "portfolio-aware"; }
 

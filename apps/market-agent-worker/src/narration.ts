@@ -1,4 +1,4 @@
-import type { AgentNarration, AgentObservation, AskScope, ConfirmedContext, MarketAgentCommand, NarrationProvenance, SealedEvidenceBundle } from "@zxlab/market-agent-schema";
+import type { AgentNarration, AgentObservation, AskScope, ConfirmedContext, MarketAgentCommand, NarrationProvenance, NarrationValidationCategory, SealedEvidenceBundle } from "@zxlab/market-agent-schema";
 import { validateAgentNarration } from "@zxlab/market-agent-schema";
 import { buildNarrationContext } from "./narration-context.ts";
 
@@ -137,7 +137,37 @@ export async function narrateWithRepair(narrator: Narrator, input: NarrationInpu
     }
   }
   const fallback = await new DeterministicNarrator().narrate(input);
-  return { result: { ...fallback, status: "partial", limitations: [...fallback.limitations, "叙事输出未通过安全校验，已降级为确定性结果。"] }, repaired: Boolean(repair), issues, provenance: { source: "deterministic_fallback", failure: { stage: "validation", code: "NARRATION_VALIDATION_FAILED", retryable: false } } };
+  return {
+    result: { ...fallback, status: "partial", limitations: [...fallback.limitations, "叙事输出未通过安全校验，已降级为确定性结果。"] },
+    repaired: Boolean(repair),
+    issues,
+    provenance: {
+      source: "deterministic_fallback",
+      ...(unwrapped.selection ?? {}),
+      failure: {
+        stage: "validation",
+        code: "NARRATION_VALIDATION_FAILED",
+        retryable: false,
+        validationCategories: validationCategories(issues),
+      },
+    },
+  };
+}
+
+function validationCategories(issues: string[]): NarrationValidationCategory[] {
+  const categories = issues.map<NarrationValidationCategory>((issue) => {
+    if (issue === "trading instructions are forbidden") return "trading_policy";
+    if (issue.startsWith("summary must contain 2 to 4 sentences")) return "summary_length";
+    if (issue.startsWith("output must not reproduce confirmed context")) return "context_leakage";
+    if (issue.includes("numeric claims must match sealed deterministic facts")) return "numeric_grounding";
+    if (issue.includes("fact cannot cite unreliable evidence")) return "evidence_reliability";
+    if (issue.includes("material evidence limitations")) return "material_limitations";
+    if (issue === "repair unavailable") return "repair_unavailable";
+    if (issue.includes("evidence absent from the narration context") || issue.includes("must cite presented evidence")) return "citation_scope";
+    if (/^(?:narration|status|headline|summary|evidenceFingerprint|conclusionEvidenceIds|observations|portfolioImpacts|watchNext|limitations)/.test(issue)) return "schema";
+    return "unknown";
+  });
+  return [...new Set(categories)];
 }
 
 function unwrapGatewayCandidate(candidate: unknown): { narration: unknown; selection?: GatewayNarrationSelection } {
