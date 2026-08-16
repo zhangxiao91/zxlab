@@ -158,7 +158,7 @@ export async function narrateWithRepair(narrator: Narrator, input: NarrationInpu
 
 function numericSections(issues: string[]): NonNullable<NonNullable<NarrationProvenance["failure"]>["numericSections"]> {
   const sections = issues.flatMap((issue) => {
-    const match = issue.match(/^(narration|observations|portfolioImpacts|watchNext|limitations)(?:\[\d+\])? numeric claims must match sealed deterministic facts:/);
+    const match = issue.match(/^(narration|observations|portfolioImpacts|watchNext|limitations)(?:\[\d+\])? (?:numeric claims must match sealed deterministic facts|model narration must not contain quantities):/);
     return match ? [match[1] as "narration" | "observations" | "portfolioImpacts" | "watchNext" | "limitations"] : [];
   });
   return [...new Set(sections)];
@@ -186,7 +186,7 @@ function validationRuleIds(issues: string[]): NarrationValidationRule[] {
     if (issue.startsWith("summary must contain 2 to 4 sentences")) return "summary_sentence_count";
     if (issue.startsWith("output must not reproduce confirmed context")) return "context_leakage";
     if (issue.startsWith("conclusionEvidenceIds cite evidence absent")) return "conclusion_context";
-    if (issue.includes("numeric claims must match sealed deterministic facts")) return "numeric_claim";
+    if (issue.includes("numeric claims must match sealed deterministic facts") || issue.includes("model narration must not contain quantities")) return "numeric_claim";
     if (issue === "status must be partial when sealed evidence has material limitations") return "status_limitation_mismatch";
     if (issue === "limitations must describe material evidence limitations") return "limitation_missing";
     if (issue.includes("fact cannot cite unreliable evidence")) return "unreliable_fact";
@@ -203,7 +203,7 @@ function validationCategories(issues: string[]): NarrationValidationCategory[] {
     if (issue === "trading instructions are forbidden") return "trading_policy";
     if (issue.startsWith("summary must contain 2 to 4 sentences")) return "summary_length";
     if (issue.startsWith("output must not reproduce confirmed context")) return "context_leakage";
-    if (issue.includes("numeric claims must match sealed deterministic facts")) return "numeric_grounding";
+    if (issue.includes("numeric claims must match sealed deterministic facts") || issue.includes("model narration must not contain quantities")) return "numeric_grounding";
     if (issue.includes("fact cannot cite unreliable evidence")) return "evidence_reliability";
     if (issue.includes("material evidence limitations")) return "material_limitations";
     if (issue === "repair unavailable") return "repair_unavailable";
@@ -230,7 +230,7 @@ function gatewayFailure(error: unknown): NonNullable<NarrationProvenance["failur
   if (message.includes("NOT_CONFIGURED")) return { stage: "configuration", code: "GATEWAY_NOT_CONFIGURED", retryable: false };
   if (message.includes("ALL_CANDIDATES_FAILED")) return { stage: "gateway", code: "ALL_CANDIDATES_FAILED", retryable: true };
   if (message.includes("CONTEXT_TOO_LONG")) return { stage: "gateway", code: "CONTEXT_TOO_LONG", retryable: false };
-  if (message.includes("INVALID_JSON") || message.includes("STREAM_INCOMPLETE") || message.includes("RESPONSE_TOO_LARGE")) return { stage: "protocol", code: "GATEWAY_PROTOCOL_ERROR", retryable: true };
+  if (message.includes("INVALID_JSON") || message.includes("INVALID_SELECTION") || message.includes("STREAM_INCOMPLETE") || message.includes("RESPONSE_TOO_LARGE")) return { stage: "protocol", code: "GATEWAY_PROTOCOL_ERROR", retryable: true };
   if (/HTTP_(401|403)(?:_|$)/.test(message)) return { stage: "gateway", code: "GATEWAY_UNAUTHORIZED", retryable: false };
   if (/HTTP_429(?:_|$)/.test(message)) return { stage: "gateway", code: "GATEWAY_RATE_LIMITED", retryable: true };
   if (/HTTP_5\d\d(?:_|$)/.test(message) || message.includes("TIMEOUT")) return { stage: "gateway", code: "GATEWAY_UNAVAILABLE", retryable: true };
@@ -317,7 +317,9 @@ function validateNarration(value: unknown, input: NarrationInput, selectedGatewa
   if (Array.isArray(candidate.conclusionEvidenceIds) && candidate.conclusionEvidenceIds.some((id) => typeof id === "string" && !presentedEvidenceIds.has(id))) {
     issues.push("conclusionEvidenceIds cite evidence absent from the narration context");
   }
-  issues.push(...ungroundedNumericClaimIssues(candidate, evidenceById, presentedEvidence));
+  issues.push(...(selectedGatewayModel
+    ? selectedModelQuantityIssues(candidate)
+    : ungroundedNumericClaimIssues(candidate, evidenceById, presentedEvidence)));
   const materialLimitations = evidence.items.some((item) => item.kind === "limitation" || (item.kind === "market_fact" && !item.reliable));
   if (materialLimitations && candidate.status !== "partial") issues.push("status must be partial when sealed evidence has material limitations");
   if (materialLimitations && (!Array.isArray(candidate.limitations) || candidate.limitations.length === 0)) issues.push("limitations must describe material evidence limitations");
@@ -347,6 +349,23 @@ function validateNarration(value: unknown, input: NarrationInput, selectedGatewa
     }
   }
   return [...new Set(issues)];
+}
+
+function selectedModelQuantityIssues(candidate: Record<string, unknown>): string[] {
+  const observations = arrayRecords(candidate.observations);
+  const portfolioImpacts = arrayRecords(candidate.portfolioImpacts);
+  const watchNext = arrayRecords(candidate.watchNext);
+  const sections = [
+    { path: "narration", text: strings(candidate.headline, candidate.summary) },
+    ...observations.map((item, index) => ({ path: `observations[${index}]`, text: strings(item.title, item.explanation) })),
+    ...portfolioImpacts.map((item, index) => ({ path: `portfolioImpacts[${index}]`, text: strings(item.title, item.explanation) })),
+    ...watchNext.map((item, index) => ({ path: `watchNext[${index}]`, text: strings(item.condition, item.reason) })),
+    { path: "limitations", text: Array.isArray(candidate.limitations) ? strings(...candidate.limitations) : "" },
+  ];
+  return sections.flatMap((section) => {
+    const quantities = [...numericClaimTokens(section.text).map((claim) => claim.raw), ...chineseQuantityTokens(section.text)];
+    return quantities.length ? [`${section.path} model narration must not contain quantities: ${[...new Set(quantities)].join(", ")}`] : [];
+  });
 }
 
 function ungroundedNumericClaimIssues(
@@ -539,6 +558,8 @@ function chineseQuantityTokens(value: string): string[] {
     ...(normalized.match(/[零〇一二两三四五六七八九十百千万亿]+(?:个百分点|个基点|基点|季度|月份|bps|左右|以上|以下|以内|以外|余|多|来|[个只条项次日天周月年股倍成点元手%％])/giu) ?? []),
     ...(normalized.match(/(?:约|近|超过|不足|数)[零〇一二两三四五六七八九十百千万亿]+/gu) ?? []),
     ...(normalized.match(/(?:百分之|千分之|万分之|[零〇一二两三四五六七八九十百千万亿\d]+分之)[零〇一二两三四五六七八九十百千万亿]+/gu) ?? []),
+    ...(normalized.match(/(?:样本|数量|个数|条目|标的|窗口|周期|排名|位列|价格|市值|成交量|成交额|权重|比率|比例|涨幅|跌幅|收益|回报|波动率|分位|同比|环比)(?:覆盖|为|是|达到|共计|合计|排名|位列)?\s*(?:第|前|后)?[零〇一二两三四五六七八九十百千万亿]+(?=[\s，。！？；、]|$)/gu) ?? []),
+    ...(normalized.match(/(?:共有|共计|合计|达到|包括|包含|涉及)\s*(?:第|前|后)?[零〇一二两三四五六七八九十百千万亿]+(?=[\s，。！？；、]|$)/gu) ?? []),
   ])];
 }
 

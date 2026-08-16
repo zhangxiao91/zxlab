@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DeterministicNarrator, narrateWithRepair, type Narrator } from "./narration.ts";
+import { DeterministicNarrator, narrateWithRepair, withGatewaySelection, type Narrator } from "./narration.ts";
 import type { MarketAgentCommand, SealedEvidenceBundle } from "@zxlab/market-agent-schema";
 
 const command: MarketAgentCommand = { profileId: "p1", trigger: "manual", workflow: "close_review", idempotencyKey: "narration-test-1" };
@@ -94,6 +94,61 @@ test("model narration cannot calculate or fill a number absent from sealed facts
   assert.deepEqual(result.provenance.failure?.validationCategories, ["numeric_grounding"]);
   assert.deepEqual(result.provenance.failure?.validationRuleIds, ["numeric_claim"]);
   assert.deepEqual(result.provenance.failure?.numericSections, ["narration", "observations"]);
+});
+
+test("a selected Gateway model cannot write quantities even when every value is grounded", async () => {
+  const quoteEvidence: SealedEvidenceBundle = {
+    ...evidence,
+    items: [{ id: "quote", kind: "market_fact", origin: "server-observed", reliable: true, value: { type: "quote", instrumentId: "SSE:600000", price: 12 } }],
+  };
+  const narrator: Narrator = { async narrate() { return withGatewaySelection({
+    status: "success",
+    headline: "观测价格为 12 元",
+    summary: "可靠观测价格为 12 元。行情事实已经封存。",
+    conclusionEvidenceIds: ["quote"],
+    observations: [{ id: "price", class: "fact", importance: "high", title: "观测价格为 12 元", explanation: "封存观测价格为 12 元。", evidenceIds: ["quote"] }],
+    portfolioImpacts: [{ id: "impact", class: "fact", importance: "medium", title: "持仓参考价为 12 元", explanation: "持仓影响引用价格 12 元。", evidenceIds: ["quote"] }],
+    watchNext: [{ condition: "价格保持在 12 元附近", reason: "封存观测值为 12 元。", evidenceIds: ["quote"] }],
+    limitations: ["数据窗口仅覆盖 12 个交易日。"],
+    evidenceFingerprint: quoteEvidence.fingerprint,
+  }, {
+    provider: "deepseek",
+    model: "deepseek-v4-flash",
+    fallbackIndex: 0,
+    gatewayRequestId: "gateway-request-quantity",
+  }); } };
+
+  const result = await narrateWithRepair(narrator, { workflow: "close_review", evidence: quoteEvidence });
+
+  assert.equal(result.provenance.source, "deterministic_fallback");
+  assert.deepEqual(result.provenance.failure?.validationCategories, ["numeric_grounding"]);
+  assert.deepEqual(result.provenance.failure?.validationRuleIds, ["numeric_claim"]);
+  assert.deepEqual(result.provenance.failure?.numericSections, ["narration", "observations", "portfolioImpacts", "watchNext", "limitations"]);
+});
+
+test("a selected Gateway model cannot hide a bare Chinese quantity in prose", async () => {
+  const narrator: Narrator = { async narrate() { return withGatewaySelection({
+    status: "success",
+    headline: "样本覆盖十二",
+    summary: "研究样本已经封存。当前仅作定性说明。",
+    conclusionEvidenceIds: [],
+    observations: [],
+    portfolioImpacts: [],
+    watchNext: [],
+    limitations: [],
+    evidenceFingerprint: evidence.fingerprint,
+  }, {
+    provider: "deepseek",
+    model: "deepseek-v4-flash",
+    fallbackIndex: 0,
+    gatewayRequestId: "gateway-request-chinese-quantity",
+  }); } };
+
+  const result = await narrateWithRepair(narrator, { workflow: "close_review", evidence });
+
+  assert.equal(result.provenance.source, "deterministic_fallback");
+  assert.deepEqual(result.provenance.failure?.numericSections, ["narration"]);
+  assert.match(result.issues.join("\n"), /样本覆盖十二/);
 });
 
 test("an unrelated execution-plan count cannot ground a numeric quote claim", async () => {

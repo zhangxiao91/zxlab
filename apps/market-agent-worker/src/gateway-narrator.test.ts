@@ -16,9 +16,8 @@ test("gateway narrator sends only the bounded task and sealed evidence", async (
     assert.match(body.messages[0].content, /at most 6 observations, 4 portfolioImpacts, 4 watchNext items, and 8 limitations/);
     assert.match(body.messages[0].content, /Limit each evidenceIds array to the 4 strongest/);
     assert.match(body.messages[0].content, /Never calculate, estimate, extrapolate, or fill a missing number yourself/);
-    assert.match(body.messages[0].content, /same semantic unit/);
-    assert.match(body.messages[0].content, /price cannot support a percentage, basis-point, count, or volume claim/);
-    assert.match(body.messages[0].content, /Write limitations without quantities/);
+    assert.match(body.messages[0].content, /Do not write any quantity in user-facing natural-language strings/);
+    assert.match(body.messages[0].content, /deterministic Evidence renderer surfaces quantitative values separately/);
     assert.match(body.messages[0].content, /Do not translate JSON keys/);
     assert.deepEqual(body.context, { source: "market-agent-worker", operation: "close_review", metadata: { contextVersion: "narration-context.v1" } });
     return new Response(JSON.stringify({ ok: true, data: { json: { status: "success", headline: "ok", summary: "ok", observations: [], portfolioImpacts: [], watchNext: [], limitations: [], evidenceFingerprint: "sha256:g" }, text: "", provider: "fixture", model: "fixture", fallbackIndex: 0, latencyMs: 1 }, requestId: "r1" }), { status: 200, headers: { "content-type": "application/json" } });
@@ -53,6 +52,99 @@ test("gateway selection is preserved as safe narration provenance", async () => 
   });
 });
 
+test("a Gateway response without complete selection metadata fails closed", async () => {
+  const quoteEvidence: SealedEvidenceBundle = {
+    ...evidence,
+    items: [{ id: "quote", kind: "market_fact", origin: "server-observed", reliable: true, value: { type: "quote", instrumentId: "SSE:600000", price: 12 } }],
+  };
+  const narrator = new GatewayNarrator({
+    apiUrl: "https://gateway.example/api/ai/generate",
+    token: "secret",
+    fetcher: async () => Response.json({
+      ok: true,
+      data: {
+        json: {
+          status: "success",
+          headline: "可靠观测价格为 12 元",
+          summary: "可靠观测价格为 12 元。行情事实已经封存。",
+          conclusionEvidenceIds: ["quote"],
+          observations: [],
+          portfolioImpacts: [],
+          watchNext: [],
+          limitations: [],
+          evidenceFingerprint: quoteEvidence.fingerprint,
+        },
+      },
+    }),
+  });
+
+  const result = await (await import("./narration.ts")).narrateWithRepair(narrator, { workflow: "close_review", evidence: quoteEvidence });
+
+  assert.equal(result.provenance.source, "deterministic_fallback");
+  assert.deepEqual(result.provenance.failure, { stage: "protocol", code: "GATEWAY_PROTOCOL_ERROR", retryable: true });
+});
+
+test("a selected Gateway model repairs grounded quantities into qualitative narration", async () => {
+  let calls = 0;
+  const quoteEvidence: SealedEvidenceBundle = {
+    ...evidence,
+    instrumentIds: ["SSE:600000"],
+    items: [{ id: "quote", kind: "market_fact", origin: "server-observed", reliable: true, value: { type: "quote", instrumentId: "SSE:600000", price: 12 } }],
+  };
+  const narrator = new GatewayNarrator({
+    apiUrl: "https://gateway.example/api/ai/generate",
+    token: "secret",
+    fetcher: async (_url, init) => {
+      calls += 1;
+      const body = JSON.parse(String(init?.body)) as { messages: Array<{ content: string }> };
+      if (calls === 2) {
+        const repairPayload = JSON.parse(body.messages[1]!.content) as { repair: { validationIssues: string[]; instruction: string } };
+        assert.ok(repairPayload.repair.validationIssues.some((issue) => issue.startsWith("narration model narration must not contain quantities:")));
+        assert.ok(repairPayload.repair.validationIssues.some((issue) => issue.startsWith("observations[0] model narration must not contain quantities:")));
+        assert.match(repairPayload.repair.instruction, /Remove every numeric or quantity expression from all user-facing natural-language fields/);
+      }
+      return Response.json({
+        ok: true,
+        data: {
+          json: calls === 1 ? {
+            status: "success",
+            headline: "可靠观测价格为 12 元",
+            summary: "可靠观测价格为 12 元。行情事实已经封存。",
+            conclusionEvidenceIds: ["quote"],
+            observations: [{ id: "quote", class: "fact", importance: "high", title: "观测价格为 12 元", explanation: "封存观测价格为 12 元。", evidenceIds: ["quote"] }],
+            portfolioImpacts: [],
+            watchNext: [],
+            limitations: [],
+            evidenceFingerprint: quoteEvidence.fingerprint,
+          } : {
+            status: "success",
+            headline: "可靠行情已经封存",
+            summary: "可靠行情已经封存。当前证据支持对市场状态作定性复盘。",
+            conclusionEvidenceIds: ["quote"],
+            observations: [{ id: "quote", class: "fact", importance: "high", title: "封存行情可用", explanation: "确定性行情支持当前定性判断。", evidenceIds: ["quote"] }],
+            portfolioImpacts: [],
+            watchNext: [],
+            limitations: [],
+            evidenceFingerprint: quoteEvidence.fingerprint,
+          },
+          provider: "deepseek",
+          model: "deepseek-v4-flash",
+          fallbackIndex: 0,
+        },
+        requestId: `gateway-request-${calls}`,
+      });
+    },
+  });
+
+  const result = await (await import("./narration.ts")).narrateWithRepair(narrator, { workflow: "close_review", evidence: quoteEvidence });
+
+  assert.equal(calls, 2);
+  assert.equal(result.provenance.source, "model_repaired");
+  assert.equal(result.provenance.gatewayRequestId, "gateway-request-2");
+  assert.deepEqual(result.issues, []);
+  assert.equal(result.result.headline, "可靠行情已经封存");
+});
+
 test("a selected Gateway model must return a two-to-four sentence research lead", async () => {
   let calls = 0;
   const narrator = new GatewayNarrator({
@@ -63,9 +155,9 @@ test("a selected Gateway model must return a two-to-four sentence research lead"
       const body = JSON.parse(String(init?.body)) as { messages: Array<{ content: string }> };
       if (calls === 2) {
         const repairPayload = JSON.parse(body.messages[1]!.content) as { repair: { instruction: string } };
-        assert.match(repairPayload.repair.instruction, /Remove the complete unsupported numeric claim/);
-        assert.match(repairPayload.repair.instruction, /Do not substitute another number or change its unit/);
-        assert.match(repairPayload.repair.instruction, /approximate Chinese quantity/);
+        assert.match(repairPayload.repair.instruction, /Remove every numeric or quantity expression from all user-facing natural-language fields/);
+        assert.match(repairPayload.repair.instruction, /Do not substitute another number, unit, percentage, basis-point value, approximate quantity, or Chinese numeral/);
+        assert.match(repairPayload.repair.instruction, /deterministic Evidence renders values separately/);
       }
       return Response.json({
         ok: true,
@@ -106,7 +198,7 @@ test("gateway receives ephemeral context but rejects reproducing its body during
     const body = JSON.parse(String(init?.body)) as { messages: Array<{ content: string }> };
     const payload = JSON.parse(body.messages[1]!.content) as { ephemeralConfirmedContext: Array<{ content: string }> };
     assert.equal(payload.ephemeralConfirmedContext[0]?.content, context.content);
-    return new Response(JSON.stringify({ ok: true, data: { json: { status: "success", headline: context.content, summary: "ok", observations: [], portfolioImpacts: [], watchNext: [], limitations: [], evidenceFingerprint: evidence.fingerprint } } }), { status: 200, headers: { "content-type": "application/json" } });
+    return new Response(JSON.stringify({ ok: true, data: { json: { status: "success", headline: context.content, summary: "ok", observations: [], portfolioImpacts: [], watchNext: [], limitations: [], evidenceFingerprint: evidence.fingerprint }, provider: "fixture", model: "fixture", fallbackIndex: 0 }, requestId: "context-request" }), { status: 200, headers: { "content-type": "application/json" } });
   } });
   const result = await (await import("./narration.ts")).narrateWithRepair(narrator, { workflow: "close_review", evidence, confirmedContext: [context] });
   assert.equal(result.repaired, true);
@@ -199,7 +291,7 @@ test("gateway receives a bounded session-aware projection instead of raw bar his
       assert.equal("bars" in (barContext?.value ?? {}), false);
       assert.equal(userPayload.evidenceContext.selection.sourceItems, 2);
       assert.ok(new TextEncoder().encode(body.messages[1].content).byteLength < 20_000);
-      return new Response(JSON.stringify({ ok: true, data: { json: { status: "success", headline: "ok", summary: "ok", observations: [], portfolioImpacts: [], watchNext: [], limitations: [], evidenceFingerprint: sessionAwareEvidence.fingerprint } } }), { status: 200, headers: { "content-type": "application/json" } });
+      return new Response(JSON.stringify({ ok: true, data: { json: { status: "success", headline: "ok", summary: "ok", observations: [], portfolioImpacts: [], watchNext: [], limitations: [], evidenceFingerprint: sessionAwareEvidence.fingerprint }, provider: "fixture", model: "fixture", fallbackIndex: 0 }, requestId: "session-request" }), { status: 200, headers: { "content-type": "application/json" } });
     },
   });
 
@@ -261,7 +353,7 @@ test("close review keeps the complete Gateway user message below the single-mess
       assert.ok(includedIds.includes("snapshot-context"));
       assert.ok(includedIds.includes("material-limitation"));
       assert.ok(includedIds.includes("selected-quote"));
-      return Response.json({ ok: true, data: { json: { status: "success", headline: "ok", summary: "ok", observations: [], portfolioImpacts: [], watchNext: [], limitations: [], evidenceFingerprint: crowdedEvidence.fingerprint } } });
+      return Response.json({ ok: true, data: { json: { status: "success", headline: "ok", summary: "ok", observations: [], portfolioImpacts: [], watchNext: [], limitations: [], evidenceFingerprint: crowdedEvidence.fingerprint }, provider: "fixture", model: "fixture", fallbackIndex: 0 }, requestId: "crowded-request" });
     },
   });
 
