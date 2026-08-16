@@ -41,6 +41,35 @@ export type NarrationValidationCategory =
   | "trading_policy"
   | "repair_unavailable"
   | "unknown";
+export type NarrationValidationRule =
+  | "unexpected_field"
+  | "status_invalid"
+  | "headline_invalid"
+  | "summary_invalid"
+  | "fingerprint_mismatch"
+  | "conclusion_evidence_invalid"
+  | "observation_collection_invalid"
+  | "observation_id_invalid"
+  | "observation_class_invalid"
+  | "observation_importance_invalid"
+  | "observation_title_invalid"
+  | "observation_explanation_invalid"
+  | "observation_evidence_invalid"
+  | "observation_uncertainty_missing"
+  | "watch_collection_invalid"
+  | "limitations_invalid"
+  | "trading_instruction"
+  | "summary_sentence_count"
+  | "context_leakage"
+  | "conclusion_context"
+  | "numeric_claim"
+  | "status_limitation_mismatch"
+  | "limitation_missing"
+  | "unreliable_fact"
+  | "observation_context"
+  | "watch_citation"
+  | "repair_unavailable"
+  | "unknown";
 export interface NarrationProvenance {
   source: "model" | "model_repaired" | "deterministic_fallback" | "unknown";
   provider?: string;
@@ -53,6 +82,8 @@ export interface NarrationProvenance {
     retryable: boolean;
     /** Bounded diagnostic categories only. Never persist validator messages or model output. */
     validationCategories?: NarrationValidationCategory[];
+    /** Stable rule identifiers only. Array indexes and validator text are intentionally discarded. */
+    validationRuleIds?: NarrationValidationRule[];
   };
 }
 export interface RunOutcome { execution: "completed"; narration: NarrationProvenance; evidence: EvidenceAssessment; mode: "market-only" | "portfolio-aware"; }

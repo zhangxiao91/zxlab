@@ -1,4 +1,4 @@
-import type { AgentNarration, AgentObservation, AskScope, ConfirmedContext, MarketAgentCommand, NarrationProvenance, NarrationValidationCategory, SealedEvidenceBundle } from "@zxlab/market-agent-schema";
+import type { AgentNarration, AgentObservation, AskScope, ConfirmedContext, MarketAgentCommand, NarrationProvenance, NarrationValidationCategory, NarrationValidationRule, SealedEvidenceBundle } from "@zxlab/market-agent-schema";
 import { validateAgentNarration } from "@zxlab/market-agent-schema";
 import { buildNarrationContext } from "./narration-context.ts";
 
@@ -149,9 +149,44 @@ export async function narrateWithRepair(narrator: Narrator, input: NarrationInpu
         code: "NARRATION_VALIDATION_FAILED",
         retryable: false,
         validationCategories: validationCategories(issues),
+        validationRuleIds: validationRuleIds(issues),
       },
     },
   };
+}
+
+function validationRuleIds(issues: string[]): NarrationValidationRule[] {
+  const rules = issues.map<NarrationValidationRule>((issue) => {
+    if (/^narration\..+ is not allowed$/.test(issue)) return "unexpected_field";
+    if (issue === "status is invalid") return "status_invalid";
+    if (issue === "headline is invalid") return "headline_invalid";
+    if (issue === "summary is invalid") return "summary_invalid";
+    if (issue === "evidenceFingerprint must match sealed evidence") return "fingerprint_mismatch";
+    if (issue.startsWith("conclusionEvidenceIds must reference")) return "conclusion_evidence_invalid";
+    if (/^(?:observations|portfolioImpacts) must be an array/.test(issue)) return "observation_collection_invalid";
+    if (/^(?:observations|portfolioImpacts)\[\d+\]\.id is invalid$/.test(issue)) return "observation_id_invalid";
+    if (/^(?:observations|portfolioImpacts)\[\d+\]\.class is invalid$/.test(issue)) return "observation_class_invalid";
+    if (/^(?:observations|portfolioImpacts)\[\d+\]\.importance is invalid$/.test(issue)) return "observation_importance_invalid";
+    if (/^(?:observations|portfolioImpacts)\[\d+\]\.title is invalid$/.test(issue)) return "observation_title_invalid";
+    if (/^(?:observations|portfolioImpacts)\[\d+\]\.explanation is invalid$/.test(issue)) return "observation_explanation_invalid";
+    if (/^(?:observations|portfolioImpacts)\[\d+\]\.evidenceIds must reference sealed evidence$/.test(issue)) return "observation_evidence_invalid";
+    if (/^(?:observations|portfolioImpacts)\[\d+\]\.inference must use uncertainty language$/.test(issue)) return "observation_uncertainty_missing";
+    if (issue.startsWith("watchNext must be an array")) return "watch_collection_invalid";
+    if (issue === "limitations must be a bounded string[]") return "limitations_invalid";
+    if (issue === "trading instructions are forbidden") return "trading_instruction";
+    if (issue.startsWith("summary must contain 2 to 4 sentences")) return "summary_sentence_count";
+    if (issue.startsWith("output must not reproduce confirmed context")) return "context_leakage";
+    if (issue.startsWith("conclusionEvidenceIds cite evidence absent")) return "conclusion_context";
+    if (issue.includes("numeric claims must match sealed deterministic facts")) return "numeric_claim";
+    if (issue === "status must be partial when sealed evidence has material limitations") return "status_limitation_mismatch";
+    if (issue === "limitations must describe material evidence limitations") return "limitation_missing";
+    if (issue.includes("fact cannot cite unreliable evidence")) return "unreliable_fact";
+    if (/^(?:observations|portfolioImpacts)\[\d+\] cites evidence absent/.test(issue)) return "observation_context";
+    if (issue.startsWith("watchNext[") && (issue.includes("must cite presented evidence") || issue.includes("cites evidence absent"))) return "watch_citation";
+    if (issue === "repair unavailable") return "repair_unavailable";
+    return "unknown";
+  });
+  return [...new Set(rules)];
 }
 
 function validationCategories(issues: string[]): NarrationValidationCategory[] {
