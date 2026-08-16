@@ -40,9 +40,6 @@ export interface NarrationContext {
     capabilityIssues: unknown[];
     guidance: string[];
   };
-  derived: {
-    quoteBreadth?: Record<string, unknown>;
-  };
   evidence: Array<Pick<EvidenceItem, "id" | "kind" | "origin" | "reliable"> & { value: Record<string, unknown> }>;
   selection: {
     sourceItems: number;
@@ -66,7 +63,6 @@ export function buildNarrationContext(input: {
 }): NarrationContext {
   const selectedInstrumentId = selectedInstrument(input.evidence);
   const marketState = describeMarketState(input.evidence);
-  const breadth = quoteBreadth(input.evidence, selectedInstrumentId);
   const candidates = input.evidence.items
     .map((item, index) => ({ item, index, score: evidencePriority(item, input.askScope, selectedInstrumentId) }))
     .sort((left, right) => right.score - left.score || left.index - right.index);
@@ -106,9 +102,6 @@ export function buildNarrationContext(input: {
       strategy: selectionStrategy(input.askScope ?? input.evidence.ask?.scope),
     },
     marketState,
-    derived: {
-      ...(breadth ? { quoteBreadth: breadth } : {}),
-    },
     evidence: projected,
     selection: {
       sourceItems: input.evidence.items.length,
@@ -219,27 +212,15 @@ function compactBarSeries(value: Record<string, unknown>): Record<string, unknow
   const first = bars[0] ?? null;
   const previous = bars.length > 1 ? bars.at(-2) ?? null : null;
   const latest = bars.at(-1) ?? null;
-  const highs = bars.flatMap((bar) => finite(bar.high) === null ? [] : [finite(bar.high)!]);
-  const lows = bars.flatMap((bar) => finite(bar.low) === null ? [] : [finite(bar.low)!]);
-  const volumes = bars.flatMap((bar) => finite(bar.volume) === null ? [] : [finite(bar.volume)!]);
-  const firstClose = finite(first?.close);
-  const latestClose = finite(latest?.close);
   return {
     type: "bar_series_summary",
     instrumentId: stringValue(value.instrumentId),
     interval: stringValue(value.interval),
-    barCount: bars.length,
     windowStart: stringValue(first?.timestamp),
     windowEnd: stringValue(latest?.timestamp),
     first: compactBar(first),
     previous: compactBar(previous),
     latest: compactBar(latest),
-    rangeHigh: highs.length ? Math.max(...highs) : null,
-    rangeLow: lows.length ? Math.min(...lows) : null,
-    totalVolume: volumes.length ? volumes.reduce((sum, volume) => sum + volume, 0) : null,
-    windowChangePct: firstClose !== null && latestClose !== null && firstClose !== 0
-      ? round(100 * (latestClose - firstClose) / firstClose, 4)
-      : null,
     trailingCloses: bars.slice(-8).map((bar) => ({ timestamp: stringValue(bar.timestamp), close: finite(bar.close) })),
   };
 }
@@ -341,9 +322,7 @@ function compactPortfolioSnapshot(value: Record<string, unknown>): Record<string
     expiresAt: stringValue(value.expiresAt),
     cash: finite(value.cash),
     rulesVersion: truncatedString(value.rulesVersion, 160),
-    positionCount: positions.length,
     positions: positions.slice(0, 40).map((position) => bounded(position, 0, 8)),
-    omittedPositions: Math.max(0, positions.length - 40),
     warnings: stringArray(value.warnings, 16),
   };
 }
@@ -402,35 +381,6 @@ function selectedInstrument(evidence: SealedEvidenceBundle): string | null {
     if (value?.type === "ask_plan") return stringValue(value.selectedInstrumentId);
   }
   return evidence.instrumentIds.length === 1 ? evidence.instrumentIds[0] : null;
-}
-
-function quoteBreadth(evidence: SealedEvidenceBundle, selectedInstrumentId: string | null): Record<string, unknown> | null {
-  const observations = evidence.items.flatMap((item) => {
-    const value = record(item.value);
-    if (value?.type !== "quote") return [];
-    const instrumentId = stringValue(value.instrumentId);
-    const price = finite(value.price);
-    const previousClose = finite(value.previousClose);
-    if (!instrumentId || price === null || previousClose === null || previousClose === 0) return [];
-    return [{ evidenceId: item.id, instrumentId, movePct: round(100 * (price - previousClose) / previousClose, 4), reliable: item.reliable }];
-  });
-  if (!observations.length) return null;
-  const sorted = [...observations].sort((left, right) => right.movePct - left.movePct || left.instrumentId.localeCompare(right.instrumentId));
-  const moves = sorted.map((item) => item.movePct).sort((left, right) => left - right);
-  const middle = Math.floor(moves.length / 2);
-  const median = moves.length % 2 ? moves[middle] : (moves[middle - 1] + moves[middle]) / 2;
-  const selected = selectedInstrumentId ? sorted.find((item) => item.instrumentId === selectedInstrumentId) ?? null : null;
-  return {
-    observedCount: observations.length,
-    reliableCount: observations.filter((item) => item.reliable).length,
-    risingCount: observations.filter((item) => item.movePct > 0).length,
-    fallingCount: observations.filter((item) => item.movePct < 0).length,
-    flatCount: observations.filter((item) => item.movePct === 0).length,
-    medianMovePct: round(median, 4),
-    selected: selected ? { ...selected, rank: sorted.indexOf(selected) + 1 } : null,
-    leaders: sorted.slice(0, 5),
-    laggards: sorted.slice(-5).reverse(),
-  };
 }
 
 function selectionStrategy(scope: AskScope | undefined): string {
@@ -494,11 +444,6 @@ function stringArray(value: unknown, maxItems: number): string[] {
 
 function finite(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-function round(value: number, digits: number): number {
-  const scale = 10 ** digits;
-  return Math.round(value * scale) / scale;
 }
 
 function byteLength(value: unknown): number {

@@ -208,15 +208,17 @@ test("Market Agent may use only its bounded Gateway tasks", () => {
   assert.deepEqual(resolveTaskPolicy({ ...input, task: "market-agent-answer" }), {
     timeoutMs: 80_000,
     totalBudgetMs: 90_000,
-    maxOutputTokens: 1_600,
+    maxOutputTokens: 2_600,
     temperature: 0.2,
   });
+  assert.equal(resolveTaskPolicy({ ...input, task: "market-agent-answer", maxOutputTokens: 2_600 }).maxOutputTokens, 2_600);
   assert.deepEqual(resolveTaskPolicy({ ...input, task: "market-agent-close-review" }), {
     timeoutMs: 80_000,
     totalBudgetMs: 90_000,
-    maxOutputTokens: 3_200,
+    maxOutputTokens: 4_800,
     temperature: 0,
   });
+  assert.equal(resolveTaskPolicy({ ...input, task: "market-agent-close-review", maxOutputTokens: 4_800 }).maxOutputTokens, 4_800);
   assert.doesNotThrow(() =>
     enforceAITaskScope("market-agent", "market-agent-close-review", "market-agent-worker"),
   );

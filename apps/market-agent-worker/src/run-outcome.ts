@@ -1,9 +1,10 @@
-import type { AgentNarration, AgentResult, AskScope, EvidenceAssessment, NarrationProvenance } from "@zxlab/market-agent-schema";
+import { createResearchReportV2, type AgentNarration, type AgentResult, type AskScope, type EvidenceAssessment, type NarrationProvenance, type SealedEvidenceBundle } from "@zxlab/market-agent-schema";
 
 export function finalizeAgentResult(input: {
   narration: AgentNarration;
   provenance: NarrationProvenance;
   evidence: EvidenceAssessment;
+  sealedEvidence: SealedEvidenceBundle;
   mode: AgentResult["mode"];
   askScope?: AskScope;
 }): AgentResult {
@@ -15,6 +16,7 @@ export function finalizeAgentResult(input: {
     status,
     mode: input.mode,
     ...(input.askScope ? { askScope: input.askScope } : {}),
+    report: createResearchReportV2(input.narration, input.sealedEvidence),
     outcome: {
       execution: "completed",
       narration: input.provenance,

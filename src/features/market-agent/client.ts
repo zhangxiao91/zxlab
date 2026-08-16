@@ -2,6 +2,7 @@ import type {
   AgentFeedback,
   AgentFeedbackValue,
   AskScope,
+  ResearchReportV2,
   RunOutcome,
   PortfolioSnapshotUpload,
   SealedEvidenceBundle,
@@ -26,6 +27,20 @@ export interface AgentRunView {
   createdAt: string;
   updatedAt: string;
   evidenceFingerprint: string | null;
+  trigger?: string;
+  attempt?: number;
+  recoveryGeneration?: number;
+  revisionOfRunId?: string | null;
+  failure?: { code?: string; retryable?: boolean } | null;
+  input?: {
+    workflow: string;
+    askScope?: AskScope;
+    instrumentId?: string;
+    question?: string;
+    priorRunId?: string;
+    resolvedInstrumentIds?: string[];
+    marketDate?: string;
+  } | null;
   payloadPurgedAt?: string | null;
   portfolioSnapshotId?: string | null;
   feedback?: AgentFeedback | null;
@@ -40,6 +55,7 @@ export interface AgentRunView {
     watchNext: Array<{ condition: string; reason: string; evidenceIds: string[] }>;
     limitations: string[];
     outcome?: RunOutcome;
+    report?: ResearchReportV2;
   };
 }
 

@@ -81,7 +81,7 @@ test("data-quality scope retains capability failures and limitations ahead of a 
   assert.equal(context.selection.omittedItems, 90);
 });
 
-test("relative-performance context carries selected rank and prioritizes the selected quote", () => {
+test("relative-performance context prioritizes the selected quote without exposing unsealed derived ranks", () => {
   const items: EvidenceItem[] = [
     snapshotContext("open"),
     { id: "plan", kind: "execution_plan", origin: "server-observed", reliable: true, value: { type: "ask_plan", scope: "relative_performance", selectedInstrumentId: "SSE:600001" } },
@@ -91,11 +91,8 @@ test("relative-performance context carries selected rank and prioritizes the sel
   ];
 
   const context = buildNarrationContext({ evidence: evidence(items, "relative_performance"), workflow: "ask", askScope: "relative_performance" });
-  const breadth = context.derived.quoteBreadth as { selected: { instrumentId: string; rank: number; movePct: number }; observedCount: number };
-
   assert.equal(context.focus.selectedInstrumentId, "SSE:600001");
-  assert.deepEqual(breadth.selected, { evidenceId: "quote-selected", instrumentId: "SSE:600001", movePct: -10, reliable: true, rank: 3 });
-  assert.equal(breadth.observedCount, 3);
+  assert.equal("derived" in context, false);
   assert.ok(context.evidence.findIndex((item) => item.id === "quote-selected") < context.evidence.findIndex((item) => item.id === "quote-middle"));
 });
 

@@ -8,19 +8,19 @@ const options: Array<{ value: AgentFeedbackValue; label: string }> = [
 ];
 
 export type RunFeedbackState =
-  | { kind: "idle"; feedback: AgentFeedback | null }
-  | { kind: "saving"; feedback: AgentFeedback | null; value: AgentFeedbackValue; requestId: number }
-  | { kind: "saved"; feedback: AgentFeedback }
-  | { kind: "error"; feedback: AgentFeedback | null; message: string };
+  | { kind: "idle"; runId: string; feedback: AgentFeedback | null }
+  | { kind: "saving"; runId: string; feedback: AgentFeedback | null; value: AgentFeedbackValue; requestId: number }
+  | { kind: "saved"; runId: string; feedback: AgentFeedback }
+  | { kind: "error"; runId: string; feedback: AgentFeedback | null; message: string };
 
 export type RunFeedbackAction =
-  | { type: "sync"; feedback: AgentFeedback | null }
-  | { type: "start"; value: AgentFeedbackValue; requestId: number }
-  | { type: "saved"; feedback: AgentFeedback; requestId: number }
-  | { type: "failed"; message: string; requestId: number };
+  | { type: "sync"; runId: string; feedback: AgentFeedback | null }
+  | { type: "start"; runId: string; value: AgentFeedbackValue; requestId: number }
+  | { type: "saved"; runId: string; feedback: AgentFeedback; requestId: number }
+  | { type: "failed"; runId: string; message: string; requestId: number };
 
-export function createRunFeedbackState(feedback: AgentFeedback | null): RunFeedbackState {
-  return feedback ? { kind: "saved", feedback } : { kind: "idle", feedback: null };
+export function createRunFeedbackState(runId: string, feedback: AgentFeedback | null): RunFeedbackState {
+  return feedback ? { kind: "saved", runId, feedback } : { kind: "idle", runId, feedback: null };
 }
 
 export function runFeedbackReducer(
@@ -28,37 +28,41 @@ export function runFeedbackReducer(
   action: RunFeedbackAction,
 ): RunFeedbackState {
   if (action.type === "sync") {
+    if (state.runId !== action.runId) return createRunFeedbackState(action.runId, action.feedback);
     if (state.kind === "saving") return { ...state, feedback: action.feedback };
-    return createRunFeedbackState(action.feedback);
+    return createRunFeedbackState(action.runId, action.feedback);
   }
+  if (state.runId !== action.runId) return state;
   if (action.type === "start") {
     if (state.kind === "saving") return state;
-    return { kind: "saving", feedback: state.feedback, value: action.value, requestId: action.requestId };
+    return { kind: "saving", runId: state.runId, feedback: state.feedback, value: action.value, requestId: action.requestId };
   }
   if (state.kind !== "saving" || state.requestId !== action.requestId) return state;
-  if (action.type === "saved") return { kind: "saved", feedback: action.feedback };
-  return { kind: "error", feedback: state.feedback, message: action.message };
+  if (action.type === "saved") return { kind: "saved", runId: state.runId, feedback: action.feedback };
+  return { kind: "error", runId: state.runId, feedback: state.feedback, message: action.message };
 }
 
 export function RunFeedbackControl({
+  runId,
   feedback,
   disabled = false,
   onSubmit,
 }: {
+  runId: string;
   feedback?: AgentFeedback | null;
   disabled?: boolean;
   onSubmit: (value: AgentFeedbackValue) => Promise<AgentFeedback>;
 }) {
   const [feedbackState, dispatch] = useReducer(
     runFeedbackReducer,
-    feedback ?? null,
-    createRunFeedbackState,
+    { runId, feedback: feedback ?? null },
+    (initial) => createRunFeedbackState(initial.runId, initial.feedback),
   );
   const sequence = useRef(0);
 
   useEffect(() => {
-    dispatch({ type: "sync", feedback: feedback ?? null });
-  }, [feedback?.updatedAt, feedback?.value]);
+    dispatch({ type: "sync", runId, feedback: feedback ?? null });
+  }, [feedback?.updatedAt, feedback?.value, runId]);
 
   const saving = feedbackState.kind === "saving";
   const selected = saving ? feedbackState.value : feedbackState.feedback?.value;
@@ -67,13 +71,15 @@ export function RunFeedbackControl({
   async function choose(value: AgentFeedbackValue) {
     if (disabled || saving) return;
     const requestId = ++sequence.current;
-    dispatch({ type: "start", value, requestId });
+    const requestRunId = runId;
+    dispatch({ type: "start", runId: requestRunId, value, requestId });
     try {
       const saved = await onSubmit(value);
-      dispatch({ type: "saved", feedback: saved, requestId });
+      dispatch({ type: "saved", runId: requestRunId, feedback: saved, requestId });
     } catch (cause) {
       dispatch({
         type: "failed",
+        runId: requestRunId,
         message: cause instanceof Error ? cause.message : "反馈未保存，请重试。",
         requestId,
       });

@@ -67,6 +67,7 @@ export class CloseReviewService {
         narration: narration.result,
         provenance: narration.provenance,
         evidence: assessEvidence(input.command.workflow, snapshot, mode === "portfolio-aware", research, researchOmittedInstrumentCount),
+        sealedEvidence: evidence,
         mode,
       }),
     };

@@ -1,4 +1,4 @@
-import type { AgentFeedback, AgentFeedbackValue } from "@zxlab/market-agent-schema";
+import { compatibleAgentResult, type AgentFeedback, type AgentFeedbackValue, type AgentResult } from "@zxlab/market-agent-schema";
 
 export interface RunArchiveRecord {
   id: string;
@@ -14,12 +14,23 @@ export interface RunArchiveRecord {
   evidenceFingerprint: string | null;
   failure: unknown | null;
   command: unknown | null;
+  input: RunArchiveInput | null;
   result: unknown | null;
   evidence: unknown | null;
   createdAt: string;
   updatedAt: string;
   payloadPurgedAt: string | null;
   feedback: AgentFeedback | null;
+}
+
+export interface RunArchiveInput {
+  workflow: string;
+  askScope?: string;
+  instrumentId?: string;
+  question?: string;
+  priorRunId?: string;
+  resolvedInstrumentIds?: string[];
+  marketDate?: string;
 }
 
 export interface RunArchivePage {
@@ -243,11 +254,11 @@ function parseJson(value: unknown): unknown | null {
 }
 
 function summaryColumns(): string {
-  return `SELECT id, workflow, trigger, status, idempotency_key, command_hash, revision_of_run_id, portfolio_snapshot_id, attempt, recovery_generation, evidence_fingerprint, failure_json, NULL AS command_json, result_json, NULL AS evidence_json, created_at, updated_at, payload_purged_at, ${feedbackColumns()}`;
+  return `SELECT id, workflow, trigger, status, idempotency_key, command_hash, revision_of_run_id, portfolio_snapshot_id, attempt, recovery_generation, evidence_fingerprint, failure_json, command_json AS input_json, NULL AS command_json, result_json, NULL AS evidence_json, created_at, updated_at, payload_purged_at, ${feedbackColumns()}`;
 }
 
 function payloadColumns(): string {
-  return `SELECT agent_runs.*, ${feedbackColumns()}`;
+  return `SELECT agent_runs.*, command_json AS input_json, ${feedbackColumns()}`;
 }
 
 function feedbackColumns(): string {
@@ -269,13 +280,83 @@ function rowToArchiveRecord(row: Record<string, unknown>): RunArchiveRecord {
     evidenceFingerprint: row.evidence_fingerprint ? String(row.evidence_fingerprint) : null,
     failure: parseJson(row.failure_json),
     command: parseJson(row.command_json),
-    result: parseJson(row.result_json),
+    input: runArchiveInput(parseJson(row.input_json)),
+    result: row.command_json === null && row.evidence_json === null
+      ? parseArchiveResult(row.result_json)
+      : parseJson(row.result_json),
     evidence: parseJson(row.evidence_json),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
     payloadPurgedAt: row.payload_purged_at ? String(row.payload_purged_at) : null,
     feedback: archiveFeedback(row.feedback_value, row.feedback_updated_at),
   };
+}
+
+function runArchiveInput(value: unknown): RunArchiveInput | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const command = value as Record<string, unknown>;
+  if (typeof command.workflow !== "string" || !command.workflow) return null;
+  const resolvedInstrumentIds = Array.isArray(command.resolvedInstrumentIds)
+    ? command.resolvedInstrumentIds.filter((item): item is string => typeof item === "string" && /^(SSE|SZSE):\d{6}$/.test(item)).slice(0, 200)
+    : [];
+  return {
+    workflow: command.workflow,
+    ...(typeof command.scope === "string" ? { askScope: command.scope } : {}),
+    ...(typeof command.instrumentId === "string" ? { instrumentId: command.instrumentId } : {}),
+    ...(typeof command.question === "string" ? { question: command.question } : {}),
+    ...(typeof command.priorRunId === "string" ? { priorRunId: command.priorRunId } : {}),
+    ...(resolvedInstrumentIds.length ? { resolvedInstrumentIds } : {}),
+    ...(typeof command.marketDate === "string" ? { marketDate: command.marketDate } : {}),
+  };
+}
+
+function parseArchiveResult(value: unknown): AgentResult | null {
+  let parsed: unknown;
+  try {
+    parsed = parseJson(value);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  const result = parsed as Record<string, unknown>;
+  if ((result.status !== "success" && result.status !== "partial")
+    || typeof result.headline !== "string"
+    || typeof result.summary !== "string"
+    || typeof result.evidenceFingerprint !== "string"
+    || !validArchiveObservations(result.observations)
+    || !validArchiveObservations(result.portfolioImpacts)
+    || !validArchiveWatchNext(result.watchNext)
+    || !Array.isArray(result.limitations)
+    || result.limitations.some((item) => typeof item !== "string")) return null;
+  return compatibleAgentResult({
+    ...result,
+    mode: result.mode === "portfolio-aware" ? "portfolio-aware" : "market-only",
+  } as unknown as AgentResult);
+}
+
+function validArchiveObservations(value: unknown): boolean {
+  return Array.isArray(value) && value.every((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return false;
+    const observation = item as Record<string, unknown>;
+    return typeof observation.id === "string"
+      && (observation.class === "fact" || observation.class === "inference" || observation.class === "unknown")
+      && (observation.importance === "high" || observation.importance === "medium" || observation.importance === "low")
+      && typeof observation.title === "string"
+      && typeof observation.explanation === "string"
+      && Array.isArray(observation.evidenceIds)
+      && observation.evidenceIds.every((id) => typeof id === "string");
+  });
+}
+
+function validArchiveWatchNext(value: unknown): boolean {
+  return Array.isArray(value) && value.every((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return false;
+    const watch = item as Record<string, unknown>;
+    return typeof watch.condition === "string"
+      && typeof watch.reason === "string"
+      && Array.isArray(watch.evidenceIds)
+      && watch.evidenceIds.every((id) => typeof id === "string");
+  });
 }
 
 function archiveFeedback(value: unknown, updatedAt: unknown): AgentFeedback | null {

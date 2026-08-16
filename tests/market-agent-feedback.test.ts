@@ -12,12 +12,21 @@ import {
   runFeedbackReducer,
   RunFeedbackControl,
 } from "../src/features/market-agent/RunFeedbackControl.tsx";
-import { syncAnswerFeedback } from "../src/features/market-agent/AskPanel.tsx";
-import { AgentErrorNotice } from "../src/features/market-agent/AgentToday.tsx";
+import {
+  AgentErrorNotice,
+  nextInspectorSection,
+  restoreRoutedAgentSelection,
+  runReviewAndSelectRun,
+  submitAskAndSelectRun,
+} from "../src/features/market-agent/AgentToday.tsx";
+import AgentComposer, { composerDraftFromRun } from "../src/features/market-agent/AskPanel.tsx";
 import {
   enqueueRunFeedback,
+  evidenceSelectionAfterRunSelection,
   mergeRunPageWithCurrentFeedback,
+  mergeRunPagePreservingSelection,
   mergeRunWithCurrentFeedback,
+  resolveSelectedRun,
 } from "../src/features/market-agent/run-state.ts";
 
 test("run feedback client returns the persisted feedback resource", async (context) => {
@@ -119,21 +128,23 @@ test("network failures do not expose a misleading reauthorization action", () =>
 });
 
 test("run feedback state moves through saving, saved, and retryable error", () => {
-  const idle = createRunFeedbackState(null);
-  const saving = runFeedbackReducer(idle, { type: "start", value: "helpful", requestId: 1 });
-  assert.deepEqual(saving, { kind: "saving", feedback: null, value: "helpful", requestId: 1 });
+  const idle = createRunFeedbackState("run-1", null);
+  const saving = runFeedbackReducer(idle, { type: "start", runId: "run-1", value: "helpful", requestId: 1 });
+  assert.deepEqual(saving, { kind: "saving", runId: "run-1", feedback: null, value: "helpful", requestId: 1 });
 
   const saved = runFeedbackReducer(saving, {
     type: "saved",
+    runId: "run-1",
     feedback: { value: "helpful", updatedAt: "2026-08-15T12:00:00.000Z" },
     requestId: 1,
   });
   assert.equal(saved.kind, "saved");
 
-  const changing = runFeedbackReducer(saved, { type: "start", value: "fact_error", requestId: 2 });
-  const failed = runFeedbackReducer(changing, { type: "failed", message: "network unavailable", requestId: 2 });
+  const changing = runFeedbackReducer(saved, { type: "start", runId: "run-1", value: "fact_error", requestId: 2 });
+  const failed = runFeedbackReducer(changing, { type: "failed", runId: "run-1", message: "network unavailable", requestId: 2 });
   assert.deepEqual(failed, {
     kind: "error",
+    runId: "run-1",
     feedback: { value: "helpful", updatedAt: "2026-08-15T12:00:00.000Z" },
     message: "network unavailable",
   });
@@ -141,28 +152,56 @@ test("run feedback state moves through saving, saved, and retryable error", () =
 
 test("an in-flight control keeps a newer shared feedback baseline on failure", () => {
   const saving = runFeedbackReducer(
-    createRunFeedbackState(null),
-    { type: "start", value: "fact_error", requestId: 2 },
+    createRunFeedbackState("run-1", null),
+    { type: "start", runId: "run-1", value: "fact_error", requestId: 2 },
   );
   const synced = runFeedbackReducer(saving, {
     type: "sync",
+    runId: "run-1",
     feedback: { value: "helpful", updatedAt: "2026-08-15T12:00:00.000Z" },
   });
   const failed = runFeedbackReducer(synced, {
     type: "failed",
+    runId: "run-1",
     message: "network unavailable",
     requestId: 2,
   });
 
   assert.deepEqual(failed, {
     kind: "error",
+    runId: "run-1",
     feedback: { value: "helpful", updatedAt: "2026-08-15T12:00:00.000Z" },
     message: "network unavailable",
   });
 });
 
+test("feedback completion from a previous Run cannot overwrite the newly selected Run", () => {
+  const savingPreviousRun = runFeedbackReducer(
+    createRunFeedbackState("run-previous", null),
+    { type: "start", runId: "run-previous", value: "helpful", requestId: 3 },
+  );
+  const selectedNextRun = runFeedbackReducer(savingPreviousRun, {
+    type: "sync",
+    runId: "run-next",
+    feedback: { value: "fact_error", updatedAt: "2026-08-15T12:01:00.000Z" },
+  });
+  const staleCompletion = runFeedbackReducer(selectedNextRun, {
+    type: "saved",
+    runId: "run-previous",
+    feedback: { value: "helpful", updatedAt: "2026-08-15T12:02:00.000Z" },
+    requestId: 3,
+  });
+
+  assert.deepEqual(staleCompletion, {
+    kind: "saved",
+    runId: "run-next",
+    feedback: { value: "fact_error", updatedAt: "2026-08-15T12:01:00.000Z" },
+  });
+});
+
 test("run feedback controls expose pressed and local async state", () => {
   const source = renderToStaticMarkup(createElement(RunFeedbackControl, {
+    runId: "run-1",
     feedback: { value: "helpful", updatedAt: "2026-08-15T12:00:00.000Z" },
     onSubmit: async (value) => ({ value, updatedAt: "2026-08-15T12:00:00.000Z" }),
   }));
@@ -170,27 +209,6 @@ test("run feedback controls expose pressed and local async state", () => {
   assert.match(source, /aria-pressed="true"/);
   assert.match(source, /aria-live="polite"/);
   assert.match(source, /已记录“有帮助”/);
-});
-
-test("ask answer feedback follows the same run updated from history", () => {
-  const answer = {
-    id: "run-1",
-    workflow: "ask" as const,
-    status: "success" as const,
-    createdAt: "2026-08-15T11:00:00.000Z",
-    updatedAt: "2026-08-15T11:05:00.000Z",
-    evidenceFingerprint: "fingerprint",
-    feedback: { value: "helpful" as const, updatedAt: "2026-08-15T12:00:00.000Z" },
-  };
-  const runs = [{
-    ...answer,
-    feedback: { value: "fact_error" as const, updatedAt: "2026-08-15T12:01:00.000Z" },
-  }];
-
-  const synced = syncAnswerFeedback(answer, runs);
-
-  assert.equal(synced?.feedback?.value, "fact_error");
-  assert.equal(synced?.feedback?.updatedAt, "2026-08-15T12:01:00.000Z");
 });
 
 test("stale refresh and stream payloads cannot roll back newer feedback", () => {
@@ -212,6 +230,17 @@ test("stale refresh and stream payloads cannot roll back newer feedback", () => 
   assert.equal(mergeRunWithCurrentFeedback(current, stale).feedback?.value, "fact_error");
   assert.equal(mergeRunWithCurrentFeedback(current, missing).feedback?.value, "fact_error");
   assert.equal(mergeRunPageWithCurrentFeedback([current], [stale])[0]?.feedback?.value, "fact_error");
+});
+
+test("stream status updates preserve the selected Run input context", () => {
+  const current = {
+    id: "run-1", workflow: "ask", status: "queued", createdAt: "2026-08-15T11:00:00.000Z",
+    updatedAt: "2026-08-15T11:00:00.000Z", evidenceFingerprint: null,
+    input: { workflow: "ask", askScope: "today_change" as const, instrumentId: "SSE:600000", question: "今天发生了什么" },
+  };
+  const incoming = { ...current, status: "collecting", updatedAt: "2026-08-15T11:00:01.000Z", input: undefined };
+
+  assert.deepEqual(mergeRunWithCurrentFeedback(current, incoming).input, current.input);
 });
 
 test("a newer server feedback value still replaces the local value", () => {
@@ -249,6 +278,134 @@ test("a purged run clears locally retained feedback", () => {
   };
 
   assert.equal(mergeRunWithCurrentFeedback(current, purged).feedback, null);
+});
+
+test("selected historical Run survives refresh while missing selection falls back deterministically", () => {
+  const historical = {
+    id: "run-old", workflow: "ask", status: "success", createdAt: "2026-08-14T10:00:00.000Z",
+    updatedAt: "2026-08-14T10:01:00.000Z", evidenceFingerprint: "sha256:old",
+  };
+  const latest = {
+    id: "run-new", workflow: "close_review", status: "success", createdAt: "2026-08-15T10:00:00.000Z",
+    updatedAt: "2026-08-15T10:01:00.000Z", evidenceFingerprint: "sha256:new",
+  };
+
+  const merged = mergeRunPagePreservingSelection([historical], [latest], historical.id);
+
+  assert.deepEqual(merged.map((run) => run.id), ["run-new", "run-old"]);
+  assert.equal(resolveSelectedRun(merged, historical.id)?.id, historical.id);
+  assert.equal(resolveSelectedRun(merged, "missing")?.id, latest.id);
+});
+
+test("a selected historical Ask restores the single Composer draft", () => {
+  const draft = composerDraftFromRun({
+    id: "run-history",
+    workflow: "ask",
+    status: "success",
+    createdAt: "2026-08-14T10:00:00.000Z",
+    updatedAt: "2026-08-14T10:01:00.000Z",
+    evidenceFingerprint: "sha256:history",
+    input: {
+      workflow: "ask",
+      askScope: "compare_previous_run",
+      instrumentId: "SSE:600000",
+      question: "比较前后变化",
+      priorRunId: "run-prior",
+    },
+  });
+
+  assert.deepEqual(draft, {
+    scope: "compare_previous_run",
+    instrumentId: "SSE:600000",
+    question: "比较前后变化",
+    priorRunId: "run-prior",
+  });
+});
+
+test("starting a close review replaces a historical routed Run", async () => {
+  const routed: string[] = [];
+
+  const runId = await runReviewAndSelectRun(
+    async () => "run-review-new",
+    (nextRunId) => routed.push(nextRunId),
+  );
+
+  assert.equal(runId, "run-review-new");
+  assert.deepEqual(routed, ["run-review-new"]);
+});
+
+test("Inspector tabs support roving directional navigation", () => {
+  assert.equal(nextInspectorSection("context", "ArrowRight"), "evidence");
+  assert.equal(nextInspectorSection("context", "ArrowLeft"), "outcome");
+  assert.equal(nextInspectorSection("evidence", "End"), "outcome");
+  assert.equal(nextInspectorSection("outcome", "Home"), "context");
+  assert.equal(nextInspectorSection("context", "Enter"), null);
+});
+
+test("submitting from a historical Run promotes the new Run into routed selection", async () => {
+  let routedRunId = "run-history";
+
+  const submittedRunId = await submitAskAndSelectRun(
+    { scope: "today_change", instrumentId: "SSE:600000" },
+    async () => "run-new",
+    (runId) => { routedRunId = runId; },
+  );
+
+  assert.equal(submittedRunId, "run-new");
+  assert.equal(routedRunId, "run-new");
+});
+
+test("same-Run refreshes preserve Evidence while a different Run clears it", () => {
+  assert.equal(
+    evidenceSelectionAfterRunSelection("run-1", "run-1", "evidence-1"),
+    "evidence-1",
+  );
+  assert.equal(
+    evidenceSelectionAfterRunSelection("run-1", "run-2", "evidence-1"),
+    null,
+  );
+});
+
+test("deep-link and back-forward restore routed Run before its Evidence", async () => {
+  const restored: string[] = [];
+
+  await restoreRoutedAgentSelection(
+    { routedRunId: "run-history", routedEvidenceId: "evidence-history", latestRunId: "run-latest" },
+    async (runId) => { restored.push(`run:${runId}`); },
+    (evidenceId) => { restored.push(`evidence:${evidenceId ?? "none"}`); },
+  );
+  await restoreRoutedAgentSelection(
+    { routedRunId: "run-latest", routedEvidenceId: null, latestRunId: "run-latest" },
+    async (runId) => { restored.push(`run:${runId}`); },
+    (evidenceId) => { restored.push(`evidence:${evidenceId ?? "none"}`); },
+  );
+
+  assert.deepEqual(restored, [
+    "run:run-history",
+    "evidence:evidence-history",
+    "run:run-latest",
+    "evidence:none",
+  ]);
+});
+
+test("the selected Run renders one Composer with restored question context", () => {
+  const selectedRun = {
+    id: "run-history", workflow: "ask", status: "success", createdAt: "2026-08-14T10:00:00.000Z",
+    updatedAt: "2026-08-14T10:01:00.000Z", evidenceFingerprint: "sha256:history",
+    input: { workflow: "ask", askScope: "today_change" as const, instrumentId: "SSE:600000", question: "今天发生了什么" },
+  };
+  const source = renderToStaticMarkup(createElement(AgentComposer, {
+    runs: [selectedRun],
+    instruments: ["SSE:600000"],
+    selectedRun,
+    submitting: false,
+    onSubmit: async () => undefined,
+  }));
+
+  assert.equal((source.match(/<form/g) ?? []).length, 1);
+  assert.match(source, /value="SSE:600000"/);
+  assert.match(source, />今天发生了什么<\/textarea>/);
+  assert.match(source, /Composer 已恢复 Run run-hist 的可用输入上下文/);
 });
 
 test("feedback writes for the same run execute in user intent order", async () => {

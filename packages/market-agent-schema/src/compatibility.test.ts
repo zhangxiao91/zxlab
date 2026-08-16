@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { compatibleAgentResult, type AgentResult } from "./index.ts";
+import { compatibleAgentResult, createResearchReportV2, type AgentResult, type SealedEvidenceBundle } from "./index.ts";
 
 function legacy(limitations: string[]): AgentResult {
   return { status: "partial", headline: "legacy", summary: "legacy", observations: [], portfolioImpacts: [], watchNext: [], limitations, evidenceFingerprint: "sha256:legacy", mode: "market-only" };
@@ -16,4 +16,115 @@ test("legacy model-like results do not claim confirmed provenance", () => {
   const result = compatibleAgentResult(legacy(["公告能力降级。"]));
   assert.equal(result.outcome?.narration.source, "unknown");
   assert.equal(result.outcome?.evidence.coverage, "limited");
+});
+
+test("legacy narration receives an explicit Research Report v2 projection", () => {
+  const result = compatibleAgentResult({
+    ...legacy(["估值能力暂不可用。"]),
+    observations: [
+      { id: "fact", class: "fact", importance: "high", title: "确定事实", explanation: "事实正文", evidenceIds: ["evidence-1"] },
+      { id: "inference", class: "inference", importance: "medium", title: "可能含义", explanation: "可能仍需确认", evidenceIds: ["evidence-1"] },
+      { id: "unknown", class: "unknown", importance: "low", title: "未知项", explanation: "仍未知", evidenceIds: ["evidence-2"] },
+    ],
+  });
+
+  assert.equal(result.report?.version, "research-report.v2");
+  assert.deepEqual(result.report?.basis.map((item) => item.id), ["fact"]);
+  assert.deepEqual(result.report?.analysis.map((item) => item.id), ["inference"]);
+  assert.deepEqual(result.report?.risks.map((item) => item.kind), ["uncertainty", "data_boundary"]);
+  assert.deepEqual(result.report?.conclusion.evidenceIds, []);
+  assert.deepEqual(result.report?.sources.map((item) => item.evidenceId), ["evidence-1", "evidence-2"]);
+});
+
+test("an invalid persisted report is rebuilt instead of reaching the UI", () => {
+  const result = compatibleAgentResult({
+    ...legacy([]),
+    report: { version: "research-report.v2", conclusion: null } as unknown as AgentResult["report"],
+  });
+
+  assert.equal(result.report?.version, "research-report.v2");
+  assert.deepEqual(result.report?.conclusion, {
+    headline: "legacy",
+    summary: "legacy",
+    evidenceIds: [],
+  });
+  assert.deepEqual(result.report?.basis, []);
+});
+
+test("Research Report sources are assembled from sealed deterministic provenance", () => {
+  const evidence: SealedEvidenceBundle = {
+    schemaVersion: "market-agent.v1",
+    eventRuleVersion: "market-event.v1",
+    profileId: "p1",
+    workflow: "close_review",
+    watchlistRevision: "w1",
+    instrumentIds: ["SSE:600000"],
+    items: [{
+      id: "research-1",
+      kind: "market_fact",
+      origin: "server-observed",
+      reliable: true,
+      value: { type: "research_fact", fact: { provenance: { providers: ["fixture"], sourceAsOf: "2026-08-15T07:00:00.000Z", retrievedAt: "2026-08-15T07:01:00.000Z" } } },
+    }],
+    contextUses: [],
+    fingerprint: "sha256:test",
+    sealedAt: "2026-08-15T07:02:00.000Z",
+  };
+  const narration = {
+    ...legacy([]),
+    conclusionEvidenceIds: ["research-1"],
+    observations: [{ id: "fact", class: "fact" as const, importance: "high" as const, title: "确定事实", explanation: "事实正文", evidenceIds: ["research-1"] }],
+  };
+
+  const report = createResearchReportV2(narration, evidence);
+
+  assert.deepEqual(report.sources[0], {
+    evidenceId: "research-1",
+    kind: "market_fact",
+    origin: "server-observed",
+    reliable: true,
+    providers: ["fixture"],
+    asOf: "2026-08-15T07:00:00.000Z",
+    retrievedAt: "2026-08-15T07:01:00.000Z",
+  });
+  assert.deepEqual(report.conclusion.evidenceIds, ["research-1"]);
+});
+
+test("Research Report sources retain quote source and corroborating providers", () => {
+  const evidence: SealedEvidenceBundle = {
+    schemaVersion: "market-agent.v1",
+    eventRuleVersion: "market-event.v1",
+    profileId: "p1",
+    workflow: "ask",
+    watchlistRevision: "w1",
+    instrumentIds: ["SSE:600000"],
+    items: [{
+      id: "quote-1",
+      kind: "market_fact",
+      origin: "server-observed",
+      reliable: true,
+      value: {
+        type: "quote",
+        source: "primary-feed",
+        provider: "normalized-provider",
+        asOf: "2026-08-15T07:00:00.000Z",
+        receivedAt: "2026-08-15T07:00:02.000Z",
+        corroboration: { observations: [{ provider: "secondary-feed" }, { provider: "primary-feed" }] },
+      },
+    }],
+    contextUses: [],
+    fingerprint: "sha256:quote",
+    sealedAt: "2026-08-15T07:00:03.000Z",
+  };
+  const narration = {
+    ...legacy([]),
+    conclusionEvidenceIds: ["quote-1"],
+    observations: [{ id: "fact", class: "fact" as const, importance: "high" as const, title: "行情事实", explanation: "事实正文", evidenceIds: ["quote-1"] }],
+  };
+
+  const report = createResearchReportV2(narration, evidence);
+
+  assert.deepEqual(report.sources[0]?.providers, ["normalized-provider", "primary-feed", "secondary-feed"]);
+  assert.equal(report.sources[0]?.asOf, "2026-08-15T07:00:00.000Z");
+  assert.equal(report.sources[0]?.retrievedAt, "2026-08-15T07:00:02.000Z");
 });

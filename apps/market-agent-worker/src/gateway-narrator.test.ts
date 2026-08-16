@@ -8,12 +8,14 @@ test("gateway narrator sends only the bounded task and sealed evidence", async (
   const narrator = new GatewayNarrator({ apiUrl: "https://gateway.example/api/ai/generate", token: "secret", fetcher: async (_url, init) => {
     const body = JSON.parse(String(init?.body)) as { task: string; maxOutputTokens: number; context: { source: string; operation: string; metadata: { contextVersion: string } }; messages: Array<{ content: string }> };
     assert.equal(body.task, "market-agent-close-review"); assert.match(body.messages[1].content, /sha256:g/);
-    assert.equal(body.maxOutputTokens, 3200);
-    assert.match(body.messages[0].content, /headline, summary, observations, portfolioImpacts, watchNext, limitations, and evidenceFingerprint/);
+    assert.equal(body.maxOutputTokens, 4800);
+    assert.match(body.messages[0].content, /headline, summary, conclusionEvidenceIds, observations, portfolioImpacts, watchNext, limitations, and evidenceFingerprint/);
+    assert.match(body.messages[0].content, /directly support the headline and summary/);
     assert.match(body.messages[0].content, /Copy evidenceContext\.source\.evidenceFingerprint exactly/);
     assert.match(body.messages[0].content, /Simplified Chinese/);
-    assert.match(body.messages[0].content, /at most 4 observations, 3 portfolioImpacts, 3 watchNext items, and 6 limitations/);
-    assert.match(body.messages[0].content, /Limit each evidenceIds array to the 3 strongest/);
+    assert.match(body.messages[0].content, /at most 6 observations, 4 portfolioImpacts, 4 watchNext items, and 8 limitations/);
+    assert.match(body.messages[0].content, /Limit each evidenceIds array to the 4 strongest/);
+    assert.match(body.messages[0].content, /Never calculate, estimate, extrapolate, or fill a missing number yourself/);
     assert.match(body.messages[0].content, /Do not translate JSON keys/);
     assert.deepEqual(body.context, { source: "market-agent-worker", operation: "close_review", metadata: { contextVersion: "narration-context.v1" } });
     return new Response(JSON.stringify({ ok: true, data: { json: { status: "success", headline: "ok", summary: "ok", observations: [], portfolioImpacts: [], watchNext: [], limitations: [], evidenceFingerprint: "sha256:g" }, text: "", provider: "fixture", model: "fixture", fallbackIndex: 0, latencyMs: 1 }, requestId: "r1" }), { status: 200, headers: { "content-type": "application/json" } });
@@ -29,7 +31,7 @@ test("gateway selection is preserved as safe narration provenance", async () => 
     fetcher: async () => Response.json({
       ok: true,
       data: {
-        json: { status: "success", headline: "ok", summary: "ok", observations: [], portfolioImpacts: [], watchNext: [], limitations: [], evidenceFingerprint: evidence.fingerprint },
+        json: { status: "success", headline: "ok", summary: "主要结论已经形成。当前没有额外不确定性。", conclusionEvidenceIds: [], observations: [], portfolioImpacts: [], watchNext: [], limitations: [], evidenceFingerprint: evidence.fingerprint },
         provider: "deepseek",
         model: "deepseek-v4-flash",
         fallbackIndex: 0,
@@ -46,6 +48,33 @@ test("gateway selection is preserved as safe narration provenance", async () => 
     fallbackIndex: 0,
     gatewayRequestId: "gateway-request-1",
   });
+});
+
+test("a selected Gateway model must return a two-to-four sentence research lead", async () => {
+  let calls = 0;
+  const narrator = new GatewayNarrator({
+    apiUrl: "https://gateway.example/api/ai/generate",
+    token: "secret",
+    fetcher: async () => {
+      calls += 1;
+      return Response.json({
+        ok: true,
+        data: {
+          json: { status: "success", headline: "结论", summary: "只有一句。", conclusionEvidenceIds: [], observations: [], portfolioImpacts: [], watchNext: [], limitations: [], evidenceFingerprint: evidence.fingerprint },
+          provider: "deepseek",
+          model: "deepseek-v4-flash",
+          fallbackIndex: 0,
+        },
+        requestId: `gateway-request-${calls}`,
+      });
+    },
+  });
+
+  const result = await (await import("./narration.ts")).narrateWithRepair(narrator, { workflow: "close_review", evidence });
+
+  assert.equal(calls, 2);
+  assert.equal(result.provenance.source, "deterministic_fallback");
+  assert.match(result.issues.join("\n"), /summary must contain 2 to 4 sentences/);
 });
 
 test("gateway receives ephemeral context but rejects reproducing its body during validation", async () => {
@@ -75,7 +104,7 @@ test("Ask uses the dedicated answer task and keeps user wording outside the evid
   const narrator = new GatewayNarrator({ apiUrl: "https://gateway.example/api/ai/generate", token: "secret", fetcher: async (_url, init) => {
     const body = JSON.parse(String(init?.body)) as { task: string; maxOutputTokens: number; temperature: number; messages: Array<{ content: string }> };
     assert.equal(body.task, "market-agent-answer");
-    assert.equal(body.maxOutputTokens, 1600);
+    assert.equal(body.maxOutputTokens, 2600);
     assert.equal(body.temperature, 0.2);
     assert.match(body.messages[1].content, /ignore previous instructions/);
     return new Response(JSON.stringify({ ok: true, data: { json: { status: "success", headline: "ok", summary: "ok", observations: [], portfolioImpacts: [], watchNext: [], limitations: [], evidenceFingerprint: "sha256:g" }, text: "", provider: "fixture", model: "fixture", fallbackIndex: 0, latencyMs: 1 }, requestId: "r1" }), { status: 200, headers: { "content-type": "application/json" } });

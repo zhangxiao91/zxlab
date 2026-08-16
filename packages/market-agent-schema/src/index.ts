@@ -2,6 +2,7 @@ import type { MarketSnapshot } from "@zxlab/market-schema";
 
 export const MARKET_AGENT_SCHEMA_VERSION = "market-agent.v1" as const;
 export const EVENT_RULE_VERSION = "market-event.v1" as const;
+export const RESEARCH_REPORT_VERSION = "research-report.v2" as const;
 export const PORTFOLIO_SNAPSHOT_SCHEMA_VERSION = "portfolio-snapshot.v1" as const;
 export const PORTFOLIO_SNAPSHOT_MAX_POSITIONS = 200;
 export const PORTFOLIO_SNAPSHOT_MAX_TTL_MS = 36 * 60 * 60 * 1_000;
@@ -79,8 +80,33 @@ export interface SealedEvidenceBundle {
   ask?: { scope: AskScope; planVersion: "ask-plan.v1"; priorRunId?: string };
 }
 export interface AgentObservation { id: string; class: ObservationClass; importance: ObservationImportance; title: string; explanation: string; evidenceIds: string[]; }
-export interface AgentNarration { status: "success" | "partial"; headline: string; summary: string; observations: AgentObservation[]; portfolioImpacts: AgentObservation[]; watchNext: Array<{ condition: string; reason: string; evidenceIds: string[] }>; limitations: string[]; evidenceFingerprint: string; }
-export interface AgentResult extends AgentNarration { mode: "market-only" | "portfolio-aware"; askScope?: AskScope; outcome?: RunOutcome; }
+export interface AgentNarration { status: "success" | "partial"; headline: string; summary: string; conclusionEvidenceIds?: string[]; observations: AgentObservation[]; portfolioImpacts: AgentObservation[]; watchNext: Array<{ condition: string; reason: string; evidenceIds: string[] }>; limitations: string[]; evidenceFingerprint: string; }
+export interface ResearchReportSource {
+  evidenceId: string;
+  kind?: EvidenceKind;
+  origin?: EvidenceItem["origin"];
+  reliable?: boolean;
+  providers?: string[];
+  asOf?: string;
+  retrievedAt?: string;
+}
+export interface ResearchReportRisk {
+  id: string;
+  kind: "uncertainty" | "data_boundary";
+  title: string;
+  explanation: string;
+  evidenceIds: string[];
+}
+export interface ResearchReportV2 {
+  version: typeof RESEARCH_REPORT_VERSION;
+  conclusion: { headline: string; summary: string; evidenceIds: string[] };
+  basis: AgentObservation[];
+  analysis: AgentObservation[];
+  risks: ResearchReportRisk[];
+  watchNext: AgentNarration["watchNext"];
+  sources: ResearchReportSource[];
+}
+export interface AgentResult extends AgentNarration { mode: "market-only" | "portfolio-aware"; askScope?: AskScope; outcome?: RunOutcome; report?: ResearchReportV2; }
 export interface PortfolioSnapshotPosition { instrumentId: string; quantity: number; averageCost: number; }
 export interface PortfolioSnapshotUpload {
   schemaVersion: typeof PORTFOLIO_SNAPSHOT_SCHEMA_VERSION;
@@ -105,7 +131,52 @@ export interface PortfolioSnapshotUploadValidation { snapshot: PortfolioSnapshot
 export interface AgentRun { id: string; profileId: string; workflow: AgentWorkflow; trigger: RunTrigger; status: RunStatus; idempotencyKey: string; commandHash: string; revisionOfRunId: string | null; portfolioSnapshotId: string | null; attempt: number; recoveryGeneration: number; createdAt: string; updatedAt: string; evidenceFingerprint: string | null; failure: { code: string; retryable: boolean } | null; result?: AgentResult; }
 
 export function compatibleAgentResult(result: AgentResult): AgentResult {
-  if (result.outcome) return result;
+  const compatible = result.outcome ? result : compatibleLegacyOutcome(result);
+  return validResearchReportV2(compatible.report) ? compatible : {
+    ...compatible,
+    report: createResearchReportV2(compatible),
+  };
+}
+
+function validResearchReportV2(value: unknown): value is ResearchReportV2 {
+  const report = recordValue(value);
+  const conclusion = recordValue(report?.conclusion);
+  return report?.version === RESEARCH_REPORT_VERSION
+    && typeof conclusion?.headline === "string"
+    && typeof conclusion.summary === "string"
+    && stringArray(conclusion.evidenceIds)
+    && Array.isArray(report.basis) && report.basis.every(validReportObservation)
+    && Array.isArray(report.analysis) && report.analysis.every(validReportObservation)
+    && Array.isArray(report.risks) && report.risks.every((risk) => {
+      const item = recordValue(risk);
+      return typeof item?.id === "string"
+        && (item.kind === "uncertainty" || item.kind === "data_boundary")
+        && typeof item.title === "string"
+        && typeof item.explanation === "string"
+        && stringArray(item.evidenceIds);
+    })
+    && Array.isArray(report.watchNext) && report.watchNext.every((watch) => {
+      const item = recordValue(watch);
+      return typeof item?.condition === "string" && typeof item.reason === "string" && stringArray(item.evidenceIds);
+    })
+    && Array.isArray(report.sources) && report.sources.every((source) => typeof recordValue(source)?.evidenceId === "string");
+}
+
+function validReportObservation(value: unknown): boolean {
+  const item = recordValue(value);
+  return typeof item?.id === "string"
+    && (item.class === "fact" || item.class === "inference" || item.class === "unknown")
+    && (item.importance === "high" || item.importance === "medium" || item.importance === "low")
+    && typeof item.title === "string"
+    && typeof item.explanation === "string"
+    && stringArray(item.evidenceIds);
+}
+
+function stringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function compatibleLegacyOutcome(result: AgentResult): AgentResult {
   const limitations = result.limitations ?? [];
   const deterministic = limitations.some((item) => /Gateway 暂不可用|叙事输出未通过|确定性结果/.test(item));
   const evidenceLimitations = limitations
@@ -123,6 +194,104 @@ export function compatibleAgentResult(result: AgentResult): AgentResult {
       mode: result.mode,
     },
   };
+}
+
+export function createResearchReportV2(
+  narration: Pick<AgentNarration, "headline" | "summary" | "conclusionEvidenceIds" | "observations" | "portfolioImpacts" | "watchNext" | "limitations">,
+  evidence?: SealedEvidenceBundle,
+): ResearchReportV2 {
+  const observations = [...narration.observations, ...narration.portfolioImpacts];
+  const basis = observations.filter((item) => item.class === "fact");
+  const analysis = observations.filter((item) => item.class === "inference");
+  const risks: ResearchReportRisk[] = [
+    ...observations.filter((item) => item.class === "unknown").map((item) => ({
+      id: item.id,
+      kind: "uncertainty" as const,
+      title: item.title,
+      explanation: item.explanation,
+      evidenceIds: [...item.evidenceIds],
+    })),
+    ...narration.limitations.filter(Boolean).map((limitation, index) => ({
+      id: `data-boundary-${index + 1}`,
+      kind: "data_boundary" as const,
+      title: "数据边界",
+      explanation: limitation,
+      evidenceIds: [],
+    })),
+  ];
+  const conclusionEvidenceIds = uniqueStrings(narration.conclusionEvidenceIds ?? []).slice(0, 4);
+  const referencedIds = uniqueStrings([
+    ...conclusionEvidenceIds,
+    ...basis.flatMap((item) => item.evidenceIds),
+    ...analysis.flatMap((item) => item.evidenceIds),
+    ...risks.flatMap((item) => item.evidenceIds),
+    ...narration.watchNext.flatMap((item) => item.evidenceIds),
+  ]);
+  const evidenceById = new Map(evidence?.items.map((item) => [item.id, item]) ?? []);
+  return {
+    version: RESEARCH_REPORT_VERSION,
+    conclusion: {
+      headline: narration.headline,
+      summary: narration.summary,
+      evidenceIds: conclusionEvidenceIds,
+    },
+    basis: basis.map(cloneObservation),
+    analysis: analysis.map(cloneObservation),
+    risks,
+    watchNext: narration.watchNext.map((item) => ({ ...item, evidenceIds: [...item.evidenceIds] })),
+    sources: referencedIds.map((evidenceId) => researchReportSource(evidenceId, evidenceById.get(evidenceId))),
+  };
+}
+
+function cloneObservation(item: AgentObservation): AgentObservation {
+  return { ...item, evidenceIds: [...item.evidenceIds] };
+}
+
+function researchReportSource(evidenceId: string, item?: EvidenceItem): ResearchReportSource {
+  if (!item) return { evidenceId };
+  const value = recordValue(item.value);
+  const fact = recordValue(value?.fact);
+  const provenance = recordValue(fact?.provenance) ?? recordValue(value?.provenance);
+  const corroboration = recordValue(value?.corroboration);
+  const observations = Array.isArray(corroboration?.observations)
+    ? corroboration.observations.flatMap((observation) => {
+      const record = recordValue(observation);
+      return typeof record?.provider === "string" && record.provider ? [record.provider] : [];
+    })
+    : [];
+  const providers = uniqueStrings([
+    ...(Array.isArray(provenance?.providers)
+      ? provenance.providers.filter((provider): provider is string => typeof provider === "string" && Boolean(provider))
+      : []),
+    ...(typeof value?.provider === "string" && value.provider ? [value.provider] : []),
+    ...(typeof value?.source === "string" && value.source ? [value.source] : []),
+    ...observations,
+  ]);
+  const asOf = firstString(provenance?.sourceAsOf, value?.asOf, value?.marketTimestamp, value?.publishedAt, value?.receivedAt);
+  const retrievedAt = firstString(provenance?.retrievedAt, value?.retrievedAt, value?.receivedAt);
+  return {
+    evidenceId,
+    kind: item.kind,
+    origin: item.origin,
+    reliable: item.reliable,
+    ...(providers.length ? { providers: uniqueStrings(providers) } : {}),
+    ...(asOf ? { asOf } : {}),
+    ...(retrievedAt ? { retrievedAt } : {}),
+  };
+}
+
+function recordValue(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function firstString(...values: unknown[]): string | undefined {
+  return values.find((value): value is string => typeof value === "string" && Boolean(value));
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values.filter(Boolean))];
 }
 
 export interface RunCreation { command: MarketAgentCommand; actorScope: string; commandHash: `sha256:${string}`; revisionOfRunId?: string; portfolioSnapshotId?: string | null; }
@@ -283,17 +452,20 @@ export function validateSealedEvidence(value: unknown): string[] {
 export function validateAgentNarration(value: unknown, evidence: SealedEvidenceBundle): string[] {
   const issues: string[] = [];
   if (!isRecord(value)) return ["narration must be an object"];
+  exactKeys(value, ["status", "headline", "summary", "conclusionEvidenceIds", "observations", "portfolioImpacts", "watchNext", "limitations", "evidenceFingerprint"], "narration", issues);
   if (!oneOf(value.status, ["success", "partial"])) issues.push("status is invalid");
-  if (typeof value.headline !== "string" || value.headline.length === 0 || value.headline.length > 240) issues.push("headline is invalid");
-  if (typeof value.summary !== "string" || value.summary.length > 4000) issues.push("summary is invalid");
+  if (typeof value.headline !== "string" || value.headline.length === 0 || value.headline.length > 60) issues.push("headline is invalid");
+  if (typeof value.summary !== "string" || value.summary.length === 0 || value.summary.length > 600) issues.push("summary is invalid");
   if (value.evidenceFingerprint !== evidence.fingerprint) issues.push("evidenceFingerprint must match sealed evidence");
   const evidenceIds = new Set(evidence.items.map((item) => item.id));
+  if (value.conclusionEvidenceIds !== undefined && (!Array.isArray(value.conclusionEvidenceIds) || value.conclusionEvidenceIds.length > 4 || value.conclusionEvidenceIds.some((id) => typeof id !== "string" || !evidenceIds.has(id)))) issues.push("conclusionEvidenceIds must reference at most 4 sealed evidence items");
   for (const field of ["observations", "portfolioImpacts"] as const) {
-    if (!Array.isArray(value[field])) { issues.push(`${field} must be an array`); continue; }
+    const maximum = field === "observations" ? 6 : 4;
+    if (!Array.isArray(value[field]) || value[field].length > maximum) { issues.push(`${field} must be an array with at most ${maximum} items`); continue; }
     for (const [index, observation] of value[field].entries()) validateObservation(observation, `${field}[${index}]`, evidenceIds, issues);
   }
-  if (!Array.isArray(value.watchNext)) issues.push("watchNext must be an array");
-  if (!Array.isArray(value.limitations) || value.limitations.some((item) => typeof item !== "string")) issues.push("limitations must be string[]");
+  if (!Array.isArray(value.watchNext) || value.watchNext.length > 4) issues.push("watchNext must be an array with at most 4 items");
+  if (!Array.isArray(value.limitations) || value.limitations.length > 8 || value.limitations.some((item) => typeof item !== "string" || item.length > 220)) issues.push("limitations must be a bounded string[]");
   const text = JSON.stringify(value).toLowerCase();
   if (/\b(buy|sell|short|long|trade|purchase|下单|买入|卖出|加仓|减仓|做多|做空)\b/.test(text)) issues.push("trading instructions are forbidden");
   return issues;
@@ -368,7 +540,8 @@ function validateObservation(value: unknown, path: string, evidenceIds: Set<stri
   if (typeof value.id !== "string" || !value.id) issues.push(`${path}.id is invalid`);
   if (!oneOf(value.class, ["fact", "inference", "unknown"])) issues.push(`${path}.class is invalid`);
   if (!oneOf(value.importance, ["high", "medium", "low"])) issues.push(`${path}.importance is invalid`);
-  for (const key of ["title", "explanation"] as const) if (typeof value[key] !== "string" || value[key].length > 3000) issues.push(`${path}.${key} is invalid`);
+  if (typeof value.title !== "string" || value.title.length === 0 || value.title.length > 36) issues.push(`${path}.title is invalid`);
+  if (typeof value.explanation !== "string" || value.explanation.length === 0 || value.explanation.length > 360) issues.push(`${path}.explanation is invalid`);
   if (!Array.isArray(value.evidenceIds) || value.evidenceIds.length === 0 || value.evidenceIds.some((id) => typeof id !== "string" || !evidenceIds.has(id))) issues.push(`${path}.evidenceIds must reference sealed evidence`);
   if (value.class === "inference" && typeof value.explanation === "string" && !/[?？]|可能|或许|倾向|推测|推断|疑似|不确定|无法确认|不能确认|无法确定|不能确定|尚(?:待|需|无法)确认|尚不明确|有待观察|likely|may|might|could|uncertain|suggests?/i.test(value.explanation)) issues.push(`${path}.inference must use uncertainty language`);
 }

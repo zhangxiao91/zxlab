@@ -66,13 +66,13 @@ function fakeArchiveDb(initialRows: StoredRun[]): D1Database {
         .filter((row) => !cursorCreatedAt || row.created_at < cursorCreatedAt || (row.created_at === cursorCreatedAt && row.id < String(cursorId)))
         .sort((left, right) => right.created_at.localeCompare(left.created_at) || right.id.localeCompare(left.id))
         .slice(0, limit)
-        .map((row) => sql.startsWith("SELECT *") || sql.includes("agent_runs.*") ? row : { ...row, command_json: null, evidence_json: null });
+        .map((row) => sql.startsWith("SELECT *") || sql.includes("agent_runs.*") ? { ...row, input_json: row.command_json } : { ...row, input_json: row.command_json, command_json: null, evidence_json: null });
       return { results };
     }
     if (sql.includes("FROM agent_runs WHERE id = ? AND profile_id = ?") && !sql.startsWith("SELECT id, evidence_fingerprint")) {
       const [runId, profileId] = values as [string, string];
       const row = rows.find((candidate) => candidate.id === runId && candidate.profile_id === profileId);
-      return { results: row ? [{ ...row, command_json: null, evidence_json: null }] : [] };
+      return { results: row ? [{ ...row, input_json: row.command_json, command_json: null, evidence_json: null }] : [] };
     }
     if (sql.startsWith("SELECT id, evidence_fingerprint FROM agent_runs WHERE id = ?")) {
       const [runId, profileId] = values as [string, string];
@@ -193,6 +193,64 @@ test("run archive list and get expose the owning profile's persisted feedback", 
   assert.equal(page.runs.some((item) => item.id === "run-private"), false);
 });
 
+test("run archive summaries restore only the safe input context", async () => {
+  const ask = {
+    ...storedRun("run-ask", "profile-owner", "2026-08-14T00:00:00.000Z"),
+    workflow: "ask",
+    command_json: JSON.stringify({
+      workflow: "ask",
+      profileId: "private-profile",
+      trigger: "manual",
+      idempotencyKey: "private-key",
+      scope: "compare_previous_run",
+      instrumentId: "SSE:600000",
+      question: "比较变化",
+      priorRunId: "run-prior",
+      resolvedInstrumentIds: ["SSE:600000"],
+    }),
+  };
+  const archive = new D1RunArchiveRepository(fakeArchiveDb([ask]));
+
+  const run = (await archive.list("profile-owner")).runs[0];
+
+  assert.deepEqual(run?.input, {
+    workflow: "ask",
+    askScope: "compare_previous_run",
+    instrumentId: "SSE:600000",
+    question: "比较变化",
+    priorRunId: "run-prior",
+    resolvedInstrumentIds: ["SSE:600000"],
+  });
+  assert.equal(run?.command, null);
+  assert.doesNotMatch(JSON.stringify(run?.input), /private-profile|private-key/);
+});
+
+test("run archive list and get project valid legacy results and reject malformed payloads", async () => {
+  const valid = {
+    ...storedRun("run-valid", "profile-owner", "2026-08-15T00:00:00.000Z"),
+    result_json: JSON.stringify({
+      status: "success",
+      headline: "历史结论",
+      summary: "历史摘要",
+      observations: [],
+      portfolioImpacts: [],
+      watchNext: [],
+      limitations: [],
+      evidenceFingerprint: "sha256:legacy",
+      mode: "market-only",
+    }),
+  };
+  const malformed = storedRun("run-malformed", "profile-owner", "2026-08-14T00:00:00.000Z");
+  const archive = new D1RunArchiveRepository(fakeArchiveDb([valid, malformed]));
+
+  const page = await archive.list("profile-owner");
+  const restored = await archive.get("profile-owner", "run-valid");
+
+  assert.equal(restored?.result && (restored.result as { report?: { version?: string } }).report?.version, "research-report.v2");
+  assert.equal(page.runs.find((run) => run.id === "run-valid")?.result && (page.runs.find((run) => run.id === "run-valid")?.result as { outcome?: { narration?: { source?: string } } }).outcome?.narration?.source, "unknown");
+  assert.equal(page.runs.find((run) => run.id === "run-malformed")?.result, null);
+});
+
 test("run archive export follows every page and returns the complete profile history", async () => {
   const db = fakeArchiveDb([
     storedRun("run-e", "profile-owner", "2026-08-05T00:00:00.000Z"),
@@ -293,7 +351,7 @@ test("retention sweep tombstones terminal payloads while preserving run metadata
         payloadPurgedAt: "2026-08-14T00:00:00.000Z",
         updatedAt: "2026-07-01T00:00:00.000Z",
       },
-      activeResult: { headline: "run-active" },
+      activeResult: null,
     },
   );
 });
@@ -351,7 +409,7 @@ test("explicit run payload deletion cannot cross profile ownership", async () =>
       },
       ownerResult: null,
       ownerFingerprint: "sha256:evidence-run-owner",
-      otherResult: { headline: "run-private" },
+      otherResult: null,
     },
   );
 });

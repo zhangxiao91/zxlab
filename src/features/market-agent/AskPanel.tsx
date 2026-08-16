@@ -1,16 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import gsap from "gsap";
-import type { AgentFeedbackValue, AskScope, RunOutcome, SealedEvidenceBundle } from "@zxlab/market-agent-schema";
-import { RunOutcomeSummary } from "./RunOutcomeSummary";
-import { RunFeedbackControl } from "./RunFeedbackControl";
-import {
-  getAgentRunEvidence,
-  pollAgentRunUntilTerminal,
-  startAgentAsk,
-  streamAgentRun,
-  type AgentObservationView,
-  type AgentRunView,
-} from "./client";
+import React, { useEffect, useMemo, useState } from "react";
+import type { AskScope, RunOutcome } from "@zxlab/market-agent-schema";
+import type { AgentAskIntent, AgentRunView } from "./client";
 
 interface AskScopeOption {
   id: AskScope;
@@ -21,399 +11,141 @@ interface AskScopeOption {
 }
 
 const askScopes: AskScopeOption[] = [
-  {
-    id: "today_change",
-    label: "今日变化",
-    description: "单一标的的当日行情与变化。",
-    requiresInstrument: true,
-  },
-  {
-    id: "relative_performance",
-    label: "相对表现",
-    description: "与已确认观察列表进行比较。",
-    requiresInstrument: true,
-  },
-  {
-    id: "news_and_announcements",
-    label: "新闻与公告",
-    description: "单一标的的已收集新闻和公告元数据。",
-    requiresInstrument: true,
-  },
-  {
-    id: "data_quality",
-    label: "数据质量",
-    description: "所选标的或观察列表的数据可用性。",
-  },
-  {
-    id: "portfolio_impact",
-    label: "持仓影响",
-    description: "仅使用当前有效的持仓快照。",
-  },
-  {
-    id: "compare_previous_run",
-    label: "比较历史运行",
-    description: "固定使用一条已封存 Evidence 的完整范围。",
-    requiresPreviousRun: true,
-  },
+  { id: "today_change", label: "当日变化", description: "读取所选标的最近一个有效交易日的确定性行情与变化。", requiresInstrument: true },
+  { id: "relative_performance", label: "相对表现", description: "把所选标的与已确认观察范围进行确定性比较。", requiresInstrument: true },
+  { id: "news_and_announcements", label: "新闻与公告", description: "只读取已收集的新闻与公告材料。", requiresInstrument: true },
+  { id: "data_quality", label: "数据质量", description: "检查所选标的或观察范围的数据可用性。" },
+  { id: "portfolio_impact", label: "持仓影响", description: "只使用当前仍有效的持仓快照。" },
+  { id: "compare_previous_run", label: "比较历史 Run", description: "固定复用一条已封存 Run 的完整证据范围。", requiresPreviousRun: true },
 ];
 
 const terminalStatuses = new Set(["success", "partial", "failed"]);
-
 const runStages = [
-  { id: "queued", label: "建立 Run", tool: "Run Orchestrator", detail: "固定问题范围与幂等键" },
-  { id: "collecting", label: "收集事实", tool: "Market Snapshot", detail: "读取允许范围内的行情与公告" },
-  { id: "context", label: "读取上下文", tool: "Signal Memory", detail: "读取已确认的偏好与持仓引用" },
-  { id: "evidence_sealed", label: "封存证据", tool: "Evidence Assembler", detail: "冻结引用范围并计算指纹" },
-  { id: "generating", label: "形成回答", tool: "Agent Narrator", detail: "只读取本次 Evidence" },
-  { id: "validating", label: "校验输出", tool: "Result Validator", detail: "检查引用、结构与限制项" },
+  { id: "queued", label: "Run 已建立", detail: "问题范围与幂等身份已经固定" },
+  { id: "collecting", label: "事实收集中", detail: "服务端正在读取允许范围内的确定性事实" },
+  { id: "evidence_sealed", label: "Evidence 已封存", detail: "引用范围与 fingerprint 已冻结" },
+  { id: "generating", label: "报告生成中", detail: "Narrator 只能读取本次封存 Evidence" },
+  { id: "validating", label: "结果校验中", detail: "结构、引用、数字边界与限制项正在检查" },
 ] as const;
 
-interface AskPanelProps {
+export interface AgentComposerProps {
   runs: AgentRunView[];
   instruments: string[];
-  onRunUpdate: (run: AgentRunView) => void;
-  onSaveFeedback: (runId: string, value: AgentFeedbackValue) => Promise<NonNullable<AgentRunView["feedback"]>>;
+  selectedRun?: AgentRunView;
+  submitting: boolean;
+  onSubmit(intent: AgentAskIntent): Promise<unknown>;
 }
 
-export default function AskPanel({
-  runs,
-  instruments,
-  onRunUpdate,
-  onSaveFeedback,
-}: AskPanelProps) {
-  const [scope, setScope] = useState<AskScope>("today_change");
-  const [instrumentId, setInstrumentId] = useState("");
-  const [question, setQuestion] = useState("");
-  const [priorRunId, setPriorRunId] = useState("");
-  const [answer, setAnswer] = useState<AgentRunView | null>(null);
-  const [streamedAnswer, setStreamedAnswer] = useState("");
-  const [submittedPrompt, setSubmittedPrompt] = useState<{ title: string; detail: string } | null>(null);
-  const [evidence, setEvidence] = useState<SealedEvidenceBundle | null>(null);
-  const [selectedEvidenceId, setSelectedEvidenceId] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const requestKey = useRef(crypto.randomUUID());
-  const panel = useRef<HTMLElement>(null);
+export function composerDraftFromRun(run?: AgentRunView) {
+  const input = run?.input;
+  return {
+    scope: (input?.askScope ?? run?.result?.askScope ?? "today_change") as AskScope,
+    instrumentId: input?.instrumentId ?? input?.resolvedInstrumentIds?.[0] ?? "",
+    question: input?.question ?? "",
+    priorRunId: input?.priorRunId ?? "",
+  };
+}
 
+export default function AgentComposer({ runs, instruments, selectedRun, submitting, onSubmit }: AgentComposerProps) {
+  const initialDraft = composerDraftFromRun(selectedRun);
+  const [scope, setScope] = useState<AskScope>(initialDraft.scope);
+  const [instrumentId, setInstrumentId] = useState(initialDraft.instrumentId);
+  const [question, setQuestion] = useState(initialDraft.question);
+  const [priorRunId, setPriorRunId] = useState(initialDraft.priorRunId);
+  const [error, setError] = useState<string | null>(null);
   const selectedScope = askScopes.find((item) => item.id === scope) ?? askScopes[0];
   const historicalRuns = useMemo(
-    () => runs.filter((run) => (
-      (run.status === "success" || run.status === "partial")
-      && Boolean(run.evidenceFingerprint)
-    )),
+    () => runs.filter((run) => (run.status === "success" || run.status === "partial") && Boolean(run.evidenceFingerprint) && !run.payloadPurgedAt),
     [runs],
   );
-  const pending = Boolean(answer && !terminalStatuses.has(answer.status));
-  const selectedEvidence = useMemo(
-    () => evidence?.items.find((item) => item.id === selectedEvidenceId) ?? null,
-    [evidence, selectedEvidenceId],
-  );
+  const activeRun = runs.some((run) => !terminalStatuses.has(run.status));
 
   useEffect(() => {
-    setAnswer((current) => syncAnswerFeedback(current, runs));
-  }, [answer?.id, runs]);
-
-  useEffect(() => {
-    if (!answer || !panel.current) return;
-    let cancelled = false;
-    let context: gsap.Context | undefined;
-    void import("gsap/ScrollTrigger").then(({ ScrollTrigger }) => {
-      if (cancelled || !panel.current) return;
-      gsap.registerPlugin(ScrollTrigger);
-      context = gsap.context(() => {
-        gsap.fromTo(
-          ".agent-activity li",
-          { opacity: 0, y: 10 },
-          { opacity: 1, y: 0, duration: 0.36, stagger: 0.06, ease: "power2.out" },
-        );
-        if (answer.result) {
-          gsap.fromTo(
-            ".agent-message--assistant",
-            { opacity: 0, y: 18 },
-            { opacity: 1, y: 0, duration: 0.48, ease: "power3.out", scrollTrigger: { trigger: ".agent-message--assistant", start: "top 88%" } },
-          );
-        }
-      }, panel);
-    });
-    return () => {
-      cancelled = true;
-      context?.revert();
-    };
-  }, [answer?.id, answer?.result?.headline]);
-
-  useEffect(() => {
-    if (!answer || terminalStatuses.has(answer.status)) return;
-    const controller = new AbortController();
-    setStreamedAnswer("");
-    const update = (next: AgentRunView) => {
-      setAnswer(next);
-      onRunUpdate(next);
-      setError(null);
-    };
-    void streamAgentRun(answer.id, {
-      onStatus: update,
-      onAnswerDelta: (delta) => setStreamedAnswer((current) => current + delta),
-      onDone: (next) => {
-        update(next);
-        setStreamedAnswer("");
-      },
-    }, { signal: controller.signal }).catch(async (cause) => {
-      if (controller.signal.aborted) return;
-      try {
-        const next = await pollAgentRunUntilTerminal(answer.id, update, controller.signal);
-        update(next);
-        setStreamedAnswer("");
-      } catch (fallbackCause) {
-        if (!controller.signal.aborted) {
-          setError(fallbackCause instanceof Error ? fallbackCause.message : cause instanceof Error ? cause.message : "无法读取 Ask 运行状态");
-        }
-      }
-    });
-    return () => controller.abort();
-  }, [answer?.id, onRunUpdate]);
-
-  useEffect(() => {
-    if (!answer || !terminalStatuses.has(answer.status) || !answer.evidenceFingerprint) return;
-    let cancelled = false;
-    void getAgentRunEvidence(answer.id)
-      .then((nextEvidence) => {
-        if (!cancelled) {
-          setEvidence(nextEvidence);
-          setSelectedEvidenceId(null);
-        }
-      })
-      .catch((cause) => {
-        if (!cancelled) {
-          setError(cause instanceof Error ? cause.message : "无法读取已封存 Evidence");
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [answer?.evidenceFingerprint, answer?.id, answer?.status]);
-
-  function resetDraft(clearAnswer = false) {
-    requestKey.current = crypto.randomUUID();
+    if (!selectedRun) return;
+    const restored = composerDraftFromRun(selectedRun);
+    setScope(restored.scope);
+    setInstrumentId(restored.instrumentId);
+    setQuestion(restored.question);
+    setPriorRunId(restored.priorRunId);
     setError(null);
-    if (clearAnswer) {
-      setAnswer(null);
-      setSubmittedPrompt(null);
-      setEvidence(null);
-      setSelectedEvidenceId(null);
-      setStreamedAnswer("");
-    }
-  }
+  }, [selectedRun?.id]);
 
-  function chooseScope(nextScope: AskScope) {
-    setScope(nextScope);
+  const compareSelectedRun = () => {
+    if (!selectedRun?.evidenceFingerprint || selectedRun.payloadPurgedAt) return;
+    setScope("compare_previous_run");
     setInstrumentId("");
-    setPriorRunId("");
-    resetDraft(true);
-  }
+    setPriorRunId(selectedRun.id);
+    setQuestion("");
+    setError(null);
+  };
 
-  async function submit() {
+  const submit = async () => {
     if (selectedScope.requiresInstrument && !instrumentId.trim()) {
-      setError("请选择一个标的后再提交这个问题。");
+      setError("没有选择标的。请选择一个标的后再开始回答。");
       return;
     }
     if (selectedScope.requiresPreviousRun && !priorRunId) {
-      setError("请选择一条已完成且仍保留 Evidence 的历史运行。");
+      setError("没有选择历史 Run。请选择一条仍保留 Evidence 的记录。");
       return;
     }
-    setSubmitting(true);
+    setError(null);
     try {
-      const started = await startAgentAsk({
+      await onSubmit({
         scope,
-        ...(instrumentId.trim() ? { instrumentId } : {}),
-        ...(question.trim() ? { question } : {}),
+        ...(instrumentId.trim() ? { instrumentId: instrumentId.trim().toUpperCase() } : {}),
+        ...(question.trim() ? { question: question.trim() } : {}),
         ...(priorRunId ? { priorRunId } : {}),
-      }, requestKey.current);
-      const now = new Date().toISOString();
-      setAnswer({
-        id: started.runId,
-        workflow: "ask",
-        status: started.status,
-        createdAt: now,
-        updatedAt: now,
-        evidenceFingerprint: null,
       });
-      setSubmittedPrompt({
-        title: selectedScope.label,
-        detail: question.trim() || scopeBoundary(selectedScope, instrumentId, priorRunId),
-      });
-      setEvidence(null);
-      setSelectedEvidenceId(null);
-      setStreamedAnswer("");
-      setError(null);
-      requestKey.current = crypto.randomUUID();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "受限问答启动失败");
-    } finally {
-      setSubmitting(false);
+      setError(cause instanceof Error ? cause.message : "受限问答未能启动，请稍后重试。");
     }
-  }
-
-  async function saveAnswerFeedback(value: AgentFeedbackValue) {
-    if (!answer) throw new Error("当前没有可反馈的运行记录。");
-    const runId = answer.id;
-    const feedback = await onSaveFeedback(runId, value);
-    setAnswer((current) => current?.id === runId ? { ...current, feedback } : current);
-    return feedback;
-  }
+  };
 
   return (
-    <section className="agent-ask" aria-labelledby="agent-ask-title" ref={panel}>
-      <header className="agent-ask__header">
-        <h2 id="agent-ask-title">向 Agent 提问</h2>
-        <p>回答只使用本次服务端封存的证据范围。</p>
+    <section className="agent-composer" aria-labelledby="agent-composer-title">
+      <header className="agent-composer__header">
+        <div>
+          <h2 id="agent-composer-title">继续研究</h2>
+          <p>{selectedRun ? `Composer 已恢复 Run ${selectedRun.id.slice(0, 8)} 的可用输入上下文。` : "选择范围后开始第一条受限问答。"}</p>
+        </div>
+        {selectedRun?.evidenceFingerprint && !selectedRun.payloadPurgedAt && (
+          <button type="button" className="agent-composer__compare" onClick={compareSelectedRun} disabled={submitting || activeRun}>与此 Run 比较</button>
+        )}
       </header>
-      <div className="agent-ask__grid">
-        <form
-          className="agent-ask__form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void submit();
-          }}
-        >
-          <label className="agent-ask__scope">
-            <span>问题范围</span>
-            <select
-              value={scope}
-              disabled={submitting || pending}
-              onChange={(event) => chooseScope(event.target.value as AskScope)}
-            >
-              {askScopes.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.label}
-                </option>
-              ))}
-            </select>
-            <small>{selectedScope.description}</small>
+      <form onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+        <label>
+          <span>研究范围</span>
+          <select value={scope} onChange={(event) => { setScope(event.target.value as AskScope); setError(null); }} disabled={submitting || activeRun}>
+            {askScopes.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+          </select>
+        </label>
+        {!selectedScope.requiresPreviousRun ? (
+          <label>
+            <span>标的</span>
+            <input list="agent-composer-instruments" value={instrumentId} placeholder={selectedScope.requiresInstrument ? "SSE:600000" : "可选：SSE:600000"} maxLength={16} autoCapitalize="characters" onChange={(event) => { setInstrumentId(event.target.value.toUpperCase()); setError(null); }} disabled={submitting || activeRun} />
+            <datalist id="agent-composer-instruments">{instruments.map((id) => <option key={id} value={id} />)}</datalist>
           </label>
-          <div className="agent-ask__fields">
-            {!selectedScope.requiresPreviousRun && (
-              <label>
-                <span>标的</span>
-                <input
-                  list="agent-ask-instruments"
-                  value={instrumentId}
-                  placeholder={selectedScope.requiresInstrument ? "SSE:600000" : "可选：SSE:600000"}
-                  maxLength={16}
-                  autoCapitalize="characters"
-                  disabled={submitting || pending}
-                  onChange={(event) => {
-                    setInstrumentId(event.target.value.toUpperCase());
-                    resetDraft(false);
-                  }}
-                />
-                <datalist id="agent-ask-instruments">
-                  {instruments.map((id) => <option key={id} value={id} />)}
-                </datalist>
-              </label>
-            )}
-            {selectedScope.requiresPreviousRun && (
-              <label>
-                <span>历史运行</span>
-                <select
-                  value={priorRunId}
-                  disabled={submitting || pending}
-                  onChange={(event) => {
-                    setPriorRunId(event.target.value);
-                    resetDraft(false);
-                  }}
-                >
-                  <option value="">选择已封存的运行</option>
-                  {historicalRuns.map((run) => (
-                    <option key={run.id} value={run.id}>
-                      {formatRunOption(run)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-            <label className="agent-ask__question">
-              <span>问题说明</span>
-              <textarea
-                value={question}
-                placeholder="可选，仅影响答案表述"
-                maxLength={800}
-                disabled={submitting || pending}
-                onChange={(event) => {
-                  setQuestion(event.target.value);
-                  resetDraft(false);
-                }}
-              />
-            </label>
-          </div>
-          <footer>
-            <span>{selectedScope.description}</span>
-            <button type="submit" disabled={submitting || pending}>
-              {submitting ? "正在提交" : pending ? statusLabel(answer?.status) : "开始回答"}
-            </button>
-          </footer>
-        </form>
-      </div>
-      {error && <p className="review-status review-status--warning">{error}</p>}
-      {answer && (
-        <section className="agent-thread" aria-live="polite">
-          <article className="agent-message agent-message--user">
-            <header><strong>{submittedPrompt?.title ?? selectedScope.label}</strong></header>
-            <p>{submittedPrompt?.detail ?? selectedScope.description}</p>
-          </article>
-          <RunActivity status={answer.status} runId={answer.id} limitations={answer.result?.limitations} outcome={answer.result?.outcome} />
-          <section className="agent-ask__answer agent-message agent-message--assistant">
-            <header>
-              <div>
-                <span>{statusLabel(answer.status)}</span>
-                <strong>{answer.result?.headline ?? (streamedAnswer ? "正在流式生成回答" : "正在收集已批准的市场事实")}</strong>
-              </div>
-              <code>{answer.id}</code>
-            </header>
-            {answer.result ? (
-              <>
-                <p className="agent-ask__summary">{answer.result.summary}</p>
-                <RunOutcomeSummary outcome={answer.result.outcome} />
-                <div className="agent-ask__answer-grid">
-                  <ObservationGroup title="事实" observations={answer.result.observations.filter((item) => item.class === "fact")} onEvidence={setSelectedEvidenceId} />
-                  <ObservationGroup title="推断" observations={answer.result.observations.filter((item) => item.class === "inference")} onEvidence={setSelectedEvidenceId} />
-                  <ObservationGroup title="未知" observations={answer.result.observations.filter((item) => item.class === "unknown")} onEvidence={setSelectedEvidenceId} />
-                  <section className="agent-ask__answer-group agent-ask__answer-group--limitations">
-                    <h3>局限</h3>
-                    {answer.result.limitations.length ? <ul>{answer.result.limitations.map((item) => <li key={item}>{item}</li>)}</ul> : <p>本次没有额外的数据质量限制。</p>}
-                  </section>
-                </div>
-                {answer.result.portfolioImpacts.length > 0 && <ObservationGroup title="持仓影响" observations={answer.result.portfolioImpacts} onEvidence={setSelectedEvidenceId} />}
-                <EvidencePanel evidence={evidence} selected={selectedEvidence} />
-                <footer className="agent-ask__feedback">
-                  <RunFeedbackControl feedback={answer.feedback} onSubmit={saveAnswerFeedback} />
-                </footer>
-              </>
-            ) : streamedAnswer ? (
-              <p className="agent-streamed-answer">{streamedAnswer}<span className="agent-stream-cursor" aria-hidden="true" /></p>
-            ) : (
-              <p className="agent-ask__waiting">{answer.status === "failed" ? "本次运行未能完成；没有可展示的模型正文。" : "正在按固定计划收集事实、封存 Evidence 并生成回答。"}</p>
-            )}
-          </section>
-        </section>
-      )}
+        ) : (
+          <label>
+            <span>历史 Run</span>
+            <select value={priorRunId} onChange={(event) => { setPriorRunId(event.target.value); setError(null); }} disabled={submitting || activeRun}>
+              <option value="">选择仍保留 Evidence 的 Run</option>
+              {historicalRuns.map((run) => <option key={run.id} value={run.id}>{formatRunOption(run)}</option>)}
+            </select>
+          </label>
+        )}
+        <label className="agent-composer__question">
+          <span>问题说明</span>
+          <textarea value={question} placeholder="可选：说明你希望重点解释的因素；它不会扩大事实范围。" maxLength={800} onChange={(event) => { setQuestion(event.target.value); setError(null); }} disabled={submitting || activeRun} />
+        </label>
+        <footer>
+          <div><strong>{selectedScope.label}</strong><span>{selectedScope.description}</span></div>
+          <button type="submit" disabled={submitting || activeRun} data-state={submitting ? "loading" : error ? "error" : "default"}>{submitting ? "正在建立 Run" : activeRun ? "等待当前 Run" : "开始回答"}</button>
+        </footer>
+      </form>
+      <p className="agent-composer__status" data-tone={error ? "error" : "neutral"} aria-live="polite">{error ?? "数字只能来自已封存的确定性 Fact Plane；缺少数据时报告会明确留空。"}</p>
     </section>
   );
-}
-
-export function syncAnswerFeedback(
-  answer: AgentRunView | null,
-  runs: AgentRunView[],
-): AgentRunView | null {
-  if (!answer) return null;
-  const matchingRun = runs.find((run) => run.id === answer.id);
-  if (!matchingRun || matchingRun.feedback === undefined) return answer;
-  if (
-    answer.feedback?.value === matchingRun.feedback?.value
-    && answer.feedback?.updatedAt === matchingRun.feedback?.updatedAt
-  ) {
-    return answer;
-  }
-  return { ...answer, feedback: matchingRun.feedback };
 }
 
 export function RunActivity({ status, runId, limitations = [], outcome }: { status?: string; runId?: string; limitations?: string[]; outcome?: RunOutcome }) {
@@ -422,170 +154,42 @@ export function RunActivity({ status, runId, limitations = [], outcome }: { stat
   const finished = status === "success" || status === "partial";
   const failed = status === "failed";
   return (
-    <section className="agent-activity" aria-live="polite" aria-label="Agent 执行过程">
-      <header>
-        <div>
-          <span className={`agent-activity__pulse${status && !terminalStatuses.has(status) ? " is-live" : ""}`} />
-          <strong>{status ? statusLabel(status) : "等待任务"}</strong>
-          <small>{runId ? `Run ${runId.slice(0, 8)}` : "提交后将在这里显示实时阶段"}</small>
-        </div>
-        <p>展示可验证的执行阶段，不展示或伪造模型私密思维。</p>
-      </header>
-      <ol>
-        {runStages.map((stage, index) => {
-          const state = status === "partial" && degradedTool(stage.tool, limitations, outcome)
-            ? "degraded"
-            : failed && index === activeIndex
-            ? "failed"
-            : finished || index < activeIndex
-              ? "complete"
-              : index === activeIndex && status
-                ? "active"
-                : "waiting";
-          return (
-            <li key={stage.id} data-state={state}>
-              <span className="agent-activity__node" aria-hidden="true" />
-              <details open={state === "active"}>
-                <summary>
-                  <span>{stage.tool}</span>
-                  <strong>{stage.label}</strong>
-                </summary>
-                <small>{stage.detail}</small>
-              </details>
-              <em>{activityStateLabel(state)}</em>
-            </li>
-          );
-        })}
-      </ol>
+    <section className="agent-progress" aria-live="polite" aria-label="Run 状态">
+      <header><div><span className={`agent-progress__pulse${!terminalStatuses.has(status) ? " is-live" : ""}`} /><strong>{statusLabel(status)}</strong></div><small>{runId ? `Run ${runId.slice(0, 8)}` : "尚未建立 Run"}</small></header>
+      <ol>{runStages.map((stage, index) => {
+        const state = failed ? "unknown" : index < activeIndex || finished ? "complete" : index === activeIndex ? degradedStage(stage.id, limitations, outcome) ? "degraded" : "active" : "waiting";
+        return <li key={stage.id} data-state={state}><span className="agent-progress__node" /><div><strong>{stage.label}</strong><small>{stage.detail}</small></div></li>;
+      })}</ol>
+      <p>{failed ? "本次 Run 整体未完成；现有记录没有提供具体失败阶段，因此不对任一阶段作失败归因。" : "这里只展示可由 Run status 验证的流程阶段；真实工具调用、逐步耗时与取消事件属于后续能力。"}</p>
     </section>
   );
 }
 
-function runStageIndex(status?: string) {
-  if (!status) return -1;
-  if (status === "retry_wait") return 1;
-  if (status === "success" || status === "partial") return runStages.length - 1;
-  if (status === "failed") return 0;
-  return ({ queued: 0, collecting: 1, evidence_sealed: 3, generating: 4, validating: 5 } as Record<string, number>)[status] ?? 0;
-}
-
-function activityStateLabel(state: "complete" | "active" | "degraded" | "failed" | "waiting") {
-  return ({ complete: "完成", active: "进行中", degraded: "降级", failed: "中止", waiting: "等待" } as const)[state];
+function degradedStage(stage: string, limitations: string[], outcome?: RunOutcome) {
+  if (stage === "generating") return degradedTool("Agent Narrator", limitations, outcome);
+  if (stage === "collecting") return degradedTool("Market Snapshot", limitations, outcome);
+  if (stage === "evidence_sealed") return degradedTool("Evidence Assembler", limitations, outcome);
+  return false;
 }
 
 export function degradedTool(tool: string, limitations: string[], outcome?: RunOutcome) {
   if (tool === "Agent Narrator") return outcome ? outcome.narration.source === "deterministic_fallback" : limitations.some((item) => item.includes("Gateway"));
-  if (tool === "Market Snapshot") return outcome
-    ? outcome.evidence.limitations.some((item) => item.code === "MARKET_SNAPSHOT_UNRELIABLE" || Boolean(item.capability && !item.capability.startsWith("research:")))
-    : limitations.some((item) => /数据限制|数据能力|行情|报价|市场事实/.test(item));
-  if (tool === "Evidence Assembler") return outcome
-    ? outcome.evidence.limitations.some((item) => item.code === "RESEARCH_SCOPE_PARTIAL" || item.capability?.startsWith("research:"))
-    : false;
+  if (tool === "Market Snapshot") return outcome ? outcome.evidence.limitations.some((item) => item.code === "MARKET_SNAPSHOT_UNRELIABLE" || Boolean(item.capability && !item.capability.startsWith("research:"))) : limitations.some((item) => /数据限制|数据能力|行情|报价|市场事实/.test(item));
+  if (tool === "Evidence Assembler") return outcome ? outcome.evidence.limitations.some((item) => item.code === "RESEARCH_SCOPE_PARTIAL" || item.capability?.startsWith("research:")) : false;
   return false;
 }
 
-function ObservationGroup({
-  title,
-  observations,
-  onEvidence,
-}: {
-  title: string;
-  observations: AgentObservationView[];
-  onEvidence: (id: string) => void;
-}) {
-  return (
-    <section className="agent-ask__answer-group">
-      <h3>{title}</h3>
-      {observations.length ? (
-        <div>
-          {observations.map((observation) => (
-            <article key={observation.id}>
-              <strong>{observation.title}</strong>
-              <p>{observation.explanation}</p>
-              <div>
-                {observation.evidenceIds.map((id) => (
-                  <button type="button" key={id} onClick={() => onEvidence(id)}>
-                    {id}
-                  </button>
-                ))}
-              </div>
-            </article>
-          ))}
-        </div>
-      ) : <p>本次没有可归入此类的结论。</p>}
-    </section>
-  );
+function runStageIndex(status: string) {
+  if (status === "retry_wait") return 1;
+  if (status === "success" || status === "partial") return runStages.length - 1;
+  return ({ queued: 0, collecting: 1, evidence_sealed: 2, generating: 3, validating: 4 } as Record<string, number>)[status] ?? 0;
 }
 
-function EvidencePanel({
-  evidence,
-  selected,
-}: {
-  evidence: SealedEvidenceBundle | null;
-  selected: SealedEvidenceBundle["items"][number] | null;
-}) {
-  if (!evidence) return <p className="agent-ask__evidence-note">Evidence 将在封存后显示。</p>;
-  return (
-    <details className="agent-ask__evidence">
-      <summary>
-        <span>Evidence</span>
-        <code>{evidence.fingerprint.slice(0, 20)}</code>
-      </summary>
-      <p>本次封存 {evidence.items.length} 条条目，范围为 {evidence.instrumentIds.join("、")}。</p>
-      {selected ? (
-        <article>
-          <header>
-            <strong>{selected.id}</strong>
-            <span>{selected.kind} / {selected.reliable ? "可靠" : "受限"}</span>
-          </header>
-          <pre>{formatEvidenceValue(selected.value)}</pre>
-        </article>
-      ) : <p>选择上方任一引用，查看对应封存条目。</p>}
-    </details>
-  );
-}
-
-function statusLabel(status: string | undefined) {
-  return ({
-    queued: "已排队",
-    collecting: "正在收集",
-    evidence_sealed: "Evidence 已封存",
-    generating: "正在生成",
-    validating: "正在校验",
-    retry_wait: "等待重试",
-    success: "完成",
-    partial: "部分完成",
-    failed: "未完成",
-  } as Record<string, string>)[status ?? ""] ?? "处理中";
-}
-
-function scopeBoundary(
-  scope: AskScopeOption,
-  instrumentId: string,
-  priorRunId: string,
-) {
-  if (scope.requiresPreviousRun) {
-    return priorRunId ? "将固定使用该历史运行的完整 Evidence 范围。" : "需先选择一条可读取的历史运行。";
-  }
-  if (scope.requiresInstrument) {
-    return instrumentId.trim() ? `将固定使用 ${instrumentId.trim().toUpperCase()}。` : "需先选择一个标的。";
-  }
-  return instrumentId.trim()
-    ? `将固定使用 ${instrumentId.trim().toUpperCase()}。`
-    : "将由已确认的服务端范围决定。";
+function statusLabel(status: string) {
+  return ({ queued: "已排队", collecting: "正在收集", evidence_sealed: "Evidence 已封存", generating: "正在生成", validating: "正在校验", retry_wait: "等待重试", success: "完成", partial: "部分完成", failed: "未完成" } as Record<string, string>)[status] ?? status;
 }
 
 function formatRunOption(run: AgentRunView) {
-  const time = new Date(run.createdAt).toLocaleString("zh-CN", {
-    month: "numeric",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-  return `${time} · ${run.workflow === "ask" ? "Ask" : "复盘"}`;
-}
-
-function formatEvidenceValue(value: unknown) {
-  const text = JSON.stringify(value, null, 2) ?? String(value);
-  return text.length > 3_000 ? `${text.slice(0, 3_000)}\n[truncated]` : text;
+  const time = new Date(run.createdAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  return `${time} · ${run.workflow === "ask" ? "Ask" : "复盘"} · ${run.result?.headline ?? run.id.slice(0, 8)}`;
 }

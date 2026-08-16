@@ -1,5 +1,13 @@
 [
   {
+    "date": "2026-08-15",
+    "scope": "app",
+    "macrostructure": "Feature Stack",
+    "theme": "zxlab operational dark",
+    "enrichment": "none",
+    "brief": "Market Agent selected Run workspace and unified inspector"
+  },
+  {
     "date": "2026-08-10",
     "scope": "app",
     "macrostructure": "Workbench",

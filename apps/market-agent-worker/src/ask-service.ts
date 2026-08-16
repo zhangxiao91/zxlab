@@ -129,6 +129,7 @@ export class AskService {
         narration: narration.result,
         provenance: narration.provenance,
         evidence: assessEvidence(input.command.scope, snapshot, mode === "portfolio-aware", research, researchOmittedInstrumentCount),
+        sealedEvidence: evidence,
         mode,
         askScope: input.command.scope,
       }),

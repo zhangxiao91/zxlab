@@ -1,23 +1,27 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { AgentFeedback, AgentFeedbackValue } from "@zxlab/market-agent-schema";
+import type { AgentFeedback, AgentFeedbackValue, SealedEvidenceBundle } from "@zxlab/market-agent-schema";
 import { loadMarketWatchlist } from "../market/watchlist";
 import { LocalPortfolioRepository } from "../risk/ledger";
 import {
   deleteAgentRun,
   exportAgentRuns,
   getAgentProfile,
+  getAgentRun,
+  getAgentRunEvidence,
   getAgentRunPage,
   getPortfolioSnapshotControlState,
   marketAgentAccessRequired,
   pollAgentRunUntilTerminal,
   purgePortfolioSnapshotHistory,
   sendRunFeedback,
+  startAgentAsk,
   startCloseReview,
   streamAgentRun,
   stopPortfolioSnapshot,
   syncAgentWatchlist,
   syncPortfolioSnapshot,
   type AgentObservationView,
+  type AgentAskIntent,
   type AgentProfileView,
   type AgentRunView,
   type AgentWatchlistItem,
@@ -35,19 +39,24 @@ import {
 } from "./action-state";
 import {
   enqueueRunFeedback,
-  mergeRunPageWithCurrentFeedback,
+  mergeRunPagePreservingSelection,
   mergeRunWithCurrentFeedback,
+  evidenceSelectionAfterRunSelection,
+  resolveSelectedRun,
 } from "./run-state";
 
 export interface MarketAgentWorkspace {
   agent: {
     runs: AgentRunView[];
     latest: AgentRunView | undefined;
+    selectedRunId: string | null;
+    selectedRun: AgentRunView | undefined;
     events: AgentObservationView[];
     askInstruments: string[];
     bootstrap: AgentProfileView["bootstrap"] | null;
     loading: boolean;
     reviewBusy: boolean;
+    askBusy: boolean;
     streamingAnswer: string;
     error: string | null;
     accessRequired: boolean;
@@ -55,7 +64,10 @@ export interface MarketAgentWorkspace {
     deletingRunId: string | null;
     loadingMoreRuns: boolean;
     hasMoreRuns: boolean;
-    activeEvidenceId: string | null;
+    evidence: SealedEvidenceBundle | null;
+    evidenceLoading: boolean;
+    evidenceError: string | null;
+    selectedEvidenceId: string | null;
     exportBusy: boolean;
     exportNote: string | null;
     exportError: string | null;
@@ -76,14 +88,16 @@ export interface MarketAgentWorkspace {
   };
   commands: {
     refresh(): Promise<void>;
-    runReview(): Promise<void>;
+    runReview(): Promise<string | null>;
+    submitAsk(intent: AgentAskIntent): Promise<string>;
+    selectRun(runId: string): Promise<void>;
+    selectEvidence(evidenceId: string | null): void;
     confirmWatchlist(): Promise<void>;
     downloadRuns(): Promise<void>;
     removeRun(run: AgentRunView): Promise<void>;
     loadMoreRuns(): Promise<void>;
     saveFeedback(runId: string, value: AgentFeedbackValue): Promise<AgentFeedback>;
     updateRun(run: AgentRunView): void;
-    toggleEvidence(evidenceId: string): void;
     refreshPortfolioPreview(): LocalPortfolioSnapshotPreview;
     syncLocalPortfolioSnapshot(): Promise<void>;
     stopUsingPortfolioSnapshot(): Promise<void>;
@@ -99,6 +113,7 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
   const [localWatchlist, setLocalWatchlist] = useState<AgentWatchlistItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [reviewBusy, setReviewBusy] = useState(false);
+  const [askBusy, setAskBusy] = useState(false);
   const [streamingAnswers, setStreamingAnswers] = useState<Record<string, string>>({});
   const [syncBusy, setSyncBusy] = useState(false);
   const [agentIssue, setAgentIssue] = useState<{
@@ -106,7 +121,11 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
     accessRequired: boolean;
   } | null>(null);
   const [setupNote, setSetupNote] = useState<string | null>(null);
-  const [activeEvidenceId, setActiveEvidenceId] = useState<string | null>(null);
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [evidenceByRunId, setEvidenceByRunId] = useState<Record<string, SealedEvidenceBundle>>({});
+  const [evidenceLoadingRunId, setEvidenceLoadingRunId] = useState<string | null>(null);
+  const [evidenceError, setEvidenceError] = useState<string | null>(null);
+  const [selectedEvidenceId, setSelectedEvidenceId] = useState<string | null>(null);
   const [deletingRunId, setDeletingRunId] = useState<string | null>(null);
   const [nextRunsCursor, setNextRunsCursor] = useState<string | null>(null);
   const [loadingMoreRuns, setLoadingMoreRuns] = useState(false);
@@ -124,6 +143,13 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
   const [purgeScope, setPurgeScope] = useState<PortfolioPurgeScope | null>(null);
   const activeStreams = useRef(new Map<string, AbortController>());
   const feedbackQueues = useRef(new Map<string, Promise<AgentFeedback>>());
+  const runsRef = useRef<AgentRunView[]>([]);
+  const selectedRunIdRef = useRef<string | null>(null);
+  const latest = runs[0];
+  const selectedRun = useMemo(
+    () => resolveSelectedRun(runs, selectedRunId),
+    [runs, selectedRunId],
+  );
 
   const clearAgentIssue = useCallback(() => setAgentIssue(null), []);
   const reportAgentIssue = useCallback((cause: unknown, fallback: string) => {
@@ -231,7 +257,8 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
         getAgentRunPage(),
         getAgentProfile(),
       ]);
-      setRuns((current) => mergeRunPageWithCurrentFeedback(current, runPage.runs));
+      setRuns((current) => mergeRunPagePreservingSelection(current, runPage.runs, selectedRunIdRef.current));
+      setSelectedRunId((current) => current ?? runPage.runs[0]?.id ?? null);
       setNextRunsCursor(runPage.nextCursor);
       setProfile(nextProfile);
       clearAgentIssue();
@@ -273,6 +300,14 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
   }, [clearAgentIssue, loadingMoreRuns, nextRunsCursor, reportAgentIssue]);
 
   useEffect(() => {
+    runsRef.current = runs;
+  }, [runs]);
+
+  useEffect(() => {
+    selectedRunIdRef.current = selectedRunId;
+  }, [selectedRunId]);
+
+  useEffect(() => {
     setLocalWatchlist(
       loadMarketWatchlist(window.localStorage).map(
         ({ instrumentId, reason }) => ({ instrumentId, reason }),
@@ -283,9 +318,34 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
   }, [refresh, refreshPortfolioPreview]);
 
   useEffect(() => {
-    const activeRun = runs.find((run) => run.workflow !== "ask" && !["success", "partial", "failed"].includes(run.status));
-    if (activeRun) void followRun(activeRun.id);
+    for (const activeRun of runs.filter((run) => !["success", "partial", "failed"].includes(run.status))) {
+      void followRun(activeRun.id);
+    }
   }, [followRun, runs]);
+
+  useEffect(() => {
+    setSelectedEvidenceId(null);
+    setEvidenceError(null);
+  }, [selectedRun?.id]);
+
+  useEffect(() => {
+    if (!selectedRun?.evidenceFingerprint || !["success", "partial"].includes(selectedRun.status)) return;
+    if (evidenceByRunId[selectedRun.id]) return;
+    let cancelled = false;
+    setEvidenceLoadingRunId(selectedRun.id);
+    setEvidenceError(null);
+    void getAgentRunEvidence(selectedRun.id)
+      .then((evidence) => {
+        if (!cancelled) setEvidenceByRunId((current) => ({ ...current, [selectedRun.id]: evidence }));
+      })
+      .catch((cause) => {
+        if (!cancelled) setEvidenceError(cause instanceof Error ? cause.message : "无法读取已封存 Evidence");
+      })
+      .finally(() => {
+        if (!cancelled) setEvidenceLoadingRunId((current) => current === selectedRun.id ? null : current);
+      });
+    return () => { cancelled = true; };
+  }, [evidenceByRunId, selectedRun?.evidenceFingerprint, selectedRun?.id, selectedRun?.status]);
 
   useEffect(() => () => {
     for (const controller of activeStreams.current.values()) controller.abort();
@@ -336,7 +396,7 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
       setPortfolioState(completion.writeResult);
       const refreshed = completion.refreshResult;
       if (refreshed) {
-        setRuns((current) => mergeRunPageWithCurrentFeedback(current, refreshed.runs));
+        setRuns((current) => mergeRunPagePreservingSelection(current, refreshed.runs, selectedRunIdRef.current));
         setNextRunsCursor(refreshed.nextCursor);
       }
       setPortfolioError(completion.notice.error);
@@ -365,7 +425,7 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
       setPortfolioState(completion.writeResult);
       const refreshed = completion.refreshResult;
       if (refreshed) {
-        setRuns((current) => mergeRunPageWithCurrentFeedback(current, refreshed.runs));
+        setRuns((current) => mergeRunPagePreservingSelection(current, refreshed.runs, selectedRunIdRef.current));
         setNextRunsCursor(refreshed.nextCursor);
       }
       setPortfolioError(completion.notice.error);
@@ -405,27 +465,92 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
   const runReview = useCallback(async () => {
     if (profile?.bootstrap === "required") {
       reportLocalIssue("请先确认并同步观察列表。");
-      return;
+      return null;
     }
     setReviewBusy(true);
     try {
       const started = await startCloseReview();
       const now = new Date().toISOString();
-      updateRun({
+      const run: AgentRunView = {
         id: started.runId,
         workflow: "close_review",
+        trigger: "manual",
+        input: { workflow: "close_review" },
         status: started.status,
         createdAt: now,
         updatedAt: now,
         evidenceFingerprint: null,
-      });
+      };
+      updateRun(run);
+      selectedRunIdRef.current = run.id;
+      setSelectedRunId(run.id);
       clearAgentIssue();
+      return run.id;
     } catch (cause) {
       reportAgentIssue(cause, "复盘启动失败");
+      return null;
     } finally {
       setReviewBusy(false);
     }
   }, [clearAgentIssue, profile?.bootstrap, reportAgentIssue, reportLocalIssue, updateRun]);
+
+  const submitAsk = useCallback(async (intent: AgentAskIntent) => {
+    setAskBusy(true);
+    try {
+      const started = await startAgentAsk(intent);
+      const now = new Date().toISOString();
+      const run: AgentRunView = {
+        id: started.runId,
+        workflow: "ask",
+        trigger: "manual",
+        input: {
+          workflow: "ask",
+          askScope: intent.scope,
+          ...(intent.instrumentId?.trim() ? { instrumentId: intent.instrumentId.trim().toUpperCase() } : {}),
+          ...(intent.question?.trim() ? { question: intent.question.trim() } : {}),
+          ...(intent.priorRunId?.trim() ? { priorRunId: intent.priorRunId.trim() } : {}),
+        },
+        status: started.status,
+        createdAt: now,
+        updatedAt: now,
+        evidenceFingerprint: null,
+      };
+      updateRun(run);
+      selectedRunIdRef.current = run.id;
+      setSelectedRunId(run.id);
+      clearAgentIssue();
+      return run.id;
+    } catch (cause) {
+      reportAgentIssue(cause, "受限问答启动失败");
+      throw cause;
+    } finally {
+      setAskBusy(false);
+    }
+  }, [clearAgentIssue, reportAgentIssue, updateRun]);
+
+  const selectRun = useCallback(async (runId: string) => {
+    setSelectedEvidenceId((current) => evidenceSelectionAfterRunSelection(
+      selectedRunIdRef.current,
+      runId,
+      current,
+    ));
+    selectedRunIdRef.current = runId;
+    setSelectedRunId(runId);
+    if (runsRef.current.some((run) => run.id === runId)) return;
+    try {
+      const run = await getAgentRun(runId);
+      updateRun(run);
+      clearAgentIssue();
+    } catch (cause) {
+      const fallbackRunId = runsRef.current[0]?.id ?? null;
+      setSelectedRunId((current) => {
+        if (current !== runId) return current;
+        selectedRunIdRef.current = fallbackRunId;
+        return fallbackRunId;
+      });
+      reportAgentIssue(cause, "这条运行记录暂不可用");
+    }
+  }, [clearAgentIssue, reportAgentIssue, updateRun]);
 
   const downloadRuns = useCallback(async () => {
     if (exportBusy) return;
@@ -458,18 +583,25 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
       const tombstone = await deleteAgentRun(run.id);
       setRuns((current) => current.map((item) => item.id === run.id ? {
         ...item,
+        input: null,
         result: undefined,
         feedback: null,
         payloadPurgedAt: tombstone.purgedAt,
       } : item));
-      if (activeEvidenceId === run.id) setActiveEvidenceId(null);
+      setEvidenceByRunId((current) => {
+        if (!(run.id in current)) return current;
+        const next = { ...current };
+        delete next[run.id];
+        return next;
+      });
+      if (selectedRunId === run.id) setSelectedEvidenceId(null);
       clearAgentIssue();
     } catch (cause) {
       reportAgentIssue(cause, "记录删除失败");
     } finally {
       setDeletingRunId(null);
     }
-  }, [activeEvidenceId, clearAgentIssue, reportAgentIssue]);
+  }, [clearAgentIssue, reportAgentIssue, selectedRunId]);
 
   const saveFeedback = useCallback((
     runId: string,
@@ -496,12 +628,11 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
     });
   }, [clearAgentIssue, reportAgentIssue]);
 
-  const toggleEvidence = useCallback((evidenceId: string) => {
-    setActiveEvidenceId((current) => current === evidenceId ? null : evidenceId);
+  const selectEvidence = useCallback((evidenceId: string | null) => {
+    setSelectedEvidenceId(evidenceId);
   }, []);
 
-  const latest = runs[0];
-  const events = useMemo(() => latest?.result?.observations ?? [], [latest]);
+  const events = useMemo(() => selectedRun?.result?.observations ?? [], [selectedRun]);
   const askInstruments = useMemo(
     () => [...new Set([
       ...localWatchlist.map((item) => item.instrumentId),
@@ -514,19 +645,25 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
     agent: {
       runs,
       latest,
+      selectedRunId: selectedRun?.id ?? null,
+      selectedRun,
       events,
       askInstruments,
       bootstrap: profile?.bootstrap ?? null,
       loading,
       reviewBusy,
-      streamingAnswer: latest ? streamingAnswers[latest.id] ?? "" : "",
+      askBusy,
+      streamingAnswer: selectedRun ? streamingAnswers[selectedRun.id] ?? "" : "",
       error: agentIssue?.message ?? null,
       accessRequired: agentIssue?.accessRequired ?? false,
       setupNote,
       deletingRunId,
       loadingMoreRuns,
       hasMoreRuns: Boolean(nextRunsCursor),
-      activeEvidenceId,
+      evidence: selectedRun ? evidenceByRunId[selectedRun.id] ?? null : null,
+      evidenceLoading: Boolean(selectedRun && evidenceLoadingRunId === selectedRun.id),
+      evidenceError,
+      selectedEvidenceId,
       exportBusy,
       exportNote,
       exportError,
@@ -548,13 +685,15 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
     commands: {
       refresh,
       runReview,
+      submitAsk,
+      selectRun,
+      selectEvidence,
       confirmWatchlist,
       downloadRuns,
       removeRun,
       loadMoreRuns,
       saveFeedback,
       updateRun,
-      toggleEvidence,
       refreshPortfolioPreview: recheckPortfolioPreview,
       syncLocalPortfolioSnapshot,
       stopUsingPortfolioSnapshot,

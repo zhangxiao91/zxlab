@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import AgentToday, { type AgentScreenChrome } from "../market-agent/AgentToday";
 import MarketCenter, { type MarketScreenChrome } from "../market/MarketCenter";
 import RiskWorkbench, { type RiskView } from "../risk/RiskWorkbench";
@@ -44,6 +44,13 @@ export default function TradingWorkbench({
   const [marketChrome, setMarketChrome] = useState<MarketScreenChrome>();
   const [agentChrome, setAgentChrome] = useState<AgentScreenChrome>();
 
+  const selectAgentRun = useCallback((runId: string) => {
+    route.send({ type: "open-detail", detail: { kind: "agent-run", runId } });
+  }, [route]);
+  const selectAgentEvidence = useCallback((runId: string, evidenceId: string) => {
+    route.send({ type: "open-detail", detail: { kind: "agent-evidence", runId, evidenceId } });
+  }, [route]);
+
   useEffect(() => () => route.destroy(), [route]);
 
   const navigateRiskView = (next: RiskView) => {
@@ -73,8 +80,19 @@ export default function TradingWorkbench({
       ...marketChrome,
     };
   } else if (location.view === "review" && location.mode === "market") {
+    const selectedRunId = location.detail?.kind === "agent-run" || location.detail?.kind === "agent-evidence"
+      ? location.detail.runId
+      : null;
+    const selectedEvidenceId = location.detail?.kind === "agent-evidence" ? location.detail.evidenceId : null;
     projection = {
-      content: <AgentToday embedded onScreenChange={setAgentChrome} />,
+      content: <AgentToday
+        embedded
+        selectedRunId={selectedRunId}
+        selectedEvidenceId={selectedEvidenceId}
+        onSelectedRunChange={selectAgentRun}
+        onSelectedEvidenceChange={selectAgentEvidence}
+        onScreenChange={setAgentChrome}
+      />,
       ...agentChrome,
     };
   } else {

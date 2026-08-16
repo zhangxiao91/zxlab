@@ -69,8 +69,7 @@ export class DeterministicNarrator implements Narrator {
       if (item.kind !== "portfolio_impact" || !item.reliable || value.type !== "risk_impact" || !value.impact) return [];
       const marketValue = Number(value.impact.marketValue);
       const unrealizedPnl = Number(value.impact.unrealizedPnl);
-      const concentrationCount = Array.isArray(value.impact.concentration) ? value.impact.concentration.length : 0;
-      return [{ id: `deterministic-portfolio-${index}`, class: "fact", importance: "medium", title: "本地持仓风险快照已重估", explanation: `服务端已按当前可靠行情重估 ${concentrationCount} 个持仓；估算市值 ${Number.isFinite(marketValue) ? marketValue.toFixed(2) : "未知"}，未实现盈亏 ${Number.isFinite(unrealizedPnl) ? unrealizedPnl.toFixed(2) : "未知"}。`, evidenceIds: [item.id] }];
+      return [{ id: `deterministic-portfolio-${index}`, class: "fact", importance: "medium", title: "本地持仓风险快照已重估", explanation: `服务端已按当前可靠行情完成持仓重估；估算市值 ${Number.isFinite(marketValue) ? marketValue.toFixed(2) : "未知"}，未实现盈亏 ${Number.isFinite(unrealizedPnl) ? unrealizedPnl.toFixed(2) : "未知"}。`, evidenceIds: [item.id] }];
     });
     const declaredLimitations = input.evidence.items.filter((item) => item.kind === "limitation");
     const declaredMessages = declaredLimitations.flatMap((item) => limitationMessages(item.value));
@@ -85,7 +84,7 @@ export class DeterministicNarrator implements Narrator {
       : input.workflow === "morning_brief"
         ? "盘前简报"
         : "收盘复盘";
-    return { status: limitations.length ? "partial" : "success", headline: events.length ? `${label}检测到 ${events.length} 个确定性事件` : `${label}没有检测到显著事件`, summary: facts.length ? `本次${input.workflow === "ask" ? "回答" : "简报"}基于 ${facts.length} 条市场事实、${events.length} 个规则事件${portfolioImpacts.length ? "和已重新估值的本地持仓快照" : ""}。` : "当前没有可用的市场事实。", observations, portfolioImpacts, watchNext: [], limitations, evidenceFingerprint: input.evidence.fingerprint };
+    return { status: limitations.length ? "partial" : "success", headline: events.length ? `${label}检测到确定性事件` : `${label}没有检测到显著事件`, summary: facts.length ? `本次${input.workflow === "ask" ? "回答" : "简报"}仅依据已封存的市场事实与规则事件${portfolioImpacts.length ? "，并纳入已重新估值的本地持仓快照" : ""}。` : "当前没有可用的市场事实。", observations, portfolioImpacts, watchNext: [], limitations, evidenceFingerprint: input.evidence.fingerprint };
   }
 }
 
@@ -124,14 +123,14 @@ export async function narrateWithRepair(narrator: Narrator, input: NarrationInpu
     };
   }
   let unwrapped = unwrapGatewayCandidate(candidate);
-  let issues = validateNarration(unwrapped.narration, input);
+  let issues = validateNarration(unwrapped.narration, input, Boolean(unwrapped.selection));
   if (!issues.length) return { result: unwrapped.narration as AgentNarration, repaired: false, issues, provenance: modelProvenance("model", unwrapped.selection) };
   const repair = input.repair ?? (narrator.repair ? (repairIssues: string[]) => narrator.repair!({ ...input, issues: repairIssues }) : undefined);
   if (repair) {
     try {
       candidate = await repair(issues);
       unwrapped = unwrapGatewayCandidate(candidate);
-      issues = validateNarration(unwrapped.narration, input);
+      issues = validateNarration(unwrapped.narration, input, Boolean(unwrapped.selection));
       if (!issues.length) return { result: unwrapped.narration as AgentNarration, repaired: true, issues, provenance: modelProvenance("model_repaired", unwrapped.selection) };
     } catch {
       issues = [...issues, "repair unavailable"];
@@ -198,16 +197,12 @@ function askFactObservation(
   if (!value) return [];
   if (value.type === "quote" && typeof value.instrumentId === "string") {
     const price = finiteNumber(value.price);
-    const previousClose = finiteNumber(value.previousClose);
-    const movement = price !== null && previousClose !== null && previousClose !== 0
-      ? `，较昨收 ${(100 * (price - previousClose) / previousClose).toFixed(2)}%`
-      : "";
     return [{
       id: `deterministic-ask-quote-${index}`,
       class: item.reliable ? "fact" : "unknown",
       importance: "medium",
       title: `${value.instrumentId} 行情事实`,
-      explanation: price === null ? "当前报价不可用。" : `${priceDescription(marketState, item.reliable)} ${price.toFixed(2)}${movement}。`,
+      explanation: price === null ? "当前报价不可用。" : `${priceDescription(marketState, item.reliable)} ${price.toFixed(2)}。变化幅度没有由已封存的确定性算子直接提供，因此不在这里补算。`,
       evidenceIds: [item.id],
     }];
   }
@@ -232,15 +227,23 @@ function finiteNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function validateNarration(value: unknown, input: NarrationInput): string[] {
+function validateNarration(value: unknown, input: NarrationInput, selectedGatewayModel = false): string[] {
   const evidence = input.evidence;
   const issues = validateAgentNarration(value, evidence);
   const candidate = record(value);
   if (!candidate) return issues;
+  if (selectedGatewayModel && (typeof candidate.summary !== "string" || sentenceCount(candidate.summary) < 2 || sentenceCount(candidate.summary) > 4)) {
+    issues.push("summary must contain 2 to 4 sentences for a selected Gateway model");
+  }
   const contextLeak = contextLeakIssue(candidate, input.confirmedContext ?? []);
   if (contextLeak) issues.push(contextLeak);
   const evidenceById = new Map(evidence.items.map((item) => [item.id, item]));
-  const presentedEvidenceIds = new Set(buildNarrationContext({ evidence, workflow: input.workflow, askScope: input.askScope }).evidence.map((item) => item.id));
+  const presentedEvidence = buildNarrationContext({ evidence, workflow: input.workflow, askScope: input.askScope }).evidence;
+  const presentedEvidenceIds = new Set(presentedEvidence.map((item) => item.id));
+  if (Array.isArray(candidate.conclusionEvidenceIds) && candidate.conclusionEvidenceIds.some((id) => typeof id === "string" && !presentedEvidenceIds.has(id))) {
+    issues.push("conclusionEvidenceIds cite evidence absent from the narration context");
+  }
+  issues.push(...ungroundedNumericClaimIssues(candidate, evidenceById, presentedEvidence));
   const materialLimitations = evidence.items.some((item) => item.kind === "limitation" || (item.kind === "market_fact" && !item.reliable));
   if (materialLimitations && candidate.status !== "partial") issues.push("status must be partial when sealed evidence has material limitations");
   if (materialLimitations && (!Array.isArray(candidate.limitations) || candidate.limitations.length === 0)) issues.push("limitations must describe material evidence limitations");
@@ -270,6 +273,140 @@ function validateNarration(value: unknown, input: NarrationInput): string[] {
     }
   }
   return [...new Set(issues)];
+}
+
+function ungroundedNumericClaimIssues(
+  candidate: Record<string, unknown>,
+  evidenceById: Map<string, SealedEvidenceBundle["items"][number]>,
+  presentedEvidence: ReturnType<typeof buildNarrationContext>["evidence"],
+): string[] {
+  const presentedById = new Map(presentedEvidence.map((item) => [item.id, item]));
+  const observations = arrayRecords(candidate.observations);
+  const portfolioImpacts = arrayRecords(candidate.portfolioImpacts);
+  const watchNext = arrayRecords(candidate.watchNext);
+  const conclusionEvidenceIds = Array.isArray(candidate.conclusionEvidenceIds)
+    ? candidate.conclusionEvidenceIds.filter((id): id is string => typeof id === "string")
+    : [];
+  const sections = [
+    { path: "narration", text: strings(candidate.headline, candidate.summary), evidenceIds: conclusionEvidenceIds },
+    ...observations.map((item, index) => ({ path: `observations[${index}]`, text: strings(item.title, item.explanation), evidenceIds: evidenceIds(item) })),
+    ...portfolioImpacts.map((item, index) => ({ path: `portfolioImpacts[${index}]`, text: strings(item.title, item.explanation), evidenceIds: evidenceIds(item) })),
+    ...watchNext.map((item, index) => ({ path: `watchNext[${index}]`, text: strings(item.condition, item.reason), evidenceIds: evidenceIds(item) })),
+    { path: "limitations", text: Array.isArray(candidate.limitations) ? strings(...candidate.limitations) : "", evidenceIds: [] },
+  ];
+  return sections.flatMap((section) => {
+    const claims = [...numericTokens(section.text)];
+    const chineseClaims = chineseQuantityTokens(section.text);
+    if (!claims.length && !chineseClaims.length) return [];
+    const supported = new Set(section.evidenceIds.flatMap((evidenceId) => {
+      const sealed = evidenceById.get(evidenceId);
+      const presented = presentedById.get(evidenceId);
+      if (!sealed?.reliable || !presented) return [];
+      return claimableNumericTokens(sealed.kind, presented.value);
+    }));
+    const unsupported = [
+      ...claims.filter((claim) => ![...supported].some((value) => sameNumericToken(value, claim))),
+      ...chineseClaims,
+    ];
+    return unsupported.length ? [`${section.path} numeric claims must match sealed deterministic facts: ${unsupported.join(", ")}`] : [];
+  });
+}
+
+function claimableNumericTokens(kind: SealedEvidenceBundle["items"][number]["kind"], value: Record<string, unknown>): string[] {
+  if (kind === "market_event") {
+    return [...numericValues(value, ["actual", "threshold"]), ...decimalStrings(value.actual, value.threshold)];
+  }
+  if (kind === "snapshot_diff") {
+    const changes = Array.isArray(value.changes) ? value.changes.flatMap((change) => record(change) ? [record(change)!] : []) : [];
+    return changes.flatMap((change) => numericValues(change, ["previous", "current", "delta", "deltaBps"]));
+  }
+  if (kind === "portfolio_impact" && value.type === "risk_impact") {
+    const impact = record(value.impact);
+    if (!impact) return [];
+    const concentration = Array.isArray(impact.concentration) ? impact.concentration.flatMap((entry) => record(entry) ? [record(entry)!] : []) : [];
+    return [
+      ...numericValues(impact, ["marketValue", "costBasis", "unrealizedPnl"]),
+      ...concentration.flatMap((entry) => numericValues(entry, ["weight"])),
+    ];
+  }
+  if (kind !== "market_fact") return [];
+  if (value.type === "quote") {
+    const corroboration = record(value.corroboration);
+    const observations = Array.isArray(corroboration?.observations) ? corroboration.observations.flatMap((entry) => record(entry) ? [record(entry)!] : []) : [];
+    return [
+      ...numericValues(value, ["price", "previousClose", "open", "high", "low", "volume", "turnover"]),
+      ...(corroboration ? numericValues(corroboration, ["thresholdBps", "maxDeviationBps"]) : []),
+      ...observations.flatMap((entry) => numericValues(entry, ["price"])),
+    ];
+  }
+  if (value.type === "bar_series_summary") {
+    const bars = [record(value.first), record(value.previous), record(value.latest)].filter((bar): bar is Record<string, unknown> => Boolean(bar));
+    const trailingCloses = Array.isArray(value.trailingCloses) ? value.trailingCloses.flatMap((entry) => record(entry) ? [record(entry)!] : []) : [];
+    return [
+      ...bars.flatMap((bar) => numericValues(bar, ["open", "high", "low", "close", "volume", "turnover"])),
+      ...trailingCloses.flatMap((entry) => numericValues(entry, ["close"])),
+    ];
+  }
+  if (value.type === "research_fact") {
+    const fact = record(value.fact);
+    if (!fact) return [];
+    const factValue = record(fact.value);
+    const weight = record(fact.weight);
+    const comparison = record(fact.comparison);
+    const historicalPercentile = record(fact.historicalPercentile);
+    const observationPeriod = record(fact.observationPeriod);
+    const quality = record(fact.quality);
+    const coverage = record(quality?.coverage);
+    return [
+      ...numericValues(fact, ["window"]),
+      ...(observationPeriod ? numericValues(observationPeriod, ["tradingSessions"]) : []),
+      ...(coverage ? numericValues(coverage, ["actual", "required"]) : []),
+      ...decimalStrings(factValue?.decimal, weight?.decimal, comparison?.decimal, historicalPercentile?.decimal),
+    ];
+  }
+  return [];
+}
+
+function numericValues(value: Record<string, unknown>, keys: string[]): string[] {
+  return keys.flatMap((key) => typeof value[key] === "number" && Number.isFinite(value[key]) ? [String(value[key])] : []);
+}
+
+function decimalStrings(...values: unknown[]): string[] {
+  return values.filter((value): value is string => typeof value === "string" && /^[-+]?(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value));
+}
+
+function evidenceIds(value: Record<string, unknown>): string[] {
+  return Array.isArray(value.evidenceIds) ? value.evidenceIds.filter((id): id is string => typeof id === "string") : [];
+}
+
+function strings(...values: unknown[]): string {
+  return values.filter((value): value is string => typeof value === "string").join("\n");
+}
+
+function sentenceCount(value: string): number {
+  return value.trim().split(/[。！？!?]+/u).filter((sentence) => sentence.trim().length > 0).length;
+}
+
+function arrayRecords(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value) ? value.flatMap((item) => record(item) ? [record(item)!] : []) : [];
+}
+
+function numericTokens(value: string): Set<string> {
+  const withoutIdentifiers = value.replace(/\b(?:SSE|SZSE):\d{6}\b/giu, "");
+  return new Set(withoutIdentifiers.match(/[-+]?\d[\d,]*(?:\.\d+)?(?:[%％])?/g)?.map((token) => token.replaceAll(",", "")) ?? []);
+}
+
+function chineseQuantityTokens(value: string): string[] {
+  return [...new Set(value.match(/[零〇一二两三四五六七八九十百千万亿]+(?:个百分点|基点|季度|月份|bps|[个只条项次日天周月年股倍成点元手%％])/giu) ?? [])];
+}
+
+function sameNumericToken(left: string, right: string): boolean {
+  const leftPercent = /[%％]$/.test(left);
+  const rightPercent = /[%％]$/.test(right);
+  if (leftPercent !== rightPercent) return false;
+  const leftNumber = Number(left.replace(/[%％]$/, ""));
+  const rightNumber = Number(right.replace(/[%％]$/, ""));
+  return Number.isFinite(leftNumber) && Number.isFinite(rightNumber) && leftNumber === rightNumber;
 }
 
 function contextLeakIssue(value: Record<string, unknown>, contexts: ConfirmedContext[]): string | null {

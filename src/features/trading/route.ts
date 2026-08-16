@@ -12,6 +12,7 @@ export type TradingDetail =
   | { kind: "transaction-import" }
   | { kind: "holdings-import" }
   | { kind: "risk-evidence"; evidenceId: string }
+  | { kind: "agent-run"; runId: string }
   | { kind: "agent-evidence"; runId: string; evidenceId: string };
 
 /** @deprecated Use TradingDetail and the open-detail intent. */
@@ -96,6 +97,7 @@ export function isTradingDetailCompatible(
       return view === "positions";
     case "risk-evidence":
       return isRiskWorkspace(view, mode);
+    case "agent-run":
     case "agent-evidence":
       return view === "review" && mode === "market";
   }
@@ -113,12 +115,15 @@ const detailFromSearchParams = (
   if (view === "positions" && action === "holdings") {
     return { kind: "holdings-import" };
   }
-  if (action !== "evidence") return undefined;
+  const runId = nonEmptyParam(params.get("run"));
+  if (action !== "evidence") {
+    const detail: TradingDetail | undefined = runId ? { kind: "agent-run", runId } : undefined;
+    return detail && isTradingDetailCompatible(view, mode, detail) ? detail : undefined;
+  }
 
   const evidenceId = nonEmptyParam(params.get("evidence"));
   if (!evidenceId) return undefined;
 
-  const runId = nonEmptyParam(params.get("run"));
   const detail: TradingDetail = runId
     ? { kind: "agent-evidence", runId, evidenceId }
     : { kind: "risk-evidence", evidenceId };
@@ -157,6 +162,9 @@ const writeTradingDetail = (
     case "risk-evidence":
       url.searchParams.set("action", "evidence");
       url.searchParams.set("evidence", detail.evidenceId);
+      return;
+    case "agent-run":
+      url.searchParams.set("run", detail.runId);
       return;
     case "agent-evidence":
       url.searchParams.set("action", "evidence");
@@ -220,6 +228,7 @@ const detailForOpenIntent = (
       return { view: "positions", mode: "risk" };
     case "risk-evidence":
       return { view: "overview", mode: "risk" };
+    case "agent-run":
     case "agent-evidence":
       return { view: "review", mode: "market" };
   }
@@ -237,6 +246,7 @@ const sameDetail = (
   if (left.kind === "agent-evidence" && right.kind === "agent-evidence") {
     return left.runId === right.runId && left.evidenceId === right.evidenceId;
   }
+  if (left.kind === "agent-run" && right.kind === "agent-run") return left.runId === right.runId;
   return true;
 };
 
@@ -267,8 +277,10 @@ export function createTradingRoute(
   const unsubscribeHistory = history.subscribe(syncFromHistory);
 
   const commit = (method: "push" | "replace", url: URL) => {
+    const next = parseTradingLocation(url);
+    if (sameLocation(snapshot, next)) return;
     history[method](url.href);
-    publish(parseTradingLocation(url));
+    publish(next);
   };
 
   return {

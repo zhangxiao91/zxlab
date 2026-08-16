@@ -21,14 +21,17 @@ export function mergeRunWithCurrentFeedback(
   incoming: AgentRunView,
 ): AgentRunView {
   if (incoming.payloadPurgedAt && incoming.feedback == null) return incoming;
-  if (!current?.feedback) return incoming;
+  const withInput = current?.input !== undefined && incoming.input === undefined
+    ? { ...incoming, input: current.input }
+    : incoming;
+  if (!current?.feedback) return withInput;
   if (
-    incoming.feedback
-    && incoming.feedback.updatedAt >= current.feedback.updatedAt
+    withInput.feedback
+    && withInput.feedback.updatedAt >= current.feedback.updatedAt
   ) {
-    return incoming;
+    return withInput;
   }
-  return { ...incoming, feedback: current.feedback };
+  return { ...withInput, feedback: current.feedback };
 }
 
 export function mergeRunPageWithCurrentFeedback(
@@ -37,4 +40,30 @@ export function mergeRunPageWithCurrentFeedback(
 ): AgentRunView[] {
   const currentById = new Map(current.map((run) => [run.id, run]));
   return incoming.map((run) => mergeRunWithCurrentFeedback(currentById.get(run.id), run));
+}
+
+export function mergeRunPagePreservingSelection(
+  current: AgentRunView[],
+  incoming: AgentRunView[],
+  selectedRunId: string | null,
+): AgentRunView[] {
+  const merged = mergeRunPageWithCurrentFeedback(current, incoming);
+  if (!selectedRunId || merged.some((run) => run.id === selectedRunId)) return merged;
+  const selected = current.find((run) => run.id === selectedRunId);
+  return selected ? [...merged, selected] : merged;
+}
+
+export function resolveSelectedRun(
+  runs: AgentRunView[],
+  selectedRunId: string | null,
+): AgentRunView | undefined {
+  return runs.find((run) => run.id === selectedRunId) ?? runs[0];
+}
+
+export function evidenceSelectionAfterRunSelection(
+  currentRunId: string | null,
+  nextRunId: string,
+  currentEvidenceId: string | null,
+): string | null {
+  return currentRunId === nextRunId ? currentEvidenceId : null;
 }

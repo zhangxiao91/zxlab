@@ -150,6 +150,25 @@ test("risk and agent evidence routes require complete compatible identity", () =
   );
 });
 
+test("agent Run selection round-trips without requiring an Evidence item", () => {
+  const location = parseTradingLocation(tradingUrl("?view=review&mode=market&run=run-7"));
+  assert.deepEqual(location, {
+    view: "review",
+    mode: "market",
+    detail: { kind: "agent-run", runId: "run-7" },
+  });
+
+  const encoded = updateTradingLocation(tradingUrl("?source=history"), {
+    view: "review",
+    mode: "market",
+    detail: { kind: "agent-run", runId: "run-8" },
+  });
+  assert.equal(encoded.searchParams.get("run"), "run-8");
+  assert.equal(encoded.searchParams.get("action"), null);
+  assert.equal(encoded.searchParams.get("evidence"), null);
+  assert.deepEqual(parseTradingLocation(encoded).detail, { kind: "agent-run", runId: "run-8" });
+});
+
 test("trading route updater canonicalizes owned parameters and preserves the rest", () => {
   const current = tradingUrl(
     "?view=review&mode=market&action=evidence&evidence=old&run=old-run&source=lab#runs",
@@ -251,6 +270,21 @@ test("route intents own push and replace semantics", () => {
   assert.deepEqual(route.getSnapshot(), { view: "positions", mode: "risk" });
   assert.equal(history.mutations.at(-1)?.method, "replace");
   assert.equal(notifications, 3);
+});
+
+test("opening the current Run or Evidence does not pollute browser history", () => {
+  const history = new MemoryHistory(
+    tradingUrl("?view=review&mode=market&run=run-1").href,
+  );
+  const route = createTradingRoute(history);
+
+  route.send({ type: "open-detail", detail: { kind: "agent-run", runId: "run-1" } });
+  assert.equal(history.mutations.length, 0);
+
+  route.send({ type: "open-detail", detail: { kind: "agent-evidence", runId: "run-1", evidenceId: "e-1" } });
+  assert.equal(history.mutations.length, 1);
+  route.send({ type: "open-detail", detail: { kind: "agent-evidence", runId: "run-1", evidenceId: "e-1" } });
+  assert.equal(history.mutations.length, 1);
 });
 
 test("navigation retains compatible detail and clears incompatible detail", () => {
