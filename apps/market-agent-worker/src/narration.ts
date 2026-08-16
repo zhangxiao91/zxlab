@@ -360,38 +360,45 @@ function ungroundedNumericClaimIssues(
     { path: "limitations", text: Array.isArray(candidate.limitations) ? strings(...candidate.limitations) : "", evidenceIds: [] },
   ];
   return sections.flatMap((section) => {
-    const claims = [...numericTokens(section.text)];
+    const claims = numericClaimTokens(section.text);
     const chineseClaims = chineseQuantityTokens(section.text);
     if (!claims.length && !chineseClaims.length) return [];
-    const supported = new Set(section.evidenceIds.flatMap((evidenceId) => {
+    const supported = section.evidenceIds.flatMap((evidenceId) => {
       const sealed = evidenceById.get(evidenceId);
       const presented = presentedById.get(evidenceId);
       if (!sealed?.reliable || !presented) return [];
       return claimableNumericTokens(sealed.kind, presented.value);
-    }));
+    });
     const unsupported = [
-      ...claims.filter((claim) => ![...supported].some((value) => sameNumericToken(value, claim))),
+      ...claims.filter((claim) => !supported.some((value) => compatibleNumericToken(value, claim))).map((claim) => claim.raw),
       ...chineseClaims,
     ];
     return unsupported.length ? [`${section.path} numeric claims must match sealed deterministic facts: ${unsupported.join(", ")}`] : [];
   });
 }
 
-function claimableNumericTokens(kind: SealedEvidenceBundle["items"][number]["kind"], value: Record<string, unknown>): string[] {
+type NumericUnit = "generic" | "price" | "currency_cny" | "currency_wan" | "currency_yi" | "volume_shares" | "volume_lots" | "sessions" | "items" | "ratio" | "percent" | "bps";
+interface NumericClaimToken { raw: string; value: string; unit: NumericUnit; unsafeForm: boolean; }
+interface NumericEvidenceToken { value: string; unit: Exclude<NumericUnit, "generic" | "percent">; }
+
+function claimableNumericTokens(kind: SealedEvidenceBundle["items"][number]["kind"], value: Record<string, unknown>): NumericEvidenceToken[] {
   if (kind === "market_event") {
-    return [...numericValues(value, ["actual", "threshold"]), ...decimalStrings(value.actual, value.threshold)];
+    return taggedScalarValues([value.actual, value.threshold], "bps");
   }
   if (kind === "snapshot_diff") {
     const changes = Array.isArray(value.changes) ? value.changes.flatMap((change) => record(change) ? [record(change)!] : []) : [];
-    return changes.flatMap((change) => numericValues(change, ["previous", "current", "delta", "deltaBps"]));
+    return changes.flatMap((change) => [
+      ...taggedNumericValues(change, ["previous", "current", "delta"], "price"),
+      ...taggedNumericValues(change, ["deltaBps"], "bps"),
+    ]);
   }
   if (kind === "portfolio_impact" && value.type === "risk_impact") {
     const impact = record(value.impact);
     if (!impact) return [];
     const concentration = Array.isArray(impact.concentration) ? impact.concentration.flatMap((entry) => record(entry) ? [record(entry)!] : []) : [];
     return [
-      ...numericValues(impact, ["marketValue", "costBasis", "unrealizedPnl"]),
-      ...concentration.flatMap((entry) => numericValues(entry, ["weight"])),
+      ...taggedNumericValues(impact, ["marketValue", "costBasis", "unrealizedPnl"], "currency_cny"),
+      ...concentration.flatMap((entry) => taggedNumericValues(entry, ["weight"], "ratio")),
     ];
   }
   if (kind !== "market_fact") return [];
@@ -399,17 +406,23 @@ function claimableNumericTokens(kind: SealedEvidenceBundle["items"][number]["kin
     const corroboration = record(value.corroboration);
     const observations = Array.isArray(corroboration?.observations) ? corroboration.observations.flatMap((entry) => record(entry) ? [record(entry)!] : []) : [];
     return [
-      ...numericValues(value, ["price", "previousClose", "open", "high", "low", "volume", "turnover"]),
-      ...(corroboration ? numericValues(corroboration, ["thresholdBps", "maxDeviationBps"]) : []),
-      ...observations.flatMap((entry) => numericValues(entry, ["price"])),
+      ...taggedNumericValues(value, ["price", "previousClose", "open", "high", "low"], "price"),
+      ...taggedNumericValues(value, ["volume"], "volume_shares"),
+      ...taggedNumericValues(value, ["turnover"], "currency_cny"),
+      ...(corroboration ? taggedNumericValues(corroboration, ["thresholdBps", "maxDeviationBps"], "bps") : []),
+      ...observations.flatMap((entry) => taggedNumericValues(entry, ["price"], "price")),
     ];
   }
   if (value.type === "bar_series_summary") {
     const bars = [record(value.first), record(value.previous), record(value.latest)].filter((bar): bar is Record<string, unknown> => Boolean(bar));
     const trailingCloses = Array.isArray(value.trailingCloses) ? value.trailingCloses.flatMap((entry) => record(entry) ? [record(entry)!] : []) : [];
     return [
-      ...bars.flatMap((bar) => numericValues(bar, ["open", "high", "low", "close", "volume", "turnover"])),
-      ...trailingCloses.flatMap((entry) => numericValues(entry, ["close"])),
+      ...bars.flatMap((bar) => [
+        ...taggedNumericValues(bar, ["open", "high", "low", "close"], "price"),
+        ...taggedNumericValues(bar, ["volume"], "volume_shares"),
+        ...taggedNumericValues(bar, ["turnover"], "currency_cny"),
+      ]),
+      ...trailingCloses.flatMap((entry) => taggedNumericValues(entry, ["close"], "price")),
     ];
   }
   if (value.type === "research_fact") {
@@ -423,21 +436,35 @@ function claimableNumericTokens(kind: SealedEvidenceBundle["items"][number]["kin
     const quality = record(fact.quality);
     const coverage = record(quality?.coverage);
     return [
-      ...numericValues(fact, ["window"]),
-      ...(observationPeriod ? numericValues(observationPeriod, ["tradingSessions"]) : []),
-      ...(coverage ? numericValues(coverage, ["actual", "required"]) : []),
-      ...decimalStrings(factValue?.decimal, weight?.decimal, comparison?.decimal, historicalPercentile?.decimal),
+      ...taggedNumericValues(fact, ["window"], "sessions"),
+      ...(observationPeriod ? taggedNumericValues(observationPeriod, ["tradingSessions"], "sessions") : []),
+      ...(coverage ? taggedNumericValues(coverage, ["actual", "required"], "items") : []),
+      ...taggedDecimalValues(factValue),
+      ...taggedDecimalValues(weight),
+      ...taggedDecimalValues(comparison),
+      ...taggedDecimalValues(historicalPercentile),
     ];
   }
   return [];
 }
 
-function numericValues(value: Record<string, unknown>, keys: string[]): string[] {
-  return keys.flatMap((key) => typeof value[key] === "number" && Number.isFinite(value[key]) ? [String(value[key])] : []);
+function taggedNumericValues(value: Record<string, unknown>, keys: string[], unit: NumericEvidenceToken["unit"]): NumericEvidenceToken[] {
+  return keys.flatMap((key) => typeof value[key] === "number" && Number.isFinite(value[key]) ? [{ value: String(value[key]), unit }] : []);
 }
 
-function decimalStrings(...values: unknown[]): string[] {
-  return values.filter((value): value is string => typeof value === "string" && /^[-+]?(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value));
+function taggedScalarValues(values: unknown[], unit: NumericEvidenceToken["unit"]): NumericEvidenceToken[] {
+  return values.flatMap((value) => typeof value === "number" && Number.isFinite(value)
+    ? [{ value: String(value), unit }]
+    : typeof value === "string" && /^[-+]?(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value)
+      ? [{ value, unit }]
+      : []);
+}
+
+function taggedDecimalValues(value: Record<string, unknown> | null): NumericEvidenceToken[] {
+  if (!value || typeof value.decimal !== "string" || !/^[-+]?(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value.decimal)) return [];
+  const unit = value.unit === "shares" ? "volume_shares" : value.unit === "CNY" ? "currency_cny" : value.unit === "ratio" ? "ratio" : null;
+  if (!unit) return [];
+  return [{ value: value.decimal, unit }];
 }
 
 function evidenceIds(value: Record<string, unknown>): string[] {
@@ -456,22 +483,70 @@ function arrayRecords(value: unknown): Record<string, unknown>[] {
   return Array.isArray(value) ? value.flatMap((item) => record(item) ? [record(item)!] : []) : [];
 }
 
-function numericTokens(value: string): Set<string> {
-  const withoutIdentifiers = value.replace(/\b(?:SSE|SZSE):\d{6}\b/giu, "");
-  return new Set(withoutIdentifiers.match(/[-+]?\d[\d,]*(?:\.\d+)?(?:[%％])?/g)?.map((token) => token.replaceAll(",", "")) ?? []);
+function numericClaimTokens(value: string): NumericClaimToken[] {
+  const withoutIdentifiers = value.normalize("NFKC").replace(/\b(?:SSE|SZSE):\d{6}\b/giu, "");
+  const scientific = [...withoutIdentifiers.matchAll(/[-+]?(?:\d+(?:\.\d+)?|\.\d+)[eE][-+]?\d+/g)].map((match) => ({ raw: match[0], value: match[0], unit: "generic" as const, unsafeForm: true }));
+  const nonAsciiNumerals = withoutIdentifiers.replace(/[0-9]/g, "").match(/\p{N}+/gu)?.map((raw) => ({ raw, value: raw, unit: "generic" as const, unsafeForm: true })) ?? [];
+  const matches = withoutIdentifiers.matchAll(/([-+]?\d[\d,]*(?:\.\d+)?)\s*(个百分点|[%％]|bps|个基点|基点|个交易日|交易日|亿元|万元|元|股|手|倍|季度|月份|个|只|条|项|次|日|天|周|月|年)?/giu);
+  return [...scientific, ...nonAsciiNumerals, ...[...matches].map((match) => {
+    const suffix = (match[2] ?? "").toLowerCase();
+    const matchIndex = match.index ?? 0;
+    const prefix = withoutIdentifiers.slice(Math.max(0, matchIndex - 16), matchIndex);
+    const tail = withoutIdentifiers.slice(matchIndex + match[0].length, matchIndex + match[0].length + 8);
+    const inferredUnit = semanticUnitFromPrefix(prefix);
+    const unsafeForm = match[1]!.includes(",")
+      || /(?:约|近|超过|不足|大约|将近)\s*$/u.test(prefix)
+      || /^\s*(?:左右|以上|以下|以内|以外|余|多|来|\+)/u.test(tail);
+    const unit: NumericUnit = suffix === "%" || suffix === "％" || suffix === "个百分点"
+      ? "percent"
+      : suffix === "bps" || suffix === "基点" || suffix === "个基点"
+        ? "bps"
+        : suffix === "元"
+          ? inferredUnit === "price" || inferredUnit === "currency_cny" ? inferredUnit : "generic"
+          : suffix === "万元"
+            ? inferredUnit === "currency_cny" ? "currency_wan" : "generic"
+            : suffix === "亿元"
+              ? inferredUnit === "currency_cny" ? "currency_yi" : "generic"
+              : suffix === "股"
+                ? "volume_shares"
+                : suffix === "手"
+                  ? "volume_lots"
+            : suffix === "倍"
+              ? "ratio"
+              : /^(?:个交易日|交易日|日|天)$/.test(suffix)
+                ? "sessions"
+                : /^(?:个|只|条|项|次)$/.test(suffix)
+                  ? "items"
+                  : suffix
+                    ? "generic"
+                    : inferredUnit;
+    return { raw: `${match[1]}${match[2] ?? ""}`, value: match[1]!, unit, unsafeForm };
+  })];
 }
 
 function chineseQuantityTokens(value: string): string[] {
-  return [...new Set(value.match(/[零〇一二两三四五六七八九十百千万亿]+(?:个百分点|基点|季度|月份|bps|[个只条项次日天周月年股倍成点元手%％])/giu) ?? [])];
+  const normalized = value.normalize("NFKC");
+  return [...new Set([
+    ...(normalized.match(/[零〇一二两三四五六七八九十百千万亿]+(?:个百分点|个基点|基点|季度|月份|bps|左右|以上|以下|以内|以外|余|多|来|[个只条项次日天周月年股倍成点元手%％])/giu) ?? []),
+    ...(normalized.match(/(?:约|近|超过|不足|数)[零〇一二两三四五六七八九十百千万亿]+/gu) ?? []),
+    ...(normalized.match(/(?:百分之|千分之|万分之|[零〇一二两三四五六七八九十百千万亿\d]+分之)[零〇一二两三四五六七八九十百千万亿]+/gu) ?? []),
+  ])];
 }
 
-function sameNumericToken(left: string, right: string): boolean {
-  const leftPercent = /[%％]$/.test(left);
-  const rightPercent = /[%％]$/.test(right);
-  if (leftPercent !== rightPercent) return false;
-  const leftNumber = Number(left.replace(/[%％]$/, ""));
-  const rightNumber = Number(right.replace(/[%％]$/, ""));
-  return Number.isFinite(leftNumber) && Number.isFinite(rightNumber) && leftNumber === rightNumber;
+function compatibleNumericToken(evidence: NumericEvidenceToken, claim: NumericClaimToken): boolean {
+  if (claim.unsafeForm || claim.unit === "generic" || claim.unit === "percent") return false;
+  return evidence.unit === claim.unit && evidence.value === claim.value;
+}
+
+function semanticUnitFromPrefix(prefix: string): NumericUnit {
+  if (/(?:基点|bps)(?:为|是|达到|约)?\s*$/iu.test(prefix)) return "bps";
+  if (/(?:价格|报价|股价|收盘(?:价|值)?|开盘(?:价|值)?|最高(?:价|值)?|最低(?:价|值)?|观测价)(?:为|是|达到|报|约)?\s*$/u.test(prefix)) return "price";
+  if (/(?:市值|成交额|成交金额|成本|盈亏)(?:数值|值)?(?:为|是|达到|约)?\s*$/u.test(prefix)) return "currency_cny";
+  if (/(?:成交量|持仓数量|股数)(?:数值|值)?(?:为|是|达到|约)?\s*$/u.test(prefix)) return "volume_shares";
+  if (/(?:权重|比率|比例|涨幅|跌幅|收益|回报|波动率|分位|同比|环比|上涨|下跌)(?:小数|比率|数值|值)?(?:为|是|达到|约)?\s*$/u.test(prefix)) return "ratio";
+  if (/(?:窗口|交易日|周期)(?:为|是|达到|约)?\s*$/u.test(prefix)) return "sessions";
+  if (/(?:数量|个数|条目|标的数)(?:为|是|达到|约)?\s*$/u.test(prefix)) return "items";
+  return "generic";
 }
 
 function contextLeakIssue(value: Record<string, unknown>, contexts: ConfirmedContext[]): string | null {

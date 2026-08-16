@@ -92,7 +92,7 @@ export interface FinancialMetricFact {
   metric: string;
   period: { start: string; end: string; basis: "quarter" | "year_to_date" | "fiscal_year" };
   value: { decimal: string; unit: "CNY" | "ratio" | "shares" };
-  comparison?: { kind: "yoy" | "qoq"; decimal: string; formula: DeterministicFormula };
+  comparison?: { kind: "yoy" | "qoq"; decimal: string; unit: "ratio"; formula: DeterministicFormula };
   provenance: FactProvenance;
   quality: FactQuality;
 }
@@ -368,6 +368,7 @@ function validateFinancialMetricFact(value: Record<string, unknown>, path: strin
     else {
       if (!oneOf(value.comparison.kind, ["yoy", "qoq"])) issues.push(`${path}.comparison.kind is invalid`);
       if (!isDecimal(value.comparison.decimal)) issues.push(`${path}.comparison.decimal is invalid`);
+      if (value.comparison.unit !== "ratio") issues.push(`${path}.comparison.unit must be ratio`);
       validateFormula(value.comparison.formula, `${path}.comparison.formula`, issues);
     }
   }

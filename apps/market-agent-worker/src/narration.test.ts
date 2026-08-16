@@ -72,7 +72,7 @@ test("Chinese inference wording passes uncertainty validation", async () => {
   const result = await narrateWithRepair(narrator, { workflow: command.workflow, evidence });
   assert.equal(result.result.status, "success");
   assert.equal(result.result.headline, candidate.headline);
-  assert.equal(result.provenance.source, "model");
+  assert.equal(result.provenance.source, "model", result.issues.join("\n"));
 });
 
 test("model narration cannot calculate or fill a number absent from sealed facts", async () => {
@@ -180,9 +180,9 @@ test("a correctly cited reliable quote can ground its own numeric value", async 
   const narrator: Narrator = { async narrate() { return {
     status: "success",
     headline: "盘后观察",
-    summary: "可靠观测价格为 12。",
+    summary: "可靠观测价格为 12 元。",
     conclusionEvidenceIds: ["quote"],
-    observations: [{ id: "price", class: "fact", importance: "high", title: "观测价格", explanation: "封存观测价格为 12。", evidenceIds: ["quote"] }],
+    observations: [{ id: "price", class: "fact", importance: "high", title: "观测价格", explanation: "封存观测价格为 12 元。", evidenceIds: ["quote"] }],
     portfolioImpacts: [],
     watchNext: [],
     limitations: [],
@@ -193,6 +193,109 @@ test("a correctly cited reliable quote can ground its own numeric value", async 
 
   assert.equal(result.provenance.source, "model");
   assert.deepEqual(result.issues, []);
+});
+
+test("the same numeric value cannot cross evidence units", async () => {
+  const quoteEvidence: SealedEvidenceBundle = {
+    ...evidence,
+    items: [{ id: "quote", kind: "market_fact", origin: "server-observed", reliable: true, value: { type: "quote", instrumentId: "SSE:600000", price: 20 } }],
+  };
+  const narrator: Narrator = { async narrate() { return {
+    status: "success",
+    headline: "盘后观察",
+    summary: "可靠行情事实可用。",
+    observations: [{ id: "wrong-unit", class: "fact", importance: "high", title: "变化幅度", explanation: "该股上涨 20 基点。", evidenceIds: ["quote"] }],
+    portfolioImpacts: [],
+    watchNext: [],
+    limitations: [],
+    evidenceFingerprint: quoteEvidence.fingerprint,
+  }; } };
+
+  const result = await narrateWithRepair(narrator, { workflow: "close_review", evidence: quoteEvidence });
+
+  assert.equal(result.provenance.source, "deterministic_fallback");
+  assert.match(result.issues.join("\n"), /observations\[0\].*20/);
+});
+
+test("numeric grounding fails closed across implicit units, scales, and lexical variants", async () => {
+  const quoteEvidence: SealedEvidenceBundle = {
+    ...evidence,
+    items: [{ id: "quote", kind: "market_fact", origin: "server-observed", reliable: true, value: { type: "quote", instrumentId: "SSE:600000", price: 20 } }],
+  };
+  const unsafeClaims = [
+    "该股上涨 20。",
+    "市值达到 20 万元。",
+    "观测价格为 20.0。",
+    "涨幅达到 ２０%。",
+    "涨幅达到 ٢٠%。",
+    "观测价格约 20。",
+    "观测价格为 2,0。",
+    "市值达到 20 元。",
+    "共有 20 只标的。",
+    "观察窗口为 20 年。",
+    "变化达到 1e1。",
+  ];
+
+  for (const [index, explanation] of unsafeClaims.entries()) {
+    const narrator: Narrator = { async narrate() { return {
+      status: "success",
+      headline: "盘后观察",
+      summary: "可靠行情事实可用。",
+      observations: [{ id: `unsafe-${index}`, class: "fact", importance: "medium", title: "待校验表述", explanation, evidenceIds: ["quote"] }],
+      portfolioImpacts: [],
+      watchNext: [],
+      limitations: [],
+      evidenceFingerprint: quoteEvidence.fingerprint,
+    }; } };
+
+    const result = await narrateWithRepair(narrator, { workflow: "close_review", evidence: quoteEvidence });
+    assert.equal(result.provenance.source, "deterministic_fallback", explanation);
+    assert.match(result.issues.join("\n"), /numeric claims must match sealed deterministic facts/, explanation);
+  }
+});
+
+test("approximate Chinese quantities cannot bypass numeric grounding", async () => {
+  const quoteEvidence: SealedEvidenceBundle = {
+    ...evidence,
+    items: [{ id: "quote", kind: "market_fact", origin: "server-observed", reliable: true, value: { type: "quote", instrumentId: "SSE:600000", price: 20 } }],
+  };
+  const narrator: Narrator = { async narrate() { return {
+    status: "success",
+    headline: "盘后观察",
+    summary: "可靠行情事实可用。",
+    observations: [{ id: "approximate", class: "inference", importance: "medium", title: "可能变化", explanation: "后续可能达到二十左右，但仍无法确认。", evidenceIds: ["quote"] }],
+    portfolioImpacts: [],
+    watchNext: [],
+    limitations: [],
+    evidenceFingerprint: quoteEvidence.fingerprint,
+  }; } };
+
+  const result = await narrateWithRepair(narrator, { workflow: "close_review", evidence: quoteEvidence });
+
+  assert.equal(result.provenance.source, "deterministic_fallback");
+  assert.match(result.issues.join("\n"), /observations\[0\].*二十左右/);
+});
+
+test("Chinese percentage phrases cannot bypass numeric grounding", async () => {
+  const quoteEvidence: SealedEvidenceBundle = {
+    ...evidence,
+    items: [{ id: "quote", kind: "market_fact", origin: "server-observed", reliable: true, value: { type: "quote", instrumentId: "SSE:600000", price: 20 } }],
+  };
+  const narrator: Narrator = { async narrate() { return {
+    status: "success",
+    headline: "盘后观察",
+    summary: "可靠行情事实可用。",
+    observations: [{ id: "percentage", class: "fact", importance: "medium", title: "变化幅度", explanation: "涨幅达到百分之二十。", evidenceIds: ["quote"] }],
+    portfolioImpacts: [],
+    watchNext: [],
+    limitations: [],
+    evidenceFingerprint: quoteEvidence.fingerprint,
+  }; } };
+
+  const result = await narrateWithRepair(narrator, { workflow: "close_review", evidence: quoteEvidence });
+
+  assert.equal(result.provenance.source, "deterministic_fallback");
+  assert.match(result.issues.join("\n"), /observations\[0\].*百分之二十/);
 });
 
 test("an instrument identifier is not mistaken for a numeric claim", async () => {
@@ -269,13 +372,36 @@ test("a correctly cited reliable Research Fact can ground its deterministic deci
           formula: { id: "market.price_return.v1", version: "1", inputArtifactIds: ["bars:fixture"] },
         },
       },
+    }, {
+      id: "research-comparison",
+      kind: "market_fact",
+      origin: "server-observed",
+      reliable: true,
+      value: {
+        type: "research_fact",
+        researchFingerprint: "sha256:comparison",
+        planVersion: "financial-context.v1",
+        purpose: "financial_context",
+        fact: {
+          id: "financial:SSE:600000:revenue:2026Q2",
+          kind: "financial_metric",
+          subjectId: "SSE:600000",
+          metric: "revenue",
+          period: { start: "2026-04-01T00:00:00.000Z", end: "2026-06-30T00:00:00.000Z", basis: "quarter" },
+          value: { decimal: "100", unit: "CNY" },
+          comparison: { kind: "yoy", decimal: "0.1", unit: "ratio", formula: { id: "financial.yoy.v1", version: "1", inputArtifactIds: ["filing:fixture"] } },
+        },
+      },
     }],
   };
   const narrator: Narrator = { async narrate() { return {
     status: "success",
     headline: "历史基线",
     summary: "确定性研究事实可用。",
-    observations: [{ id: "baseline", class: "fact", importance: "high", title: "收益基线", explanation: "20 日基线的确定性收益小数为 0.1234。", evidenceIds: ["research-baseline"] }],
+    observations: [
+      { id: "baseline", class: "fact", importance: "high", title: "收益基线", explanation: "窗口覆盖 20 个交易日，确定性收益小数为 0.1234。", evidenceIds: ["research-baseline"] },
+      { id: "comparison", class: "fact", importance: "medium", title: "同比比较", explanation: "同比比率为 0.1。", evidenceIds: ["research-comparison"] },
+    ],
     portfolioImpacts: [],
     watchNext: [],
     limitations: [],
@@ -284,7 +410,7 @@ test("a correctly cited reliable Research Fact can ground its deterministic deci
 
   const result = await narrateWithRepair(narrator, { workflow: "close_review", evidence: researchEvidence });
 
-  assert.equal(result.provenance.source, "model");
+  assert.equal(result.provenance.source, "model", result.issues.join("\n"));
   assert.deepEqual(result.issues, []);
 });
 
@@ -303,7 +429,7 @@ test("each report section accepts only numbers from its cited deterministic evid
     headline: "确定性复盘",
     summary: "各章节分别引用自己的封存证据。",
     observations: [
-      { id: "event", class: "fact", importance: "high", title: "规则事件", explanation: "规则事件实际值为 800。", evidenceIds: ["event"] },
+      { id: "event", class: "fact", importance: "high", title: "规则事件", explanation: "规则事件实际变化为 800 bps。", evidenceIds: ["event"] },
       { id: "bars", class: "fact", importance: "medium", title: "日线收盘", explanation: "所引日线收盘值为 11。", evidenceIds: ["bars"] },
     ],
     portfolioImpacts: [{ id: "impact", class: "fact", importance: "medium", title: "持仓市值", explanation: "确定性重估市值为 1200。", evidenceIds: ["impact"] }],

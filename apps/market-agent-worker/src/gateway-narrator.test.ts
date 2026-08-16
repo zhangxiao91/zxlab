@@ -16,6 +16,9 @@ test("gateway narrator sends only the bounded task and sealed evidence", async (
     assert.match(body.messages[0].content, /at most 6 observations, 4 portfolioImpacts, 4 watchNext items, and 8 limitations/);
     assert.match(body.messages[0].content, /Limit each evidenceIds array to the 4 strongest/);
     assert.match(body.messages[0].content, /Never calculate, estimate, extrapolate, or fill a missing number yourself/);
+    assert.match(body.messages[0].content, /same semantic unit/);
+    assert.match(body.messages[0].content, /price cannot support a percentage, basis-point, count, or volume claim/);
+    assert.match(body.messages[0].content, /Write limitations without quantities/);
     assert.match(body.messages[0].content, /Do not translate JSON keys/);
     assert.deepEqual(body.context, { source: "market-agent-worker", operation: "close_review", metadata: { contextVersion: "narration-context.v1" } });
     return new Response(JSON.stringify({ ok: true, data: { json: { status: "success", headline: "ok", summary: "ok", observations: [], portfolioImpacts: [], watchNext: [], limitations: [], evidenceFingerprint: "sha256:g" }, text: "", provider: "fixture", model: "fixture", fallbackIndex: 0, latencyMs: 1 }, requestId: "r1" }), { status: 200, headers: { "content-type": "application/json" } });
@@ -55,8 +58,15 @@ test("a selected Gateway model must return a two-to-four sentence research lead"
   const narrator = new GatewayNarrator({
     apiUrl: "https://gateway.example/api/ai/generate",
     token: "secret",
-    fetcher: async () => {
+    fetcher: async (_url, init) => {
       calls += 1;
+      const body = JSON.parse(String(init?.body)) as { messages: Array<{ content: string }> };
+      if (calls === 2) {
+        const repairPayload = JSON.parse(body.messages[1]!.content) as { repair: { instruction: string } };
+        assert.match(repairPayload.repair.instruction, /Remove the complete unsupported numeric claim/);
+        assert.match(repairPayload.repair.instruction, /Do not substitute another number or change its unit/);
+        assert.match(repairPayload.repair.instruction, /approximate Chinese quantity/);
+      }
       return Response.json({
         ok: true,
         data: {

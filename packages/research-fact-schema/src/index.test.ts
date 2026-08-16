@@ -203,6 +203,27 @@ test("enforces the closed deterministic operator contract for every baseline typ
   }
 });
 
+test("requires an explicit ratio unit on financial comparisons", () => {
+  const bundle = researchFactBundleFixture();
+  bundle.facts.push({
+    id: "financial:SSE:600000:revenue:2026Q2",
+    kind: "financial_metric",
+    subjectId: "SSE:600000",
+    metric: "revenue",
+    period: { start: "2026-04-01T00:00:00.000Z", end: "2026-06-30T00:00:00.000Z", basis: "quarter" },
+    value: { decimal: "100", unit: "CNY" },
+    comparison: {
+      kind: "yoy",
+      decimal: "0.1",
+      formula: { id: "financial.yoy.v1", version: "1", expression: "current / prior - 1", inputArtifactIds: ["filing:fixture"], parameters: {}, rounding: "decimal-12-nearest" },
+    },
+    provenance: { providers: ["official-fixture"], sourceArtifactIds: ["filing:fixture"], sourceAsOf: bundle.observationCutoff, retrievedAt: bundle.knowledgeCutoff },
+    quality: { status: "operational", coverage: { actual: 1, required: 1 }, warnings: [] },
+  } as never);
+
+  assert.match(validateResearchFactBundle(bundle).issues.join(" "), /comparison\.unit must be ratio/);
+});
+
 test("fingerprint canonicalizes limitation order and binds limitation content", async () => {
   const bundle = researchFactBundleFixture();
   const capability = bundle.capabilities.find((item) => item.id === "market_baselines")!;
