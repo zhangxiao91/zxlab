@@ -106,22 +106,12 @@ test("a selected Gateway model repairs grounded quantities into qualitative narr
       return Response.json({
         ok: true,
         data: {
-          json: calls === 1 ? {
+          json: {
             status: "success",
             headline: "可靠观测价格为 12 元",
             summary: "可靠观测价格为 12 元。行情事实已经封存。",
             conclusionEvidenceIds: ["quote"],
             observations: [{ id: "quote", class: "fact", importance: "high", title: "观测价格为 12 元", explanation: "封存观测价格为 12 元。", evidenceIds: ["quote"] }],
-            portfolioImpacts: [],
-            watchNext: [],
-            limitations: [],
-            evidenceFingerprint: quoteEvidence.fingerprint,
-          } : {
-            status: "success",
-            headline: "可靠行情已经封存",
-            summary: "可靠行情已经封存。当前证据支持对市场状态作定性复盘。",
-            conclusionEvidenceIds: ["quote"],
-            observations: [{ id: "quote", class: "fact", importance: "high", title: "封存行情可用", explanation: "确定性行情支持当前定性判断。", evidenceIds: ["quote"] }],
             portfolioImpacts: [],
             watchNext: [],
             limitations: [],
@@ -142,7 +132,10 @@ test("a selected Gateway model repairs grounded quantities into qualitative narr
   assert.equal(result.provenance.source, "model_repaired");
   assert.equal(result.provenance.gatewayRequestId, "gateway-request-2");
   assert.deepEqual(result.issues, []);
-  assert.equal(result.result.headline, "可靠行情已经封存");
+  assert.doesNotMatch(result.result.headline, /12/);
+  assert.doesNotMatch(result.result.summary, /12/);
+  assert.doesNotMatch(result.result.observations[0]?.title ?? "", /12/);
+  assert.doesNotMatch(result.result.observations[0]?.explanation ?? "", /12/);
 });
 
 test("a selected Gateway model must return a two-to-four sentence research lead", async () => {

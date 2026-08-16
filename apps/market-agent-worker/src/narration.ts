@@ -132,6 +132,11 @@ export async function narrateWithRepair(narrator: Narrator, input: NarrationInpu
       unwrapped = unwrapGatewayCandidate(candidate);
       issues = validateNarration(unwrapped.narration, input, Boolean(unwrapped.selection));
       if (!issues.length) return { result: unwrapped.narration as AgentNarration, repaired: true, issues, provenance: modelProvenance("model_repaired", unwrapped.selection) };
+      if (unwrapped.selection && issues.some((issue) => issue.includes("model narration must not contain quantities"))) {
+        const qualitative = deterministicallyQualitativeNarration(unwrapped.narration);
+        issues = validateNarration(qualitative, input, true);
+        if (!issues.length) return { result: qualitative as AgentNarration, repaired: true, issues, provenance: modelProvenance("model_repaired", unwrapped.selection) };
+      }
     } catch {
       issues = [...issues, "repair unavailable"];
     }
@@ -366,6 +371,70 @@ function selectedModelQuantityIssues(candidate: Record<string, unknown>): string
     const quantities = [...numericClaimTokens(section.text).map((claim) => claim.raw), ...chineseQuantityTokens(section.text)];
     return quantities.length ? [`${section.path} model narration must not contain quantities: ${[...new Set(quantities)].join(", ")}`] : [];
   });
+}
+
+function deterministicallyQualitativeNarration(value: unknown): unknown {
+  const candidate = record(value);
+  if (!candidate) return value;
+  const observations = arrayRecords(candidate.observations).map((item) => ({
+    ...item,
+    title: qualitativeNaturalLanguage(item.title, "已封存的市场观察"),
+    explanation: qualitativeNaturalLanguage(
+      item.explanation,
+      item.class === "inference"
+        ? "所引 Evidence 支持该推测，但后续仍需观察，尚无法确认其持续性。"
+        : "所引 Evidence 支持该观察，具体定量事实与计算口径请在 Evidence 中核对。",
+    ),
+  }));
+  const portfolioImpacts = arrayRecords(candidate.portfolioImpacts).map((item) => ({
+    ...item,
+    title: qualitativeNaturalLanguage(item.title, "持仓影响已有确定性证据"),
+    explanation: qualitativeNaturalLanguage(
+      item.explanation,
+      item.class === "inference"
+        ? "所引 Evidence 支持该影响推测，但其持续性尚无法确认。"
+        : "该影响仅作定性说明，具体定量事实与计算口径请在 Evidence 中核对。",
+    ),
+  }));
+  const watchNext = arrayRecords(candidate.watchNext).map((item) => ({
+    ...item,
+    condition: qualitativeNaturalLanguage(item.condition, "关注所引市场条件的后续变化"),
+    reason: qualitativeNaturalLanguage(item.reason, "后续应以新的确定性 Evidence 复核该条件。"),
+  }));
+  const limitations = Array.isArray(candidate.limitations)
+    ? candidate.limitations.map((item) => qualitativeNaturalLanguage(item, "当前证据存在定量边界，具体范围请在 Evidence 中核对。"))
+    : candidate.limitations;
+  return {
+    ...candidate,
+    headline: qualitativeNaturalLanguage(candidate.headline, "确定性证据支持当前市场复盘"),
+    summary: qualitativeSummary(candidate.summary),
+    observations,
+    portfolioImpacts,
+    watchNext,
+    limitations,
+  };
+}
+
+function qualitativeSummary(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  const safeSentences = naturalLanguageSentences(value).filter((sentence) => !containsQuantity(sentence)).slice(0, 4);
+  if (safeSentences.length === 0) return "确定性市场证据已经封存。具体定量事实与计算口径由 Evidence 单独呈现。";
+  if (safeSentences.length === 1) return `${safeSentences[0]}具体定量事实与计算口径由 Evidence 单独呈现。`;
+  return safeSentences.join("");
+}
+
+function qualitativeNaturalLanguage(value: unknown, fallback: string): unknown {
+  if (typeof value !== "string") return value;
+  const safe = naturalLanguageSentences(value).filter((sentence) => !containsQuantity(sentence)).join("").trim();
+  return safe || fallback;
+}
+
+function naturalLanguageSentences(value: string): string[] {
+  return value.match(/[^。！？!?]+[。！？!?]?/gu)?.map((sentence) => sentence.trim()).filter(Boolean) ?? [];
+}
+
+function containsQuantity(value: string): boolean {
+  return numericClaimTokens(value).length > 0 || chineseQuantityTokens(value).length > 0;
 }
 
 function ungroundedNumericClaimIssues(
