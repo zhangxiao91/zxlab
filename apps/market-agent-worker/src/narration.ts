@@ -150,9 +150,18 @@ export async function narrateWithRepair(narrator: Narrator, input: NarrationInpu
         retryable: false,
         validationCategories: validationCategories(issues),
         validationRuleIds: validationRuleIds(issues),
+        numericSections: numericSections(issues),
       },
     },
   };
+}
+
+function numericSections(issues: string[]): NonNullable<NonNullable<NarrationProvenance["failure"]>["numericSections"]> {
+  const sections = issues.flatMap((issue) => {
+    const match = issue.match(/^(narration|observations|portfolioImpacts|watchNext|limitations)(?:\[\d+\])? numeric claims must match sealed deterministic facts:/);
+    return match ? [match[1] as "narration" | "observations" | "portfolioImpacts" | "watchNext" | "limitations"] : [];
+  });
+  return [...new Set(sections)];
 }
 
 function validationRuleIds(issues: string[]): NarrationValidationRule[] {

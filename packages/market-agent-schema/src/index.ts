@@ -84,6 +84,8 @@ export interface NarrationProvenance {
     validationCategories?: NarrationValidationCategory[];
     /** Stable rule identifiers only. Array indexes and validator text are intentionally discarded. */
     validationRuleIds?: NarrationValidationRule[];
+    /** Section names only. Numeric values, text, and array indexes are intentionally discarded. */
+    numericSections?: Array<"narration" | "observations" | "portfolioImpacts" | "watchNext" | "limitations">;
   };
 }
 export interface RunOutcome { execution: "completed"; narration: NarrationProvenance; evidence: EvidenceAssessment; mode: "market-only" | "portfolio-aware"; }

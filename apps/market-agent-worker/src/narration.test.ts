@@ -93,6 +93,7 @@ test("model narration cannot calculate or fill a number absent from sealed facts
   assert.match(result.issues.join("\n"), /numeric claims must match sealed deterministic facts: 20%/);
   assert.deepEqual(result.provenance.failure?.validationCategories, ["numeric_grounding"]);
   assert.deepEqual(result.provenance.failure?.validationRuleIds, ["numeric_claim"]);
+  assert.deepEqual(result.provenance.failure?.numericSections, ["narration", "observations"]);
 });
 
 test("an unrelated execution-plan count cannot ground a numeric quote claim", async () => {
