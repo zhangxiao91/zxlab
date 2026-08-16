@@ -83,7 +83,7 @@ function fakeArchiveDb(initialRows: StoredRun[]): D1Database {
       const [profileId, cutoff, limit] = values as [string, string, number];
       const results = rows
         .filter((row) => row.profile_id === profileId)
-        .filter((row) => ["success", "partial", "failed"].includes(row.status))
+        .filter((row) => ["success", "partial", "failed", "cancelled"].includes(row.status))
         .filter((row) => row.created_at < cutoff && row.payload_purged_at === null)
         .sort((left, right) => left.created_at.localeCompare(right.created_at) || left.id.localeCompare(right.id))
         .slice(0, limit)
@@ -93,7 +93,7 @@ function fakeArchiveDb(initialRows: StoredRun[]): D1Database {
     if (sql.startsWith("SELECT id, profile_id, evidence_fingerprint FROM agent_runs WHERE status")) {
       const [cutoff, limit] = values as [string, number];
       const results = rows
-        .filter((row) => ["success", "partial", "failed"].includes(row.status))
+        .filter((row) => ["success", "partial", "failed", "cancelled"].includes(row.status))
         .filter((row) => row.created_at < cutoff && row.payload_purged_at === null)
         .sort((left, right) => left.created_at.localeCompare(right.created_at) || left.id.localeCompare(right.id))
         .slice(0, limit)

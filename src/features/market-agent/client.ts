@@ -1,9 +1,13 @@
+import { isRunStatus, isRunTrace, isRunTraceEvent, isTerminalRunStatus, type RunStatus } from "@zxlab/market-agent-schema";
 import type {
   AgentFeedback,
   AgentFeedbackValue,
   AskScope,
   ResearchReportV2,
   RunOutcome,
+  RunTiming,
+  RunTrace,
+  RunTraceEvent,
   PortfolioSnapshotUpload,
   SealedEvidenceBundle,
 } from "@zxlab/market-agent-schema";
@@ -23,9 +27,10 @@ export interface AgentObservationView {
 export interface AgentRunView {
   id: string;
   workflow: string;
-  status: string;
+  status: RunStatus;
   createdAt: string;
   updatedAt: string;
+  timing?: RunTiming;
   evidenceFingerprint: string | null;
   trigger?: string;
   attempt?: number;
@@ -209,6 +214,7 @@ export async function getAgentRun(runId: string, signal?: AbortSignal): Promise<
 
 export interface AgentRunStreamHandlers {
   onStatus?(run: AgentRunView): void;
+  onTrace?(event: RunTraceEvent): void;
   onAnswerDelta?(delta: string): void;
   onDone?(run: AgentRunView): void;
 }
@@ -234,6 +240,8 @@ export async function streamAgentRun(
   let eventName = "message";
   let dataLines: string[] = [];
   let completed: AgentRunView | null = null;
+  let lastTraceSequence = 0;
+  const traceIds = new Set<string>();
 
   const dispatch = () => {
     if (!dataLines.length) {
@@ -245,9 +253,28 @@ export async function streamAgentRun(
     let data: Record<string, unknown>;
     try { data = JSON.parse(raw) as Record<string, unknown>; }
     catch { throw new MarketAgentApiError("RUN_STREAM_INVALID", "Agent 实时响应无法解析", response.status); }
-    if (eventName === "status" && isRunView(data.run)) handlers.onStatus?.(data.run);
+    if (eventName === "status") {
+      if (!isRunView(data.run) || data.run.id !== runId || isTerminalRunStatus(data.run.status)) {
+        throw new MarketAgentApiError("RUN_STREAM_INVALID", "Agent 实时状态与当前 Run 不匹配", response.status);
+      }
+      handlers.onStatus?.(data.run);
+    }
+    if (eventName === "trace") {
+      if (!isRunTraceEvent(data.event)
+        || data.event.runId !== runId
+        || data.event.sequence <= lastTraceSequence
+        || traceIds.has(data.event.id)) {
+        throw new MarketAgentApiError("RUN_STREAM_INVALID", "Agent 实时运行事件与当前 Run 不匹配", response.status);
+      }
+      lastTraceSequence = data.event.sequence;
+      traceIds.add(data.event.id);
+      handlers.onTrace?.(data.event);
+    }
     if (eventName === "answer_delta" && typeof data.delta === "string") handlers.onAnswerDelta?.(data.delta);
-    if (eventName === "done" && isRunView(data.run)) {
+    if (eventName === "done") {
+      if (!isRunView(data.run) || data.run.id !== runId || !isTerminalRunStatus(data.run.status)) {
+        throw new MarketAgentApiError("RUN_STREAM_INVALID", "Agent 终态与当前 Run 不匹配", response.status);
+      }
       completed = data.run;
       handlers.onDone?.(data.run);
     }
@@ -300,7 +327,7 @@ export async function pollAgentRunUntilTerminal(
   while (!signal?.aborted) {
     const run = await getAgentRun(runId, signal);
     onRun(run);
-    if (["success", "partial", "failed"].includes(run.status)) return run;
+    if (isTerminalRunStatus(run.status)) return run;
     await wait(intervalMs, signal);
   }
   throw new DOMException("Aborted", "AbortError");
@@ -323,6 +350,19 @@ export async function getAgentRunEvidence(
     );
   }
   return data.evidence as SealedEvidenceBundle;
+}
+
+export async function getAgentRunTrace(runId: string, signal?: AbortSignal): Promise<RunTrace> {
+  const response = await marketAgentFetch(
+    `/api/private/market-agent/runs/${encodeURIComponent(runId)}/trace`,
+    { headers: { accept: "application/json" }, signal },
+  );
+  if (!response.ok) throw await apiError(response, "Run 运行记录暂不可用");
+  const data = await response.json() as unknown;
+  if (!isRunTrace(data) || data.runId !== runId) {
+    throw new MarketAgentApiError("RUN_TRACE_INVALID", "Run 运行记录响应格式无效", response.status);
+  }
+  return data;
 }
 
 export async function getAgentProfile(): Promise<AgentProfileView> {
@@ -404,20 +444,20 @@ export async function purgePortfolioSnapshotHistory(
 
 export async function startCloseReview(
   idempotencyKey = crypto.randomUUID(),
-): Promise<{ runId: string; status: string }> {
+): Promise<{ runId: string; status: RunStatus }> {
   const response = await marketAgentFetch("/api/private/market-agent/runs", {
     method: "POST",
     headers: { "content-type": "application/json", accept: "application/json" },
     body: JSON.stringify({ workflow: "close_review", idempotencyKey }),
   });
   if (!response.ok) throw await apiError(response, "盘后复盘暂不可用");
-  return (await response.json()) as { runId: string; status: string };
+  return (await response.json()) as { runId: string; status: RunStatus };
 }
 
 export async function startAgentAsk(
   intent: AgentAskIntent,
   idempotencyKey = crypto.randomUUID(),
-): Promise<{ runId: string; status: string; created: boolean; scope: AskScope }> {
+): Promise<{ runId: string; status: RunStatus; created: boolean; scope: AskScope }> {
   const response = await marketAgentFetch("/api/private/market-agent/ask", {
     method: "POST",
     headers: { "content-type": "application/json", accept: "application/json" },
@@ -434,10 +474,42 @@ export async function startAgentAsk(
   if (!response.ok) throw await apiError(response, "受限问答暂不可用");
   return (await response.json()) as {
     runId: string;
-    status: string;
+    status: RunStatus;
     created: boolean;
     scope: AskScope;
   };
+}
+
+export interface AgentRunControlResult {
+  runId: string;
+  status: RunStatus;
+  run?: AgentRunView;
+  revisionOfRunId?: string;
+}
+
+export async function cancelAgentRun(runId: string): Promise<AgentRunControlResult> {
+  const response = await marketAgentFetch(
+    `/api/private/market-agent/runs/${encodeURIComponent(runId)}/cancel`,
+    { method: "POST", headers: { accept: "application/json" } },
+  );
+  if (!response.ok) throw await apiError(response, "取消 Run 失败");
+  return parseCancelControlResult(await response.json(), runId, response.status);
+}
+
+export async function retryAgentRun(
+  runId: string,
+  idempotencyKey = `retry:${runId}:${crypto.randomUUID()}`,
+): Promise<AgentRunControlResult> {
+  const response = await marketAgentFetch(
+    `/api/private/market-agent/runs/${encodeURIComponent(runId)}/retry`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ idempotencyKey }),
+    },
+  );
+  if (!response.ok) throw await apiError(response, "重试 Run 失败");
+  return parseRetryControlResult(await response.json(), runId, response.status);
 }
 
 export async function sendRunFeedback(
@@ -500,8 +572,43 @@ async function apiError(response: Response, fallback: string): Promise<MarketAge
 
 function isRunView(value: unknown): value is AgentRunView {
   return Boolean(value && typeof value === "object"
-    && typeof (value as { id?: unknown }).id === "string"
-    && typeof (value as { status?: unknown }).status === "string");
+    && boundedRunIdentifier((value as { id?: unknown }).id)
+    && isRunStatus((value as { status?: unknown }).status));
+}
+
+function boundedRunIdentifier(value: unknown): value is string {
+  return typeof value === "string" && /^[A-Za-z0-9._:-]{1,128}$/.test(value);
+}
+
+function controlRecord(value: unknown, status: number): Record<string, unknown> {
+  if (!value || typeof value !== "object") {
+    throw new MarketAgentApiError("RUN_CONTROL_INVALID", "Run 控制响应格式无效", status);
+  }
+  return value as Record<string, unknown>;
+}
+
+function parseCancelControlResult(value: unknown, sourceRunId: string, status: number): AgentRunControlResult {
+  const record = controlRecord(value, status);
+  const run = isRunView(record.run) ? record.run : undefined;
+  if (!run || run.id !== sourceRunId || run.status !== "cancelled") {
+    throw new MarketAgentApiError("RUN_CONTROL_INVALID", "取消响应与目标 Run 不匹配", status);
+  }
+  return {
+    runId: run.id,
+    status: run.status,
+    run,
+  };
+}
+
+function parseRetryControlResult(value: unknown, sourceRunId: string, status: number): AgentRunControlResult {
+  const record = controlRecord(value, status);
+  if (!boundedRunIdentifier(record.runId)
+    || record.runId === sourceRunId
+    || record.status !== "queued"
+    || record.revisionOfRunId !== sourceRunId) {
+    throw new MarketAgentApiError("RUN_CONTROL_INVALID", "重试响应与来源 Run 不匹配", status);
+  }
+  return { runId: record.runId, status: "queued", revisionOfRunId: sourceRunId };
 }
 
 function streamErrorMessage(code: string): string {
@@ -509,6 +616,8 @@ function streamErrorMessage(code: string): string {
     RUN_NOT_FOUND: "这条 Agent Run 已不存在。",
     RUN_STREAM_TIMEOUT: "Agent 运行时间超过实时连接窗口。",
     RUN_STREAM_ABORTED: "Agent 实时连接已取消。",
+    RUN_CANCEL_NOT_ALLOWED: "这条 Run 当前无法取消。",
+    RUN_RETRY_NOT_ALLOWED: "这条 Run 当前无法重试。",
   } as Record<string, string>)[code] ?? "Agent 实时连接暂不可用";
 }
 

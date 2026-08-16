@@ -2,7 +2,7 @@ import type { MarketSnapshot } from "@zxlab/market-schema";
 import type { ResearchFact, ResearchFactBundle } from "@zxlab/research-fact-schema";
 import type { RiskImpact } from "@zxlab/risk-domain";
 import type { AgentResult, AgentRun, ConfirmedContext, ConfirmedContextUse, EvidenceItem, MarketAgentAskCommand, MarketAgentCommand, MarketEvent, PortfolioSnapshot, RunClaimResult, RunCreation, SealedEvidenceBundle } from "@zxlab/market-agent-schema";
-import { EVENT_RULE_VERSION, MARKET_AGENT_SCHEMA_VERSION, eventEvidenceId, isMarketAgentAskCommand } from "@zxlab/market-agent-schema";
+import { EVENT_RULE_VERSION, MARKET_AGENT_SCHEMA_VERSION, eventEvidenceId, isMarketAgentAskCommand, isTerminalRunStatus } from "@zxlab/market-agent-schema";
 import type { AskEvidencePlan } from "./ask-plan.ts";
 import type { RunCheckpoint } from "./run-checkpoint.ts";
 import { diffMarketSnapshots } from "./snapshot-diff.ts";
@@ -287,7 +287,7 @@ export class MemoryRunRepository {
   }
   async findByIdempotencyKey(key: string) { return [...this.runs.values()].find((run) => run.idempotencyKey === key) ?? null; }
   async claim(runId: string, workerId: string, now: string, leaseExpiresAt: string): Promise<RunClaimResult> {
-    const run = this.runs.get(runId); if (!run) return { kind: "missing" }; const leased = run as AgentRun & { leaseOwner?: string; leaseToken?: string; leaseExpiresAt?: string }; if (["success", "partial", "failed"].includes(run.status)) return { kind: "terminal" }; if (leased.leaseExpiresAt && leased.leaseExpiresAt > now) return { kind: "leased", retryAfter: leased.leaseExpiresAt };
+    const run = this.runs.get(runId); if (!run) return { kind: "missing" }; const leased = run as AgentRun & { leaseOwner?: string; leaseToken?: string; leaseExpiresAt?: string }; if (isTerminalRunStatus(run.status)) return { kind: "terminal" }; if (leased.leaseExpiresAt && leased.leaseExpiresAt > now) return { kind: "leased", retryAfter: leased.leaseExpiresAt };
     const leaseToken = crypto.randomUUID(); run.status = "collecting"; run.attempt += 1; run.updatedAt = now; (run as AgentRun & { leaseOwner: string; leaseToken: string; leaseExpiresAt: string }).leaseOwner = workerId; (run as AgentRun & { leaseToken: string; leaseExpiresAt: string }).leaseToken = leaseToken; (run as AgentRun & { leaseExpiresAt: string }).leaseExpiresAt = leaseExpiresAt;
     return { kind: "claimed", lease: { run, leaseToken, attempt: run.attempt, leaseExpiresAt } };
   }

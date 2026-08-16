@@ -1,10 +1,9 @@
-import type { AgentRun } from "@zxlab/market-agent-schema";
+import { isTerminalRunStatus, type AgentRun, type RunTraceEvent } from "@zxlab/market-agent-schema";
 import { MARKET_AGENT_RUN_STREAM_TIMEOUT_MS } from "./runtime-budget.ts";
-
-const terminalStatuses = new Set(["success", "partial", "failed"]);
 
 export interface RunStreamRepository {
   get(runId: string): Promise<AgentRun | null>;
+  listTraceAfter(runId: string, profileId: string, afterSequence: number): Promise<RunTraceEvent[]>;
 }
 
 export interface RunStreamOptions {
@@ -44,6 +43,7 @@ export function createRunEventStream(
         const startedAt = now();
         let current = options.initialRun;
         let lastStatus = "";
+        let lastTraceSequence = 0;
         let lastHeartbeatAt = startedAt;
 
         while (!cancelled && !request.signal.aborted) {
@@ -54,7 +54,14 @@ export function createRunEventStream(
             return;
           }
 
-          if (terminalStatuses.has(current.status)) {
+          const traceEvents = await repository.listTraceAfter(runId, profileId, lastTraceSequence);
+          for (const event of traceEvents) {
+            if (event.sequence <= lastTraceSequence) continue;
+            send("trace", { event });
+            lastTraceSequence = event.sequence;
+          }
+
+          if (isTerminalRunStatus(current.status)) {
             if (current.result) {
               for (const delta of answerDeltas(current)) {
                 if (cancelled || request.signal.aborted) return close();

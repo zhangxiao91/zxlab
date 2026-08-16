@@ -19,9 +19,10 @@ Beta is isolated from Production at the Worker state boundary:
 - Signal and the beta Market Agent share a dedicated encrypted
   `MARKET_AGENT_MEMORY_TOKEN`; Signal accepts it only for
   `POST /api/memory/retrieve`.
-- Apply Market Agent migrations through `0008_evidence_checkpoints.sql` before
-  deploying the Phase 6.5 Worker. Migrations `0007` and `0008` add archive
-  tombstones, keyset pagination indexes, checkpoint Events, and retention state.
+- Apply Market Agent migrations through `0009_run_trace_controls.sql` before
+  deploying the P4 Worker. Migrations `0007` and `0008` add archive tombstones,
+  keyset pagination indexes, checkpoint Events, and retention state; migration
+  `0009` adds server timing and the bounded, profile-scoped Run trace ledger.
 - beta intentionally has no cron trigger, so Preview acceptance can verify the
   archive contract and migrations but not the scheduled retention trigger.
 - Signal Memory is a single-owner personal domain in Phase 6.5. Do not admit a
@@ -95,6 +96,23 @@ A browser pass requires all of the following:
 - a refresh followed by recovery of the same Run and Evidence;
 - no new browser console error attributable to the request;
 - the exact-Run D1 consistency gate below.
+
+For P4 Run controls, the same browser session must additionally verify:
+
+- the activity panel renders only events returned by `GET /runs/:id/trace` or
+  the persisted `trace` SSE event, including server timestamps and durations;
+- an active Run can be cancelled, reaches terminal `cancelled`, and stays
+  cancelled after refresh;
+- retrying that cancelled Run creates one new Run with
+  `revisionOfRunId = <cancelled run id>`; replaying the same retry request with
+  the same idempotency key returns the same new Run;
+- the old Run remains cancelled and cannot be overwritten by a late consumer;
+- no trace row contains prompt text, tool input/output, raw error messages,
+  credentials, headers, query strings, model output, or private reasoning.
+
+Cancellation is durable lease fencing. It prevents an old consumer from
+persisting later stages or a result, but it does not claim to synchronously
+terminate an upstream HTTP request that has already been sent.
 
 `partial` is a terminal state, not a model-health verdict. When narration is in
 scope, inspect structured `RunOutcome.narration` and `EvidenceAssessment`

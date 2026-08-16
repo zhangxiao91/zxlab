@@ -212,7 +212,7 @@ html:has(.agent-app), body:has(.agent-app) { overflow-x: clip; }
 .agent-run-row { display: grid; grid-template-columns: 10rem minmax(0, 1fr) auto; padding: 1.3rem 0; align-items: start; gap: 2rem; border-bottom: 1px solid var(--risk-line); }
 .agent-run-row strong { font-size: .88rem; font-weight: 540; }
 .agent-run-row p { margin-top: .35rem; color: var(--risk-muted); font-size: .7rem; line-height: 1.55; }
-.agent-status--success { color: var(--risk-lime); } .agent-status--partial, .agent-status--failed { color: var(--risk-amber); } .agent-status--queued, .agent-status--collecting { color: var(--agent-cyan); }
+.agent-status--success { color: var(--risk-lime); } .agent-status--partial, .agent-status--failed, .agent-status--cancelled { color: var(--risk-amber); } .agent-status--queued, .agent-status--collecting { color: var(--agent-cyan); }
 .agent-outcome { display: flex; flex-wrap: wrap; gap: .45rem; margin: 1rem 0 0; }
 .agent-outcome > div { display: flex; align-items: baseline; gap: .38rem; min-width: 0; padding: .42rem .62rem; border: 1px solid var(--risk-line); background: rgba(255,255,255,.018); }
 .agent-outcome dt { color: var(--risk-muted); font-size: .54rem; letter-spacing: .08em; text-transform: uppercase; }
@@ -427,6 +427,18 @@ html:has(.agent-app), body:has(.agent-app) { overflow-x: clip; }
   line-height: 1.55;
 }
 
+.agent-selected-run__header .agent-selected-run__revision {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--text-xs);
+}
+
+.agent-selected-run__revision span {
+  color: var(--color-accent);
+  font-family: var(--font-mono);
+}
+
 .agent-selected-run__header dl {
   display: flex;
   margin: 0;
@@ -466,6 +478,11 @@ html:has(.agent-app), body:has(.agent-app) { overflow-x: clip; }
   gap: var(--space-xs);
 }
 
+.agent-progress > header > div:first-child > div {
+  display: grid;
+  gap: var(--space-3xs);
+}
+
 .agent-progress > header strong,
 .agent-progress > header small,
 .agent-progress > p {
@@ -495,11 +512,17 @@ html:has(.agent-app), body:has(.agent-app) { overflow-x: clip; }
   list-style: none;
 }
 
+.agent-trace ol {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .agent-progress li {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: start;
+  padding-block: var(--space-xs);
   gap: var(--space-xs);
+  border-block-end: var(--rule-thin) solid var(--color-rule);
 }
 
 .agent-progress li > div {
@@ -514,14 +537,64 @@ html:has(.agent-app), body:has(.agent-app) { overflow-x: clip; }
 
 .agent-progress li strong { color: var(--color-ink); }
 .agent-progress li small { color: var(--color-muted); }
+.agent-progress li time {
+  color: var(--color-muted);
+  font: var(--text-xs)/1.4 var(--font-data);
+  white-space: nowrap;
+}
 .agent-progress li[data-state="complete"] .agent-progress__node { background: var(--color-positive); }
 .agent-progress li[data-state="active"] .agent-progress__node { background: var(--color-accent); }
 .agent-progress li[data-state="degraded"] .agent-progress__node { background: var(--color-warning); }
 .agent-progress li[data-state="failed"] .agent-progress__node { background: var(--color-negative); }
+.agent-progress li[data-state="cancelled"] .agent-progress__node,
+.agent-progress li[data-state="retry"] .agent-progress__node { background: var(--color-warning); }
 
 .agent-progress > p {
   margin-block-start: var(--space-sm);
   line-height: 1.5;
+}
+
+.agent-trace__controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: end;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.agent-trace__controls button {
+  min-height: 2.5rem;
+  padding-inline: var(--space-sm);
+  border: var(--rule-thin) solid var(--color-warning);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--color-warning);
+  cursor: pointer;
+  font: 700 var(--text-xs)/1 var(--font-body);
+}
+
+.agent-trace__controls button:disabled {
+  cursor: progress;
+  opacity: .58;
+}
+
+.agent-trace__controls button[data-action="retry"] {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.agent-trace__controls code {
+  color: var(--color-muted);
+  font: var(--text-xs)/1 var(--font-data);
+}
+
+.agent-trace__error {
+  color: var(--color-warning) !important;
+}
+
+.agent-trace__boundary {
+  padding-block-start: var(--space-xs);
+  border-block-start: var(--rule-thin) solid var(--color-rule);
 }
 
 .agent-selected-run__stream {
@@ -999,7 +1072,21 @@ html:has(.agent-app), body:has(.agent-app) { overflow-x: clip; }
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .agent-progress ol {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 39.99rem) {
+  .agent-progress > header,
+  .agent-trace__controls {
+    align-items: start;
+    flex-direction: column;
+  }
+  .agent-progress li {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .agent-progress li time {
+    grid-column: 2;
   }
 }
 

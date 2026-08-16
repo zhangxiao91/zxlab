@@ -1,4 +1,5 @@
-import { compatibleAgentResult, type AgentFeedback, type AgentFeedbackValue, type AgentResult } from "@zxlab/market-agent-schema";
+import { compatibleAgentResult, type AgentFeedback, type AgentFeedbackValue, type AgentResult, type RunTiming } from "@zxlab/market-agent-schema";
+import { persistedRunTiming } from "./d1-repository.ts";
 
 export interface RunArchiveRecord {
   id: string;
@@ -19,6 +20,7 @@ export interface RunArchiveRecord {
   evidence: unknown | null;
   createdAt: string;
   updatedAt: string;
+  timing: RunTiming;
   payloadPurgedAt: string | null;
   feedback: AgentFeedback | null;
 }
@@ -164,14 +166,14 @@ export class D1RunArchiveRepository {
   async sweepRetention(profileId: string, options: { cutoff: string; purgedAt?: string; limit?: number }): Promise<RetentionSweepResult> {
     const purgedAt = options.purgedAt ?? new Date().toISOString();
     const limit = Math.max(1, Math.min(100, Math.trunc(options.limit ?? 100)));
-    const candidates = await this.db.prepare("SELECT id, profile_id, evidence_fingerprint FROM agent_runs WHERE profile_id = ? AND status IN ('success', 'partial', 'failed') AND created_at < ? AND payload_purged_at IS NULL ORDER BY created_at ASC, id ASC LIMIT ?").bind(profileId, options.cutoff, limit).all<RetentionCandidate>();
+    const candidates = await this.db.prepare("SELECT id, profile_id, evidence_fingerprint FROM agent_runs WHERE profile_id = ? AND status IN ('success', 'partial', 'failed', 'cancelled') AND created_at < ? AND payload_purged_at IS NULL ORDER BY created_at ASC, id ASC LIMIT ?").bind(profileId, options.cutoff, limit).all<RetentionCandidate>();
     return this.purgeRetentionCandidates(candidates.results, purgedAt);
   }
 
   async sweepRetentionAll(options: { cutoff: string; purgedAt?: string; limit?: number }): Promise<RetentionSweepResult> {
     const purgedAt = options.purgedAt ?? new Date().toISOString();
     const limit = Math.max(1, Math.min(500, Math.trunc(options.limit ?? 100)));
-    const candidates = await this.db.prepare("SELECT id, profile_id, evidence_fingerprint FROM agent_runs WHERE status IN ('success', 'partial', 'failed') AND created_at < ? AND payload_purged_at IS NULL ORDER BY created_at ASC, id ASC LIMIT ?").bind(options.cutoff, limit).all<RetentionCandidate>();
+    const candidates = await this.db.prepare("SELECT id, profile_id, evidence_fingerprint FROM agent_runs WHERE status IN ('success', 'partial', 'failed', 'cancelled') AND created_at < ? AND payload_purged_at IS NULL ORDER BY created_at ASC, id ASC LIMIT ?").bind(options.cutoff, limit).all<RetentionCandidate>();
     return this.purgeRetentionCandidates(candidates.results, purgedAt);
   }
 
@@ -185,7 +187,7 @@ export class D1RunArchiveRepository {
         this.db.prepare("DELETE FROM run_market_events WHERE run_id = ? AND EXISTS (SELECT 1 FROM agent_runs WHERE id = ? AND profile_id = ?)").bind(candidate.id, candidate.id, candidate.profile_id),
         this.db.prepare("DELETE FROM market_events WHERE run_id = ? AND EXISTS (SELECT 1 FROM agent_runs WHERE id = ? AND profile_id = ?)").bind(candidate.id, candidate.id, candidate.profile_id),
         this.db.prepare("DELETE FROM run_market_snapshots WHERE run_id = ? AND EXISTS (SELECT 1 FROM agent_runs WHERE id = ? AND profile_id = ?)").bind(candidate.id, candidate.id, candidate.profile_id),
-        this.db.prepare("UPDATE agent_runs SET command_json = NULL, result_json = NULL, evidence_json = NULL, payload_purged_at = ? WHERE id = ? AND profile_id = ? AND status IN ('success', 'partial', 'failed') AND payload_purged_at IS NULL").bind(purgedAt, candidate.id, candidate.profile_id),
+        this.db.prepare("UPDATE agent_runs SET command_json = NULL, result_json = NULL, evidence_json = NULL, payload_purged_at = ? WHERE id = ? AND profile_id = ? AND status IN ('success', 'partial', 'failed', 'cancelled') AND payload_purged_at IS NULL").bind(purgedAt, candidate.id, candidate.profile_id),
       );
     }
     const responses = await this.db.batch(statements);
@@ -196,7 +198,7 @@ export class D1RunArchiveRepository {
   }
 
   async purgeRunPayload(profileId: string, runId: string, options: { purgedAt?: string } = {}): Promise<RunArchiveTombstone | null> {
-    const candidate = await this.db.prepare("SELECT id, evidence_fingerprint FROM agent_runs WHERE id = ? AND profile_id = ? AND status IN ('success', 'partial', 'failed') AND payload_purged_at IS NULL").bind(runId, profileId).first<{ id: string; evidence_fingerprint: string | null }>();
+    const candidate = await this.db.prepare("SELECT id, evidence_fingerprint FROM agent_runs WHERE id = ? AND profile_id = ? AND status IN ('success', 'partial', 'failed', 'cancelled') AND payload_purged_at IS NULL").bind(runId, profileId).first<{ id: string; evidence_fingerprint: string | null }>();
     if (!candidate) return this.getTombstone(profileId, runId);
     const purgedAt = options.purgedAt ?? new Date().toISOString();
     const responses = await this.db.batch([
@@ -205,7 +207,7 @@ export class D1RunArchiveRepository {
       this.db.prepare("DELETE FROM run_market_events WHERE run_id = ? AND EXISTS (SELECT 1 FROM agent_runs WHERE id = ? AND profile_id = ?)").bind(candidate.id, candidate.id, profileId),
       this.db.prepare("DELETE FROM market_events WHERE run_id = ? AND EXISTS (SELECT 1 FROM agent_runs WHERE id = ? AND profile_id = ?)").bind(candidate.id, candidate.id, profileId),
       this.db.prepare("DELETE FROM run_market_snapshots WHERE run_id = ? AND EXISTS (SELECT 1 FROM agent_runs WHERE id = ? AND profile_id = ?)").bind(candidate.id, candidate.id, profileId),
-      this.db.prepare("UPDATE agent_runs SET command_json = NULL, result_json = NULL, evidence_json = NULL, payload_purged_at = ? WHERE id = ? AND profile_id = ? AND status IN ('success', 'partial', 'failed') AND payload_purged_at IS NULL").bind(purgedAt, candidate.id, profileId),
+      this.db.prepare("UPDATE agent_runs SET command_json = NULL, result_json = NULL, evidence_json = NULL, payload_purged_at = ? WHERE id = ? AND profile_id = ? AND status IN ('success', 'partial', 'failed', 'cancelled') AND payload_purged_at IS NULL").bind(purgedAt, candidate.id, profileId),
     ]);
     if (Number(responses[5]?.meta.changes ?? 0) === 0) return this.getTombstone(profileId, runId);
     return {
@@ -254,7 +256,7 @@ function parseJson(value: unknown): unknown | null {
 }
 
 function summaryColumns(): string {
-  return `SELECT id, workflow, trigger, status, idempotency_key, command_hash, revision_of_run_id, portfolio_snapshot_id, attempt, recovery_generation, evidence_fingerprint, failure_json, command_json AS input_json, NULL AS command_json, result_json, NULL AS evidence_json, created_at, updated_at, payload_purged_at, ${feedbackColumns()}`;
+  return `SELECT id, workflow, trigger, status, idempotency_key, command_hash, revision_of_run_id, portfolio_snapshot_id, attempt, recovery_generation, evidence_fingerprint, failure_json, command_json AS input_json, NULL AS command_json, result_json, NULL AS evidence_json, created_at, updated_at, started_at, completed_at, duration_ms, payload_purged_at, ${feedbackColumns()}`;
 }
 
 function payloadColumns(): string {
@@ -287,9 +289,14 @@ function rowToArchiveRecord(row: Record<string, unknown>): RunArchiveRecord {
     evidence: parseJson(row.evidence_json),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
+    timing: archiveTiming(row),
     payloadPurgedAt: row.payload_purged_at ? String(row.payload_purged_at) : null,
     feedback: archiveFeedback(row.feedback_value, row.feedback_updated_at),
   };
+}
+
+function archiveTiming(row: Record<string, unknown>): RunTiming {
+  return persistedRunTiming(row);
 }
 
 function runArchiveInput(value: unknown): RunArchiveInput | null {

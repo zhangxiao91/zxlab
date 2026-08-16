@@ -40,13 +40,21 @@ const signalPathAllowed = (path: string, method: string) =>
   || path.startsWith("/api/memory/")
   || path.startsWith("/api/memory-candidates/");
 
-const marketAgentPathAllowed = (path: string) => path === "/ask" || path === "/runs" || path === "/today" || path === "/profile" || path === "/quality" || path === "/watchlist" || path === "/export" || path === "/portfolio-snapshot" || path === "/portfolio-snapshot/stop" || path === "/portfolio-snapshot/purge" || /^\/runs\/[^/]+(?:\/feedback|\/rerun|\/evidence|\/stream)?$/.test(path);
+const marketAgentPathAllowed = (path: string, method: string) => {
+  if (path === "/ask") return method === "POST";
+  if (path === "/runs" || path === "/watchlist" || path === "/portfolio-snapshot") return method === "GET" || method === "POST";
+  if (["/today", "/profile", "/quality", "/export"].includes(path)) return method === "GET";
+  if (["/portfolio-snapshot/stop", "/portfolio-snapshot/purge"].includes(path)) return method === "POST";
+  if (/^\/runs\/[^/]+$/.test(path)) return method === "GET" || method === "DELETE";
+  if (/^\/runs\/[^/]+\/(?:feedback|rerun|retry|cancel)$/.test(path)) return method === "POST";
+  return /^\/runs\/[^/]+\/(?:evidence|stream|trace)$/.test(path) && method === "GET";
+};
 
 function target(service: PrivateService, rawPath: string, method: string, env: PrivateProxyEnv): URL {
   const path = `/${rawPath.replace(/^\/+/, "")}`;
   if (service === "runtime" && !path.startsWith("/api/v1/private/")) throw new RiskReviewError("PRIVATE_ROUTE_NOT_ALLOWED", "Private route is not allowed.", 404);
   if (service === "signal" && !signalPathAllowed(path, method)) throw new RiskReviewError("PRIVATE_ROUTE_NOT_ALLOWED", "Private route is not allowed.", 404);
-  if (service === "market-agent" && !marketAgentPathAllowed(path)) throw new RiskReviewError("PRIVATE_ROUTE_NOT_ALLOWED", "Private route is not allowed.", 404);
+  if (service === "market-agent" && !marketAgentPathAllowed(path, method)) throw new RiskReviewError("PRIVATE_ROUTE_NOT_ALLOWED", "Private route is not allowed.", 404);
   const base = env.RUNTIME_API_URL?.trim() || "https://runtime-api.zx-dx.xyz";
   if (service === "market-agent") return new URL(`/api/v1/private/market-agent${path}`, env.MARKET_AGENT_API_URL?.trim() || base);
   return new URL(service === "runtime" ? path : `/api/v1/private/signal${path}`, base);

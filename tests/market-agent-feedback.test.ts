@@ -234,11 +234,11 @@ test("stale refresh and stream payloads cannot roll back newer feedback", () => 
 
 test("stream status updates preserve the selected Run input context", () => {
   const current = {
-    id: "run-1", workflow: "ask", status: "queued", createdAt: "2026-08-15T11:00:00.000Z",
+    id: "run-1", workflow: "ask", status: "queued" as const, createdAt: "2026-08-15T11:00:00.000Z",
     updatedAt: "2026-08-15T11:00:00.000Z", evidenceFingerprint: null,
     input: { workflow: "ask", askScope: "today_change" as const, instrumentId: "SSE:600000", question: "今天发生了什么" },
   };
-  const incoming = { ...current, status: "collecting", updatedAt: "2026-08-15T11:00:01.000Z", input: undefined };
+  const incoming = { ...current, status: "collecting" as const, updatedAt: "2026-08-15T11:00:01.000Z", input: undefined };
 
   assert.deepEqual(mergeRunWithCurrentFeedback(current, incoming).input, current.input);
 });
@@ -282,11 +282,11 @@ test("a purged run clears locally retained feedback", () => {
 
 test("selected historical Run survives refresh while missing selection falls back deterministically", () => {
   const historical = {
-    id: "run-old", workflow: "ask", status: "success", createdAt: "2026-08-14T10:00:00.000Z",
+    id: "run-old", workflow: "ask", status: "success" as const, createdAt: "2026-08-14T10:00:00.000Z",
     updatedAt: "2026-08-14T10:01:00.000Z", evidenceFingerprint: "sha256:old",
   };
   const latest = {
-    id: "run-new", workflow: "close_review", status: "success", createdAt: "2026-08-15T10:00:00.000Z",
+    id: "run-new", workflow: "close_review", status: "success" as const, createdAt: "2026-08-15T10:00:00.000Z",
     updatedAt: "2026-08-15T10:01:00.000Z", evidenceFingerprint: "sha256:new",
   };
 
@@ -390,7 +390,7 @@ test("deep-link and back-forward restore routed Run before its Evidence", async 
 
 test("the selected Run renders one Composer with restored question context", () => {
   const selectedRun = {
-    id: "run-history", workflow: "ask", status: "success", createdAt: "2026-08-14T10:00:00.000Z",
+    id: "run-history", workflow: "ask", status: "success" as const, createdAt: "2026-08-14T10:00:00.000Z",
     updatedAt: "2026-08-14T10:01:00.000Z", evidenceFingerprint: "sha256:history",
     input: { workflow: "ask", askScope: "today_change" as const, instrumentId: "SSE:600000", question: "今天发生了什么" },
   };

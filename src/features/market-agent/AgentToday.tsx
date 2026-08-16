@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import type { AgentFeedback, AgentFeedbackValue, ResearchReportV2, SealedEvidenceBundle } from "@zxlab/market-agent-schema";
+import { isCancellableRunStatus, type AgentFeedback, type AgentFeedbackValue, type ResearchReportV2, type RunTiming, type SealedEvidenceBundle } from "@zxlab/market-agent-schema";
 import type { TradingScreenAction, TradingScreenStatus } from "../trading/screen";
 import AgentComposer, { RunActivity } from "./AskPanel";
 import { RunFeedbackControl } from "./RunFeedbackControl";
@@ -91,7 +91,7 @@ export default function AgentToday({
     runs, latest, selectedRun, askInstruments, bootstrap, loading, reviewBusy, askBusy,
     streamingAnswer, error, accessRequired, setupNote, deletingRunId, loadingMoreRuns,
     hasMoreRuns, evidence, evidenceLoading, evidenceError, selectedEvidenceId,
-    exportBusy, exportNote, exportError,
+    exportBusy, exportNote, exportError, trace, traceLoading, traceError, runControlBusy,
   } = agent;
   const { items: localWatchlist, syncing: syncBusy } = watchlist;
   const {
@@ -104,6 +104,7 @@ export default function AgentToday({
     downloadRuns, removeRun, loadMoreRuns, saveFeedback, refreshPortfolioPreview,
     syncLocalPortfolioSnapshot, stopUsingPortfolioSnapshot, requestPortfolioPurge,
     cancelPortfolioPurge, confirmPortfolioPurge,
+    cancelRun, retryRun,
   } = commands;
 
   useEffect(() => {
@@ -126,7 +127,7 @@ export default function AgentToday({
 
   useEffect(() => {
     if (!onScreenChange) return;
-    const active = runs.find((run) => !["success", "partial", "failed"].includes(run.status));
+    const active = runs.find((run) => isCancellableRunStatus(run.status));
     const run = active ?? selectedRun ?? latest;
     onScreenChange({
       status: {
@@ -183,7 +184,23 @@ export default function AgentToday({
             loadingMore={loadingMoreRuns}
           />
           <section className="agent-run-canvas" aria-label="当前 Run">
-            <SelectedRunView run={selectedRun} evidence={evidence} streamingAnswer={streamingAnswer} onEvidence={openEvidence} />
+            <SelectedRunView
+              run={selectedRun}
+              evidence={evidence}
+              streamingAnswer={streamingAnswer}
+              trace={trace}
+              traceLoading={traceLoading}
+              traceError={traceError}
+              controlBusy={selectedRun && runControlBusy?.runId === selectedRun.id ? runControlBusy.action : null}
+              controlsDisabled={Boolean(runControlBusy)}
+              onCancel={() => selectedRun ? cancelRun(selectedRun.id) : Promise.resolve()}
+              onRetry={selectedRun && !selectedRun.payloadPurgedAt ? async () => {
+                if (!selectedRun) return;
+                const runId = await retryRun(selectedRun.id);
+                onSelectedRunChange?.(runId);
+              } : undefined}
+              onEvidence={openEvidence}
+            />
             <AgentComposer
               runs={runs}
               instruments={askInstruments}
@@ -199,6 +216,7 @@ export default function AgentToday({
             evidenceLoading={evidenceLoading}
             evidenceError={evidenceError}
             selectedEvidenceId={selectedEvidenceId}
+            timing={trace?.timing ?? selectedRun?.timing}
             section={inspectorSection}
             onSectionChange={setInspectorSection}
             onEvidence={openEvidence}
@@ -243,16 +261,28 @@ export function RunNavigator({ runs, selectedRunId, onSelect, onExport, onLoadMo
   runs: AgentRunView[]; selectedRunId: string | null; onSelect(id: string): void; onExport(): Promise<void>; onLoadMore(): Promise<void>;
   exportBusy: boolean; exportNote: string | null; hasMore: boolean; loadingMore: boolean;
 }) {
-  return <aside className="agent-run-navigator" aria-label="运行记录"><header><div><h2>运行记录</h2><span>{runs.length}</span></div><button type="button" onClick={() => void onExport()} disabled={!runs.length || exportBusy}>{runExportLabel(exportBusy)}</button></header><div className="agent-run-navigator__list">{runs.length ? runs.map((run) => <button type="button" key={run.id} className="agent-run-nav-item" aria-current={selectedRunId === run.id ? "true" : undefined} onClick={() => onSelect(run.id)}><span><i className={`agent-run-nav-item__status agent-status--${run.status}`}>{statusLabel(run.status)}</i><time>{date(run.createdAt)}</time></span><strong>{run.payloadPurgedAt ? "正文已清除" : run.result?.headline ?? runLabel(run)}</strong><small>{run.input?.question ?? modeLabel(run.result?.mode, run.portfolioSnapshotId)}</small></button>) : <div className="agent-run-navigator__empty"><strong>还没有 Run</strong><p>开始一次盘后复盘或受限问答后，记录会出现在这里。</p></div>}</div>{hasMore && <button type="button" className="agent-run-navigator__more" onClick={() => void onLoadMore()} disabled={loadingMore}>{loadingMore ? "读取中" : "加载更早记录"}</button>}<p className="agent-run-navigator__note" aria-live="polite">{exportNote ?? "历史选择不会创建第二套回答状态。"}</p></aside>;
+  return <aside className="agent-run-navigator" aria-label="运行记录"><header><div><h2>运行记录</h2><span>{runs.length}</span></div><button type="button" onClick={() => void onExport()} disabled={!runs.length || exportBusy}>{runExportLabel(exportBusy)}</button></header><div className="agent-run-navigator__list">{runs.length ? runs.map((run) => <button type="button" key={run.id} className="agent-run-nav-item" aria-current={selectedRunId === run.id ? "true" : undefined} onClick={() => onSelect(run.id)}><span><i className={`agent-run-nav-item__status agent-status--${run.status}`}>{statusLabel(run.status)}</i><time dateTime={run.createdAt}>{date(run.createdAt)}</time></span><strong>{run.payloadPurgedAt ? "正文已清除" : run.result?.headline ?? runLabel(run)}</strong><small>{run.input?.question ?? modeLabel(run.result?.mode, run.portfolioSnapshotId)}{run.timing ? ` · ${compactDuration(run.timing.durationMs ?? run.timing.elapsedMs)}` : ""}</small></button>) : <div className="agent-run-navigator__empty"><strong>还没有 Run</strong><p>开始一次盘后复盘或受限问答后，记录会出现在这里。</p></div>}</div>{hasMore && <button type="button" className="agent-run-navigator__more" onClick={() => void onLoadMore()} disabled={loadingMore}>{loadingMore ? "读取中" : "加载更早记录"}</button>}<p className="agent-run-navigator__note" aria-live="polite">{exportNote ?? "历史选择不会创建第二套回答状态。"}</p></aside>;
 }
 
-function SelectedRunView({ run, evidence, streamingAnswer, onEvidence }: { run?: AgentRunView; evidence: SealedEvidenceBundle | null; streamingAnswer: string; onEvidence(id: string): void }) {
+function SelectedRunView({ run, evidence, streamingAnswer, trace, traceLoading, traceError, controlBusy, controlsDisabled, onCancel, onRetry, onEvidence }: {
+  run?: AgentRunView;
+  evidence: SealedEvidenceBundle | null;
+  streamingAnswer: string;
+  trace: ReturnType<typeof useMarketAgentWorkspace>["agent"]["trace"];
+  traceLoading: boolean;
+  traceError: string | null;
+  controlBusy: "cancel" | "retry" | null;
+  controlsDisabled: boolean;
+  onCancel(): Promise<unknown>;
+  onRetry?(): Promise<unknown>;
+  onEvidence(id: string): void;
+}) {
   if (!run) return <section className="agent-selected-empty"><strong>选择或建立一条 Run</strong><p>报告、输入上下文、Evidence 与 Outcome 将围绕同一个 Run 展示。</p></section>;
   const report = run.result ? buildMarketReviewReport(run.result) : null;
   return <article className="agent-selected-run">
-    <header className="agent-selected-run__header"><div><span className={`agent-status agent-status--${run.status}`}>{statusLabel(run.status)}</span><h2>{report?.conclusion.headline ?? (streamingAnswer ? "正在形成研究报告" : runLabel(run))}</h2><p>{runPrompt(run)}</p></div><dl><div><dt>时间</dt><dd>{date(run.createdAt)}</dd></div><div><dt>模式</dt><dd>{modeLabel(run.result?.mode, run.portfolioSnapshotId)}</dd></div></dl></header>
-    <RunActivity status={run.status} runId={run.id} limitations={run.result?.limitations} outcome={run.result?.outcome} />
-    {run.payloadPurgedAt ? <div className="agent-selected-run__state"><strong>正文与 Evidence 已清除</strong><p>审计 fingerprint 仍保留：{run.evidenceFingerprint ?? "未形成"}</p></div> : report ? <ResearchReport report={report} onEvidence={onEvidence} /> : streamingAnswer ? <p className="agent-streamed-answer agent-selected-run__stream">{streamingAnswer}<span className="agent-stream-cursor" aria-hidden="true" /></p> : <div className="agent-selected-run__state"><strong>{run.status === "failed" ? "本次 Run 未能完成" : "确定性事实正在处理"}</strong><p>{run.status === "failed" ? `失败代码：${run.failure?.code ?? "未提供"}` : "结果只有在 Evidence 封存并通过校验后才会显示。"}</p></div>}
+    <header className="agent-selected-run__header"><div><span className={`agent-status agent-status--${run.status}`}>{statusLabel(run.status)}</span><h2>{report?.conclusion.headline ?? (streamingAnswer ? "正在形成研究报告" : runLabel(run))}</h2><p>{runPrompt(run)}</p>{run.revisionOfRunId && <p className="agent-selected-run__revision">重试自 Run <span title={run.revisionOfRunId}>{run.revisionOfRunId.slice(0, 8)}</span></p>}</div><dl><div><dt>时间</dt><dd>{date(run.createdAt)}</dd></div><div><dt>模式</dt><dd>{modeLabel(run.result?.mode, run.portfolioSnapshotId)}</dd></div></dl></header>
+    <RunActivity status={run.status} runId={run.id} trace={trace} timing={run.timing} limitations={run.result?.limitations} outcome={run.result?.outcome} traceLoading={traceLoading} traceError={traceError} controlBusy={controlBusy} controlsDisabled={controlsDisabled} onCancel={onCancel} onRetry={onRetry} />
+    {run.payloadPurgedAt ? <div className="agent-selected-run__state"><strong>正文与 Evidence 已清除</strong><p>审计 fingerprint 仍保留：{run.evidenceFingerprint ?? "未形成"}</p></div> : report ? <ResearchReport report={report} onEvidence={onEvidence} /> : streamingAnswer ? <p className="agent-streamed-answer agent-selected-run__stream">{streamingAnswer}<span className="agent-stream-cursor" aria-hidden="true" /></p> : <div className="agent-selected-run__state"><strong>{run.status === "failed" ? "本次 Run 未能完成" : run.status === "cancelled" ? "本次 Run 已取消" : "确定性事实正在处理"}</strong><p>{run.status === "failed" ? `失败代码：${run.failure?.code ?? "未提供"}` : run.status === "cancelled" ? "原始记录与取消事件已保留；可以从这条 Run 发起一次可追溯的重试。" : "结果只有在 Evidence 封存并通过校验后才会显示。"}</p></div>}
   </article>;
 }
 
@@ -277,10 +307,10 @@ function CitationButtons({ ids, sourceIndex, onEvidence }: { ids: string[]; sour
   return <div className="research-report-v2__citations" aria-label="来源引用">{ids.map((id) => <button type="button" key={id} title={id} onClick={() => onEvidence(id)}>来源 {sourceIndex.get(id) ?? "—"}</button>)}</div>;
 }
 
-function RunInspector({ inspectorRef, run, evidence, evidenceLoading, evidenceError, selectedEvidenceId, section, onSectionChange, onEvidence, onFeedback, onDelete, deleting }: {
+function RunInspector({ inspectorRef, run, evidence, evidenceLoading, evidenceError, selectedEvidenceId, timing, section, onSectionChange, onEvidence, onFeedback, onDelete, deleting }: {
   inspectorRef: React.Ref<HTMLElement>;
   run?: AgentRunView; evidence: SealedEvidenceBundle | null; evidenceLoading: boolean; evidenceError: string | null; selectedEvidenceId: string | null; section: InspectorSection;
-  onSectionChange(section: InspectorSection): void; onEvidence(id: string): void; onFeedback(value: AgentFeedbackValue): Promise<AgentFeedback>; onDelete(): void; deleting: boolean;
+  timing?: RunTiming; onSectionChange(section: InspectorSection): void; onEvidence(id: string): void; onFeedback(value: AgentFeedbackValue): Promise<AgentFeedback>; onDelete(): void; deleting: boolean;
 }) {
   const selectedEvidence = evidence?.items.find((item) => item.id === selectedEvidenceId) ?? null;
   return <aside ref={inspectorRef} tabIndex={-1} className="agent-run-inspector" aria-label="Run Inspector"><header><div><h2>Inspector</h2><span>{run ? run.id.slice(0, 8) : "未选择"}</span></div><div role="tablist" aria-label="检查器内容">{inspectorSections.map((tab) => <button type="button" role="tab" id={`agent-inspector-tab-${tab}`} aria-controls="agent-inspector-panel" tabIndex={section === tab ? 0 : -1} key={tab} aria-selected={section === tab} onClick={() => onSectionChange(tab)} onKeyDown={(event) => {
@@ -291,14 +321,14 @@ function RunInspector({ inspectorRef, run, evidence, evidenceLoading, evidenceEr
       requestAnimationFrame(() => document.getElementById(`agent-inspector-tab-${next}`)?.focus());
     }}>{({ context: "Context", evidence: "Evidence", outcome: "Outcome" } as const)[tab]}</button>)}</div></header>
     <div className="agent-run-inspector__body" role="tabpanel" id="agent-inspector-panel" aria-labelledby={`agent-inspector-tab-${section}`} tabIndex={0}>
-      {!run ? <p className="agent-inspector-empty">选择一条 Run 后查看输入、证据与结果。</p> : section === "context" ? <ContextPanel run={run} evidence={evidence} /> : section === "evidence" ? <EvidencePanel evidence={evidence} loading={evidenceLoading} error={evidenceError} selected={selectedEvidence} onSelect={onEvidence} /> : <OutcomePanel run={run} onFeedback={onFeedback} onDelete={onDelete} deleting={deleting} />}
+      {!run ? <p className="agent-inspector-empty">选择一条 Run 后查看输入、证据与结果。</p> : section === "context" ? <ContextPanel run={run} evidence={evidence} /> : section === "evidence" ? <EvidencePanel evidence={evidence} loading={evidenceLoading} error={evidenceError} selected={selectedEvidence} onSelect={onEvidence} /> : <OutcomePanel run={run} timing={timing} onFeedback={onFeedback} onDelete={onDelete} deleting={deleting} />}
     </div>
   </aside>;
 }
 
 function ContextPanel({ run, evidence }: { run: AgentRunView; evidence: SealedEvidenceBundle | null }) {
   const input = run.input;
-  return <section className="agent-inspector-panel"><h3>本次输入上下文</h3>{run.payloadPurgedAt ? <p className="agent-inspector-empty">输入正文已按保留策略清除。</p> : <dl><InspectorField label="Workflow" value={run.workflow} /><InspectorField label="Trigger" value={run.trigger ?? "未提供"} /><InspectorField label="Ask scope" value={input?.askScope ?? run.result?.askScope ?? "不适用"} /><InspectorField label="标的" value={input?.instrumentId ?? evidence?.instrumentIds.join("、") ?? "未恢复"} /><InspectorField label="问题" value={input?.question ?? "未提供自定义问题"} /><InspectorField label="历史 Run" value={input?.priorRunId ?? evidence?.ask?.priorRunId ?? "不适用"} /><InspectorField label="持仓快照" value={run.portfolioSnapshotId ?? "未使用"} /><InspectorField label="观察列表 revision" value={evidence?.watchlistRevision ?? "Evidence 尚未读取"} /><InspectorField label="确认上下文" value={evidence ? `${evidence.contextUses.length} 条引用` : "Evidence 尚未读取"} /><InspectorField label="封存时间" value={evidence?.sealedAt ? date(evidence.sealedAt) : "尚未封存"} /></dl>}</section>;
+  return <section className="agent-inspector-panel"><h3>本次输入上下文</h3>{run.payloadPurgedAt ? <p className="agent-inspector-empty">输入正文已按保留策略清除。</p> : <dl><InspectorField label="Workflow" value={run.workflow} /><InspectorField label="Trigger" value={run.trigger ?? "未提供"} /><InspectorField label="重试来源" value={run.revisionOfRunId ?? "原始 Run"} /><InspectorField label="Ask scope" value={input?.askScope ?? run.result?.askScope ?? "不适用"} /><InspectorField label="标的" value={input?.instrumentId ?? evidence?.instrumentIds.join("、") ?? "未恢复"} /><InspectorField label="问题" value={input?.question ?? "未提供自定义问题"} /><InspectorField label="历史 Run" value={input?.priorRunId ?? evidence?.ask?.priorRunId ?? "不适用"} /><InspectorField label="持仓快照" value={run.portfolioSnapshotId ?? "未使用"} /><InspectorField label="观察列表 revision" value={evidence?.watchlistRevision ?? "Evidence 尚未读取"} /><InspectorField label="确认上下文" value={evidence ? `${evidence.contextUses.length} 条引用` : "Evidence 尚未读取"} /><InspectorField label="封存时间" value={evidence?.sealedAt ? date(evidence.sealedAt) : "尚未封存"} /></dl>}</section>;
 }
 
 function EvidencePanel({ evidence, loading, error, selected, onSelect }: { evidence: SealedEvidenceBundle | null; loading: boolean; error: string | null; selected: SealedEvidenceBundle["items"][number] | null; onSelect(id: string): void }) {
@@ -308,9 +338,9 @@ function EvidencePanel({ evidence, loading, error, selected, onSelect }: { evide
   return <section className="agent-inspector-panel"><h3>封存证据</h3><dl><InspectorField label="Fingerprint" value={evidence.fingerprint} /><InspectorField label="范围" value={evidence.instrumentIds.join("、") || "未提供"} /><InspectorField label="条目" value={`${evidence.items.length} 条`} /></dl><div className="agent-inspector-evidence-list">{evidence.items.map((item, index) => <button type="button" key={item.id} aria-pressed={selected?.id === item.id} onClick={() => onSelect(item.id)}><span>{index + 1}</span><strong>{evidenceKindLabel(item.kind)}</strong><small>{item.reliable ? "可靠" : "受限"}</small></button>)}</div>{selected && <article className="agent-inspector-evidence-detail"><header><strong>{selected.id}</strong><span>{selected.origin} · {selected.reliable ? "可靠" : "受限"}</span></header><pre>{formatEvidenceValue(selected.value)}</pre></article>}</section>;
 }
 
-function OutcomePanel({ run, onFeedback, onDelete, deleting }: { run: AgentRunView; onFeedback(value: AgentFeedbackValue): Promise<AgentFeedback>; onDelete(): void; deleting: boolean }) {
+function OutcomePanel({ run, timing, onFeedback, onDelete, deleting }: { run: AgentRunView; timing?: RunTiming; onFeedback(value: AgentFeedbackValue): Promise<AgentFeedback>; onDelete(): void; deleting: boolean }) {
   const outcome = run.result?.outcome;
-  return <section className="agent-inspector-panel"><h3>运行结果</h3><RunOutcomeSummary outcome={outcome} /><dl><InspectorField label="Status" value={statusLabel(run.status)} /><InspectorField label="Attempt" value={String(run.attempt ?? "未提供")} /><InspectorField label="Recovery" value={String(run.recoveryGeneration ?? "未提供")} /><InspectorField label="Narration" value={outcome?.narration.source ?? "未形成"} /><InspectorField label="Provider" value={outcome?.narration.provider ?? "未提供"} /><InspectorField label="Model" value={outcome?.narration.model ?? "未提供"} /><InspectorField label="Evidence coverage" value={outcome?.evidence.coverage ?? "未形成"} /><InspectorField label="Failure" value={run.failure?.code ?? outcome?.narration.failure?.code ?? "无"} /></dl>{run.result && !run.payloadPurgedAt && <div className="agent-inspector-feedback"><h4>这条报告是否有帮助</h4><RunFeedbackControl key={run.id} runId={run.id} feedback={run.feedback} onSubmit={onFeedback} /></div>}<p className="agent-inspector-boundary">当前没有真实工具调用日志、私密思考轨迹或逐工具耗时；Inspector 不会模拟这些事件。</p><button type="button" className="agent-inspector-delete" onClick={onDelete} disabled={deleting || Boolean(run.payloadPurgedAt)}>{run.payloadPurgedAt ? "正文已清除" : deleting ? "正在清除" : "清除正文与 Evidence"}</button></section>;
+  return <section className="agent-inspector-panel"><h3>运行结果</h3><RunOutcomeSummary outcome={outcome} /><dl><InspectorField label="Status" value={statusLabel(run.status)} /><InspectorField label="Attempt" value={String(run.attempt ?? "未提供")} /><InspectorField label="Recovery" value={String(run.recoveryGeneration ?? "未提供")} /><InspectorField label="总耗时" value={timing ? compactDuration(timing.durationMs ?? timing.elapsedMs) : "未提供"} /><InspectorField label="Narration" value={outcome?.narration.source ?? "未形成"} /><InspectorField label="Provider" value={outcome?.narration.provider ?? "未提供"} /><InspectorField label="Model" value={outcome?.narration.model ?? "未提供"} /><InspectorField label="Evidence coverage" value={outcome?.evidence.coverage ?? "未形成"} /><InspectorField label="Failure" value={run.failure?.code ?? outcome?.narration.failure?.code ?? "无"} /></dl>{run.result && !run.payloadPurgedAt && <div className="agent-inspector-feedback"><h4>这条报告是否有帮助</h4><RunFeedbackControl key={run.id} runId={run.id} feedback={run.feedback} onSubmit={onFeedback} /></div>}<p className="agent-inspector-boundary">主栏仅展示服务端持久化的 RunTraceEvent、阶段耗时和可验证的重试/取消事件；不会展示或模拟私密思考过程。</p><button type="button" className="agent-inspector-delete" onClick={onDelete} disabled={deleting || Boolean(run.payloadPurgedAt)}>{run.payloadPurgedAt ? "正文已清除" : deleting ? "正在清除" : "清除正文与 Evidence"}</button></section>;
 }
 
 function InspectorField({ label, value }: { label: string; value: string }) { return <div><dt>{label}</dt><dd>{value}</dd></div>; }
@@ -327,9 +357,10 @@ function PortfolioSettings({ preview, state, stateLoaded, busy, action, error, n
 function runPrompt(run: AgentRunView) { if (run.workflow !== "ask") return run.workflow === "morning_brief" ? "生成盘前简报" : "执行盘后市场复盘"; return run.input?.question ?? scopeLabel(run.input?.askScope ?? run.result?.askScope); }
 function runLabel(run: AgentRunView) { return run.workflow === "ask" ? `受限问答：${scopeLabel(run.input?.askScope ?? run.result?.askScope)}` : run.workflow === "morning_brief" ? "盘前市场简报" : "盘后市场复盘"; }
 function scopeLabel(scope?: string) { return ({ today_change: "当日变化", relative_performance: "相对表现", news_and_announcements: "新闻与公告", data_quality: "数据质量", portfolio_impact: "持仓影响", compare_previous_run: "比较历史 Run" } as Record<string, string>)[scope ?? ""] ?? "固定证据范围"; }
-function statusLabel(status: string) { return ({ queued: "排队中", collecting: "收集事实", evidence_sealed: "Evidence 已封存", generating: "生成中", validating: "校验中", success: "完成", partial: "部分完成", failed: "失败", retry_wait: "等待重试" } as Record<string, string>)[status] ?? status; }
+function statusLabel(status: string) { return ({ queued: "排队中", collecting: "收集事实", evidence_sealed: "Evidence 已封存", generating: "生成中", validating: "校验中", success: "完成", partial: "部分完成", failed: "失败", retry_wait: "等待重试", cancelled: "已取消" } as Record<string, string>)[status] ?? status; }
 function modeLabel(mode?: AgentRunMode, portfolioSnapshotId?: string | null) { if (mode === "portfolio-aware") return "持仓感知"; if (mode === "market-only") return "仅市场"; return portfolioSnapshotId ? "待持仓校验" : "待市场校验"; }
 function observationLabel(value: AgentObservationView["class"]) { return ({ fact: "事实", inference: "推断", unknown: "未知" } as const)[value]; }
 function evidenceKindLabel(kind: string) { return ({ market_fact: "市场事实", market_event: "市场事件", snapshot_diff: "快照差分", portfolio_impact: "持仓影响", confirmed_context: "确认上下文", limitation: "数据边界", execution_plan: "执行计划", prior_run: "历史 Run" } as Record<string, string>)[kind] ?? kind; }
 function formatEvidenceValue(value: unknown) { const text = JSON.stringify(value, null, 2) ?? String(value); return text.length > 4_000 ? `${text.slice(0, 4_000)}\n[truncated]` : text; }
 function formatCash(value: number | null) { return value === null ? "—" : new Intl.NumberFormat("zh-CN", { style: "currency", currency: "CNY", maximumFractionDigits: 2 }).format(value); }
+function compactDuration(milliseconds: number) { if (milliseconds < 1_000) return `${Math.round(milliseconds)}ms`; if (milliseconds < 60_000) return `${(milliseconds / 1_000).toFixed(1)}s`; return `${Math.floor(milliseconds / 60_000)}m ${Math.floor((milliseconds % 60_000) / 1_000)}s`; }

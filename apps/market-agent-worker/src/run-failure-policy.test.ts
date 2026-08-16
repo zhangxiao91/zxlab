@@ -19,3 +19,15 @@ test("consumer fails non-retryable Research Fact errors and defers retryable fai
     { method: "defer", code: "CLOSE_REVIEW_RETRYABLE" },
   ]);
 });
+
+test("a cancelled Run does not retry after its old lease loses the defer CAS", async () => {
+  const runs = {
+    async fail() { return false; },
+    async defer() { return false; },
+  };
+
+  assert.equal(
+    await settleRunFailure(runs, "run-cancelled", "old-lease", new Error("UPSTREAM_FAILED"), "ASK_RETRYABLE"),
+    "ack",
+  );
+});

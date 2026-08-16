@@ -1,18 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { AgentFeedback, AgentFeedbackValue, SealedEvidenceBundle } from "@zxlab/market-agent-schema";
+import { isCancellableRunStatus, type AgentFeedback, type AgentFeedbackValue, type RunTrace, type RunTraceEvent, type SealedEvidenceBundle } from "@zxlab/market-agent-schema";
 import { loadMarketWatchlist } from "../market/watchlist";
 import { LocalPortfolioRepository } from "../risk/ledger";
 import {
   deleteAgentRun,
+  cancelAgentRun,
   exportAgentRuns,
   getAgentProfile,
   getAgentRun,
   getAgentRunEvidence,
   getAgentRunPage,
+  getAgentRunTrace,
   getPortfolioSnapshotControlState,
   marketAgentAccessRequired,
   pollAgentRunUntilTerminal,
   purgePortfolioSnapshotHistory,
+  retryAgentRun,
   sendRunFeedback,
   startAgentAsk,
   startCloseReview,
@@ -41,6 +44,9 @@ import {
   enqueueRunFeedback,
   mergeRunPagePreservingSelection,
   mergeRunWithCurrentFeedback,
+  clearRetryKeyForRun,
+  mergeRunTraceEvents,
+  retryKeyForRun,
   evidenceSelectionAfterRunSelection,
   resolveSelectedRun,
 } from "./run-state";
@@ -71,6 +77,10 @@ export interface MarketAgentWorkspace {
     exportBusy: boolean;
     exportNote: string | null;
     exportError: string | null;
+    trace: RunTrace | null;
+    traceLoading: boolean;
+    traceError: string | null;
+    runControlBusy: { runId: string; action: "cancel" | "retry" } | null;
   };
   watchlist: {
     items: AgentWatchlistItem[];
@@ -97,6 +107,8 @@ export interface MarketAgentWorkspace {
     removeRun(run: AgentRunView): Promise<void>;
     loadMoreRuns(): Promise<void>;
     saveFeedback(runId: string, value: AgentFeedbackValue): Promise<AgentFeedback>;
+    cancelRun(runId: string): Promise<void>;
+    retryRun(runId: string): Promise<string>;
     updateRun(run: AgentRunView): void;
     refreshPortfolioPreview(): LocalPortfolioSnapshotPreview;
     syncLocalPortfolioSnapshot(): Promise<void>;
@@ -132,6 +144,11 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
   const [exportBusy, setExportBusy] = useState(false);
   const [exportNote, setExportNote] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [traceByRunId, setTraceByRunId] = useState<Record<string, RunTrace>>({});
+  const [streamedTraceByRunId, setStreamedTraceByRunId] = useState<Record<string, RunTraceEvent[]>>({});
+  const [traceLoadingRunId, setTraceLoadingRunId] = useState<string | null>(null);
+  const [traceError, setTraceError] = useState<string | null>(null);
+  const [runControlBusy, setRunControlBusy] = useState<{ runId: string; action: "cancel" | "retry" } | null>(null);
   const [portfolioPreview, setPortfolioPreview] =
     useState<LocalPortfolioSnapshotPreview | null>(null);
   const [portfolioState, setPortfolioState] =
@@ -143,6 +160,8 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
   const [purgeScope, setPurgeScope] = useState<PortfolioPurgeScope | null>(null);
   const activeStreams = useRef(new Map<string, AbortController>());
   const feedbackQueues = useRef(new Map<string, Promise<AgentFeedback>>());
+  const runControlLock = useRef<{ runId: string; action: "cancel" | "retry" } | null>(null);
+  const retryKeysBySource = useRef(new Map<string, string>());
   const runsRef = useRef<AgentRunView[]>([]);
   const selectedRunIdRef = useRef<string | null>(null);
   const latest = runs[0];
@@ -174,6 +193,9 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
         && existing.evidenceFingerprint === next.evidenceFingerprint
         && existing.feedback?.value === next.feedback?.value
         && existing.feedback?.updatedAt === next.feedback?.updatedAt
+        && existing.timing?.serverNow === next.timing?.serverNow
+        && existing.timing?.elapsedMs === next.timing?.elapsedMs
+        && existing.timing?.durationMs === next.timing?.durationMs
       ) {
         return current;
       }
@@ -198,6 +220,18 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
     try {
       await streamAgentRun(runId, {
         onStatus: updateRun,
+        onTrace: (event) => {
+          setStreamedTraceByRunId((current) => {
+            try {
+              return {
+                ...current,
+                [event.runId]: mergeRunTraceEvents(current[event.runId] ?? [], [event]),
+              };
+            } catch {
+              return current;
+            }
+          });
+        },
         onAnswerDelta: (delta) => {
           setStreamingAnswers((current) => ({
             ...current,
@@ -207,6 +241,9 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
         onDone: (run) => {
           updateRun(run);
           clearStreamingAnswer(runId);
+          void getAgentRunTrace(runId).then((trace) => {
+            setTraceByRunId((current) => ({ ...current, [runId]: trace }));
+          }).catch(() => undefined);
         },
       }, { signal: controller.signal });
       clearAgentIssue();
@@ -318,7 +355,7 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
   }, [refresh, refreshPortfolioPreview]);
 
   useEffect(() => {
-    for (const activeRun of runs.filter((run) => !["success", "partial", "failed"].includes(run.status))) {
+    for (const activeRun of runs.filter((run) => isCancellableRunStatus(run.status))) {
       void followRun(activeRun.id);
     }
   }, [followRun, runs]);
@@ -326,6 +363,25 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
   useEffect(() => {
     setSelectedEvidenceId(null);
     setEvidenceError(null);
+    setTraceError(null);
+  }, [selectedRun?.id]);
+
+  useEffect(() => {
+    if (!selectedRun?.id) return;
+    const controller = new AbortController();
+    setTraceLoadingRunId(selectedRun.id);
+    setTraceError(null);
+    void getAgentRunTrace(selectedRun.id, controller.signal)
+      .then((trace) => {
+        setTraceByRunId((current) => ({ ...current, [trace.runId]: trace }));
+      })
+      .catch((cause) => {
+        if (!controller.signal.aborted) setTraceError(cause instanceof Error ? cause.message : "无法读取服务器运行事件");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setTraceLoadingRunId((current) => current === selectedRun.id ? null : current);
+      });
+    return () => controller.abort();
   }, [selectedRun?.id]);
 
   useEffect(() => {
@@ -628,11 +684,84 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
     });
   }, [clearAgentIssue, reportAgentIssue]);
 
+  const cancelRun = useCallback(async (runId: string) => {
+    if (runControlLock.current) {
+      reportLocalIssue("另一条 Run 控制操作尚未完成。");
+      return;
+    }
+    const lock = { runId, action: "cancel" as const };
+    runControlLock.current = lock;
+    setRunControlBusy(lock);
+    try {
+      const result = await cancelAgentRun(runId);
+      const run = result.run ?? await getAgentRun(result.runId);
+      updateRun(run);
+      activeStreams.current.get(runId)?.abort();
+      clearStreamingAnswer(runId);
+      try {
+        const trace = await getAgentRunTrace(runId);
+        setTraceByRunId((current) => ({ ...current, [runId]: trace }));
+      } catch {
+        // The terminal Run state remains authoritative if a trace refresh is temporarily unavailable.
+      }
+      clearAgentIssue();
+    } catch (cause) {
+      reportAgentIssue(cause, "取消 Run 失败");
+      throw cause;
+    } finally {
+      runControlLock.current = null;
+      setRunControlBusy(null);
+    }
+  }, [clearAgentIssue, clearStreamingAnswer, reportAgentIssue, reportLocalIssue, updateRun]);
+
+  const retryRun = useCallback(async (runId: string) => {
+    if (runControlLock.current) {
+      reportLocalIssue("另一条 Run 控制操作尚未完成。");
+      throw new Error("已有 Run 控制操作正在进行。");
+    }
+    const lock = { runId, action: "retry" as const };
+    runControlLock.current = lock;
+    setRunControlBusy(lock);
+    const idempotencyKey = retryKeyForRun(retryKeysBySource.current, runId, undefined, window.sessionStorage);
+    try {
+      const result = await retryAgentRun(runId, idempotencyKey);
+      const run = result.run ?? await getAgentRun(result.runId);
+      updateRun(run);
+      selectedRunIdRef.current = run.id;
+      setSelectedRunId(run.id);
+      setSelectedEvidenceId(null);
+      clearRetryKeyForRun(retryKeysBySource.current, runId, window.sessionStorage);
+      clearAgentIssue();
+      return run.id;
+    } catch (cause) {
+      reportAgentIssue(cause, "重试 Run 失败");
+      throw cause;
+    } finally {
+      runControlLock.current = null;
+      setRunControlBusy(null);
+    }
+  }, [clearAgentIssue, reportAgentIssue, reportLocalIssue, updateRun]);
+
   const selectEvidence = useCallback((evidenceId: string | null) => {
     setSelectedEvidenceId(evidenceId);
   }, []);
 
   const events = useMemo(() => selectedRun?.result?.observations ?? [], [selectedRun]);
+  const selectedTrace = useMemo(() => {
+    if (!selectedRun) return null;
+    const persisted = traceByRunId[selectedRun.id];
+    const streamed = streamedTraceByRunId[selectedRun.id] ?? [];
+    if (!persisted) {
+      return selectedRun.timing && streamed.length
+        ? { runId: selectedRun.id, timing: selectedRun.timing, events: streamed }
+        : null;
+    }
+    return {
+      ...persisted,
+      timing: selectedRun.timing ?? persisted.timing,
+      events: mergeRunTraceEvents(persisted.events, streamed),
+    };
+  }, [selectedRun, streamedTraceByRunId, traceByRunId]);
   const askInstruments = useMemo(
     () => [...new Set([
       ...localWatchlist.map((item) => item.instrumentId),
@@ -667,6 +796,10 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
       exportBusy,
       exportNote,
       exportError,
+      trace: selectedTrace,
+      traceLoading: Boolean(selectedRun && traceLoadingRunId === selectedRun.id),
+      traceError,
+      runControlBusy,
     },
     watchlist: {
       items: localWatchlist,
@@ -693,6 +826,8 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
       removeRun,
       loadMoreRuns,
       saveFeedback,
+      cancelRun,
+      retryRun,
       updateRun,
       refreshPortfolioPreview: recheckPortfolioPreview,
       syncLocalPortfolioSnapshot,

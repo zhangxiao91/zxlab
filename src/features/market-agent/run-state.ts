@@ -1,4 +1,4 @@
-import type { AgentFeedback } from "@zxlab/market-agent-schema";
+import type { AgentFeedback, RunTraceEvent } from "@zxlab/market-agent-schema";
 import type { AgentRunView } from "./client";
 
 export function enqueueRunFeedback(
@@ -67,3 +67,61 @@ export function evidenceSelectionAfterRunSelection(
 ): string | null {
   return currentRunId === nextRunId ? currentEvidenceId : null;
 }
+
+export function mergeRunTraceEvents(
+  persisted: RunTraceEvent[],
+  streamed: RunTraceEvent[],
+): RunTraceEvent[] {
+  const byId = new Map<string, RunTraceEvent>();
+  const bySequence = new Map<number, string>();
+  for (const event of [...persisted, ...streamed]) {
+    const existingAtSequence = bySequence.get(event.sequence);
+    if (existingAtSequence && existingAtSequence !== event.id) throw new Error("RUN_TRACE_SEQUENCE_CONFLICT");
+    const existingById = byId.get(event.id);
+    if (existingById && existingById.sequence !== event.sequence) throw new Error("RUN_TRACE_ID_CONFLICT");
+    bySequence.set(event.sequence, event.id);
+    byId.set(event.id, event);
+  }
+  return [...byId.values()].sort((left, right) => (
+    left.sequence - right.sequence || left.id.localeCompare(right.id)
+  ));
+}
+
+export function retryKeyForRun(
+  keys: Map<string, string>,
+  sourceRunId: string,
+  create: () => string = () => `retry:${sourceRunId}:${crypto.randomUUID()}`,
+  storage?: Pick<Storage, "getItem" | "setItem">,
+): string {
+  const existing = keys.get(sourceRunId);
+  if (existing) return existing;
+  const persisted = readRetryKey(storage, sourceRunId);
+  if (persisted) {
+    keys.set(sourceRunId, persisted);
+    return persisted;
+  }
+  const created = create();
+  keys.set(sourceRunId, created);
+  try { storage?.setItem(retryStorageKey(sourceRunId), created); } catch { /* storage unavailable */ }
+  return created;
+}
+
+export function clearRetryKeyForRun(
+  keys: Map<string, string>,
+  sourceRunId: string,
+  storage?: Pick<Storage, "removeItem">,
+): void {
+  keys.delete(sourceRunId);
+  try { storage?.removeItem(retryStorageKey(sourceRunId)); } catch { /* storage unavailable */ }
+}
+
+function readRetryKey(storage: Pick<Storage, "getItem"> | undefined, sourceRunId: string): string | null {
+  try {
+    const value = storage?.getItem(retryStorageKey(sourceRunId));
+    return typeof value === "string" && /^[A-Za-z0-9._:-]{8,180}$/.test(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function retryStorageKey(sourceRunId: string): string { return `zxlab:market-agent:retry:${sourceRunId}`; }

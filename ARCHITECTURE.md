@@ -151,6 +151,14 @@ or fact quality. The Agent seals the returned Bundle and fingerprint alongside
 the current Snapshot before narration, so retry and replay never re-fetch newer
 research material.
 
+Each Market Agent Run also owns a bounded `RunTraceEvent` ledger. Lifecycle
+transitions, automatic recovery, user cancellation, and terminal completion are
+written by the Worker at the same persistence seam as Run state. The browser
+renders this trace and server timing directly; it does not infer stages or
+fabricate tool activity from the latest status. User retry creates a new,
+idempotent revision linked to the prior Run, while automatic Queue recovery
+continues the same Run and reuses sealed Evidence.
+
 The internal research route uses a dedicated Market-to-Agent credential. It is
 not a browser route and does not reuse the Runtime health identity.
 

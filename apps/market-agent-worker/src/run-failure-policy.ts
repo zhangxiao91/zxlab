@@ -17,6 +17,5 @@ export async function settleRunFailure(
     await runs.fail(runId, leaseToken, research.code);
     return "ack";
   }
-  await runs.defer(runId, leaseToken, research?.code ?? fallbackCode);
-  return "retry";
+  return await runs.defer(runId, leaseToken, research?.code ?? fallbackCode) ? "retry" : "ack";
 }

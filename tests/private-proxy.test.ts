@@ -257,6 +257,10 @@ test("private Market Agent allowlist admits the bounded Ask lifecycle only", asy
     { path: "ask", method: "POST" },
     { path: "runs/run-1/evidence", method: "GET" },
     { path: "runs/run-1/stream", method: "GET" },
+    { path: "runs/run-1/trace", method: "GET" },
+    { path: "runs/run-1/cancel", method: "POST" },
+    { path: "runs/run-1/retry", method: "POST" },
+    { path: "runs/run-1/rerun", method: "POST" },
   ] as const;
 
   for (const item of paths) {
@@ -292,6 +296,29 @@ test("private Market Agent allowlist admits the bounded Ask lifecycle only", asy
     assert.equal(forwardedPath, `/api/v1/private/market-agent/${item.path}`);
     if (item.path.endsWith("/stream")) assert.match(response.headers.get("content-type") ?? "", /^text\/event-stream/);
   }
+});
+
+test("private Market Agent control routes reject the wrong HTTP method", async () => {
+  let called = false;
+  const requests = [
+    new Request("https://beta.zxlab.pages.dev/api/private/market-agent/runs/run-1/trace", { method: "POST", body: "{}" }),
+    new Request("https://beta.zxlab.pages.dev/api/private/market-agent/runs/run-1/cancel"),
+    new Request("https://beta.zxlab.pages.dev/api/private/market-agent/runs/run-1/retry"),
+    new Request("https://beta.zxlab.pages.dev/api/private/market-agent/runs/run-1/rerun"),
+    new Request("https://beta.zxlab.pages.dev/api/private/market-agent/runs/run-1/feedback"),
+  ];
+
+  for (const request of requests) {
+    const rawPath = new URL(request.url).pathname.replace("/api/private/market-agent/", "");
+    const response = await proxyPrivateRequest(
+      { request, env },
+      "market-agent",
+      rawPath,
+      { verifyAccess, fetcher: async () => { called = true; return new Response(); } },
+    );
+    assert.equal(response.status, 404, `${request.method} ${rawPath}`);
+  }
+  assert.equal(called, false);
 });
 
 test("private Market Agent allowlist admits the read-only quality summary", async () => {

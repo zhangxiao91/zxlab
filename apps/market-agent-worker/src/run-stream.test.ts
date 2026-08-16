@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { AgentRun, RunStatus } from "@zxlab/market-agent-schema";
+import type { AgentRun, RunStatus, RunTraceEvent } from "@zxlab/market-agent-schema";
 import { createRunEventStream } from "./run-stream.ts";
 
 test("Run stream emits real statuses, answer deltas, and the terminal Run", async () => {
@@ -15,6 +15,9 @@ test("Run stream emits real statuses, answer deltas, and the terminal Run", asyn
   const repository = {
     async get() {
       return run(statuses.shift() ?? "success");
+    },
+    async listTraceAfter(_runId: string, _profileId: string, afterSequence: number) {
+      return traceEvents().filter((event) => event.sequence > afterSequence);
     },
   };
   const response = createRunEventStream(
@@ -37,7 +40,18 @@ test("Run stream emits real statuses, answer deltas, and the terminal Run", asyn
   );
   assert.equal(events.at(-1)?.name, "done");
   assert.equal(events.at(-1)?.data.run.status, "success");
+  assert.deepEqual(
+    events.filter((event) => event.name === "trace").map((event) => event.data.event.sequence),
+    [1, 2],
+  );
 });
+
+function traceEvents(): RunTraceEvent[] {
+  return [
+    { id: "trace-1", runId: "run-1", sequence: 1, type: "run_created", stage: "queued", attempt: 0, recoveryGeneration: 0, occurredAt: "2026-08-11T08:00:00.000Z", provenance: { source: "market-agent-worker", operation: "run.create" } },
+    { id: "trace-2", runId: "run-1", sequence: 2, type: "stage_started", stage: "collecting", attempt: 1, recoveryGeneration: 0, occurredAt: "2026-08-11T08:00:01.000Z", provenance: { source: "market-agent-worker", operation: "run.claim" } },
+  ];
+}
 
 function run(status: RunStatus): AgentRun {
   return {

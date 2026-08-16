@@ -22,7 +22,108 @@ export type AgentWorkflow = "morning_brief" | "close_review" | "inspect_instrume
 export type RunTrigger = "manual" | "scheduled" | "bot";
 export type AgentFeedbackValue = "helpful" | "fact_error" | "missing_factor";
 export interface AgentFeedback { value: AgentFeedbackValue; updatedAt: string; }
-export type RunStatus = "queued" | "collecting" | "evidence_sealed" | "generating" | "validating" | "retry_wait" | "success" | "partial" | "failed";
+export type RunStatus = "queued" | "collecting" | "evidence_sealed" | "generating" | "validating" | "retry_wait" | "success" | "partial" | "failed" | "cancelled";
+export type RunTraceEventType = "run_created" | "stage_started" | "stage_completed" | "retry_scheduled" | "cancel_requested" | "run_cancelled" | "run_completed" | "run_failed";
+export type RunTraceOperation = "run.create" | "run.claim" | "run.collect" | "evidence.seal" | "narration.generate" | "result.validate" | "run.retry" | "run.cancel" | "run.complete" | "run.fail";
+type ActiveRunStatus = Exclude<RunStatus, "success" | "partial" | "failed" | "cancelled">;
+type ExecutingRunStatus = Exclude<ActiveRunStatus, "queued" | "retry_wait">;
+interface RunTraceEventBase {
+  id: string;
+  runId: string;
+  sequence: number;
+  attempt: number;
+  recoveryGeneration: number;
+  occurredAt: string;
+  provenance: { source: "market-agent-worker"; operation: RunTraceOperation };
+}
+export type RunTraceEvent = RunTraceEventBase & (
+  | { type: "run_created"; stage: "queued"; durationMs?: never; code?: never }
+  | { type: "stage_started"; stage: ExecutingRunStatus; durationMs?: never; code?: never }
+  | { type: "stage_completed"; stage: ActiveRunStatus; durationMs: number; code?: string }
+  | { type: "retry_scheduled"; stage: "retry_wait"; durationMs?: never; code?: string }
+  | { type: "cancel_requested"; stage: ActiveRunStatus; durationMs?: never; code?: never }
+  | { type: "run_cancelled"; stage: "cancelled"; durationMs: number; code?: never }
+  | { type: "run_completed"; stage: "success" | "partial"; durationMs: number; code?: never }
+  | { type: "run_failed"; stage: "failed"; durationMs: number; code: string }
+);
+export interface RunTiming {
+  queuedAt: string;
+  startedAt: string | null;
+  updatedAt: string;
+  completedAt: string | null;
+  elapsedMs: number;
+  durationMs: number | null;
+  serverNow: string;
+}
+export interface RunTrace { runId: string; timing: RunTiming; events: RunTraceEvent[]; }
+
+const runTraceEventTypes = new Set<RunTraceEventType>(["run_created", "stage_started", "stage_completed", "retry_scheduled", "cancel_requested", "run_cancelled", "run_completed", "run_failed"]);
+const runTraceOperations = new Set<RunTraceOperation>(["run.create", "run.claim", "run.collect", "evidence.seal", "narration.generate", "result.validate", "run.retry", "run.cancel", "run.complete", "run.fail"]);
+const runStatuses = new Set<RunStatus>(["queued", "collecting", "evidence_sealed", "generating", "validating", "retry_wait", "success", "partial", "failed", "cancelled"]);
+
+export function isRunStatus(value: unknown): value is RunStatus {
+  return typeof value === "string" && runStatuses.has(value as RunStatus);
+}
+
+export function isRunTraceEvent(value: unknown): value is RunTraceEvent {
+  if (!value || typeof value !== "object") return false;
+  const event = value as Record<string, unknown>;
+  const provenance = event.provenance as Record<string, unknown> | undefined;
+  const allowedKeys = new Set(["id", "runId", "sequence", "type", "stage", "attempt", "recoveryGeneration", "occurredAt", "durationMs", "provenance", "code"]);
+  if (Object.keys(event).some((key) => !allowedKeys.has(key))
+    || !provenance || Object.keys(provenance).length !== 2 || !("source" in provenance) || !("operation" in provenance)
+    || !boundedTraceIdentifier(event.id) || !boundedTraceIdentifier(event.runId)
+    || !Number.isSafeInteger(event.sequence) || Number(event.sequence) <= 0
+    || !runTraceEventTypes.has(event.type as RunTraceEventType)
+    || !isRunStatus(event.stage)
+    || !boundedIsoTimestamp(event.occurredAt)
+    || !boundedCounter(event.attempt) || !boundedCounter(event.recoveryGeneration)
+    || (event.durationMs !== undefined && !boundedDuration(event.durationMs))
+    || (event.code !== undefined && !boundedErrorCode(event.code))
+    || provenance?.source !== "market-agent-worker"
+    || !runTraceOperations.has(provenance.operation as RunTraceOperation)) return false;
+  const hasDuration = boundedDuration(event.durationMs);
+  if (event.type === "run_created") return event.stage === "queued" && event.durationMs === undefined && event.code === undefined;
+  if (event.type === "stage_started") return ["collecting", "evidence_sealed", "generating", "validating"].includes(String(event.stage)) && event.durationMs === undefined && event.code === undefined;
+  if (event.type === "stage_completed") return ["queued", "collecting", "evidence_sealed", "generating", "validating", "retry_wait"].includes(String(event.stage)) && hasDuration;
+  if (event.type === "retry_scheduled") return event.stage === "retry_wait" && event.durationMs === undefined;
+  if (event.type === "cancel_requested") return isCancellableRunStatus(String(event.stage)) && event.durationMs === undefined && event.code === undefined;
+  if (event.type === "run_cancelled") return event.stage === "cancelled" && hasDuration && event.code === undefined;
+  if (event.type === "run_completed") return (event.stage === "success" || event.stage === "partial") && hasDuration && event.code === undefined;
+  return event.type === "run_failed" && event.stage === "failed" && hasDuration && boundedErrorCode(event.code);
+}
+
+export function isRunTiming(value: unknown): value is RunTiming {
+  if (!value || typeof value !== "object") return false;
+  const timing = value as Record<string, unknown>;
+  return boundedIsoTimestamp(timing.queuedAt)
+    && (timing.startedAt === null || boundedIsoTimestamp(timing.startedAt))
+    && boundedIsoTimestamp(timing.updatedAt)
+    && (timing.completedAt === null || boundedIsoTimestamp(timing.completedAt))
+    && boundedDuration(timing.elapsedMs)
+    && (timing.durationMs === null || boundedDuration(timing.durationMs))
+    && boundedIsoTimestamp(timing.serverNow);
+}
+
+export function isRunTrace(value: unknown): value is RunTrace {
+  if (!value || typeof value !== "object") return false;
+  const trace = value as Record<string, unknown>;
+  if (!boundedTraceIdentifier(trace.runId) || !isRunTiming(trace.timing) || !Array.isArray(trace.events) || !trace.events.every(isRunTraceEvent)) return false;
+  let previousSequence = 0;
+  const ids = new Set<string>();
+  for (const event of trace.events) {
+    if (event.runId !== trace.runId || event.sequence <= previousSequence || ids.has(event.id)) return false;
+    previousSequence = event.sequence;
+    ids.add(event.id);
+  }
+  return true;
+}
+
+function boundedTraceIdentifier(value: unknown): value is string { return typeof value === "string" && /^[A-Za-z0-9._:-]{1,128}$/.test(value); }
+function boundedIsoTimestamp(value: unknown): value is string { return typeof value === "string" && value.length <= 40 && Number.isFinite(Date.parse(value)); }
+function boundedCounter(value: unknown): value is number { return Number.isSafeInteger(value) && Number(value) >= 0 && Number(value) <= 100; }
+function boundedDuration(value: unknown): value is number { return Number.isSafeInteger(value) && Number(value) >= 0; }
+function boundedErrorCode(value: unknown): value is string { return typeof value === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(value); }
 export type EvidenceKind = "market_fact" | "market_event" | "snapshot_diff" | "portfolio_impact" | "confirmed_context" | "limitation" | "execution_plan" | "prior_run";
 export type ObservationClass = "fact" | "inference" | "unknown";
 export type ObservationImportance = "high" | "medium" | "low";
@@ -178,7 +279,19 @@ export interface PortfolioSnapshot extends Omit<PortfolioSnapshotUpload, "client
   stoppedAt: string | null;
 }
 export interface PortfolioSnapshotUploadValidation { snapshot: PortfolioSnapshotUpload | null; issues: string[]; }
-export interface AgentRun { id: string; profileId: string; workflow: AgentWorkflow; trigger: RunTrigger; status: RunStatus; idempotencyKey: string; commandHash: string; revisionOfRunId: string | null; portfolioSnapshotId: string | null; attempt: number; recoveryGeneration: number; createdAt: string; updatedAt: string; evidenceFingerprint: string | null; failure: { code: string; retryable: boolean } | null; result?: AgentResult; }
+export interface AgentRun { id: string; profileId: string; workflow: AgentWorkflow; trigger: RunTrigger; status: RunStatus; idempotencyKey: string; commandHash: string; revisionOfRunId: string | null; portfolioSnapshotId: string | null; attempt: number; recoveryGeneration: number; createdAt: string; updatedAt: string; evidenceFingerprint: string | null; failure: { code: string; retryable: boolean } | null; timing?: RunTiming; result?: AgentResult; }
+
+export function isTerminalRunStatus(status: string): status is Extract<RunStatus, "success" | "partial" | "failed" | "cancelled"> {
+  return status === "success" || status === "partial" || status === "failed" || status === "cancelled";
+}
+
+export function isCancellableRunStatus(status: string): status is Exclude<RunStatus, "success" | "partial" | "failed" | "cancelled"> {
+  return status === "queued" || status === "collecting" || status === "evidence_sealed" || status === "generating" || status === "validating" || status === "retry_wait";
+}
+
+export function isRetryableRunStatus(status: string): status is Extract<RunStatus, "failed" | "cancelled"> {
+  return status === "failed" || status === "cancelled";
+}
 
 export function compatibleAgentResult(result: AgentResult): AgentResult {
   const compatible = result.outcome ? result : compatibleLegacyOutcome(result);

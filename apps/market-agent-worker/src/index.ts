@@ -1,4 +1,4 @@
-import { isMarketAgentAskCommand, normalizePortfolioSnapshotUpload, subjectHash, validateBrowserAskIntent, validateBrowserRunIntent, type BrowserAskIntent, type BrowserRunIntent, type MarketAgentCommand } from "@zxlab/market-agent-schema";
+import { isMarketAgentAskCommand, isRetryableRunStatus, isTerminalRunStatus, normalizePortfolioSnapshotUpload, subjectHash, validateBrowserAskIntent, validateBrowserRunIntent, type BrowserAskIntent, type BrowserRunIntent, type MarketAgentCommand } from "@zxlab/market-agent-schema";
 import { MemoryRunRepository } from "./foundation.ts";
 import { D1RunRepository } from "./d1-repository.ts";
 import { CloseReviewService } from "./close-review.ts";
@@ -132,13 +132,26 @@ export default {
         const evidence = await runs.getEvidence(evidenceMatch[1], profile.profileId);
         return evidence ? json({ runId: evidenceMatch[1], evidence }) : json({ error: "NOT_FOUND" }, 404);
       }
+      const traceMatch = path.match(/^\/runs\/([^/]+)\/trace$/);
+      if (traceMatch && request.method === "GET") {
+        const trace = await runs.getTrace(traceMatch[1], profile.profileId);
+        return trace ? json(trace) : json({ error: "NOT_FOUND" }, 404);
+      }
+      const cancelMatch = path.match(/^\/runs\/([^/]+)\/cancel$/);
+      if (cancelMatch && request.method === "POST") {
+        const outcome = await runs.cancel(cancelMatch[1], profile.profileId);
+        if (outcome.kind === "not_found") return json({ error: "NOT_FOUND" }, 404);
+        if (outcome.kind === "conflict") return json({ error: "RUN_NOT_CANCELLABLE", status: outcome.status }, 409);
+        return json({ run: outcome.run, cancelled: outcome.kind === "cancelled" });
+      }
+      const retry = path.match(/^\/runs\/([^/]+)\/(?:retry|rerun)$/);
+      if (retry && request.method === "POST") return retryRun(request, env, runs, snapshots, profile.profileId, retry[1]);
       const match = path.match(/^\/runs\/([^/]+)$/); if (match && request.method === "GET") { const run = await archive.get(profile.profileId, match[1]); return run ? json(run) : json({ error: "NOT_FOUND" }, 404); }
       if (match && request.method === "DELETE") { const tombstone = await archive.purgeRunPayload(profile.profileId, match[1]); return tombstone ? json({ ok: true, tombstone }) : json({ error: "NOT_FOUND" }, 404); }
       const feedback = path.match(/^\/runs\/([^/]+)\/feedback$/);
       if (feedback && request.method === "POST") {
         return handleRunFeedbackRequest(request, runs, feedback[1], profile.profileId);
       }
-      const rerun = path.match(/^\/runs\/([^/]+)\/rerun$/); if (rerun && request.method === "POST") { const prior = await runs.get(rerun[1]); const priorCommand = await runs.getCommand(rerun[1]); if (prior?.profileId !== profile.profileId || !priorCommand) return json({ error: "NOT_FOUND" }, 404); const command = { ...priorCommand, trigger: "manual" as const, idempotencyKey: `rerun:${prior.id}:${crypto.randomUUID()}` }; const portfolioSnapshot = await snapshots.getCurrent(profile.profileId); const created = await runs.createQueued(command, { command, actorScope: profile.profileId, commandHash: await sha256(command), revisionOfRunId: prior.id, portfolioSnapshotId: isMarketAgentAskCommand(command) && !askEvidencePlan(command.scope).requiresPortfolioSnapshot ? null : portfolioSnapshot?.id ?? null }); await relayOutbox(env, runs); return json({ runId: created.run.id, status: created.run.status, revisionOfRunId: prior.id }, 202); }
       return json({ error: "NOT_FOUND" }, 404);
     } catch (cause) { const code = cause instanceof Error ? cause.message : "INTERNAL_ERROR"; if (code === "ACTOR_SCOPE_REQUIRED") return json({ error: code }, 403); if (code.startsWith("ACTOR_")) return json({ error: code }, 401); if (code === "INVALID_WATCHLIST" || code.startsWith("INVALID_PORTFOLIO") || code === "RUN_ARCHIVE_CURSOR_INVALID") return json({ error: code }, 400); if (code === "IDEMPOTENCY_KEY_REUSED" || code === "PORTFOLIO_SNAPSHOT_NOT_CURRENT") return json({ error: code }, 409); return json({ error: "INTERNAL_ERROR" }, 500); }
   },
@@ -202,8 +215,23 @@ export async function processRun(runId: string, env: Env): Promise<"ack" | "retr
 }
 
 export async function processQueue(batch: MessageBatch<RunMessage>, env: Env): Promise<void> { for (const message of batch.messages) { const body = message.body; if (!body || typeof body.runId !== "string") { message.ack(); continue; } const disposition = await processRun(body.runId, env); if (disposition === "ack") message.ack(); else message.retry({ delaySeconds: 30 }); } }
-export async function processDeadLetters(batch: MessageBatch<RunMessage>, env: Env): Promise<void> { if (!env.DB) return; const runs = new D1RunRepository(env.DB); for (const message of batch.messages) { const body = message.body; const run = body?.runId ? await runs.get(body.runId) : null; const status = !run ? "orphaned" : ["success", "partial", "failed"].includes(run.status) ? "resolved_terminal" : "deferred_active_lease"; await runs.recordDeadLetter({ messageId: message.id, runId: body?.runId ?? null, generation: body?.generation ?? 0, status, errorCode: "QUEUE_RETRIES_EXHAUSTED" }); message.ack(); } await runs.sweepExpired(new Date().toISOString(), Number(env.MARKET_AGENT_MAX_RECOVERY_GENERATIONS ?? 2)); await relayOutbox(env, runs); }
-export async function relayOutbox(env: Env, runs = new D1RunRepository(env.DB)): Promise<void> { if (!env.MARKET_AGENT_RUNS) return; for (const item of await runs.pendingDispatches()) { const run = await runs.get(item.runId); if (!run || ["success", "partial", "failed"].includes(run.status)) { await runs.markDispatchSent(item.id); continue; } try { await env.MARKET_AGENT_RUNS.send({ runId: item.runId, generation: item.generation, kind: item.kind }); await runs.markDispatchSent(item.id); } catch { await runs.markDispatchError(item.id, "QUEUE_SEND_FAILED"); } } }
+export async function processDeadLetters(batch: MessageBatch<RunMessage>, env: Env): Promise<void> { if (!env.DB) return; const runs = new D1RunRepository(env.DB); for (const message of batch.messages) { const body = message.body; const run = body?.runId ? await runs.get(body.runId) : null; const status = !run ? "orphaned" : isTerminalRunStatus(run.status) ? "resolved_terminal" : "deferred_active_lease"; await runs.recordDeadLetter({ messageId: message.id, runId: body?.runId ?? null, generation: body?.generation ?? 0, status, errorCode: "QUEUE_RETRIES_EXHAUSTED" }); message.ack(); } await runs.sweepExpired(new Date().toISOString(), Number(env.MARKET_AGENT_MAX_RECOVERY_GENERATIONS ?? 2)); await relayOutbox(env, runs); }
+export async function relayOutbox(env: Env, runs = new D1RunRepository(env.DB)): Promise<void> { if (!env.MARKET_AGENT_RUNS) return; for (const item of await runs.pendingDispatches()) { const run = await runs.get(item.runId); if (!run || isTerminalRunStatus(run.status)) { await runs.markDispatchSent(item.id); continue; } try { await env.MARKET_AGENT_RUNS.send({ runId: item.runId, generation: item.generation, kind: item.kind }); await runs.markDispatchSent(item.id); } catch { await runs.markDispatchError(item.id, "QUEUE_SEND_FAILED"); } } }
+
+async function retryRun(request: Request, env: Env, runs: D1RunRepository, snapshots: D1PortfolioSnapshotRepository, profileId: string, priorRunId: string): Promise<Response> {
+  let body: { idempotencyKey?: unknown };
+  try { body = await request.json() as { idempotencyKey?: unknown }; } catch { return json({ error: "INVALID_JSON" }, 400); }
+  if (typeof body.idempotencyKey !== "string" || !/^[A-Za-z0-9._:-]{8,180}$/.test(body.idempotencyKey)) return json({ error: "INVALID_IDEMPOTENCY_KEY" }, 400);
+  const prior = await runs.get(priorRunId);
+  const priorCommand = await runs.getCommand(priorRunId);
+  if (prior?.profileId !== profileId || !priorCommand) return json({ error: "NOT_FOUND" }, 404);
+  if (!isRetryableRunStatus(prior.status)) return json({ error: "RUN_NOT_RETRYABLE", status: prior.status }, 409);
+  const command = { ...priorCommand, trigger: "manual" as const, idempotencyKey: body.idempotencyKey };
+  const portfolioSnapshot = await snapshots.getCurrent(profileId);
+  const created = await runs.createQueued(command, { command, actorScope: profileId, commandHash: await sha256({ command, revisionOfRunId: prior.id }), revisionOfRunId: prior.id, portfolioSnapshotId: isMarketAgentAskCommand(command) && !askEvidencePlan(command.scope).requiresPortfolioSnapshot ? null : portfolioSnapshot?.id ?? null });
+  await relayOutbox(env, runs);
+  return json({ runId: created.run.id, status: created.run.status, revisionOfRunId: prior.id, created: created.created }, 202);
+}
 
 function marketAgentProxySecret(env: Env): string { const secret = env.MARKET_AGENT_PROXY_TOKEN?.trim(); if (!secret) throw new Error("ACTOR_ENVELOPE_MISSING"); return secret; }
 function privatePath(pathname: string): string { return pathname.replace(/^\/api\/v1\/private\/market-agent/, "") || "/"; }

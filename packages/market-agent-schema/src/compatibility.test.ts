@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { compatibleAgentResult, createResearchReportV2, type AgentResult, type SealedEvidenceBundle } from "./index.ts";
+import { compatibleAgentResult, createResearchReportV2, isCancellableRunStatus, isRetryableRunStatus, isRunTraceEvent, isTerminalRunStatus, type AgentResult, type SealedEvidenceBundle } from "./index.ts";
 
 function legacy(limitations: string[]): AgentResult {
   return { status: "partial", headline: "legacy", summary: "legacy", observations: [], portfolioImpacts: [], watchNext: [], limitations, evidenceFingerprint: "sha256:legacy", mode: "market-only" };
@@ -127,4 +127,32 @@ test("Research Report sources retain quote source and corroborating providers", 
   assert.deepEqual(report.sources[0]?.providers, ["normalized-provider", "primary-feed", "secondary-feed"]);
   assert.equal(report.sources[0]?.asOf, "2026-08-15T07:00:00.000Z");
   assert.equal(report.sources[0]?.retrievedAt, "2026-08-15T07:00:02.000Z");
+});
+
+test("Run lifecycle classification includes durable cancellation", () => {
+  assert.equal(isTerminalRunStatus("cancelled"), true);
+  assert.equal(isTerminalRunStatus("retry_wait"), false);
+  assert.equal(isCancellableRunStatus("queued"), true);
+  assert.equal(isCancellableRunStatus("validating"), true);
+  assert.equal(isCancellableRunStatus("cancelled"), false);
+  assert.equal(isRetryableRunStatus("failed"), true);
+  assert.equal(isRetryableRunStatus("cancelled"), true);
+  assert.equal(isRetryableRunStatus("success"), false);
+});
+
+test("Run trace validation rejects unbounded extra fields", () => {
+  const event = {
+    id: "trace-1",
+    runId: "run-1",
+    sequence: 1,
+    type: "run_created",
+    stage: "queued",
+    attempt: 0,
+    recoveryGeneration: 0,
+    occurredAt: "2026-08-16T00:00:00.000Z",
+    provenance: { source: "market-agent-worker", operation: "run.create" },
+  };
+  assert.equal(isRunTraceEvent(event), true);
+  assert.equal(isRunTraceEvent({ ...event, thought: "private" }), false);
+  assert.equal(isRunTraceEvent({ ...event, provenance: { ...event.provenance, rawText: "private" } }), false);
 });

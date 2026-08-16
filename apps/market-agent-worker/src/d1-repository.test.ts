@@ -239,7 +239,7 @@ test("checkpoint write reports a lost lease instead of claiming sealed state", a
   const statements: string[] = [];
   const db = {
     prepare(sql: string) { statements.push(sql); return { bind() { return {}; } }; },
-    async batch() { return [{ meta: { changes: 0 } }, {}, {}]; },
+    async batch() { return [{}, { meta: { changes: 0 } }, {}, {}]; },
   } as unknown as D1Database;
 
   const checkpoint = await createRunCheckpoint(checkpointSnapshot(), checkpointEvidence());
@@ -251,8 +251,8 @@ test("checkpoint write reports a lost lease instead of claiming sealed state", a
   );
 
   assert.equal(stored, false);
-  assert.match(statements[0] ?? "", /NOT EXISTS \(SELECT 1 FROM run_market_snapshots/);
-  assert.match(statements[1] ?? "", /ON CONFLICT\(run_id\) DO NOTHING/);
+  assert.ok(statements.some((sql) => /NOT EXISTS \(SELECT 1 FROM run_market_snapshots/.test(sql)));
+  assert.ok(statements.some((sql) => /ON CONFLICT\(run_id\) DO NOTHING/.test(sql)));
   assert.equal(statements.some((sql) => sql.startsWith("DELETE FROM run_market")), false);
 });
 
@@ -280,6 +280,140 @@ test("quality metrics separate model completion from deterministic fallback", as
 
   assert.deepEqual(metrics, { total: 2, completed: 2, model: 1, modelRepaired: 0, deterministicFallback: 1, evidenceSufficient: 2, providerFallback: 1, portfolioAware: 0 });
   assert.deepEqual(boundValues, ["profile-owner", 50]);
+});
+
+test("Run trace is profile-scoped, sequence ordered, and exposes server timing", async () => {
+  const run = {
+    ...runRepositoryRow("run-trace", "profile-owner"),
+    status: "success",
+    created_at: "2026-08-15T00:00:00.000Z",
+    started_at: "2026-08-15T00:00:01.000Z",
+    updated_at: "2026-08-15T00:00:04.000Z",
+    completed_at: "2026-08-15T00:00:04.000Z",
+    duration_ms: 4000,
+  };
+  const traceRows = [
+    traceRow(7, "stage_started", "collecting", "2026-08-15T00:00:01.000Z", "run.claim"),
+    traceRow(9, "run_completed", "success", "2026-08-15T00:00:04.000Z", "run.complete", 4000),
+  ];
+  const statements: string[] = [];
+  const db = {
+    prepare(sql: string) {
+      statements.push(sql);
+      return {
+        bind() {
+          return {
+            async first() { return sql.includes("FROM agent_runs") ? run : null; },
+            async all() { return { results: traceRows }; },
+          };
+        },
+      };
+    },
+  } as unknown as D1Database;
+
+  const trace = await new D1RunRepository(db).getTrace(
+    "run-trace",
+    "profile-owner",
+    "2026-08-15T00:00:05.000Z",
+  );
+
+  assert.equal(trace?.runId, "run-trace");
+  assert.deepEqual(trace?.events.map((event) => event.sequence), [7, 9]);
+  assert.equal(trace?.events[1]?.durationMs, 4000);
+  assert.deepEqual(trace?.timing, {
+    queuedAt: "2026-08-15T00:00:00.000Z",
+    startedAt: "2026-08-15T00:00:01.000Z",
+    updatedAt: "2026-08-15T00:00:04.000Z",
+    completedAt: "2026-08-15T00:00:04.000Z",
+    elapsedMs: 3000,
+    durationMs: 4000,
+    serverNow: "2026-08-15T00:00:05.000Z",
+  });
+  assert.ok(statements.every((sql) => !sql.includes("run_trace_events") || sql.includes("profile_id = ?")));
+});
+
+test("Run trace fails closed when a persisted event is invalid", async () => {
+  const run = runRepositoryRow("run-trace", "profile-owner");
+  const corrupt = { ...traceRow(1, "stage_started", "collecting", "2026-08-15T00:00:01.000Z", "run.claim"), source: "untrusted-source" };
+  const db = {
+    prepare(sql: string) {
+      return {
+        bind() {
+          return {
+            async first() { return sql.includes("FROM agent_runs") ? run : null; },
+            async all() { return { results: [corrupt] }; },
+          };
+        },
+      };
+    },
+  } as unknown as D1Database;
+
+  await assert.rejects(
+    new D1RunRepository(db).getTrace("run-trace", "profile-owner"),
+    /RUN_TRACE_CORRUPT/,
+  );
+});
+
+test("cancelling an active Run is durable, idempotent, and fences its old lease", async () => {
+  const row: Record<string, unknown> = {
+    ...runRepositoryRow("run-cancel", "profile-owner"),
+    status: "generating",
+    lease_token: "old-lease",
+    started_at: "2026-08-15T00:00:01.000Z",
+    updated_at: "2026-08-15T00:00:02.000Z",
+    completed_at: null,
+    duration_ms: null,
+  };
+  const statements: string[] = [];
+  const db = {
+    prepare(sql: string) {
+      statements.push(sql);
+      return {
+        bind(...values: unknown[]) {
+          return {
+            async first() { return sql.includes("FROM agent_runs") ? row : null; },
+            async run() {
+              if (sql.startsWith("UPDATE agent_runs SET status = 'cancelled'")) {
+                if (row.status === "cancelled") return { meta: { changes: 0 } };
+                row.status = "cancelled";
+                row.lease_token = null;
+                row.updated_at = String(values[0]);
+                row.completed_at = String(values[0]);
+                row.duration_ms = 4000;
+                return { meta: { changes: 1 } };
+              }
+              if (sql.startsWith("UPDATE agent_runs SET status = ?")) return { meta: { changes: 0 } };
+              return { meta: { changes: 1 } };
+            },
+          };
+        },
+      };
+    },
+    async batch(items: Array<{ run?: () => Promise<unknown> }>) {
+      return Promise.all(items.map((item) => item.run?.() ?? {}));
+    },
+  } as unknown as D1Database;
+  const repository = new D1RunRepository(db);
+
+  const first = await repository.cancel("run-cancel", "profile-owner", "2026-08-15T00:00:04.000Z");
+  const second = await repository.cancel("run-cancel", "profile-owner", "2026-08-15T00:00:05.000Z");
+  const staleCompletion = await repository.complete("run-cancel", "old-lease", checkpointEvidence(), {
+    status: "success",
+    headline: "stale",
+    summary: "stale",
+    observations: [],
+    portfolioImpacts: [],
+    watchNext: [],
+    limitations: [],
+    evidenceFingerprint: "sha256:evidence",
+    mode: "market-only",
+  });
+
+  assert.equal(first.kind, "cancelled");
+  assert.equal(first.kind === "cancelled" ? first.run.status : null, "cancelled");
+  assert.equal(second.kind, "already_cancelled");
+  assert.equal(staleCompletion, false);
+  assert.ok(statements.some((sql) => sql.includes("lease_token = NULL") && sql.includes("lease_expires_at = NULL")));
 });
 
 function checkpointSnapshot(): MarketSnapshot {
@@ -312,6 +446,31 @@ function runRepositoryRow(id: string, profileId: string): Record<string, unknown
     updated_at: "2026-08-15T00:00:00.000Z",
     evidence_fingerprint: null,
     failure_json: null,
+  };
+}
+
+function traceRow(
+  sequence: number,
+  type: string,
+  stage: string,
+  occurredAt: string,
+  operation: string,
+  durationMs: number | null = null,
+): Record<string, unknown> {
+  return {
+    sequence,
+    id: `trace-${sequence}`,
+    run_id: "run-trace",
+    profile_id: "profile-owner",
+    type,
+    stage,
+    attempt: 1,
+    recovery_generation: 0,
+    occurred_at: occurredAt,
+    duration_ms: durationMs,
+    source: "market-agent-worker",
+    operation,
+    code: null,
   };
 }
 
