@@ -133,13 +133,33 @@ export class ResearchFactPlane implements ResearchFactPlaneInterface {
       let bars: NormalizedDailyBar[];
       try {
         assertHistoryIntegrity(result, instrumentId);
-        bars = canonicalBars(result.bars, plan.request.observationCutoff);
+        bars = canonicalBars(result.bars, plan.request.observationCutoff, plan.request.expectedLatestSessionDate);
       } catch {
         throw new Error("RESEARCH_HISTORY_INTEGRITY_FAILURE");
       }
+      const providerWarnings = result.warnings ?? [];
+      const actualSessionDate = bars.at(-1)?.sessionDate;
+      if (plan.request.expectedLatestSessionDate && actualSessionDate && actualSessionDate < plan.request.expectedLatestSessionDate) {
+        const affectedBaselines = [
+          ...(plan.request.instrumentIds.includes(instrumentId) ? [{ subjectId: instrumentId }] : []),
+          ...plan.mappings
+            .filter((mapping) => mapping.benchmarkInstrumentId === instrumentId)
+            .map((mapping) => ({ subjectId: mapping.instrumentId, baselineType: "relative_return" as const })),
+        ];
+        for (const affected of affectedBaselines) limitations.push({
+          capability: "market_baselines",
+          code: "LATEST_SESSION_MISSING",
+          ...affected,
+          expectedSessionDate: plan.request.expectedLatestSessionDate,
+          actualSessionDate,
+          retryable: false,
+          message: `${instrumentId} daily history ends at ${actualSessionDate}, before expected session ${plan.request.expectedLatestSessionDate}`,
+        });
+        result = { ...result, warnings: [...new Set([...providerWarnings, "LATEST_SESSION_MISSING"])] };
+      }
       const artifactId = await historyArtifactId(result, bars);
       histories.set(instrumentId, { result, bars, artifactId });
-      for (const warning of result.warnings ?? []) limitations.push({ capability: "market_baselines", code: warning, subjectId: instrumentId, retryable: false, message: `${instrumentId} daily history is degraded: ${warning}` });
+      for (const warning of providerWarnings) limitations.push({ capability: "market_baselines", code: warning, subjectId: instrumentId, retryable: false, message: `${instrumentId} daily history is degraded: ${warning}` });
     }
 
     const generatedAt = this.now();
@@ -178,6 +198,7 @@ export class ResearchFactPlane implements ResearchFactPlaneInterface {
       planVersion: plan.planVersion,
       purpose: plan.request.purpose,
       observationCutoff: plan.request.observationCutoff,
+      ...(plan.request.expectedLatestSessionDate ? { expectedLatestSessionDate: plan.request.expectedLatestSessionDate } : {}),
       knowledgeCutoff: generatedAt,
       generatedAt,
       instrumentIds: plan.request.instrumentIds,
@@ -329,11 +350,12 @@ function insufficient(instrumentId: string, type: MarketBaselineType, window: Ma
   return { capability: "market_baselines", code: "INSUFFICIENT_SAMPLE", subjectId: instrumentId, baselineType: type, window, actual, required, retryable: false, message: `${instrumentId} ${type}:${window} has ${actual}/${required} required daily observations` };
 }
 
-function canonicalBars(input: NormalizedDailyBar[], observationCutoff: string): NormalizedDailyBar[] {
+function canonicalBars(input: NormalizedDailyBar[], observationCutoff: string, expectedLatestSessionDate?: string): NormalizedDailyBar[] {
   const bySession = new Map<string, NormalizedDailyBar>();
   for (const bar of input) {
     if (!bar || typeof bar !== "object" || !/^\d{4}-\d{2}-\d{2}$/.test(bar.sessionDate) || typeof bar.close !== "string" || typeof bar.volume !== "string" || (bar.turnover !== null && typeof bar.turnover !== "string")) throw new Error("INVALID_DAILY_BAR_STRUCTURE");
     if (Date.parse(closeIso(bar.sessionDate)) > Date.parse(observationCutoff)) continue;
+    if (expectedLatestSessionDate && bar.sessionDate > expectedLatestSessionDate) continue;
     decimal(bar.close, "close");
     decimal(bar.volume, "volume");
     if (bar.turnover !== null) decimal(bar.turnover, "turnover");

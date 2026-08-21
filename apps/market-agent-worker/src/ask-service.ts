@@ -7,7 +7,7 @@ import type {
   SealedEvidenceBundle,
 } from "@zxlab/market-agent-schema";
 import type { MarketSnapshot } from "@zxlab/market-schema";
-import { verifyResearchFactBundleFingerprint, type ResearchFactBundle } from "@zxlab/research-fact-schema";
+import type { ResearchFactBundle } from "@zxlab/research-fact-schema";
 import { askEvidencePlan } from "./ask-plan.ts";
 import type { CurrentMarketSnapshotReader, EvidenceCheckpoint } from "./close-review.ts";
 import {
@@ -21,7 +21,7 @@ import type { ConfirmedContextReader } from "./confirmed-context.ts";
 import { assessEvidence } from "./evidence-assessment.ts";
 import { finalizeAgentResult } from "./run-outcome.ts";
 import { createRunCheckpoint, verifyRunCheckpoint } from "./run-checkpoint.ts";
-import { ResearchFactError, selectResearchInstrumentScope, type ResearchFactReader } from "./research-fact-reader.ts";
+import { assertResearchFactScope, researchExpectedLatestSessionDate, selectResearchInstrumentScope, type ResearchFactReader } from "./research-fact-reader.ts";
 
 export interface AskPreviousRun {
   runId: string;
@@ -73,6 +73,7 @@ export class AskService {
       quoteMode: plan.quoteMode,
     });
     assertFixedSnapshotScope(snapshot, input.command, plan);
+    const expectedLatestSessionDate = researchExpectedLatestSessionDate(snapshot);
     const researchScope = selectResearchInstrumentScope(input.command.resolvedInstrumentIds, input.command.instrumentId);
     let research: ResearchFactBundle | undefined;
     if (input.checkpoint) research = input.checkpoint.research;
@@ -82,9 +83,10 @@ export class AskService {
         instrumentIds: researchScope.instrumentIds,
         ...(input.command.instrumentId ? { selectedInstrumentId: input.command.instrumentId } : {}),
         observationCutoff: snapshot.asOf,
+        ...(expectedLatestSessionDate ? { expectedLatestSessionDate } : {}),
       });
     }
-    if (research) await assertResearchScope(research, plan.researchPurpose, researchScope.instrumentIds, snapshot.asOf);
+    if (research) await assertResearchFactScope({ research, purpose: plan.researchPurpose, instrumentIds: researchScope.instrumentIds, observationCutoff: snapshot.asOf, expectedLatestSessionDate, allowLegacyExpectedSession: Boolean(input.checkpoint) });
 
     const confirmedContext = !input.checkpoint && this.contextReader
       ? await this.contextReader.retrieve({ profileId: input.command.profileId, workflow: "ask", instrumentIds: input.command.resolvedInstrumentIds, question: input.command.question })
@@ -137,21 +139,6 @@ export class AskService {
       }),
     };
   }
-}
-
-async function assertResearchScope(
-  research: ResearchFactBundle,
-  purpose: ResearchFactBundle["purpose"] | undefined,
-  instrumentIds: string[],
-  observationCutoff: string,
-): Promise<void> {
-  if (
-    !purpose
-    || research.purpose !== purpose
-    || research.observationCutoff !== observationCutoff
-    || !sameValues(research.instrumentIds, instrumentIds)
-    || !await verifyResearchFactBundleFingerprint(research)
-  ) throw new ResearchFactError("RESEARCH_FACT_SCOPE_MISMATCH", false);
 }
 
 function assertFixedSnapshotScope(

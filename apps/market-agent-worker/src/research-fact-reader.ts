@@ -5,6 +5,7 @@ import {
   type ResearchFactBundle,
   type ResearchFactRequest,
 } from "@zxlab/research-fact-schema";
+import type { MarketSnapshot } from "@zxlab/market-schema";
 
 export interface ResearchFactReader {
   materialize(input: ResearchFactRequest): Promise<ResearchFactBundle>;
@@ -29,6 +30,31 @@ export function researchFactFailure(cause: unknown): { code: string; retryable: 
 export interface ResearchInstrumentScope {
   instrumentIds: string[];
   omittedInstrumentIds: string[];
+}
+
+export function researchExpectedLatestSessionDate(snapshot: Pick<MarketSnapshot, "reference">): string | undefined {
+  return snapshot.reference?.semantics === "last_effective_session"
+    ? snapshot.reference.effectiveTradingDate ?? undefined
+    : undefined;
+}
+
+export async function assertResearchFactScope(input: {
+  research: ResearchFactBundle;
+  purpose: ResearchFactBundle["purpose"] | undefined;
+  instrumentIds: string[];
+  observationCutoff: string;
+  expectedLatestSessionDate: string | undefined;
+  allowLegacyExpectedSession: boolean;
+}): Promise<void> {
+  const legacyExpectedSession = input.allowLegacyExpectedSession && input.research.expectedLatestSessionDate === undefined;
+  if (
+    !input.purpose
+    || input.research.purpose !== input.purpose
+    || input.research.observationCutoff !== input.observationCutoff
+    || (!legacyExpectedSession && input.research.expectedLatestSessionDate !== input.expectedLatestSessionDate)
+    || !sameValues(input.research.instrumentIds, input.instrumentIds)
+    || !await verifyResearchFactBundleFingerprint(input.research)
+  ) throw new ResearchFactError("RESEARCH_FACT_SCOPE_MISMATCH", false);
 }
 
 export function selectResearchInstrumentScope(instrumentIds: string[], selectedInstrumentId?: string, maximum = 20): ResearchInstrumentScope {
@@ -86,6 +112,7 @@ export class ResearchFactAdapter implements ResearchFactReader {
     if (
       bundle.purpose !== requestBody.purpose
       || bundle.observationCutoff !== requestBody.observationCutoff
+      || bundle.expectedLatestSessionDate !== requestBody.expectedLatestSessionDate
       || !sameValues(bundle.instrumentIds, requestBody.instrumentIds)
     ) throw new ResearchFactError("RESEARCH_FACT_SCOPE_MISMATCH", false);
     return bundle;

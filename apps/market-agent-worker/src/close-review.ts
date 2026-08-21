@@ -1,6 +1,6 @@
 import { validateSealedEvidence, type AgentResult, type ConfirmedContext, type MarketAgentCommand, type PortfolioSnapshot, type RunStatus, type SealedEvidenceBundle } from "@zxlab/market-agent-schema";
 import type { MarketSnapshot } from "@zxlab/market-schema";
-import { verifyResearchFactBundleFingerprint, type ResearchFactBundle } from "@zxlab/research-fact-schema";
+import type { ResearchFactBundle } from "@zxlab/research-fact-schema";
 import { DeterministicMarketEventDetector, buildDeterministicCloseReview, sealedResearchOmittedInstrumentCount } from "./foundation.ts";
 import { DeterministicNarrator, narrateWithRepair, type Narrator } from "./narration.ts";
 import { evaluatePortfolioRiskImpact } from "./portfolio-risk-impact.ts";
@@ -8,7 +8,7 @@ import type { ConfirmedContextReader } from "./confirmed-context.ts";
 import { assessEvidence } from "./evidence-assessment.ts";
 import { finalizeAgentResult } from "./run-outcome.ts";
 import { createRunCheckpoint, verifyRunCheckpoint, type RunCheckpoint } from "./run-checkpoint.ts";
-import { ResearchFactError, selectResearchInstrumentScope, type ResearchFactReader } from "./research-fact-reader.ts";
+import { assertResearchFactScope, researchExpectedLatestSessionDate, selectResearchInstrumentScope, type ResearchFactReader } from "./research-fact-reader.ts";
 
 export interface CurrentMarketSnapshotReader { getCurrentSnapshot(input: { instrumentIds: string[]; intervals: Array<"1m" | "1d">; include: Array<"quotes" | "bars" | "news" | "announcements" | "comparisons">; quoteMode: "fallback" | "corroborated" }): Promise<MarketSnapshot>; }
 export type EvidenceCheckpoint = RunCheckpoint;
@@ -25,6 +25,7 @@ export class CloseReviewService {
       ? await this.contextReader.retrieve({ profileId: input.command.profileId, workflow: input.command.workflow, instrumentIds: input.instrumentIds, question: input.command.question })
       : { contexts: [], limitations: [] };
     const snapshot = input.checkpoint?.snapshot ?? await this.reader.getCurrentSnapshot({ instrumentIds: input.instrumentIds, intervals: ["1d"], include: ["quotes", "bars", "news", "announcements"], quoteMode: "corroborated" });
+    const expectedLatestSessionDate = researchExpectedLatestSessionDate(snapshot);
     const researchScope = selectResearchInstrumentScope(input.instrumentIds, input.command.instrumentId);
     let research: ResearchFactBundle | undefined;
     if (input.checkpoint) research = input.checkpoint.research;
@@ -34,9 +35,10 @@ export class CloseReviewService {
         instrumentIds: researchScope.instrumentIds,
         ...(input.command.instrumentId ? { selectedInstrumentId: input.command.instrumentId } : {}),
         observationCutoff: snapshot.asOf,
+        ...(expectedLatestSessionDate ? { expectedLatestSessionDate } : {}),
       });
     }
-    if (research) await assertResearchScope(research, researchScope.instrumentIds, snapshot.asOf);
+    if (research) await assertResearchFactScope({ research, purpose: "price_context", instrumentIds: researchScope.instrumentIds, observationCutoff: snapshot.asOf, expectedLatestSessionDate, allowLegacyExpectedSession: Boolean(input.checkpoint) });
     let evidence: SealedEvidenceBundle;
     let portfolioAware: boolean;
     if (input.checkpoint) {
@@ -73,15 +75,6 @@ export class CloseReviewService {
       }),
     };
   }
-}
-
-async function assertResearchScope(research: ResearchFactBundle, instrumentIds: string[], observationCutoff: string): Promise<void> {
-  if (
-    research.purpose !== "price_context"
-    || research.observationCutoff !== observationCutoff
-    || !sameValues(research.instrumentIds, instrumentIds)
-    || !await verifyResearchFactBundleFingerprint(research)
-  ) throw new ResearchFactError("RESEARCH_FACT_SCOPE_MISMATCH", false);
 }
 
 function assertCheckpointScope(checkpoint: EvidenceCheckpoint, command: MarketAgentCommand, instrumentIds: string[]): void {

@@ -10,6 +10,41 @@ import { createRunCheckpoint } from "./run-checkpoint.ts";
 
 const snapshot: MarketSnapshot = { schemaVersion: "market-snapshot.v1", asOf: "2026-08-05T08:00:00.000Z", receivedAt: "2026-08-05T08:00:01.000Z", marketTimestamp: "2026-08-05T07:59:00.000Z", request: { instrumentIds: ["SSE:600000"], intervals: ["1d"], include: ["quotes"], quoteMode: "corroborated" }, data: { quotes: [{ instrumentId: "SSE:600000", price: 12, previousClose: 10, open: 10, high: 12, low: 10, volume: 100, turnover: 1200, marketTimestamp: "2026-08-05T07:59:00.000Z", receivedAt: "2026-08-05T08:00:01.000Z", source: "fixture", quality: "live", stale: false, warnings: [], corroboration: { mode: "corroborated", status: "corroborated", thresholdBps: 50, maxDeviationBps: 10, observations: [] } }], bars: [], news: [], announcements: [], status: [] }, capabilities: [], quality: { status: "operational", reliable: true, freshness: "fresh", warnings: [], attempts: [], unavailableCapabilities: [] } };
 
+function weekendSnapshot(asOf: string): MarketSnapshot {
+  return {
+    ...snapshot,
+    asOf,
+    receivedAt: asOf,
+    marketTimestamp: "2026-08-14T07:00:00.000Z",
+    reference: {
+      requestedCalendarDate: "2026-08-16",
+      effectiveTradingDate: "2026-08-14",
+      session: "holiday",
+      semantics: "last_effective_session",
+    },
+    quality: { ...snapshot.quality, status: "operational", reliable: true, freshness: "fresh" },
+  };
+}
+
+async function laggedPriceContextResearch() {
+  const research = researchFactBundleFixture();
+  research.purpose = "price_context";
+  research.planVersion = "price-context.v1";
+  research.expectedLatestSessionDate = "2026-08-14";
+  const baseline = research.capabilities.find((capability) => capability.id === "market_baselines")!;
+  baseline.status = "degraded";
+  baseline.asOf = "2026-08-13T07:00:00.000Z";
+  baseline.warnings = ["LATEST_SESSION_MISSING"];
+  baseline.limitations = [{
+    code: "LATEST_SESSION_MISSING",
+    retryable: false,
+    expectedSessionDate: "2026-08-14",
+    actualSessionDate: "2026-08-13",
+  }];
+  research.fingerprint = await calculateResearchFactBundleFingerprint(research);
+  return research;
+}
+
 test("close review seals evidence before narration", async () => {
   const service = new CloseReviewService({ getCurrentSnapshot: async () => snapshot });
   const result = await service.execute({ runId: "run-1", command: { profileId: "p1", trigger: "manual", workflow: "close_review", idempotencyKey: "close-review-1" }, instrumentIds: ["SSE:600000"], watchlistRevision: "w1" });
@@ -17,6 +52,68 @@ test("close review seals evidence before narration", async () => {
   assert.equal(result.result.mode, "market-only");
   assert.ok(eventEvidence);
   assert.ok(result.result.observations.some((item) => item.evidenceIds.includes(eventEvidence.id)));
+});
+
+test("weekend close review propagates the effective session and keeps a Research-only lag separate from Market freshness", async () => {
+  const research = await laggedPriceContextResearch();
+  let researchRequest: Parameters<NonNullable<ConstructorParameters<typeof CloseReviewService>[3]>["materialize"]>[0] | undefined;
+  const service = new CloseReviewService(
+    { getCurrentSnapshot: async () => weekendSnapshot(research.observationCutoff) },
+    undefined,
+    undefined,
+    { async materialize(input) { researchRequest = input; return research; } },
+  );
+
+  const output = await service.execute({
+    runId: "close-weekend-research-lag",
+    command: { profileId: "p1", trigger: "manual", workflow: "close_review", idempotencyKey: "close-weekend-research-lag" },
+    instrumentIds: ["SSE:600000"],
+    watchlistRevision: "w1",
+  });
+
+  assert.deepEqual(researchRequest, {
+    purpose: "price_context",
+    instrumentIds: ["SSE:600000"],
+    observationCutoff: research.observationCutoff,
+    expectedLatestSessionDate: "2026-08-14",
+  });
+  assert.equal(output.result.status, "partial");
+  assert.equal(output.result.outcome?.evidence.coverage, "limited");
+  const limitation = output.result.outcome?.evidence.limitations.find((item) => item.code === "LATEST_SESSION_MISSING");
+  assert.equal(limitation?.capability, "research:market_baselines");
+  assert.match(limitation?.message ?? "", /expected=2026-08-14/);
+  assert.match(limitation?.message ?? "", /actual=2026-08-13/);
+  assert.equal(output.result.outcome?.evidence.limitations.some((item) => item.code === "MARKET_SNAPSHOT_UNRELIABLE"), false);
+  const snapshotContext = output.evidence.items.find((item) => (item.value as { type?: unknown })?.type === "snapshot_context");
+  assert.equal((snapshotContext?.value as { quality?: { reliable?: unknown; freshness?: unknown } }).quality?.reliable, true);
+  assert.equal((snapshotContext?.value as { quality?: { reliable?: unknown; freshness?: unknown } }).quality?.freshness, "fresh");
+});
+
+test("close review does not impose a completed-session baseline date during a live session", async () => {
+  const research = researchFactBundleFixture();
+  research.purpose = "price_context";
+  research.planVersion = "price-context.v1";
+  research.fingerprint = await calculateResearchFactBundleFingerprint(research);
+  let researchRequest: Parameters<NonNullable<ConstructorParameters<typeof CloseReviewService>[3]>["materialize"]>[0] | undefined;
+  const service = new CloseReviewService(
+    { getCurrentSnapshot: async () => ({
+      ...snapshot,
+      asOf: research.observationCutoff,
+      reference: { requestedCalendarDate: "2026-08-14", effectiveTradingDate: "2026-08-14", session: "open", semantics: "live_session" },
+    }) },
+    undefined,
+    undefined,
+    { async materialize(input) { researchRequest = input; return research; } },
+  );
+
+  await service.execute({
+    runId: "close-live-research",
+    command: { profileId: "p1", trigger: "manual", workflow: "close_review", idempotencyKey: "close-live-research" },
+    instrumentIds: ["SSE:600000"],
+    watchlistRevision: "w1",
+  });
+
+  assert.equal(Object.hasOwn(researchRequest ?? {}, "expectedLatestSessionDate"), false);
 });
 
 test("close review resumes the same sealed Evidence Bundle without recollecting Market Facts", async () => {

@@ -12,6 +12,7 @@ export interface ResearchFactRequest {
   instrumentIds: string[];
   selectedInstrumentId?: string;
   observationCutoff: string;
+  expectedLatestSessionDate?: string;
 }
 
 export interface ResearchFactValidation {
@@ -31,6 +32,8 @@ export interface ResearchCapabilityLimitation {
   window?: MarketBaselineWindow;
   actual?: number;
   required?: number;
+  expectedSessionDate?: string;
+  actualSessionDate?: string;
   retryable: boolean;
 }
 
@@ -173,6 +176,8 @@ export interface ResearchFactBundle {
   planVersion: string;
   purpose: ResearchPurpose;
   observationCutoff: string;
+  /** Optional only so immutable research-facts.v2 checkpoints remain replayable. */
+  expectedLatestSessionDate?: string;
   knowledgeCutoff: string;
   generatedAt: string;
   instrumentIds: string[];
@@ -206,10 +211,11 @@ const BASELINE_OPERATOR_CONTRACT: Record<MarketBaselineType, { expression: strin
 export function validateResearchFactRequest(value: unknown): ResearchFactValidation {
   const issues: string[] = [];
   if (!isRecord(value)) return { ok: false, issues: ["request must be an object"] };
-  exactKeys(value, ["purpose", "instrumentIds", "selectedInstrumentId", "observationCutoff"], "request", issues);
+  exactKeys(value, ["purpose", "instrumentIds", "selectedInstrumentId", "observationCutoff", "expectedLatestSessionDate"], "request", issues);
   if (typeof value.purpose !== "string" || !RESEARCH_PURPOSES.includes(value.purpose as ResearchPurpose)) issues.push("purpose is invalid");
   const instrumentIds = validateInstrumentIds(value.instrumentIds, "instrumentIds", issues);
   if (!isIso(value.observationCutoff)) issues.push("observationCutoff must be an ISO timestamp");
+  if (value.expectedLatestSessionDate !== undefined && !isDate(value.expectedLatestSessionDate)) issues.push("expectedLatestSessionDate must be YYYY-MM-DD");
   if (value.selectedInstrumentId !== undefined) {
     if (!isInstrumentId(value.selectedInstrumentId)) issues.push("selectedInstrumentId is invalid");
     else if (!instrumentIds.includes(value.selectedInstrumentId)) issues.push("selectedInstrumentId must belong to instrumentIds");
@@ -226,11 +232,12 @@ export function parseResearchFactRequest(value: unknown): ResearchFactRequest {
 export function validateResearchFactBundle(value: unknown): ResearchFactValidation {
   const issues: string[] = [];
   if (!isRecord(value)) return { ok: false, issues: ["bundle must be an object"] };
-  exactKeys(value, ["schemaVersion", "planVersion", "purpose", "observationCutoff", "knowledgeCutoff", "generatedAt", "instrumentIds", "facts", "capabilities", "fingerprint"], "bundle", issues);
+  exactKeys(value, ["schemaVersion", "planVersion", "purpose", "observationCutoff", "expectedLatestSessionDate", "knowledgeCutoff", "generatedAt", "instrumentIds", "facts", "capabilities", "fingerprint"], "bundle", issues);
   if (value.schemaVersion !== RESEARCH_FACT_SCHEMA_VERSION) issues.push("schemaVersion must be research-facts.v2");
   requireString(value.planVersion, "planVersion", issues);
   if (typeof value.purpose !== "string" || !RESEARCH_PURPOSES.includes(value.purpose as ResearchPurpose)) issues.push("purpose is invalid");
   if (!isIso(value.observationCutoff)) issues.push("observationCutoff must be an ISO timestamp");
+  if (value.expectedLatestSessionDate !== undefined && !isDate(value.expectedLatestSessionDate)) issues.push("expectedLatestSessionDate must be YYYY-MM-DD");
   if (!isIso(value.knowledgeCutoff)) issues.push("knowledgeCutoff must be an ISO timestamp");
   if (!isIso(value.generatedAt)) issues.push("generatedAt must be an ISO timestamp");
   if (isIso(value.observationCutoff) && isIso(value.knowledgeCutoff) && Date.parse(value.observationCutoff) > Date.parse(value.knowledgeCutoff)) issues.push("observationCutoff cannot exceed knowledgeCutoff");
@@ -239,13 +246,14 @@ export function validateResearchFactBundle(value: unknown): ResearchFactValidati
   if (!isFingerprint(value.fingerprint)) issues.push("fingerprint must be sha256");
 
   const facts = validateFacts(value.facts, instrumentIds, value.observationCutoff, value.knowledgeCutoff, issues);
-  const capabilities = validateCapabilities(value.capabilities, facts, value.observationCutoff, value.knowledgeCutoff, issues);
+  const expectedLatestSessionDate = isDate(value.expectedLatestSessionDate) ? value.expectedLatestSessionDate : undefined;
+  const capabilities = validateCapabilities(value.capabilities, facts, value.observationCutoff, value.knowledgeCutoff, expectedLatestSessionDate, issues);
   if (value.purpose === "price_context") {
     if (value.planVersion !== "price-context.v1") issues.push("price_context requires planVersion price-context.v1");
-    validateBaselineSlice(instrumentIds, facts, capabilities, false, issues);
+    validateBaselineSlice(instrumentIds, facts, capabilities, false, expectedLatestSessionDate, issues);
   } else if (value.purpose === "relative_performance") {
     if (value.planVersion !== "relative-performance.v1") issues.push("relative_performance requires planVersion relative-performance.v1");
-    validateBaselineSlice(instrumentIds, facts, capabilities, true, issues);
+    validateBaselineSlice(instrumentIds, facts, capabilities, true, expectedLatestSessionDate, issues);
   }
   return { ok: issues.length === 0, issues };
 }
@@ -439,7 +447,7 @@ function validateDecimalValue(value: unknown, path: string, units: readonly stri
   if (typeof value.unit !== "string" || !units.includes(value.unit)) issues.push(`${path}.unit is invalid`);
 }
 
-function validateCapabilities(value: unknown, facts: ResearchFact[], observationCutoff: unknown, knowledgeCutoff: unknown, issues: string[]): ResearchCapabilityOutcome[] {
+function validateCapabilities(value: unknown, facts: ResearchFact[], observationCutoff: unknown, knowledgeCutoff: unknown, expectedLatestSessionDate: string | undefined, issues: string[]): ResearchCapabilityOutcome[] {
   if (!Array.isArray(value)) { issues.push("capabilities must be an array"); return []; }
   const factIds = new Set(facts.map((fact) => fact.id));
   const ids = new Set<string>();
@@ -467,6 +475,11 @@ function validateCapabilities(value: unknown, facts: ResearchFact[], observation
     if (isIso(item.retrievedAt) && isIso(knowledgeCutoff) && Date.parse(item.retrievedAt) > Date.parse(knowledgeCutoff)) issues.push(`${path}.retrievedAt cannot exceed knowledgeCutoff`);
     stringArray(item.warnings, `${path}.warnings`, issues);
     const limitations = validateCapabilityLimitations(item.limitations, `${path}.limitations`, issues);
+    if (item.id === "market_baselines") {
+      for (const limitation of limitations) {
+        if (limitation.code === "LATEST_SESSION_MISSING" && limitation.expectedSessionDate !== expectedLatestSessionDate) issues.push(`${path}.LATEST_SESSION_MISSING expectedSessionDate must equal bundle.expectedLatestSessionDate`);
+      }
+    }
     if (item.status === "operational" && limitations.length > 0) issues.push(`${path}.operational capability cannot have limitations`);
     if ((item.status === "degraded" || item.status === "unavailable") && limitations.length === 0) issues.push(`${path}.${item.status} capability requires structured limitations`);
     capabilities.push(item as unknown as ResearchCapabilityOutcome);
@@ -483,7 +496,7 @@ function validateCapabilityLimitations(value: unknown, path: string, issues: str
   value.forEach((item, index) => {
     const itemPath = `${path}[${index}]`;
     if (!isRecord(item)) { issues.push(`${itemPath} must be an object`); return; }
-    exactKeys(item, ["code", "subjectId", "baselineType", "window", "actual", "required", "retryable"], itemPath, issues);
+    exactKeys(item, ["code", "subjectId", "baselineType", "window", "actual", "required", "expectedSessionDate", "actualSessionDate", "retryable"], itemPath, issues);
     requireString(item.code, `${itemPath}.code`, issues);
     if (item.subjectId !== undefined && !isInstrumentId(item.subjectId)) issues.push(`${itemPath}.subjectId is invalid`);
     if (item.baselineType !== undefined && !oneOf(item.baselineType, BASELINE_TYPES)) issues.push(`${itemPath}.baselineType is invalid`);
@@ -491,6 +504,8 @@ function validateCapabilityLimitations(value: unknown, path: string, issues: str
     if (item.actual !== undefined && !nonNegativeInteger(item.actual)) issues.push(`${itemPath}.actual must be a non-negative integer`);
     if (item.required !== undefined && !positiveInteger(item.required)) issues.push(`${itemPath}.required must be a positive integer`);
     if ((item.actual === undefined) !== (item.required === undefined)) issues.push(`${itemPath}.actual and required must be provided together`);
+    if (item.expectedSessionDate !== undefined && !isDate(item.expectedSessionDate)) issues.push(`${itemPath}.expectedSessionDate must be YYYY-MM-DD`);
+    if (item.actualSessionDate !== undefined && !isDate(item.actualSessionDate)) issues.push(`${itemPath}.actualSessionDate must be YYYY-MM-DD`);
     if (typeof item.retryable !== "boolean") issues.push(`${itemPath}.retryable must be boolean`);
     if (item.code === "INSUFFICIENT_SAMPLE" && (
       !isInstrumentId(item.subjectId)
@@ -500,12 +515,19 @@ function validateCapabilityLimitations(value: unknown, path: string, issues: str
       || !positiveInteger(item.required)
       || item.actual >= item.required
     )) issues.push(`${itemPath}.INSUFFICIENT_SAMPLE requires subjectId, baselineType, window, actual, and required with actual below required`);
+    if (item.code === "LATEST_SESSION_MISSING" && (
+      !isInstrumentId(item.subjectId)
+      || !isDate(item.expectedSessionDate)
+      || !isDate(item.actualSessionDate)
+      || item.actualSessionDate >= item.expectedSessionDate
+      || item.retryable !== false
+    )) issues.push(`${itemPath}.LATEST_SESSION_MISSING requires expectedSessionDate after actualSessionDate`);
     limitations.push(item as unknown as ResearchCapabilityLimitation);
   });
   return limitations;
 }
 
-function validateBaselineSlice(instrumentIds: string[], facts: ResearchFact[], capabilities: ResearchCapabilityOutcome[], relative: boolean, issues: string[]) {
+function validateBaselineSlice(instrumentIds: string[], facts: ResearchFact[], capabilities: ResearchCapabilityOutcome[], relative: boolean, expectedLatestSessionDate: string | undefined, issues: string[]) {
   const expectedByCapability: Record<"instrument_mapping" | "market_baselines", string[]> = {
     instrument_mapping: facts.filter((fact) => fact.kind === "instrument_mapping").map((fact) => fact.id),
     market_baselines: facts.filter((fact) => fact.kind === "market_baseline").map((fact) => fact.id),
@@ -521,6 +543,32 @@ function validateBaselineSlice(instrumentIds: string[], facts: ResearchFact[], c
   }
   const mappingCapability = capabilities.find((item) => item.id === "instrument_mapping");
   const baselineCapability = capabilities.find((item) => item.id === "market_baselines");
+  if (expectedLatestSessionDate && baselineCapability?.status === "operational") {
+    const missesExpectedSession = facts.some((fact) => fact.kind === "market_baseline" && baselineEndDate(fact) !== expectedLatestSessionDate);
+    if (missesExpectedSession) issues.push(`operational market_baselines must end on expectedLatestSessionDate ${expectedLatestSessionDate}`);
+  }
+  if (expectedLatestSessionDate && baselineCapability) {
+    const latestSessionLimitations = baselineCapability.limitations.filter((limitation) => limitation.code === "LATEST_SESSION_MISSING");
+    for (const fact of facts) {
+      if (fact.kind !== "market_baseline") continue;
+      const endDate = baselineEndDate(fact);
+      if (!endDate) continue;
+      if (endDate > expectedLatestSessionDate) {
+        issues.push(`${fact.id}.observationPeriod.end cannot exceed expectedLatestSessionDate ${expectedLatestSessionDate}`);
+        continue;
+      }
+      if (endDate === expectedLatestSessionDate) continue;
+      const matchingLimitation = latestSessionLimitations.some((limitation) => (
+        limitation.subjectId === fact.subjectId
+        && (limitation.baselineType === undefined || limitation.baselineType === fact.baselineType)
+        && limitation.actualSessionDate === endDate
+      ));
+      if (!matchingLimitation) issues.push(`${fact.id} requires a matching LATEST_SESSION_MISSING limitation`);
+      if (fact.quality.status !== "degraded" || fact.quality.reliable || !fact.quality.warnings.includes("LATEST_SESSION_MISSING")) {
+        issues.push(`${fact.id} lagged market_baseline fact must be degraded, unreliable, and warning-bound`);
+      }
+    }
+  }
   for (const instrumentId of instrumentIds) {
     const mappings = facts.filter((fact): fact is InstrumentMappingFact => fact.kind === "instrument_mapping" && fact.subjectId === instrumentId && fact.mappingType === "benchmark");
     if (mappings.length > 1 || (relative && mappingCapability?.status === "operational" && mappings.length !== 1)) issues.push(`${instrumentId} requires exactly one benchmark mapping when instrument_mapping is operational`);
@@ -532,6 +580,11 @@ function validateBaselineSlice(instrumentIds: string[], facts: ResearchFact[], c
       else if (matches.length === 1 && baselineType === "relative_return" && mappings[0] && matches[0].benchmarkId !== mappings[0].targetId) issues.push(`${matches[0].id}.benchmarkId must match the effective benchmark mapping`);
     }
   }
+}
+
+function baselineEndDate(fact: MarketBaselineFact): string | null {
+  const period = fact.observationPeriod as unknown;
+  return isRecord(period) && typeof period.end === "string" ? period.end.slice(0, 10) : null;
 }
 
 function sameStringSet(left: readonly string[], right: readonly string[]): boolean {
@@ -635,6 +688,12 @@ function isInstrumentId(value: unknown): value is string {
 
 function isIso(value: unknown): value is string {
   return typeof value === "string" && !Number.isNaN(Date.parse(value)) && new Date(value).toISOString() === value;
+}
+
+function isDate(value: unknown): value is string {
+  return typeof value === "string"
+    && /^\d{4}-\d{2}-\d{2}$/.test(value)
+    && new Date(`${value}T00:00:00.000Z`).toISOString().slice(0, 10) === value;
 }
 
 function isSorted(values: readonly string[]): boolean {

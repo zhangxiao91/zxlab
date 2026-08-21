@@ -54,6 +54,42 @@ function marketSnapshot(request: MarketSnapshotRequest): MarketSnapshot {
   };
 }
 
+function weekendSnapshot(request: MarketSnapshotRequest, asOf: string): MarketSnapshot {
+  const current = marketSnapshot(request);
+  return {
+    ...current,
+    asOf,
+    receivedAt: asOf,
+    marketTimestamp: "2026-08-14T07:00:00.000Z",
+    reference: {
+      requestedCalendarDate: "2026-08-16",
+      effectiveTradingDate: "2026-08-14",
+      session: "holiday",
+      semantics: "last_effective_session",
+    },
+    quality: { ...current.quality, status: "operational", reliable: true, freshness: "fresh" },
+  };
+}
+
+async function laggedPriceContextResearch() {
+  const research = researchFactBundleFixture();
+  research.purpose = "price_context";
+  research.planVersion = "price-context.v1";
+  research.expectedLatestSessionDate = "2026-08-14";
+  const baseline = research.capabilities.find((capability) => capability.id === "market_baselines")!;
+  baseline.status = "degraded";
+  baseline.asOf = "2026-08-13T07:00:00.000Z";
+  baseline.warnings = ["LATEST_SESSION_MISSING"];
+  baseline.limitations = [{
+    code: "LATEST_SESSION_MISSING",
+    retryable: false,
+    expectedSessionDate: "2026-08-14",
+    actualSessionDate: "2026-08-13",
+  }];
+  research.fingerprint = await calculateResearchFactBundleFingerprint(research);
+  return research;
+}
+
 test("Ask executes only the static plan and seals that plan into evidence", async () => {
   let request: MarketSnapshotRequest | undefined;
   const service = new AskService({
@@ -79,6 +115,87 @@ test("Ask executes only the static plan and seals that plan into evidence", asyn
   assert.equal(output.evidence.items.some((item) => item.kind === "execution_plan"), true);
   assert.equal(output.result.askScope, "today_change");
   assert.equal(output.result.observations[0]?.class, "fact");
+});
+
+test("weekend Ask propagates the effective session to Research and limits only lagged Research evidence", async () => {
+  const research = await laggedPriceContextResearch();
+  const asOf = research.observationCutoff;
+  let researchRequest: Parameters<NonNullable<ConstructorParameters<typeof AskService>[3]>["materialize"]>[0] | undefined;
+  const service = new AskService(
+    { getCurrentSnapshot: async (input) => weekendSnapshot(input, asOf) },
+    undefined,
+    undefined,
+    { async materialize(input) { researchRequest = input; return research; } },
+  );
+
+  const output = await service.execute({
+    runId: "ask-weekend-research-lag",
+    command: ask({ instrumentId: "SSE:600000" }),
+    watchlistRevision: "watchlist-1",
+  });
+
+  assert.deepEqual(researchRequest, {
+    purpose: "price_context",
+    instrumentIds: ["SSE:600000"],
+    selectedInstrumentId: "SSE:600000",
+    observationCutoff: asOf,
+    expectedLatestSessionDate: "2026-08-14",
+  });
+  assert.equal(output.result.status, "partial");
+  assert.equal(output.result.outcome?.evidence.coverage, "limited");
+  const limitation = output.result.outcome?.evidence.limitations.find((item) => item.code === "LATEST_SESSION_MISSING");
+  assert.equal(limitation?.capability, "research:market_baselines");
+  assert.match(limitation?.message ?? "", /expected=2026-08-14/);
+  assert.match(limitation?.message ?? "", /actual=2026-08-13/);
+  assert.equal(output.result.outcome?.evidence.limitations.some((item) => item.code === "MARKET_SNAPSHOT_UNRELIABLE"), false);
+  const snapshotContext = output.evidence.items.find((item) => (item.value as { type?: unknown })?.type === "snapshot_context");
+  assert.deepEqual((snapshotContext?.value as { quality?: unknown }).quality, {
+    status: "operational",
+    reliable: true,
+    freshness: "fresh",
+    warnings: [],
+    unavailableCapabilities: [],
+  });
+});
+
+test("weekend Ask rejects a Research bundle sealed for another expected latest session", async () => {
+  const research = await laggedPriceContextResearch();
+  research.expectedLatestSessionDate = "2026-08-13";
+  research.fingerprint = await calculateResearchFactBundleFingerprint(research);
+  const service = new AskService(
+    { getCurrentSnapshot: async (input) => weekendSnapshot(input, research.observationCutoff) },
+    undefined,
+    undefined,
+    { async materialize() { return research; } },
+  );
+
+  await assert.rejects(service.execute({
+    runId: "ask-weekend-research-scope-mismatch",
+    command: ask({ instrumentId: "SSE:600000" }),
+    watchlistRevision: "watchlist-1",
+  }), /RESEARCH_FACT_SCOPE_MISMATCH/);
+});
+
+test("Ask does not impose a completed-session baseline date during a live session", async () => {
+  const research = researchFactBundleFixture();
+  research.purpose = "price_context";
+  research.planVersion = "price-context.v1";
+  research.fingerprint = await calculateResearchFactBundleFingerprint(research);
+  let researchRequest: Parameters<NonNullable<ConstructorParameters<typeof AskService>[3]>["materialize"]>[0] | undefined;
+  const service = new AskService(
+    { getCurrentSnapshot: async (input) => ({
+      ...marketSnapshot(input),
+      asOf: research.observationCutoff,
+      reference: { requestedCalendarDate: "2026-08-14", effectiveTradingDate: "2026-08-14", session: "open", semantics: "live_session" },
+    }) },
+    undefined,
+    undefined,
+    { async materialize(input) { researchRequest = input; return research; } },
+  );
+
+  await service.execute({ runId: "ask-live-research", command: ask({ instrumentId: "SSE:600000" }), watchlistRevision: "watchlist-1" });
+
+  assert.equal(Object.hasOwn(researchRequest ?? {}, "expectedLatestSessionDate"), false);
 });
 
 test("Ask includes a bounded historical run only when the persisted scope matches it", async () => {

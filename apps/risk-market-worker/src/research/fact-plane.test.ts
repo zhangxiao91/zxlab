@@ -5,6 +5,7 @@ import { validateResearchFactBundle, verifyResearchFactBundleFingerprint } from 
 import { StaticVersionedBenchmarkMappingRegistry } from "./benchmark-mappings.ts";
 
 const AS_OF = "2026-08-14T07:00:00.000Z";
+const SUNDAY = "2026-08-16T04:00:00.000Z";
 
 function constantHistory(instrumentId: string, sessions = 251): DailyHistoryPort {
   return {
@@ -20,6 +21,25 @@ function constantHistory(instrumentId: string, sessions = 251): DailyHistoryPort
           volume: "1000",
           turnover: "5000",
         })),
+      };
+    },
+  };
+}
+
+function historyEndingAt(instrumentId: string, endDate: string, sessions = 251): DailyHistoryPort {
+  return {
+    async loadDailyHistory() {
+      const end = new Date(`${endDate}T00:00:00.000Z`);
+      return {
+        instrumentId,
+        provider: "fixture-bars",
+        providerVersion: "fixture-bars.v1",
+        retrievedAt: SUNDAY,
+        bars: Array.from({ length: sessions }, (_, index) => {
+          const date = new Date(end);
+          date.setUTCDate(date.getUTCDate() - (sessions - index - 1));
+          return { sessionDate: date.toISOString().slice(0, 10), close: "100", volume: "1000", turnover: "5000" };
+        }),
       };
     },
   };
@@ -56,6 +76,53 @@ test("price_context materializes deterministic 20/60/250 session baselines", asy
   assert.match(bundle.fingerprint, /^sha256:[0-9a-f]{64}$/);
 });
 
+test("expected latest session caps future daily bars and is sealed into an operational bundle", async () => {
+  const bundle = await new ResearchFactPlane({
+    history: historyEndingAt("SSE:600000", "2026-08-15", 252),
+    benchmarkMappings: noMappings,
+    now: () => SUNDAY,
+  }).materialize({
+    purpose: "price_context",
+    instrumentIds: ["SSE:600000"],
+    observationCutoff: SUNDAY,
+    expectedLatestSessionDate: "2026-08-14",
+  });
+
+  assert.equal(bundle.expectedLatestSessionDate, "2026-08-14");
+  assert.equal(bundle.capabilities[0].status, "operational");
+  assert.ok(bundle.facts.filter((fact) => fact.kind === "market_baseline").every((fact) => fact.observationPeriod.end === "2026-08-14T07:00:00.000Z"));
+  assert.equal(await verifyResearchFactBundleFingerprint(bundle), true);
+});
+
+test("a lagging latest session degrades only market baselines while retaining deterministic facts", async () => {
+  const bundle = await new ResearchFactPlane({
+    history: historyEndingAt("SSE:600000", "2026-08-13"),
+    benchmarkMappings: noMappings,
+    now: () => SUNDAY,
+  }).materialize({
+    purpose: "price_context",
+    instrumentIds: ["SSE:600000"],
+    observationCutoff: SUNDAY,
+    expectedLatestSessionDate: "2026-08-14",
+  });
+
+  const capability = bundle.capabilities.find((item) => item.id === "market_baselines")!;
+  assert.equal(capability.status, "degraded");
+  assert.equal(capability.asOf, "2026-08-13T07:00:00.000Z");
+  assert.deepEqual(capability.warnings, ["LATEST_SESSION_MISSING"]);
+  assert.deepEqual(capability.limitations, [{
+    code: "LATEST_SESSION_MISSING",
+    subjectId: "SSE:600000",
+    expectedSessionDate: "2026-08-14",
+    actualSessionDate: "2026-08-13",
+    retryable: false,
+  }]);
+  const facts = bundle.facts.filter((fact) => fact.kind === "market_baseline");
+  assert.ok(facts.length > 0);
+  assert.ok(facts.every((fact) => fact.quality.status === "degraded" && !fact.quality.reliable && fact.quality.warnings.includes("LATEST_SESSION_MISSING")));
+  assert.equal(validateResearchFactBundle(bundle).ok, true);
+});
+
 test("relative_performance uses an explicit versioned benchmark mapping and aligned histories", async () => {
   const history: DailyHistoryPort = {
     async loadDailyHistory(input) {
@@ -89,6 +156,66 @@ test("relative_performance uses an explicit versioned benchmark mapping and alig
   assert.deepEqual(bundle.capabilities.map((item) => [item.id, item.status]), [
     ["instrument_mapping", "operational"],
     ["market_baselines", "operational"],
+  ]);
+});
+
+test("benchmark-only latest-session lag degrades relative returns but preserves direct subject baselines", async () => {
+  const history: DailyHistoryPort = {
+    async loadDailyHistory(input) {
+      const source = input.instrumentId === "SSE:000300"
+        ? historyEndingAt(input.instrumentId, "2026-08-13", 251)
+        : historyEndingAt(input.instrumentId, "2026-08-14", 252);
+      return source.loadDailyHistory(input);
+    },
+  };
+  const mappings: VersionedBenchmarkMappingPort = {
+    async findEffectiveBenchmark({ instrumentId }) {
+      return { instrumentId, benchmarkInstrumentId: "SSE:000300", validFrom: "2026-01-01T00:00:00.000Z", validTo: null, methodologyVersion: "personal-benchmark-map.v1", source: "explicit-profile-mapping" };
+    },
+  };
+  const bundle = await new ResearchFactPlane({ history, benchmarkMappings: mappings, now: () => SUNDAY }).materialize({
+    purpose: "relative_performance",
+    instrumentIds: ["SSE:600000"],
+    expectedLatestSessionDate: "2026-08-14",
+    observationCutoff: SUNDAY,
+  });
+
+  assert.deepEqual(bundle.capabilities.map((item) => [item.id, item.status]), [
+    ["instrument_mapping", "operational"],
+    ["market_baselines", "degraded"],
+  ]);
+  const limitation = bundle.capabilities.find((item) => item.id === "market_baselines")!.limitations;
+  assert.deepEqual(limitation, [{ code: "LATEST_SESSION_MISSING", subjectId: "SSE:600000", baselineType: "relative_return", expectedSessionDate: "2026-08-14", actualSessionDate: "2026-08-13", retryable: false }]);
+  const direct = bundle.facts.filter((fact) => fact.kind === "market_baseline" && fact.baselineType !== "relative_return");
+  const relative = bundle.facts.filter((fact) => fact.kind === "market_baseline" && fact.baselineType === "relative_return");
+  assert.ok(direct.every((fact) => fact.quality.status === "operational" && fact.quality.reliable));
+  assert.ok(relative.every((fact) => fact.quality.status === "degraded" && !fact.quality.reliable && fact.quality.warnings.includes("LATEST_SESSION_MISSING")));
+});
+
+test("a lagging subject that is also a benchmark limits itself and every relative-return consumer", async () => {
+  const history: DailyHistoryPort = {
+    async loadDailyHistory(input) {
+      const endDate = input.instrumentId === "SSE:000300" ? "2026-08-13" : "2026-08-14";
+      return historyEndingAt(input.instrumentId, endDate, endDate === "2026-08-13" ? 251 : 252).loadDailyHistory(input);
+    },
+  };
+  const mappings: VersionedBenchmarkMappingPort = {
+    async findEffectiveBenchmark({ instrumentId }) {
+      const benchmarkInstrumentId = instrumentId === "SSE:600000" ? "SSE:000300" : "SSE:000905";
+      return { instrumentId, benchmarkInstrumentId, validFrom: "2026-01-01T00:00:00.000Z", validTo: null, methodologyVersion: "personal-benchmark-map.v1", source: "explicit-profile-mapping" };
+    },
+  };
+  const bundle = await new ResearchFactPlane({ history, benchmarkMappings: mappings, now: () => SUNDAY }).materialize({
+    purpose: "relative_performance",
+    instrumentIds: ["SSE:000300", "SSE:600000"],
+    expectedLatestSessionDate: "2026-08-14",
+    observationCutoff: SUNDAY,
+  });
+
+  assert.equal(validateResearchFactBundle(bundle).ok, true);
+  assert.deepEqual(bundle.capabilities.find((item) => item.id === "market_baselines")!.limitations, [
+    { code: "LATEST_SESSION_MISSING", subjectId: "SSE:000300", expectedSessionDate: "2026-08-14", actualSessionDate: "2026-08-13", retryable: false },
+    { code: "LATEST_SESSION_MISSING", subjectId: "SSE:600000", baselineType: "relative_return", expectedSessionDate: "2026-08-14", actualSessionDate: "2026-08-13", retryable: false },
   ]);
 });
 

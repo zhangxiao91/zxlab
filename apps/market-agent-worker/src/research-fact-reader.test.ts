@@ -47,6 +47,27 @@ test("research adapter sends one server-owned plan and validates the returned bu
   assert.equal(result.fingerprint, bundle.fingerprint);
 });
 
+test("research adapter binds the response to the request-authoritative expected session", async () => {
+  const legacyBundle = researchFactBundleFixture();
+  legacyBundle.fingerprint = await calculateResearchFactBundleFingerprint(legacyBundle);
+  const adapter = new ResearchFactAdapter({
+    token: "service-token",
+    service: { fetch: async () => Response.json({ data: legacyBundle }) } as unknown as Fetcher,
+  });
+
+  await assert.rejects(
+    adapter.materialize({
+      purpose: "relative_performance",
+      instrumentIds: ["SSE:600000"],
+      observationCutoff: "2026-08-14T07:00:00.000Z",
+      expectedLatestSessionDate: "2026-08-14",
+    }),
+    (error: unknown) => error instanceof ResearchFactError
+      && error.code === "RESEARCH_FACT_SCOPE_MISMATCH"
+      && error.retryable === false,
+  );
+});
+
 test("research adapter rejects missing identity as a non-retryable safe configuration error", async () => {
   const adapter = new ResearchFactAdapter({ baseUrl: "https://market.example" });
   await assert.rejects(

@@ -42,6 +42,23 @@ test("accepts caller purpose but rejects provider, plan, formula, and fact injec
   assert.match(result.issues.join(" "), /knowledgeCutoff is not allowed/);
 });
 
+test("accepts an optional expected latest session date as research scope", () => {
+  assert.deepEqual(validateResearchFactRequest({
+    purpose: "price_context",
+    instrumentIds: ["SSE:600000"],
+    observationCutoff: "2026-08-16T04:00:00.000Z",
+    expectedLatestSessionDate: "2026-08-14",
+  }), { ok: true, issues: [] });
+
+  const invalid = validateResearchFactRequest({
+    purpose: "price_context",
+    instrumentIds: ["SSE:600000"],
+    observationCutoff: "2026-08-16T04:00:00.000Z",
+    expectedLatestSessionDate: "2026-08-14T00:00:00.000Z",
+  });
+  assert.match(invalid.issues.join(" "), /expectedLatestSessionDate must be YYYY-MM-DD/);
+});
+
 test("accepts a provenance-bound relative-performance slice with complete 20/60/250 baselines", async () => {
   const bundle = researchFactBundleFixture();
   bundle.fingerprint = await calculateResearchFactBundleFingerprint(bundle);
@@ -59,6 +76,30 @@ test("accepts a provenance-bound relative-performance slice with complete 20/60/
     "realized_volatility",
     "relative_return",
   ]);
+});
+
+test("seals an optional expected latest session date without rejecting legacy v2 bundles", async () => {
+  const legacy = researchFactBundleFixture();
+  delete legacy.expectedLatestSessionDate;
+  assert.equal(validateResearchFactBundle(legacy).ok, true);
+
+  const current = { ...researchFactBundleFixture(), expectedLatestSessionDate: "2026-08-14" };
+  current.fingerprint = await calculateResearchFactBundleFingerprint(current);
+  assert.equal(validateResearchFactBundle(current).ok, true);
+  assert.equal(parseResearchFactBundle(current).expectedLatestSessionDate, "2026-08-14");
+  assert.equal(await verifyResearchFactBundleFingerprint(current), true);
+
+  const changed = structuredClone(current);
+  changed.expectedLatestSessionDate = "2026-08-13";
+  assert.equal(await verifyResearchFactBundleFingerprint(changed), false);
+});
+
+test("rejects an operational baseline capability that does not reach its sealed expected session", () => {
+  const bundle = researchFactBundleFixture();
+  bundle.expectedLatestSessionDate = "2026-08-15";
+  const result = validateResearchFactBundle(bundle);
+  assert.equal(result.ok, false);
+  assert.match(result.issues.join(" "), /operational market_baselines must end on expectedLatestSessionDate 2026-08-15/);
 });
 
 test("rejects an operational relative-performance slice with a missing baseline", () => {
@@ -182,6 +223,67 @@ test("requires structured limitations to locate every partial baseline", () => {
   const result = validateResearchFactBundle(missingDimensions);
   assert.equal(result.ok, false);
   assert.match(result.issues.join(" "), /INSUFFICIENT_SAMPLE requires subjectId, baselineType, window, actual, and required/);
+});
+
+test("requires session dates on a latest-session research limitation", () => {
+  const bundle = researchFactBundleFixture();
+  bundle.expectedLatestSessionDate = "2026-08-14";
+  const capability = bundle.capabilities.find((item) => item.id === "market_baselines")!;
+  capability.status = "degraded";
+  capability.warnings = ["LATEST_SESSION_MISSING"];
+  capability.limitations = [{
+    code: "LATEST_SESSION_MISSING",
+    subjectId: "SSE:600000",
+    expectedSessionDate: "2026-08-14",
+    actualSessionDate: "2026-08-13",
+    retryable: false,
+  }];
+  assert.equal(validateResearchFactBundle(bundle).ok, true);
+
+  const invalid = structuredClone(bundle);
+  invalid.capabilities.find((item) => item.id === "market_baselines")!.limitations[0].actualSessionDate = "2026-08-14";
+  assert.match(validateResearchFactBundle(invalid).issues.join(" "), /LATEST_SESSION_MISSING requires expectedSessionDate after actualSessionDate/);
+
+  const mismatchedExpected = structuredClone(bundle);
+  mismatchedExpected.capabilities.find((item) => item.id === "market_baselines")!.limitations[0].expectedSessionDate = "2026-08-15";
+  assert.match(validateResearchFactBundle(mismatchedExpected).issues.join(" "), /expectedSessionDate must equal bundle.expectedLatestSessionDate/);
+
+  const missingExpected = structuredClone(bundle);
+  delete missingExpected.expectedLatestSessionDate;
+  assert.match(validateResearchFactBundle(missingExpected).issues.join(" "), /expectedSessionDate must equal bundle.expectedLatestSessionDate/);
+
+  const retryable = structuredClone(bundle);
+  retryable.capabilities.find((item) => item.id === "market_baselines")!.limitations[0].retryable = true;
+  assert.match(validateResearchFactBundle(retryable).issues.join(" "), /LATEST_SESSION_MISSING requires expectedSessionDate after actualSessionDate/);
+});
+
+test("requires every lagged baseline fact to carry the matching degraded quality", () => {
+  const bundle = researchFactBundleFixture();
+  bundle.expectedLatestSessionDate = "2026-08-14";
+  const capability = bundle.capabilities.find((item) => item.id === "market_baselines")!;
+  capability.status = "degraded";
+  capability.asOf = "2026-08-13T07:00:00.000Z";
+  capability.warnings = ["LATEST_SESSION_MISSING"];
+  capability.limitations = [{
+    code: "LATEST_SESSION_MISSING",
+    subjectId: "SSE:600000",
+    expectedSessionDate: "2026-08-14",
+    actualSessionDate: "2026-08-13",
+    retryable: false,
+  }];
+  for (const fact of bundle.facts) {
+    if (fact.kind !== "market_baseline") continue;
+    fact.observationPeriod.end = "2026-08-13T07:00:00.000Z";
+    fact.provenance.sourceAsOf = "2026-08-13T07:00:00.000Z";
+  }
+
+  assert.match(validateResearchFactBundle(bundle).issues.join(" "), /lagged market_baseline fact must be degraded, unreliable, and warning-bound/);
+
+  for (const fact of bundle.facts) {
+    if (fact.kind !== "market_baseline") continue;
+    fact.quality = { ...fact.quality, status: "degraded", reliable: false, warnings: ["LATEST_SESSION_MISSING"] };
+  }
+  assert.equal(validateResearchFactBundle(bundle).ok, true);
 });
 
 test("enforces the closed deterministic operator contract for every baseline type", () => {

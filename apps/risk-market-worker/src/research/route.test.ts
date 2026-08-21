@@ -47,6 +47,39 @@ test("authenticated research facts POST materializes a validated bundle", async 
   assert.equal(validateResearchFactBundle(body.data).ok, true);
 });
 
+test("research facts route roundtrips the request-authoritative expected latest session date", async () => {
+  const plane = new ResearchFactPlane({ history, benchmarkMappings: mappings, now: () => NOW });
+  const response = await handleResearchFactRequest(new Request("https://market.example/api/market/research/facts", {
+    method: "POST",
+    headers: { authorization: `Bearer ${RESEARCH_TOKEN}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      purpose: "price_context",
+      instrumentIds: ["SSE:600000"],
+      observationCutoff: NOW,
+      expectedLatestSessionDate: "2026-08-14",
+    }),
+  }), RESEARCH_TOKEN, plane);
+
+  assert.equal(response.status, 200);
+  const body = await response.json() as { data: { expectedLatestSessionDate?: string } };
+  assert.equal(body.data.expectedLatestSessionDate, "2026-08-14");
+  assert.equal(validateResearchFactBundle(body.data).ok, true);
+});
+
+test("research facts route keeps legacy requests without an expected session compatible", async () => {
+  const plane = new ResearchFactPlane({ history, benchmarkMappings: mappings, now: () => NOW });
+  const response = await handleResearchFactRequest(new Request("https://market.example/api/market/research/facts", {
+    method: "POST",
+    headers: { authorization: `Bearer ${RESEARCH_TOKEN}`, "content-type": "application/json" },
+    body: JSON.stringify({ purpose: "price_context", instrumentIds: ["SSE:600000"], observationCutoff: NOW }),
+  }), RESEARCH_TOKEN, plane);
+
+  assert.equal(response.status, 200);
+  const body = await response.json() as { data: { expectedLatestSessionDate?: string } };
+  assert.equal(Object.hasOwn(body.data, "expectedLatestSessionDate"), false);
+  assert.equal(validateResearchFactBundle(body.data).ok, true);
+});
+
 test("research facts route returns a safe nonretryable cutoff error", async () => {
   const plane = new ResearchFactPlane({ history, benchmarkMappings: mappings, now: () => NOW });
   const response = await handleResearchFactRequest(new Request("https://market.example/api/market/research/facts", {

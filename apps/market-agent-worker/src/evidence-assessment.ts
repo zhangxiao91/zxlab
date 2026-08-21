@@ -68,7 +68,10 @@ function researchLimitationMessage(limitation: ResearchCapabilityOutcome["limita
   const subject = limitation.subjectId ? `${limitation.subjectId} ` : "";
   const baseline = limitation.baselineType && limitation.window ? `${limitation.baselineType}:${limitation.window}` : limitation.baselineType ?? "";
   const coverage = typeof limitation.actual === "number" && typeof limitation.required === "number" ? ` 样本 ${limitation.actual}/${limitation.required}` : "";
-  return `${subject}${baseline || "Research Fact"} ${limitation.code}${coverage}`.trim();
+  const latestSession = limitation.code === "LATEST_SESSION_MISSING"
+    ? ` expected=${limitation.expectedSessionDate ?? "unknown"} actual=${limitation.actualSessionDate ?? "unknown"}`
+    : "";
+  return `${subject}${baseline || "Research Fact"} ${limitation.code}${coverage}${latestSession}`.trim();
 }
 
 function usedFallbackSuccessfully(capability: MarketCapabilityHealth): boolean {

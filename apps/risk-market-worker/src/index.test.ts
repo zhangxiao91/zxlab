@@ -325,6 +325,28 @@ test("research daily-history projection rejects missing required close or volume
   }
 });
 
+test("research daily-history projection does not infer the expected session from bars or market metadata", () => {
+  const loaded = {
+    data: [{ instrumentId: "SSE:600000", timestamp: "2026-08-13T07:00:00.000Z", open: 10, high: 11, low: 9, close: 10, volume: 100, turnover: 1000, source: "fixture" }],
+    meta: {
+      source: "fixture",
+      receivedAt: "2026-08-16T07:52:55.693Z",
+      warnings: [],
+      reference: {
+        requestedCalendarDate: "2026-08-16",
+        effectiveTradingDate: "2026-08-14",
+        session: "holiday",
+        semantics: "last_effective_session",
+      },
+    },
+  };
+
+  const projected = projectDailyHistoryForResearch("SSE:600000", loaded);
+
+  assert.deepEqual(projected.bars.map((bar) => bar.sessionDate), ["2026-08-13"]);
+  assert.equal(Object.hasOwn(projected, "expectedLatestSessionDate"), false);
+});
+
 test("corroborated quotes become conflicted only when independent sources exceed the threshold", async () => {
   const quote = (price: number) => ({ instrumentId: "SSE:512480", price, previousClose: .9, open: .9, high: price, low: .9, volume: 1, turnover: 1, marketTimestamp: "2026-08-03T02:00:00.000Z", receivedAt: "2026-08-03T02:00:01.000Z", source: "fixture", quality: "live" as const, stale: false, warnings: [], fallbackUsed: false, providerAttempts: [] });
   const result = await runCorroboratedQuote([
