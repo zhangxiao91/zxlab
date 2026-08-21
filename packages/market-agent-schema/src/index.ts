@@ -166,6 +166,7 @@ export type NarrationValidationRule =
   | "numeric_claim"
   | "status_limitation_mismatch"
   | "limitation_missing"
+  | "limitation_unsupported"
   | "unreliable_fact"
   | "observation_context"
   | "watch_citation"
@@ -248,9 +249,52 @@ export interface ResearchReportRisk {
   explanation: string;
   evidenceIds: string[];
 }
+export type ResearchReportFactKind = "instrument_mapping" | "market_baseline" | "financial_metric" | "valuation";
+export type ResearchReportFactUnit = "CNY" | "ratio" | "shares";
+export interface ResearchReportFactFormula {
+  id: string;
+  version: string;
+  expression: string;
+  inputArtifactIds: string[];
+  parameters: Record<string, string>;
+  rounding: string;
+}
+export interface ResearchReportFactMetric {
+  key: "value" | "weight" | "comparison" | "historical_percentile";
+  label: string;
+  decimal: string;
+  unit: ResearchReportFactUnit;
+  formula?: ResearchReportFactFormula;
+}
+export interface ResearchReportFactBlock {
+  id: string;
+  evidenceId: string;
+  factId: string;
+  kind: ResearchReportFactKind;
+  subjectId: string;
+  title: string;
+  context: Array<{ label: string; value: string }>;
+  metrics: ResearchReportFactMetric[];
+  quality: {
+    status: "operational" | "degraded";
+    reliable: boolean;
+    coverage: { actual: number; required: number };
+    warnings: string[];
+  };
+  provenance: {
+    researchFingerprint: string;
+    planVersion: string;
+    providers: string[];
+    sourceArtifactIds: string[];
+    sourceAsOf: string;
+    retrievedAt: string;
+  };
+}
 export interface ResearchReportV2 {
   version: typeof RESEARCH_REPORT_VERSION;
   conclusion: { headline: string; summary: string; evidenceIds: string[] };
+  /** Present on reports built with sealed Research Fact evidence. Absent means a legacy report, not an empty current report. */
+  factBlocks?: ResearchReportFactBlock[];
   basis: AgentObservation[];
   analysis: AgentObservation[];
   risks: ResearchReportRisk[];
@@ -308,6 +352,7 @@ function validResearchReportV2(value: unknown): value is ResearchReportV2 {
     && typeof conclusion?.headline === "string"
     && typeof conclusion.summary === "string"
     && stringArray(conclusion.evidenceIds)
+    && (report.factBlocks === undefined || (Array.isArray(report.factBlocks) && report.factBlocks.every(validReportFactBlock)))
     && Array.isArray(report.basis) && report.basis.every(validReportObservation)
     && Array.isArray(report.analysis) && report.analysis.every(validReportObservation)
     && Array.isArray(report.risks) && report.risks.every((risk) => {
@@ -322,7 +367,83 @@ function validResearchReportV2(value: unknown): value is ResearchReportV2 {
       const item = recordValue(watch);
       return typeof item?.condition === "string" && typeof item.reason === "string" && stringArray(item.evidenceIds);
     })
-    && Array.isArray(report.sources) && report.sources.every((source) => typeof recordValue(source)?.evidenceId === "string");
+    && Array.isArray(report.sources) && report.sources.every((source) => typeof recordValue(source)?.evidenceId === "string")
+    && validFactBlockReferences(report.factBlocks, report.sources);
+}
+
+function validFactBlockReferences(blocksValue: unknown, sourcesValue: unknown): boolean {
+  if (blocksValue === undefined) return true;
+  if (!Array.isArray(blocksValue) || !Array.isArray(sourcesValue)) return false;
+  const sources = new Map(sourcesValue.flatMap((value) => {
+    const source = recordValue(value);
+    return typeof source?.evidenceId === "string" ? [[source.evidenceId, source] as const] : [];
+  }));
+  const ids = new Set<string>();
+  const factIds = new Set<string>();
+  const evidenceIds = new Set<string>();
+  return blocksValue.every((value) => {
+    const block = recordValue(value);
+    const provenance = recordValue(block?.provenance);
+    if (!block || !provenance || typeof block.id !== "string" || typeof block.factId !== "string" || typeof block.evidenceId !== "string" || ids.has(block.id) || factIds.has(block.factId) || evidenceIds.has(block.evidenceId)) return false;
+    ids.add(block.id); factIds.add(block.factId); evidenceIds.add(block.evidenceId);
+    const source = sources.get(block.evidenceId);
+    if (!source || source.kind !== "market_fact" || source.origin !== "server-observed" || source.asOf !== provenance.sourceAsOf || source.retrievedAt !== provenance.retrievedAt || !sameStrings(source.providers, provenance.providers)) return false;
+    const artifacts = new Set(Array.isArray(provenance.sourceArtifactIds) ? provenance.sourceArtifactIds : []);
+    return Array.isArray(block.metrics) && block.metrics.every((metricValue) => {
+      const formula = recordValue(recordValue(metricValue)?.formula);
+      return !formula || (Array.isArray(formula.inputArtifactIds) && formula.inputArtifactIds.every((artifact) => typeof artifact === "string" && artifacts.has(artifact)));
+    });
+  });
+}
+
+function sameStrings(left: unknown, right: unknown): boolean {
+  if (!Array.isArray(left) || !Array.isArray(right) || !left.every((item) => typeof item === "string") || !right.every((item) => typeof item === "string")) return false;
+  const expected = new Set(right);
+  return expected.size === right.length && left.length === right.length && left.every((item) => expected.has(item));
+}
+
+function validReportFactBlock(value: unknown): boolean {
+  const block = recordValue(value);
+  const quality = recordValue(block?.quality);
+  const coverage = recordValue(quality?.coverage);
+  const provenance = recordValue(block?.provenance);
+  return typeof block?.id === "string"
+    && typeof block.evidenceId === "string"
+    && typeof block.factId === "string"
+    && ["instrument_mapping", "market_baseline", "financial_metric", "valuation"].includes(String(block.kind))
+    && typeof block.subjectId === "string"
+    && typeof block.title === "string"
+    && Array.isArray(block.context) && block.context.every((entry) => typeof recordValue(entry)?.label === "string" && typeof recordValue(entry)?.value === "string")
+    && Array.isArray(block.metrics) && block.metrics.length > 0 && block.metrics.every(validReportFactMetric)
+    && (quality?.status === "operational" || quality?.status === "degraded")
+    && typeof quality.reliable === "boolean"
+    && Number.isSafeInteger(coverage?.actual) && Number(coverage?.actual) >= 0
+    && Number.isSafeInteger(coverage?.required) && Number(coverage?.required) > 0
+    && stringArray(quality.warnings)
+    && typeof provenance?.researchFingerprint === "string"
+    && typeof provenance.planVersion === "string"
+    && stringArray(provenance.providers) && provenance.providers.length > 0
+    && stringArray(provenance.sourceArtifactIds) && provenance.sourceArtifactIds.length > 0
+    && boundedIsoTimestamp(provenance.sourceAsOf)
+    && boundedIsoTimestamp(provenance.retrievedAt);
+}
+
+function validReportFactMetric(value: unknown): boolean {
+  const metric = recordValue(value);
+  const formula = recordValue(metric?.formula);
+  return ["value", "weight", "comparison", "historical_percentile"].includes(String(metric?.key))
+    && typeof metric?.label === "string"
+    && typeof metric.decimal === "string" && /^[-+]?(?:0|[1-9]\d*)(?:\.\d+)?$/.test(metric.decimal)
+    && ["CNY", "ratio", "shares"].includes(String(metric.unit))
+    && (formula === undefined || (
+      typeof formula.id === "string"
+      && typeof formula.version === "string"
+      && typeof formula.expression === "string"
+      && stringArray(formula.inputArtifactIds)
+      && formula.inputArtifactIds.length > 0
+      && stringRecord(formula.parameters)
+      && typeof formula.rounding === "string"
+    ));
 }
 
 function validReportObservation(value: unknown): boolean {
@@ -364,6 +485,7 @@ export function createResearchReportV2(
   evidence?: SealedEvidenceBundle,
 ): ResearchReportV2 {
   const observations = [...narration.observations, ...narration.portfolioImpacts];
+  const factBlocks = evidence ? researchReportFactBlocks(evidence) : undefined;
   const basis = observations.filter((item) => item.class === "fact");
   const analysis = observations.filter((item) => item.class === "inference");
   const risks: ResearchReportRisk[] = [
@@ -389,6 +511,7 @@ export function createResearchReportV2(
     ...analysis.flatMap((item) => item.evidenceIds),
     ...risks.flatMap((item) => item.evidenceIds),
     ...narration.watchNext.flatMap((item) => item.evidenceIds),
+    ...(factBlocks?.map((block) => block.evidenceId) ?? []),
   ]);
   const evidenceById = new Map(evidence?.items.map((item) => [item.id, item]) ?? []);
   return {
@@ -398,6 +521,7 @@ export function createResearchReportV2(
       summary: narration.summary,
       evidenceIds: conclusionEvidenceIds,
     },
+    ...(factBlocks ? { factBlocks } : {}),
     basis: basis.map(cloneObservation),
     analysis: analysis.map(cloneObservation),
     risks,
@@ -405,6 +529,127 @@ export function createResearchReportV2(
     sources: referencedIds.map((evidenceId) => researchReportSource(evidenceId, evidenceById.get(evidenceId))),
   };
 }
+
+function researchReportFactBlocks(evidence: SealedEvidenceBundle): ResearchReportFactBlock[] {
+  return evidence.items.flatMap((item) => {
+    if (item.kind !== "market_fact" || item.origin !== "server-observed") return [];
+    const value = recordValue(item.value);
+    const fact = recordValue(value?.fact);
+    const provenance = recordValue(fact?.provenance);
+    const quality = recordValue(fact?.quality);
+    const coverage = recordValue(quality?.coverage);
+    if (
+      value?.type !== "research_fact"
+      || typeof value.researchFingerprint !== "string"
+      || typeof value.planVersion !== "string"
+      || !fact
+      || typeof fact.id !== "string"
+      || typeof fact.subjectId !== "string"
+      || !provenance
+      || !quality
+      || !coverage
+      || !Array.isArray(provenance.providers)
+      || !Array.isArray(provenance.sourceArtifactIds)
+      || typeof provenance.sourceAsOf !== "string"
+      || typeof provenance.retrievedAt !== "string"
+      || (quality.status !== "operational" && quality.status !== "degraded")
+      || typeof quality.reliable !== "boolean"
+      || !Number.isSafeInteger(coverage.actual)
+      || !Number.isSafeInteger(coverage.required)
+      || !Array.isArray(quality.warnings)
+    ) return [];
+    const metrics = researchFactMetrics(fact);
+    if (!metrics.length) return [];
+    const kind = fact.kind;
+    if (kind !== "instrument_mapping" && kind !== "market_baseline" && kind !== "financial_metric" && kind !== "valuation") return [];
+    return [{
+      id: `fact-block:${item.id}`,
+      evidenceId: item.id,
+      factId: fact.id,
+      kind,
+      subjectId: fact.subjectId,
+      title: researchFactTitle(fact),
+      context: researchFactContext(fact),
+      metrics,
+      quality: {
+        status: quality.status,
+        reliable: item.reliable && quality.reliable,
+        coverage: { actual: Number(coverage.actual), required: Number(coverage.required) },
+        warnings: uniqueStrings(quality.warnings.filter((warning): warning is string => typeof warning === "string")),
+      },
+      provenance: {
+        researchFingerprint: value.researchFingerprint,
+        planVersion: value.planVersion,
+        providers: uniqueStrings(provenance.providers.filter((provider): provider is string => typeof provider === "string")),
+        sourceArtifactIds: uniqueStrings(provenance.sourceArtifactIds.filter((artifact): artifact is string => typeof artifact === "string")),
+        sourceAsOf: provenance.sourceAsOf,
+        retrievedAt: provenance.retrievedAt,
+      },
+    }];
+  });
+}
+
+function researchFactMetrics(fact: Record<string, unknown>): ResearchReportFactMetric[] {
+  if (fact.kind === "market_baseline") return metric(fact.value, "value", baselineLabel(fact.baselineType), fact.formula);
+  if (fact.kind === "instrument_mapping") return metric(fact.weight, "weight", "指数权重");
+  if (fact.kind === "financial_metric") return [
+    ...metric(fact.value, "value", typeof fact.metric === "string" ? fact.metric : "财务指标"),
+    ...metric(fact.comparison, "comparison", comparisonLabel(recordValue(fact.comparison)?.kind), recordValue(fact.comparison)?.formula),
+  ];
+  if (fact.kind === "valuation") return [
+    ...metric(fact.value, "value", valuationLabel(fact.metric)),
+    ...metric(fact.historicalPercentile, "historical_percentile", "历史分位", recordValue(fact.historicalPercentile)?.formula),
+  ];
+  return [];
+}
+
+function metric(value: unknown, key: ResearchReportFactMetric["key"], label: string, formulaValue?: unknown): ResearchReportFactMetric[] {
+  const source = recordValue(value);
+  if (!source || typeof source.decimal !== "string" || !/^[-+]?(?:0|[1-9]\d*)(?:\.\d+)?$/.test(source.decimal) || (source.unit !== "CNY" && source.unit !== "ratio" && source.unit !== "shares")) return [];
+  const formula = researchReportFormula(formulaValue);
+  return [{ key, label, decimal: source.decimal, unit: source.unit, ...(formula ? { formula } : {}) }];
+}
+
+function researchReportFormula(value: unknown): ResearchReportFactFormula | undefined {
+  const formula = recordValue(value);
+  if (!formula || typeof formula.id !== "string" || typeof formula.version !== "string" || typeof formula.expression !== "string" || !Array.isArray(formula.inputArtifactIds) || typeof formula.rounding !== "string" || !stringRecord(formula.parameters)) return undefined;
+  const inputArtifactIds = formula.inputArtifactIds.filter((id): id is string => typeof id === "string" && Boolean(id));
+  if (!inputArtifactIds.length) return undefined;
+  return { id: formula.id, version: formula.version, expression: formula.expression, inputArtifactIds: uniqueStrings(inputArtifactIds), parameters: { ...formula.parameters }, rounding: formula.rounding };
+}
+
+function researchFactTitle(fact: Record<string, unknown>): string {
+  if (fact.kind === "market_baseline") return `${fact.subjectId} · ${String(fact.window)} 日${baselineLabel(fact.baselineType)}`;
+  if (fact.kind === "instrument_mapping") return `${fact.subjectId} · ${mappingLabel(fact.mappingType)}`;
+  if (fact.kind === "financial_metric") return `${fact.subjectId} · ${typeof fact.metric === "string" ? fact.metric : "财务指标"}`;
+  return `${fact.subjectId} · ${valuationLabel(fact.metric)}`;
+}
+
+function researchFactContext(fact: Record<string, unknown>): Array<{ label: string; value: string }> {
+  if (fact.kind === "market_baseline") {
+    const period = recordValue(fact.observationPeriod);
+    return [
+      ...(typeof fact.benchmarkId === "string" ? [{ label: "基准", value: fact.benchmarkId }] : []),
+      ...(typeof period?.start === "string" && typeof period.end === "string" ? [{ label: "观察区间", value: `${period.start} — ${period.end}` }] : []),
+    ];
+  }
+  if (fact.kind === "instrument_mapping") return [
+    ...(typeof fact.targetId === "string" ? [{ label: "映射目标", value: fact.targetId }] : []),
+    ...(typeof fact.methodologyVersion === "string" ? [{ label: "方法版本", value: fact.methodologyVersion }] : []),
+  ];
+  const period = recordValue(fact.period);
+  return period && typeof period.start === "string" && typeof period.end === "string"
+    ? [{ label: "报告期", value: `${period.start} — ${period.end}` }]
+    : [];
+}
+
+function baselineLabel(value: unknown): string {
+  return ({ price_return: "价格收益", volume_median: "成交量中位数", realized_volatility: "实现波动率", relative_return: "相对收益" } as Record<string, string>)[String(value)] ?? "市场基线";
+}
+function mappingLabel(value: unknown): string { return ({ benchmark: "基准映射", industry: "行业映射", index_membership: "指数成分" } as Record<string, string>)[String(value)] ?? "标的映射"; }
+function valuationLabel(value: unknown): string { return ({ pe_ttm: "市盈率 TTM", pb: "市净率", ps_ttm: "市销率 TTM", dividend_yield: "股息率" } as Record<string, string>)[String(value)] ?? "估值指标"; }
+function comparisonLabel(value: unknown): string { return value === "yoy" ? "同比" : value === "qoq" ? "环比" : "指标变化"; }
+function stringRecord(value: unknown): value is Record<string, string> { return Boolean(value) && typeof value === "object" && !Array.isArray(value) && Object.values(value as Record<string, unknown>).every((item) => typeof item === "string"); }
 
 function cloneObservation(item: AgentObservation): AgentObservation {
   return { ...item, evidenceIds: [...item.evidenceIds] };

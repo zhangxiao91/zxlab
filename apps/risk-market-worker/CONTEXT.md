@@ -5,7 +5,7 @@ Market owns normalized external market facts, their session-aware quality, provi
 ## Language
 
 **Effective Trading Date**:
-The most recent completed trading day established by a reliable trading calendar for the request time. During a weekend or holiday, this date—not the wall-clock calendar date—defines what “today” and the latest valid close refer to.
+The trading date established by a reliable calendar for the request semantics. During an active live session it is the active trading date; after completion, during a weekend, or during a holiday it is the most recent completed trading day. `MarketReference.session` and `semantics` must be read with the date. During a weekend or holiday, this date—not the wall-clock calendar date—defines what “today” and the latest valid close refer to.
 _Avoid_: Today, current calendar date
 
 **Fresh Market Fact**:

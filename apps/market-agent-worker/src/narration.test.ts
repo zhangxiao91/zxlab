@@ -91,8 +91,8 @@ test("model narration cannot calculate or fill a number absent from sealed facts
 
   assert.equal(result.provenance.source, "deterministic_fallback");
   assert.match(result.issues.join("\n"), /numeric claims must match sealed deterministic facts: 20%/);
-  assert.deepEqual(result.provenance.failure?.validationCategories, ["numeric_grounding"]);
-  assert.deepEqual(result.provenance.failure?.validationRuleIds, ["numeric_claim"]);
+  assert.ok(result.provenance.failure?.validationCategories?.includes("numeric_grounding"));
+  assert.ok(result.provenance.failure?.validationRuleIds?.includes("numeric_claim"));
   assert.deepEqual(result.provenance.failure?.numericSections, ["narration", "observations"]);
 });
 
@@ -121,8 +121,8 @@ test("a selected Gateway model cannot write quantities even when every value is 
   const result = await narrateWithRepair(narrator, { workflow: "close_review", evidence: quoteEvidence });
 
   assert.equal(result.provenance.source, "deterministic_fallback");
-  assert.deepEqual(result.provenance.failure?.validationCategories, ["numeric_grounding"]);
-  assert.deepEqual(result.provenance.failure?.validationRuleIds, ["numeric_claim"]);
+  assert.ok(result.provenance.failure?.validationCategories?.includes("numeric_grounding"));
+  assert.ok(result.provenance.failure?.validationRuleIds?.includes("numeric_claim"));
   assert.deepEqual(result.provenance.failure?.numericSections, ["narration", "observations", "portfolioImpacts", "watchNext", "limitations"]);
 });
 
@@ -590,6 +590,156 @@ test("deterministic fallback labels a closed-session quote as last observed, not
 
   assert.match(result.observations[0]?.explanation ?? "", /闭市后的最近观测价/);
   assert.doesNotMatch(result.observations[0]?.explanation ?? "", /最新价/);
+});
+
+test("a selected model repairs an evidence-rich fact brief into a research report", async () => {
+  const depthEvidence: SealedEvidenceBundle = {
+    ...evidence,
+    workflow: "ask",
+    ask: { scope: "today_change", planVersion: "ask-plan.v1" },
+    items: [
+      { id: "quote", kind: "market_fact", origin: "server-observed", reliable: true, value: { type: "quote", instrumentId: "SSE:600000", price: 12, previousClose: 11 } },
+      { id: "baseline", kind: "market_fact", origin: "server-observed", reliable: true, value: { type: "research_fact", fact: { kind: "market_baseline", subjectId: "SSE:600000", baselineType: "price_return", window: 20, value: { decimal: "0.1", unit: "ratio" } } } },
+    ],
+  };
+  let repairIssues: string[] = [];
+  const narrator: Narrator = {
+    async narrate() {
+      return withGatewaySelection({
+        status: "success", headline: "甲", summary: "甲。乙。", conclusionEvidenceIds: [], observations: [], portfolioImpacts: [], watchNext: [], limitations: [], evidenceFingerprint: depthEvidence.fingerprint,
+      }, { provider: "fixture", model: "fixture", fallbackIndex: 0, gatewayRequestId: "depth-first" });
+    },
+    async repair(input) {
+      repairIssues = input.issues;
+      return withGatewaySelection({
+        status: "success",
+        headline: "最近有效市场观察需要结合历史基线理解",
+        summary: "可靠行情与研究基线共同支持当前结论，两类证据分别说明最近市场状态及其所处历史语境。市场事实本身已经封存，重要之处在于短期变化不能脱离更长观察窗口单独解释。现有材料倾向支持继续跟踪，但持续性尚无法确认，后续仍应由新的确定性证据复核。",
+        conclusionEvidenceIds: ["baseline", "quote"],
+        observations: [
+          { id: "basis-quote", class: "fact", importance: "high", title: "最近市场事实已封存", explanation: "可靠行情提供了最近有效市场观察，可用于确认变化方向；具体定量值和市场日期由所引 Evidence 直接呈现。", evidenceIds: ["quote"] },
+          { id: "basis-history", class: "fact", importance: "high", title: "历史语境已有确定性基线", explanation: "研究事实提供了可复核的历史观察窗口，使最近市场状态能够放在一致口径下理解；公式与数值由 Fact Plane 呈现。", evidenceIds: ["baseline"] },
+          { id: "analysis", class: "inference", importance: "medium", title: "短期含义仍需后续验证", explanation: "两类证据结合后倾向表明最近变化值得持续关注，但这种解释仍可能受后续市场事实影响，尚无法确认其延续性。", evidenceIds: ["quote", "baseline"] },
+        ],
+        portfolioImpacts: [],
+        watchNext: [{ condition: "关注新的可靠行情是否改变当前相对位置", reason: "新的封存市场事实能够验证当前解释是否继续成立。", evidenceIds: ["quote", "baseline"] }],
+        limitations: [],
+        evidenceFingerprint: depthEvidence.fingerprint,
+      }, { provider: "fixture", model: "fixture", fallbackIndex: 0, gatewayRequestId: "depth-repair" });
+    },
+  };
+
+  const result = await narrateWithRepair(narrator, { workflow: "ask", askScope: "today_change", evidence: depthEvidence });
+
+  assert.equal(result.provenance.source, "model_repaired", result.issues.join("\n"));
+  assert.ok(repairIssues.some((issue) => issue.startsWith("NARRATIVE_DEPTH_SUMMARY_TOO_SHORT")));
+  assert.ok(repairIssues.some((issue) => issue.startsWith("NARRATIVE_DEPTH_REQUIRED_EVIDENCE_UNCOVERED")));
+});
+
+test("a selected model cannot invent limitations when sealed Evidence has none", async () => {
+  const quoteEvidence: SealedEvidenceBundle = {
+    ...evidence,
+    items: [{ id: "quote", kind: "market_fact", origin: "server-observed", reliable: true, value: { type: "quote", instrumentId: "SSE:600000", price: 12 } }],
+  };
+  const narrator: Narrator = { async narrate() { return withGatewaySelection({
+    status: "partial",
+    headline: "可靠市场事实已经封存",
+    summary: "可靠行情支持对最近市场状态作出定性说明，主要依据已经与本次运行一同封存。该事实的重要之处在于它提供了可复核的观察起点，具体定量内容由 Evidence 单独呈现。后续仍应等待新的可靠市场事实，以检验当前状态是否发生变化。",
+    conclusionEvidenceIds: ["quote"],
+    observations: [{ id: "quote", class: "fact", importance: "high", title: "市场事实可复核", explanation: "服务端已封存可靠行情并保留其来源与观察时间，具体定量值由 Evidence 呈现，可作为当前定性说明的直接依据。", evidenceIds: ["quote"] }],
+    portfolioImpacts: [],
+    watchNext: [{ condition: "关注后续可靠市场事实是否改变当前观察", reason: "新的封存证据可以检验当前定性判断是否继续成立。", evidenceIds: ["quote"] }],
+    limitations: ["供应商传输延迟，因此周末数据已经过期且不可靠。"],
+    evidenceFingerprint: quoteEvidence.fingerprint,
+  }, { provider: "fixture", model: "fixture", fallbackIndex: 0, gatewayRequestId: "unsupported-limit" }); } };
+
+  const result = await narrateWithRepair(narrator, { workflow: "close_review", evidence: quoteEvidence });
+
+  assert.equal(result.provenance.source, "deterministic_fallback");
+  assert.ok(result.issues.some((issue) => issue.startsWith("NARRATION_LIMITATION_UNSUPPORTED")));
+  assert.ok(result.provenance.failure?.validationCategories?.includes("material_limitations"));
+  assert.ok(result.provenance.failure?.validationRuleIds?.includes("limitation_unsupported"));
+});
+
+test("an advisory evidence limitation does not force partial when authoritative coverage is sufficient", async () => {
+  const advisoryEvidence: SealedEvidenceBundle = {
+    ...evidence,
+    items: [
+      { id: "quote", kind: "market_fact", origin: "server-observed", reliable: true, value: { type: "quote", instrumentId: "SSE:600000", price: 12 } },
+      { id: "advisory", kind: "limitation", origin: "server-observed", reliable: true, value: { capability: "optional-context", status: "degraded" } },
+    ],
+  };
+  const narrator: Narrator = { async narrate() { return withGatewaySelection({
+    status: "success",
+    headline: "可靠市场事实支持当前观察",
+    summary: "可靠行情支持对最近市场状态作出定性说明，主要依据已经与本次运行一同封存。该事实的重要之处在于它提供了可复核的观察起点，具体定量内容由 Evidence 单独呈现。后续仍应等待新的可靠市场事实，以检验当前状态是否发生变化。",
+    conclusionEvidenceIds: ["quote"],
+    observations: [{ id: "quote", class: "fact", importance: "high", title: "市场事实可复核", explanation: "服务端已封存可靠行情并保留来源与观察时间，因此它能够作为当前定性说明的直接依据，也为后续同口径复核提供稳定起点。", evidenceIds: ["quote"] }],
+    portfolioImpacts: [],
+    watchNext: [{ condition: "关注后续可靠市场事实是否改变当前观察", reason: "新的封存证据能够验证当前定性判断是否继续成立。", evidenceIds: ["quote"] }],
+    limitations: [],
+    evidenceFingerprint: advisoryEvidence.fingerprint,
+  }, { provider: "fixture", model: "fixture", fallbackIndex: 0, gatewayRequestId: "advisory-sufficient" }); } };
+
+  const result = await narrateWithRepair(narrator, {
+    workflow: "ask",
+    askScope: "today_change",
+    evidence: advisoryEvidence,
+    evidenceAssessment: { coverage: "sufficient", delivery: "primary", fallbackCapabilities: [], limitations: [{ code: "OPTIONAL_CONTEXT", severity: "advisory", message: "optional" }] },
+  });
+
+  assert.equal(result.provenance.source, "model", result.issues.join("\n"));
+  assert.equal(result.result.status, "success");
+});
+
+test("deterministic fallback produces a cited report across quote, bars, research, diff, portfolio, and limitations", async () => {
+  const richEvidence: SealedEvidenceBundle = {
+    ...evidence,
+    workflow: "ask",
+    ask: { scope: "portfolio_impact", planVersion: "ask-plan.v1" },
+    items: [
+      { id: "quote", kind: "market_fact", origin: "server-observed", reliable: true, value: { type: "quote", instrumentId: "SSE:600000", price: 12, previousClose: 11, marketTimestamp: "2026-08-21T07:00:00.000Z" } },
+      { id: "bars", kind: "market_fact", origin: "server-observed", reliable: true, value: { type: "bar_series", instrumentId: "SSE:600000", interval: "1d", bars: [{ timestamp: "2026-08-21T07:00:00.000Z", close: 12, volume: 3000 }] } },
+      { id: "research", kind: "market_fact", origin: "server-observed", reliable: true, value: { type: "research_fact", fact: { kind: "market_baseline", subjectId: "SSE:600000", baselineType: "price_return", window: 20, value: { decimal: "0.1", unit: "ratio" }, formula: { id: "price.total-return", version: "1" } } } },
+      { id: "diff", kind: "snapshot_diff", origin: "server-observed", reliable: true, value: { changes: [{ kind: "quote_price", instrumentId: "SSE:600000", deltaBps: 500 }] } },
+      { id: "portfolio", kind: "portfolio_impact", origin: "server-observed", reliable: true, value: { type: "risk_impact", impact: { marketValue: 1200, unrealizedPnl: 200 } } },
+      { id: "limit", kind: "limitation", origin: "server-observed", reliable: true, value: { capability: "announcements", status: "unavailable", warnings: ["announcements unavailable"] } },
+    ],
+  };
+
+  const result = await new DeterministicNarrator().narrate({ workflow: "ask", askScope: "portfolio_impact", evidence: richEvidence });
+
+  assert.ok(result.summary.length >= 100);
+  assert.ok((result.conclusionEvidenceIds?.length ?? 0) >= 2);
+  assert.ok(result.observations.some((item) => item.title.includes("行情事实")));
+  assert.ok(result.observations.some((item) => item.title.includes("日线")));
+  assert.ok(result.observations.some((item) => item.title.includes("研究基线")));
+  assert.ok(result.observations.some((item) => item.title.includes("较上次")));
+  assert.ok(result.observations.some((item) => item.class === "inference"));
+  assert.ok(result.portfolioImpacts.length >= 1);
+  assert.ok(result.watchNext.length >= 1);
+  assert.match(result.limitations.join("\n"), /announcements unavailable/);
+});
+
+test("deterministic fallback preserves category coverage when many quotes arrive first", async () => {
+  const crowded: SealedEvidenceBundle = {
+    ...evidence,
+    workflow: "ask",
+    ask: { scope: "today_change", planVersion: "ask-plan.v1" },
+    items: [
+      ...Array.from({ length: 30 }, (_, index) => ({ id: `quote-${index}`, kind: "market_fact" as const, origin: "server-observed" as const, reliable: true, value: { type: "quote", instrumentId: `SSE:${String(600000 + index).padStart(6, "0")}`, price: 10 + index } })),
+      { id: "bars", kind: "market_fact", origin: "server-observed", reliable: true, value: { type: "bar_series", instrumentId: "SSE:600000", interval: "1d", bars: [{ timestamp: "2026-08-21T07:00:00.000Z", close: 12 }] } },
+      { id: "research", kind: "market_fact", origin: "server-observed", reliable: true, value: { type: "research_fact", fact: { kind: "market_baseline", subjectId: "SSE:600000", value: { decimal: "0.1", unit: "ratio" } } } },
+      { id: "diff", kind: "snapshot_diff", origin: "server-observed", reliable: true, value: { changes: [{ kind: "quote_price", instrumentId: "SSE:600000", deltaBps: 100 }] } },
+    ],
+  };
+
+  const result = await new DeterministicNarrator().narrate({ workflow: "ask", askScope: "today_change", evidence: crowded });
+
+  assert.ok(result.observations.some((item) => item.id.startsWith("deterministic-ask-quote-")));
+  assert.ok(result.observations.some((item) => item.id.startsWith("deterministic-ask-bars-")));
+  assert.ok(result.observations.some((item) => item.id.startsWith("deterministic-research-")));
+  assert.ok(result.observations.some((item) => item.id.startsWith("deterministic-diff-")));
 });
 
 test("model output cannot cite a sealed item omitted from its bounded narration context", async () => {

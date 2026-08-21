@@ -7,6 +7,7 @@ const evidence: SealedEvidenceBundle = { schemaVersion: "market-agent.v1", event
 test("gateway narrator sends only the bounded task and sealed evidence", async () => {
   const narrator = new GatewayNarrator({ apiUrl: "https://gateway.example/api/ai/generate", token: "secret", fetcher: async (_url, init) => {
     const body = JSON.parse(String(init?.body)) as { task: string; maxOutputTokens: number; context: { source: string; operation: string; metadata: { contextVersion: string } }; messages: Array<{ content: string }> };
+    const userPayload = JSON.parse(body.messages[1]!.content) as { narrativeDepthPolicy: { version: string; summary: { minCharacters: number }; instructions: string[] } };
     assert.equal(body.task, "market-agent-close-review"); assert.match(body.messages[1].content, /sha256:g/);
     assert.equal(body.maxOutputTokens, 4800);
     assert.match(body.messages[0].content, /headline, summary, conclusionEvidenceIds, observations, portfolioImpacts, watchNext, limitations, and evidenceFingerprint/);
@@ -19,6 +20,9 @@ test("gateway narrator sends only the bounded task and sealed evidence", async (
     assert.match(body.messages[0].content, /Do not write any quantity in user-facing natural-language strings/);
     assert.match(body.messages[0].content, /deterministic Evidence renderer surfaces quantitative values separately/);
     assert.match(body.messages[0].content, /Do not translate JSON keys/);
+    assert.equal(userPayload.narrativeDepthPolicy.version, "narrative-depth.v1");
+    assert.equal(userPayload.narrativeDepthPolicy.summary.minCharacters, 48);
+    assert.match(userPayload.narrativeDepthPolicy.instructions.join(" "), /empty limitations array/);
     assert.deepEqual(body.context, { source: "market-agent-worker", operation: "close_review", metadata: { contextVersion: "narration-context.v1" } });
     return new Response(JSON.stringify({ ok: true, data: { json: { status: "success", headline: "ok", summary: "ok", observations: [], portfolioImpacts: [], watchNext: [], limitations: [], evidenceFingerprint: "sha256:g" }, text: "", provider: "fixture", model: "fixture", fallbackIndex: 0, latencyMs: 1 }, requestId: "r1" }), { status: 200, headers: { "content-type": "application/json" } });
   } });
@@ -33,7 +37,7 @@ test("gateway selection is preserved as safe narration provenance", async () => 
     fetcher: async () => Response.json({
       ok: true,
       data: {
-        json: { status: "success", headline: "ok", summary: "主要结论已经形成。当前没有额外不确定性。", conclusionEvidenceIds: [], observations: [], portfolioImpacts: [], watchNext: [], limitations: [], evidenceFingerprint: evidence.fingerprint },
+        json: { status: "success", headline: "ok", summary: "当前没有足够的市场事实可供展开，因此本次结果只说明已经封存的证据边界。后续需要等待新的可靠 Evidence，再按相同口径重新运行并复核市场状态。", conclusionEvidenceIds: [], observations: [], portfolioImpacts: [], watchNext: [], limitations: [], evidenceFingerprint: evidence.fingerprint },
         provider: "deepseek",
         model: "deepseek-v4-flash",
         fallbackIndex: 0,
@@ -172,7 +176,7 @@ test("a selected Gateway model must return a two-to-four sentence research lead"
   assert.equal(result.provenance.provider, "deepseek");
   assert.equal(result.provenance.gatewayRequestId, "gateway-request-2");
   assert.deepEqual(result.provenance.failure?.validationCategories, ["summary_length"]);
-  assert.deepEqual(result.provenance.failure?.validationRuleIds, ["summary_sentence_count"]);
+  assert.ok(result.provenance.failure?.validationRuleIds?.includes("summary_sentence_count"));
   assert.match(result.issues.join("\n"), /summary must contain 2 to 4 sentences/);
 });
 

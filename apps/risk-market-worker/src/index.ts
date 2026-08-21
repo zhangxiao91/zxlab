@@ -2,7 +2,7 @@ import { getChinaMarketStatus } from "./calendar.ts";
 import { projectCachedLoadResult } from "./cache-policy.ts";
 import { applyIntradayFreshnessDecision, assessDailyBarFreshness, assessIntradayFreshness } from "./freshness.ts";
 import { readCurrentMarketSnapshot, type SnapshotLoadResult } from "./snapshot.ts";
-import { DEFAULT_QUOTE_CONFLICT_THRESHOLD_BPS, type MarketFactQuality, type MarketFreshness, type MarketQuoteMode, type QuoteCorroboration, type TradingCalendar } from "../../../packages/market-schema/src/index.ts";
+import { DEFAULT_QUOTE_CONFLICT_THRESHOLD_BPS, type MarketFactQuality, type MarketFreshness, type MarketQuoteMode, type MarketReference, type QuoteCorroboration, type TradingCalendar } from "../../../packages/market-schema/src/index.ts";
 import type { ResearchFactPlane as ResearchFactPlaneInterface, ResearchFactRequest } from "@zxlab/research-fact-schema";
 import { ResearchFactPlane, type DailyHistoryResult } from "./research/fact-plane.ts";
 import { StaticVersionedBenchmarkMappingRegistry } from "./research/benchmark-mappings.ts";
@@ -653,9 +653,9 @@ export async function loadQuotes(ids: string[], mode: MarketQuoteMode = "fallbac
         ? await runCorroboratedQuote(providers, fetcher)
         : withQuoteDiagnostics(await runWithFallback("quote", providers, fetcher));
       const decision = await assessIntradayFreshness({ exchange: instrumentToCode(id).exchange, marketTimestamp: loaded.marketTimestamp, receivedAt: loaded.receivedAt }, dependencies.calendar);
-      return { quote: applyIntradayFreshnessDecision(loaded, decision), freshness: decision.freshness };
+      return { quote: applyIntradayFreshnessDecision(loaded, decision), freshness: decision.freshness, reference: decision.reference };
     } catch (error) {
-      if (error instanceof AllProvidersFailedError) return { quote: unavailableQuote(id, error, mode), freshness: "unknown" as const };
+      if (error instanceof AllProvidersFailedError) return { quote: unavailableQuote(id, error, mode), freshness: "unknown" as const, reference: undefined };
       throw error;
     }
   });
@@ -666,7 +666,7 @@ export async function loadQuotes(ids: string[], mode: MarketQuoteMode = "fallbac
   const asOf = resolved.map((item) => item.marketTimestamp).filter((value): value is string => Boolean(value)).sort().at(-1) ?? null;
   const freshness = aggregateFreshness(resolvedWithFreshness.map((item) => item.freshness));
   const capabilityStatus = unavailableCount === resolved.length ? "unavailable" : unavailableCount > 0 || freshness !== "fresh" || resolved.some((item) => item.fallbackUsed || item.quality !== "live" || item.corroboration?.status === "limited") ? "degraded" : "operational";
-  return { data: resolved, meta: { capability: "quote", quoteMode: mode, capabilityStatus, asOf, receivedAt, freshness, providerChain: ["tencent-qt", "sina-hq", "eastmoney-push2"], sources, attempts: resolved.flatMap((item) => item.providerAttempts), warnings: resolved.flatMap((item) => item.warnings), fallbackCount: resolved.filter((item) => item.fallbackUsed).length, unavailableCount, corroboratedCount: resolved.filter((item) => item.corroboration?.status === "corroborated").length, conflictedCount: resolved.filter((item) => item.quality === "conflicted").length } };
+  return { data: resolved, meta: { capability: "quote", quoteMode: mode, capabilityStatus, asOf, receivedAt, freshness, reference: commonReference(resolvedWithFreshness.map((item) => item.reference)), providerChain: ["tencent-qt", "sina-hq", "eastmoney-push2"], sources, attempts: resolved.flatMap((item) => item.providerAttempts), warnings: resolved.flatMap((item) => item.warnings), fallbackCount: resolved.filter((item) => item.fallbackUsed).length, unavailableCount, corroboratedCount: resolved.filter((item) => item.corroboration?.status === "corroborated").length, conflictedCount: resolved.filter((item) => item.quality === "conflicted").length } };
 }
 
 function aggregateFreshness(values: MarketFreshness[]): MarketFreshness {
@@ -674,6 +674,13 @@ function aggregateFreshness(values: MarketFreshness[]): MarketFreshness {
   if (values.some((value) => value === "stale")) return "stale";
   if (values.some((value) => value !== "fresh")) return "mixed";
   return "fresh";
+}
+
+function commonReference(values: Array<MarketReference | undefined>): MarketReference | undefined {
+  const references = values.filter((value): value is MarketReference => Boolean(value));
+  if (!references.length) return undefined;
+  const canonical = JSON.stringify(references[0]);
+  return references.every((reference) => JSON.stringify(reference) === canonical) ? references[0] : undefined;
 }
 
 async function mapWithConcurrency<T, R>(items: T[], limit: number, mapper: (item: T) => Promise<R>): Promise<R[]> {
@@ -711,7 +718,7 @@ export async function loadBars(instrumentId: string, interval: "1d" | "1m", depe
     ? await assessDailyBarFreshness({ exchange: instrumentToCode(instrumentId).exchange, marketTimestamp: asOf, receivedAt }, dependencies.calendar)
     : await assessIntradayFreshness({ exchange: instrumentToCode(instrumentId).exchange, marketTimestamp: asOf, receivedAt }, dependencies.calendar);
   const capabilityStatus = !data.length ? "unavailable" : result.fallbackUsed || freshness.freshness !== "fresh" ? "degraded" : "operational";
-  return { data, meta: { capability, capabilityStatus, asOf, receivedAt, freshness: data.length ? freshness.freshness : "unknown", warnings: freshness.warnings, source: result.source, fallbackUsed: result.fallbackUsed, providerChain: providers.map((item) => item.name), attempts: result.attempts } };
+  return { data, meta: { capability, capabilityStatus, asOf, receivedAt, freshness: data.length ? freshness.freshness : "unknown", reference: freshness.reference, warnings: freshness.warnings, source: result.source, fallbackUsed: result.fallbackUsed, providerChain: providers.map((item) => item.name), attempts: result.attempts } };
 }
 
 export function dedupNews(items: StandardNewsItem[], limit: number): StandardNewsItem[] {
@@ -771,7 +778,7 @@ async function loadMarketNews(ids: string[], limit: number): Promise<LoadResult<
 
 async function loadStatus(exchange: "SSE" | "SZSE"): Promise<SnapshotLoadResult<Awaited<ReturnType<typeof getChinaMarketStatus>>>> {
   const data = await getChinaMarketStatus(exchange);
-  return { data, meta: { capability: `status:${exchange}`, capabilityStatus: data.quality, asOf: data.asOf, receivedAt: data.receivedAt, freshness: data.freshness, warnings: data.warnings } };
+  return { data, meta: { capability: `status:${exchange}`, capabilityStatus: data.quality, asOf: data.asOf, receivedAt: data.receivedAt, freshness: data.freshness, reference: data.reference, warnings: data.warnings } };
 }
 
 function productionResearchFactPlane(): ResearchFactPlane {

@@ -9,7 +9,15 @@ export type MarketFactQuality = "live" | "cached" | "stale" | "conflicted" | "un
 export type MarketCapabilityStatus = "operational" | "degraded" | "unavailable";
 export type MarketFreshness = "fresh" | "mixed" | "stale" | "unknown";
 export type MarketSession = "preopen" | "open" | "break" | "closed" | "holiday" | "unknown";
+export type MarketReferenceSemantics = "live_session" | "last_effective_session" | "unresolved";
 export type CorroborationStatus = "not_requested" | "corroborated" | "limited" | "conflicted";
+
+export interface MarketReference {
+  requestedCalendarDate: string;
+  effectiveTradingDate: string | null;
+  session: MarketSession;
+  semantics: MarketReferenceSemantics;
+}
 
 export interface MarketProviderAttempt {
   provider: string;
@@ -104,6 +112,8 @@ export interface MarketStatus {
   reliable: boolean;
   source: string;
   warnings: string[];
+  /** Present on current snapshots. Optional only so immutable legacy snapshots remain replayable. */
+  reference?: MarketReference;
 }
 
 export interface MarketCapabilityHealth {
@@ -138,6 +148,8 @@ export interface MarketSnapshot {
   asOf: string;
   receivedAt: string;
   marketTimestamp: string | null;
+  /** Authoritative market-date semantics for this request. Missing only on legacy snapshots. */
+  reference?: MarketReference;
   request: MarketSnapshotRequest;
   data: {
     quotes: MarketSnapshotQuote[];
@@ -173,6 +185,7 @@ export function validateMarketSnapshot(value: unknown): MarketSnapshotValidation
   requireIso(value.asOf, "asOf", issues);
   requireIso(value.receivedAt, "receivedAt", issues);
   if (value.marketTimestamp !== null) requireIso(value.marketTimestamp, "marketTimestamp", issues);
+  if (value.reference !== undefined) validateReference(value.reference, "reference", issues);
   if (!isRecord(value.request)) issues.push("request must be an object");
   else validateRequest(value.request, issues);
   if (!isRecord(value.data)) issues.push("data must be an object");
@@ -195,6 +208,12 @@ export function parseMarketSnapshot(value: unknown): MarketSnapshot {
   const result = validateMarketSnapshot(value);
   if (!result.ok) throw new Error(`Invalid MarketSnapshot: ${result.issues.join("; ")}`);
   return value as MarketSnapshot;
+}
+
+export function isMarketReference(value: unknown): value is MarketReference {
+  const issues: string[] = [];
+  validateReference(value, "reference", issues);
+  return issues.length === 0;
 }
 
 function validateRequest(value: Record<string, unknown>, issues: string[]) {
@@ -304,6 +323,22 @@ function validateStatus(value: unknown, path: string, issues: string[]) {
   requireIso(value.receivedAt, `${path}.receivedAt`, issues);
   if (typeof value.reliable !== "boolean") issues.push(`${path}.reliable must be boolean`);
   stringArray(value.warnings, `${path}.warnings`, issues);
+  if (value.reference !== undefined) {
+    validateReference(value.reference, `${path}.reference`, issues);
+    if (isRecord(value.reference) && value.reference.requestedCalendarDate !== value.calendarDate) issues.push(`${path}.reference.requestedCalendarDate must match calendarDate`);
+    if (isRecord(value.reference) && value.reference.session !== value.session) issues.push(`${path}.reference.session must match session`);
+  }
+}
+
+function validateReference(value: unknown, path: string, issues: string[]) {
+  if (!isRecord(value)) return issues.push(`${path} must be an object`);
+  if (!isDate(value.requestedCalendarDate)) issues.push(`${path}.requestedCalendarDate must be YYYY-MM-DD`);
+  if (value.effectiveTradingDate !== null && !isDate(value.effectiveTradingDate)) issues.push(`${path}.effectiveTradingDate must be YYYY-MM-DD or null`);
+  oneOf(value.session, ["preopen", "open", "break", "closed", "holiday", "unknown"], `${path}.session`, issues);
+  oneOf(value.semantics, ["live_session", "last_effective_session", "unresolved"], `${path}.semantics`, issues);
+  if (value.semantics === "unresolved" && value.effectiveTradingDate !== null) issues.push(`${path}.unresolved semantics requires effectiveTradingDate null`);
+  if (value.semantics !== "unresolved" && value.effectiveTradingDate === null) issues.push(`${path}.${String(value.semantics)} semantics requires effectiveTradingDate`);
+  if (value.session === "unknown" && value.semantics !== "unresolved") issues.push(`${path}.unknown session requires unresolved semantics`);
 }
 
 function validateCapability(value: unknown, path: string, issues: string[]) {
@@ -382,6 +417,10 @@ function validateAttempt(value: unknown, path: string, issues: string[]) {
   if (typeof value.latencyMs !== "number" || !Number.isFinite(value.latencyMs)) issues.push(`${path}.latencyMs must be a finite number`);
   if (value.errorCode !== null && typeof value.errorCode !== "string") issues.push(`${path}.errorCode must be string or null`);
   if (value.message !== null && typeof value.message !== "string") issues.push(`${path}.message must be string or null`);
+}
+
+function isDate(value: unknown): value is string {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`));
 }
 
 function validateArray(value: unknown, path: string, issues: string[], validate: (item: unknown, path: string, issues: string[]) => unknown) {

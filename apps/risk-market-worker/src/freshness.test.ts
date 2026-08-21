@@ -30,10 +30,10 @@ test("accepts a provider post-close observation from the effective trading date 
   }, calendar)));
 
   assert.deepEqual(
-    decisions.map((decision) => [decision.session, decision.freshness, decision.stale, decision.expectedCloseDate]),
+    decisions.map((decision) => [decision.session, decision.freshness, decision.stale, decision.expectedCloseDate, decision.reference]),
     [
-      ["holiday", "fresh", false, "2026-08-14"],
-      ["holiday", "fresh", false, "2026-08-14"],
+      ["holiday", "fresh", false, "2026-08-14", { requestedCalendarDate: "2026-08-15", effectiveTradingDate: "2026-08-14", session: "holiday", semantics: "last_effective_session" }],
+      ["holiday", "fresh", false, "2026-08-14", { requestedCalendarDate: "2026-08-16", effectiveTradingDate: "2026-08-14", session: "holiday", semantics: "last_effective_session" }],
     ],
   );
 });

@@ -53,20 +53,21 @@ export class CloseReviewService {
     const checkpoint = await createRunCheckpoint(snapshot, evidence, research);
     if (!input.checkpoint && input.onCheckpoint) await input.onCheckpoint(checkpoint);
     else await input.onProgress?.("evidence_sealed");
-    await input.onProgress?.("generating");
-    const narration = await narrateWithRepair(this.narrator, { workflow: input.command.workflow, evidence, confirmedContext: matchingConfirmedContext(confirmedContext.contexts, evidence) });
-    await input.onProgress?.("validating");
     const mode = portfolioAware ? "portfolio-aware" : "market-only";
     const researchOmittedInstrumentCount = input.checkpoint
       ? sealedResearchOmittedInstrumentCount(evidence)
       : input.command.workflow === "close_review" ? researchScope.omittedInstrumentIds.length : 0;
+    const evidenceAssessment = assessEvidence(input.command.workflow, snapshot, mode === "portfolio-aware", research, researchOmittedInstrumentCount);
+    await input.onProgress?.("generating");
+    const narration = await narrateWithRepair(this.narrator, { workflow: input.command.workflow, evidence, evidenceAssessment, confirmedContext: matchingConfirmedContext(confirmedContext.contexts, evidence) });
+    await input.onProgress?.("validating");
     return {
       evidence,
       repaired: narration.repaired,
       result: finalizeAgentResult({
         narration: narration.result,
         provenance: narration.provenance,
-        evidence: assessEvidence(input.command.workflow, snapshot, mode === "portfolio-aware", research, researchOmittedInstrumentCount),
+        evidence: evidenceAssessment,
         sealedEvidence: evidence,
         mode,
       }),

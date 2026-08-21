@@ -1,4 +1,4 @@
-import type { MarketDay, MarketExchange, MarketSession, TradingCalendar } from "./index.ts";
+import type { MarketDay, MarketExchange, MarketReference, MarketSession, TradingCalendar } from "./index.ts";
 
 export interface ChinaMarketStatus {
   exchange: MarketExchange;
@@ -13,6 +13,7 @@ export interface ChinaMarketStatus {
   reliable: boolean;
   source: string;
   warnings: string[];
+  reference: MarketReference;
 }
 
 export interface CalendarClosure { date: string; kind: "holiday" | "temporary"; label: string; }
@@ -59,10 +60,36 @@ export const productionTradingCalendar: TradingCalendar = new CachedTradingCalen
 
 export async function getChinaMarketStatus(exchange: MarketExchange, now = new Date(), calendar: TradingCalendar = productionTradingCalendar): Promise<ChinaMarketStatus> {
   const receivedAt = now.toISOString(); const parts = shanghaiParts(now); const calendarDate = `${parts.year}-${parts.month}-${parts.day}`; const marketDay = await calendar.getMarketDay("CN", calendarDate); const minutes = Number(parts.hour) * 60 + Number(parts.minute); const timedSession = sessionAt(minutes); const session: MarketSession = marketDay.status === "unknown" ? "unknown" : marketDay.status === "holiday" ? "holiday" : timedSession;
-  return { exchange, open: marketDay.status === "unknown" ? null : marketDay.status === "trading_day" && timedSession === "open", session, calendarDate, marketTimestamp: receivedAt, asOf: receivedAt, receivedAt, freshness: marketDay.reliable ? "fresh" : "unknown", quality: marketDay.reliable ? "operational" : "degraded", reliable: marketDay.reliable, source: marketDay.source, warnings: marketDay.warnings };
+  const reference = await resolveMarketReference(calendarDate, session, minutes, calendar);
+  return { exchange, open: marketDay.status === "unknown" ? null : marketDay.status === "trading_day" && timedSession === "open", session, calendarDate, marketTimestamp: receivedAt, asOf: receivedAt, receivedAt, freshness: marketDay.reliable ? "fresh" : "unknown", quality: marketDay.reliable ? "operational" : "degraded", reliable: marketDay.reliable, source: marketDay.source, warnings: marketDay.warnings, reference };
+}
+
+export async function resolveMarketReference(calendarDate: string, session: MarketSession, minutes: number, calendar: TradingCalendar): Promise<MarketReference> {
+  if (session === "unknown") return { requestedCalendarDate: calendarDate, effectiveTradingDate: null, session, semantics: "unresolved" };
+  if (session === "open" || session === "break") return { requestedCalendarDate: calendarDate, effectiveTradingDate: calendarDate, session, semantics: "live_session" };
+  if (session === "closed" && minutes >= 15 * 60) return { requestedCalendarDate: calendarDate, effectiveTradingDate: calendarDate, session, semantics: "last_effective_session" };
+  const effectiveTradingDate = await previousTradingDate(calendarDate, calendar);
+  return {
+    requestedCalendarDate: calendarDate,
+    effectiveTradingDate,
+    session,
+    semantics: effectiveTradingDate ? "last_effective_session" : "unresolved",
+  };
+}
+
+export async function previousTradingDate(date: string, calendar: TradingCalendar, maxLookback = 31): Promise<string | null> {
+  let candidate = date;
+  for (let count = 0; count < maxLookback; count += 1) {
+    candidate = previousDate(candidate);
+    const day = await calendar.getMarketDay("CN", candidate);
+    if (!day.reliable || day.status === "unknown") return null;
+    if (day.status === "trading_day") return candidate;
+  }
+  return null;
 }
 
 function sessionAt(minutes: number): MarketSession { if (minutes >= 555 && minutes < 570) return "preopen"; if ((minutes >= 570 && minutes < 690) || (minutes >= 780 && minutes < 900)) return "open"; if (minutes >= 690 && minutes < 780) return "break"; return "closed"; }
 function isDate(value: string) { return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`)); }
 function dayOfWeek(value: string) { return new Date(`${value}T00:00:00Z`).getUTCDay(); }
+function previousDate(value: string) { const date = new Date(`${value}T00:00:00Z`); date.setUTCDate(date.getUTCDate() - 1); return date.toISOString().slice(0, 10); }
 function shanghaiParts(date: Date): Record<"year" | "month" | "day" | "hour" | "minute", string> { return Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(date).map((part) => [part.type, part.value])) as Record<"year" | "month" | "day" | "hour" | "minute", string>; }

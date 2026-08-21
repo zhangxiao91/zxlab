@@ -4,11 +4,13 @@ import type {
   MarketAgentCommand,
   SealedEvidenceBundle,
 } from "@zxlab/market-agent-schema";
+import { isMarketReference, type MarketReference } from "@zxlab/market-schema";
 
 const MAX_CONTEXT_ITEMS = 32;
 const MAX_CONTEXT_EVIDENCE_BYTES = 14 * 1024;
 
 type ClaimPolicy = "live-if-fresh" | "last-observed-not-live" | "current-price-claims-forbidden";
+type MarketReferenceView = MarketReference;
 
 export interface NarrationContext {
   version: "narration-context.v1";
@@ -29,6 +31,7 @@ export interface NarrationContext {
   marketState: {
     sessions: string[];
     claimPolicy: ClaimPolicy;
+    reference: MarketReferenceView | null;
     quality: {
       status: string;
       reliable: boolean;
@@ -62,7 +65,7 @@ export function buildNarrationContext(input: {
   askScope?: AskScope;
 }): NarrationContext {
   const selectedInstrumentId = selectedInstrument(input.evidence);
-  const marketState = describeMarketState(input.evidence);
+  const marketState = describeMarketState(input.evidence, input.askScope ?? input.evidence.ask?.scope);
   const candidates = input.evidence.items
     .map((item, index) => ({ item, index, score: evidencePriority(item, input.askScope, selectedInstrumentId) }))
     .sort((left, right) => right.score - left.score || left.index - right.index);
@@ -114,8 +117,9 @@ export function buildNarrationContext(input: {
   };
 }
 
-function describeMarketState(evidence: SealedEvidenceBundle): NarrationContext["marketState"] {
+function describeMarketState(evidence: SealedEvidenceBundle, askScope?: AskScope): NarrationContext["marketState"] {
   const context = snapshotContext(evidence);
+  const reference = marketReference(context?.reference);
   const qualityRecord = record(context?.quality);
   const quality = {
     status: stringValue(qualityRecord?.status) ?? (evidence.items.some((item) => !item.reliable) ? "degraded" : "unknown"),
@@ -143,10 +147,11 @@ function describeMarketState(evidence: SealedEvidenceBundle): NarrationContext["
   return {
     sessions,
     claimPolicy,
+    reference,
     quality,
     markets,
     capabilityIssues,
-    guidance: claimGuidance(claimPolicy, sessions, capabilityIssues.length > 0),
+    guidance: claimGuidance(claimPolicy, sessions, capabilityIssues.length > 0, reference, askScope, quality.reliable && quality.freshness === "fresh"),
   };
 }
 
@@ -161,7 +166,7 @@ function marketClaimPolicy(
   return "last-observed-not-live";
 }
 
-function claimGuidance(policy: ClaimPolicy, sessions: string[], partialCapabilities: boolean): string[] {
+function claimGuidance(policy: ClaimPolicy, sessions: string[], partialCapabilities: boolean, reference: MarketReferenceView | null, askScope: AskScope | undefined, freshAndReliable: boolean): string[] {
   const guidance = policy === "live-if-fresh"
     ? ["Only reliable, non-stale quote items may be described as current during the open session."]
     : policy === "last-observed-not-live"
@@ -169,7 +174,12 @@ function claimGuidance(policy: ClaimPolicy, sessions: string[], partialCapabilit
       : ["Do not make current-price claims. State what is unknown and cite the relevant limitation or unreliable fact."];
   if (sessions.includes("preopen")) guidance.push("Pre-open evidence must not be described as an intraday move.");
   if (sessions.includes("break")) guidance.push("Break-session prices are the last observations before the pause.");
-  if (sessions.includes("closed") || sessions.includes("holiday")) guidance.push("Closed or holiday evidence is historical even when it is the latest valid market observation.");
+  if (sessions.includes("closed")) guidance.push("Closed-session evidence is the latest valid completed-session observation; do not call it live or current.");
+  if (sessions.includes("holiday")) guidance.push("Holiday evidence refers to the latest effective trading session; it is not live, but the closed calendar state alone is not a data-quality limitation.");
+  if (askScope === "today_change" && reference?.semantics === "last_effective_session" && reference.effectiveTradingDate) {
+    guidance.push("For today_change, the effective trading date is authoritative: interpret closed-calendar-day wording as the latest effective trading session, not the requested wall-clock date.");
+    if (freshAndReliable) guidance.push("The latest effective-session observation is not live, but it is not stale, missing, delayed, unavailable, unreliable, or degraded merely because the requested date is closed.");
+  }
   if (partialCapabilities) guidance.push("Answer only from available capabilities and name material missing or stale capabilities.");
   return guidance;
 }
@@ -280,6 +290,7 @@ function compactSnapshotContext(value: Record<string, unknown>): Record<string, 
     asOf: stringValue(value.asOf),
     receivedAt: stringValue(value.receivedAt),
     marketTimestamp: stringValue(value.marketTimestamp),
+    reference: marketReference(value.reference),
     quality: bounded(value.quality, 0, 24),
     markets: Array.isArray(value.markets) ? value.markets.slice(0, 4).map((entry) => bounded(entry, 0, 24)) : [],
     capabilitySummary: {
@@ -291,6 +302,10 @@ function compactSnapshotContext(value: Record<string, unknown>): Record<string, 
       issues: issues.slice(0, 48).map((entry) => bounded(entry, 0, 16)),
     },
   };
+}
+
+function marketReference(value: unknown): MarketReferenceView | null {
+  return isMarketReference(value) ? { ...value } : null;
 }
 
 function compactExternalText(value: Record<string, unknown>): Record<string, unknown> {

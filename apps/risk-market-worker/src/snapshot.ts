@@ -1,6 +1,7 @@
 import {
   MARKET_SNAPSHOT_SCHEMA_VERSION,
   DEFAULT_QUOTE_CONFLICT_THRESHOLD_BPS,
+  isMarketReference,
   parseMarketSnapshot,
   type MarketBar,
   type MarketCapabilityHealth,
@@ -10,6 +11,7 @@ import {
   type MarketNewsItem,
   type MarketProviderAttempt,
   type MarketQuote,
+  type MarketReference,
   type MarketSnapshot,
   type MarketSnapshotQuote,
   type MarketSnapshotRequest,
@@ -38,7 +40,7 @@ type LoadedCapability =
   | { kind: "status"; id: string; result: SnapshotLoadResult<MarketStatus> }
   | { kind: "failed"; id: string; error: unknown };
 
-export async function readCurrentMarketSnapshot(request: MarketSnapshotRequest, dependencies: SnapshotReaderDependencies): Promise<MarketSnapshot> {
+export async function readCurrentMarketSnapshot(request: MarketSnapshotRequest, dependencies: SnapshotReaderDependencies): Promise<MarketSnapshot & { reference: MarketReference }> {
   const observedAt = dependencies.now();
   const tasks: Array<() => Promise<LoadedCapability>> = [];
   if (request.include.includes("quotes")) tasks.push(() => safe("quotes", "quotes", () => dependencies.loadQuotes(request.instrumentIds, request.quoteMode)));
@@ -91,17 +93,23 @@ export async function readCurrentMarketSnapshot(request: MarketSnapshotRequest, 
     ...quotes.map((item) => item.marketTimestamp),
     ...bars.flatMap((series) => series.bars.map((bar) => bar.timestamp)),
   ]);
+  const reference = commonReference([
+    ...status.map((item) => item.reference),
+    ...currentCapabilityReferences(loaded),
+  ]);
   const receivedAt = dependencies.now();
-  return parseMarketSnapshot({
+  const snapshot = parseMarketSnapshot({
     schemaVersion: MARKET_SNAPSHOT_SCHEMA_VERSION,
     asOf: observedAt,
     receivedAt,
     marketTimestamp,
+    reference,
     request,
     data: { quotes, bars, news, announcements, status },
     capabilities,
     quality: { status: qualityStatus, reliable, freshness, warnings, attempts, unavailableCapabilities },
   });
+  return { ...snapshot, reference };
 }
 
 function capabilityOf(item: LoadedCapability, observedAt: string): MarketCapabilityHealth {
@@ -137,6 +145,20 @@ function strings(value: unknown): string[] { return Array.isArray(value) ? value
 function optionalString(value: unknown): string | null { return typeof value === "string" ? value : null; }
 function capabilityStatus(value: unknown): MarketCapabilityStatus | null { return value === "operational" || value === "degraded" || value === "unavailable" ? value : null; }
 function marketFreshness(value: unknown): MarketFreshness | null { return value === "fresh" || value === "mixed" || value === "stale" || value === "unknown" ? value : null; }
+function commonReference(values: Array<MarketReference | undefined>): MarketReference {
+  const references = values.filter((value): value is MarketReference => Boolean(value));
+  if (!references.length) throw new Error("MARKET_REFERENCE_MISSING");
+  const canonical = JSON.stringify(references[0]);
+  if (!references.every((reference) => JSON.stringify(reference) === canonical)) throw new Error("MARKET_REFERENCE_INCONSISTENT");
+  return references[0];
+}
+function currentCapabilityReferences(loaded: LoadedCapability[]): MarketReference[] {
+  return loaded.flatMap((item) => {
+    if (item.kind === "failed" || item.kind === "news" || item.kind === "announcements") return [];
+    if (!isMarketReference(item.result.meta.reference)) throw new Error(`MARKET_REFERENCE_MISSING:${item.id}`);
+    return [item.result.meta.reference];
+  });
+}
 function combinedFreshness(values: MarketFreshness[]): MarketFreshness {
   if (!values.length || values.every((value) => value === "unknown")) return "unknown";
   if (values.some((value) => value === "stale")) return "stale";

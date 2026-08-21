@@ -130,6 +130,30 @@ test("keeps a Friday provider post-close update operational throughout the weeke
   );
 });
 
+test("pins Sunday quotes, daily bars, minute bars, and status to Friday without degrading freshness", async () => {
+  const now = () => new Date("2026-08-16T07:52:55.693Z");
+  const calendar = new OfficialCnTradingCalendar();
+  const fields = Array(38).fill("");
+  fields[3] = "11.19"; fields[4] = "11.27"; fields[5] = "11.23"; fields[6] = "882977"; fields[30] = "20260814161455"; fields[33] = "11.26"; fields[34] = "11.10";
+  const reference = { requestedCalendarDate: "2026-08-16", effectiveTradingDate: "2026-08-14", session: "holiday", semantics: "last_effective_session" };
+
+  const [quotes, daily, minute, status] = await Promise.all([
+    loadQuotes(["SSE:600000"], "fallback", { fetcher: async () => new Response(`v_sh600000="${fields.join("~")}";`), now, calendar }),
+    loadBars("SSE:600000", "1d", { fetcher: async () => Response.json({ data: { sh600000: { day: [["2026-08-14", "11", "11.19", "11.26", "11.10", "100"]] } } }), now, calendar }),
+    loadBars("SSE:600000", "1m", { fetcher: async () => Response.json({ data: { sh600000: { data: { date: "20260814", data: ["1500 11.19 100 1000"] } } } }), now, calendar }),
+    getChinaMarketStatus("SSE", now(), calendar),
+  ]);
+
+  assert.deepEqual(quotes.meta.reference, reference);
+  assert.deepEqual(daily.meta.reference, reference);
+  assert.deepEqual(minute.meta.reference, reference);
+  assert.deepEqual(status.reference, reference);
+  assert.deepEqual(
+    [quotes.meta.freshness, daily.meta.freshness, minute.meta.freshness, status.freshness],
+    ["fresh", "fresh", "fresh", "fresh"],
+  );
+});
+
 test("keeps the same-day close current after the market closes", async () => {
   const fields = Array(38).fill("");
   fields[3] = "11.19"; fields[4] = "11.27"; fields[5] = "11.23"; fields[6] = "882977"; fields[30] = "20260807150000"; fields[33] = "11.26"; fields[34] = "11.10";

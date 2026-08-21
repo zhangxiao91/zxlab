@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { isCancellableRunStatus, type AgentFeedback, type AgentFeedbackValue, type ResearchReportV2, type RunTiming, type SealedEvidenceBundle } from "@zxlab/market-agent-schema";
+import gsap from "gsap";
+import { isCancellableRunStatus, type AgentFeedback, type AgentFeedbackValue, type AgentResult, type ResearchReportFactBlock, type ResearchReportFactMetric, type ResearchReportV2, type RunTiming, type SealedEvidenceBundle } from "@zxlab/market-agent-schema";
+import { isMarketReference, type MarketReference } from "@zxlab/market-schema";
 import type { TradingScreenAction, TradingScreenStatus } from "../trading/screen";
 import AgentComposer, { RunActivity } from "./AskPanel";
 import { RunFeedbackControl } from "./RunFeedbackControl";
@@ -187,6 +189,7 @@ export default function AgentToday({
             <SelectedRunView
               run={selectedRun}
               evidence={evidence}
+              evidenceLoading={evidenceLoading}
               streamingAnswer={streamingAnswer}
               trace={trace}
               traceLoading={traceLoading}
@@ -264,9 +267,10 @@ export function RunNavigator({ runs, selectedRunId, onSelect, onExport, onLoadMo
   return <aside className="agent-run-navigator" aria-label="运行记录"><header><div><h2>运行记录</h2><span>{runs.length}</span></div><button type="button" onClick={() => void onExport()} disabled={!runs.length || exportBusy}>{runExportLabel(exportBusy)}</button></header><div className="agent-run-navigator__list">{runs.length ? runs.map((run) => <button type="button" key={run.id} className="agent-run-nav-item" aria-current={selectedRunId === run.id ? "true" : undefined} onClick={() => onSelect(run.id)}><span><i className={`agent-run-nav-item__status agent-status--${run.status}`}>{statusLabel(run.status)}</i><time dateTime={run.createdAt}>{date(run.createdAt)}</time></span><strong>{run.payloadPurgedAt ? "正文已清除" : run.result?.headline ?? runLabel(run)}</strong><small>{run.input?.question ?? modeLabel(run.result?.mode, run.portfolioSnapshotId)}{run.timing ? ` · ${compactDuration(run.timing.durationMs ?? run.timing.elapsedMs)}` : ""}</small></button>) : <div className="agent-run-navigator__empty"><strong>还没有 Run</strong><p>开始一次盘后复盘或受限问答后，记录会出现在这里。</p></div>}</div>{hasMore && <button type="button" className="agent-run-navigator__more" onClick={() => void onLoadMore()} disabled={loadingMore}>{loadingMore ? "读取中" : "加载更早记录"}</button>}<p className="agent-run-navigator__note" aria-live="polite">{exportNote ?? "历史选择不会创建第二套回答状态。"}</p></aside>;
 }
 
-function SelectedRunView({ run, evidence, streamingAnswer, trace, traceLoading, traceError, controlBusy, controlsDisabled, onCancel, onRetry, onEvidence }: {
+function SelectedRunView({ run, evidence, evidenceLoading, streamingAnswer, trace, traceLoading, traceError, controlBusy, controlsDisabled, onCancel, onRetry, onEvidence }: {
   run?: AgentRunView;
   evidence: SealedEvidenceBundle | null;
+  evidenceLoading: boolean;
   streamingAnswer: string;
   trace: ReturnType<typeof useMarketAgentWorkspace>["agent"]["trace"];
   traceLoading: boolean;
@@ -282,14 +286,18 @@ function SelectedRunView({ run, evidence, streamingAnswer, trace, traceLoading, 
   return <article className="agent-selected-run">
     <header className="agent-selected-run__header"><div><span className={`agent-status agent-status--${run.status}`}>{statusLabel(run.status)}</span><h2>{report?.conclusion.headline ?? (streamingAnswer ? "正在形成研究报告" : runLabel(run))}</h2><p>{runPrompt(run)}</p>{run.revisionOfRunId && <p className="agent-selected-run__revision">重试自 Run <span title={run.revisionOfRunId}>{run.revisionOfRunId.slice(0, 8)}</span></p>}</div><dl><div><dt>时间</dt><dd>{date(run.createdAt)}</dd></div><div><dt>模式</dt><dd>{modeLabel(run.result?.mode, run.portfolioSnapshotId)}</dd></div></dl></header>
     <RunActivity status={run.status} runId={run.id} trace={trace} timing={run.timing} limitations={run.result?.limitations} outcome={run.result?.outcome} traceLoading={traceLoading} traceError={traceError} controlBusy={controlBusy} controlsDisabled={controlsDisabled} onCancel={onCancel} onRetry={onRetry} />
+    {!run.payloadPurgedAt && run.result && <MarketReferenceSummary evidence={evidence} loading={evidenceLoading} outcome={run.result.outcome} retrying={controlBusy === "retry"} disabled={controlsDisabled} onRetry={onRetry} />}
     {run.payloadPurgedAt ? <div className="agent-selected-run__state"><strong>正文与 Evidence 已清除</strong><p>审计 fingerprint 仍保留：{run.evidenceFingerprint ?? "未形成"}</p></div> : report ? <ResearchReport report={report} onEvidence={onEvidence} /> : streamingAnswer ? <p className="agent-streamed-answer agent-selected-run__stream">{streamingAnswer}<span className="agent-stream-cursor" aria-hidden="true" /></p> : <div className="agent-selected-run__state"><strong>{run.status === "failed" ? "本次 Run 未能完成" : run.status === "cancelled" ? "本次 Run 已取消" : "确定性事实正在处理"}</strong><p>{run.status === "failed" ? `失败代码：${run.failure?.code ?? "未提供"}` : run.status === "cancelled" ? "原始记录与取消事件已保留；可以从这条 Run 发起一次可追溯的重试。" : "结果只有在 Evidence 封存并通过校验后才会显示。"}</p></div>}
   </article>;
 }
 
 export function ResearchReport({ report, onEvidence }: { report: ResearchReportV2; onEvidence(id: string): void }) {
   const sourceIndex = useMemo(() => new Map(report.sources.map((source, index) => [source.evidenceId, index + 1])), [report.sources]);
-  return <article className="research-report-v2" aria-label="Research Report v2">
+  const reportRef = useRef<HTMLElement>(null);
+  useAgentRevealMotion(reportRef, `${report.conclusion.headline}:${report.factBlocks?.length ?? "legacy"}:${report.sources.length}`, ":scope > section, :scope > .research-report-v2__sources");
+  return <article ref={reportRef} className="research-report-v2" aria-label="Research Report v2">
     <section className="research-report-v2__lead"><span>{report.version}</span><h3>结论</h3><p>{report.conclusion.summary}</p><CitationButtons ids={report.conclusion.evidenceIds} sourceIndex={sourceIndex} onEvidence={onEvidence} /></section>
+    <FactBlockSection blocks={report.factBlocks} sourceIndex={sourceIndex} onEvidence={onEvidence} />
     <ReportObservationSection title="依据" description="可由封存事实直接支持的内容" items={report.basis} sourceIndex={sourceIndex} onEvidence={onEvidence} />
     <ReportObservationSection title="推演" description="事实与持仓含义之间的解释；推断保留不确定性" items={report.analysis} sourceIndex={sourceIndex} onEvidence={onEvidence} />
     <section className="research-report-v2__section"><header><div><h3>风险与数据边界</h3><p>未知项和缺失能力不会由模型补齐</p></div><span>{report.risks.length}</span></header>{report.risks.length ? <div className="research-report-v2__items">{report.risks.map((item) => <article key={item.id} data-kind={item.kind}><strong>{item.title}</strong><p>{item.explanation}</p><CitationButtons ids={item.evidenceIds} sourceIndex={sourceIndex} onEvidence={onEvidence} /></article>)}</div> : <p className="research-report-v2__empty">本次没有额外风险项。</p>}</section>
@@ -297,6 +305,50 @@ export function ResearchReport({ report, onEvidence }: { report: ResearchReportV
     <section className="research-report-v2__sources"><header><h3>来源引用</h3><span>{report.sources.length}</span></header>{report.sources.length ? <ol>{report.sources.map((source, index) => <li key={source.evidenceId}><button type="button" onClick={() => onEvidence(source.evidenceId)}><span>{index + 1}</span><strong>{source.providers?.join("、") || source.kind || "sealed evidence"}</strong><small>{source.asOf ? date(source.asOf) : source.reliable === false ? "可靠性受限" : "已封存"}</small></button></li>)}</ol> : <p className="research-report-v2__empty">历史结果没有可恢复的来源元数据。</p>}</section>
   </article>;
 }
+
+export function MarketReferenceSummary({ evidence, loading = false, outcome, retrying = false, disabled = false, onRetry }: {
+  evidence: SealedEvidenceBundle | null;
+  loading?: boolean;
+  outcome?: AgentResult["outcome"];
+  retrying?: boolean;
+  disabled?: boolean;
+  onRetry?(): Promise<unknown>;
+}) {
+  const referenceRef = useRef<HTMLElement>(null);
+  const context = marketReferenceContext(evidence);
+  const motionKey = context.reference ? `${context.reference.requestedCalendarDate}:${context.reference.effectiveTradingDate ?? "unresolved"}` : evidence ? "legacy" : "loading";
+  useAgentRevealMotion(referenceRef, motionKey, ":scope > *");
+  if (loading && !evidence) return <section ref={referenceRef} className="agent-market-reference" aria-label="数据口径"><p>正在读取本次 Run 的数据口径。</p></section>;
+  if (evidence && !context.reference) return <section ref={referenceRef} className="agent-market-reference agent-market-reference--legacy" aria-label="数据口径"><div><strong>旧版口径</strong><p>这条历史 Run 没有封存 MarketReference，无法证明“当日”对应的有效交易日。历史结果不会被改写。</p></div><dl><ReferenceField label="Freshness" value={context.freshness ?? "未固化"} /><ReferenceField label="Evidence coverage" value={outcome?.evidence.coverage ?? "未形成"} /><ReferenceField label="Delivery" value={outcome?.evidence.delivery ?? "未形成"} /></dl>{onRetry && <button type="button" onClick={() => void onRetry()} disabled={disabled || retrying}>{retrying ? "正在按当前口径重试" : "按当前口径重试"}</button>}</section>;
+  if (!context.reference) return null;
+  const reference = context.reference;
+  const equivalent = Boolean(reference.effectiveTradingDate && reference.requestedCalendarDate !== reference.effectiveTradingDate);
+  return <section ref={referenceRef} className="agent-market-reference" aria-label="数据口径"><div><strong>本次数据口径</strong><p>{equivalent && reference.effectiveTradingDate ? `系统按最近有效交易日 ${dateOnly(reference.effectiveTradingDate)} 解释“当日”；休市不等于数据降级。` : reference.effectiveTradingDate ? "请求日期与有效交易日一致。" : "有效交易日未解析，不作当日行情断言。"}</p></div><dl><ReferenceField label="数据日期" value={reference.effectiveTradingDate ? dateOnly(reference.effectiveTradingDate) : "未解析"} /><ReferenceField label="周末等效" value={equivalent && reference.effectiveTradingDate ? `${dateOnly(reference.requestedCalendarDate)} → ${dateOnly(reference.effectiveTradingDate)}` : "不适用"} /><ReferenceField label="Session" value={reference.session} /><ReferenceField label="Freshness" value={context.freshness ?? "未提供"} /><ReferenceField label="Evidence coverage" value={outcome?.evidence.coverage ?? "未形成"} /><ReferenceField label="Delivery" value={outcome?.evidence.delivery ?? "未形成"} /></dl><small>{reference.semantics}</small></section>;
+}
+
+function useAgentRevealMotion(ref: React.RefObject<HTMLElement | null>, key: string, selector: string) {
+  useEffect(() => {
+    const root = ref.current;
+    if (!root || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const context = gsap.context(() => {
+      gsap.fromTo(root.querySelectorAll(selector), { autoAlpha: 0, y: 12 }, { autoAlpha: 1, y: 0, duration: 0.42, stagger: 0.035, ease: "power3.out", overwrite: "auto" });
+    }, root);
+    return () => context.revert();
+  }, [key, ref, selector]);
+}
+
+function FactBlockSection({ blocks, sourceIndex, onEvidence }: { blocks: ResearchReportV2["factBlocks"]; sourceIndex: Map<string, number>; onEvidence(id: string): void }) {
+  if (blocks === undefined) return <section className="research-report-v2__section research-report-v2__facts" data-legacy="true"><header><div><h3>确定性 Fact Blocks</h3><p>这条旧 Run 尚未固化结构化事实块；原始 Evidence 仍按历史记录保留。</p></div><span>旧版</span></header></section>;
+  return <section className="research-report-v2__section research-report-v2__facts"><header><div><h3>确定性 Fact Blocks</h3><p>数字直接来自封存的 Research Fact Plane；模型不计算、不补齐。</p></div><span>{blocks.length}</span></header>{blocks.length ? <div className="research-report-v2__fact-grid">{blocks.map((block) => <FactBlock key={block.id} block={block} sourceIndex={sourceIndex} onEvidence={onEvidence} />)}</div> : <p className="research-report-v2__empty">本次 scope 没有形成可展示的确定性数值事实。</p>}</section>;
+}
+
+function FactBlock({ block, sourceIndex, onEvidence }: { block: ResearchReportFactBlock; sourceIndex: Map<string, number>; onEvidence(id: string): void }) {
+  return <article className="research-report-v2__fact" data-reliable={block.quality.reliable}><header><div><span>{factKindLabel(block.kind)}</span><strong>{block.title}</strong></div><small>{block.quality.reliable ? "可靠" : "受限"}</small></header><div className="research-report-v2__metrics">{block.metrics.map((metric) => <FactMetric key={`${block.id}:${metric.key}`} metric={metric} />)}</div>{block.context.length > 0 && <dl className="research-report-v2__fact-context">{block.context.map((item) => <ReferenceField key={`${item.label}:${item.value}`} label={item.label} value={factContextValue(item.value)} />)}</dl>}<div className="research-report-v2__fact-meta"><span>as-of {date(block.provenance.sourceAsOf)}</span><span>{block.provenance.providers.join("、")}</span></div><details><summary>公式与 provenance</summary><dl><ReferenceField label="Fact ID" value={block.factId} /><ReferenceField label="Plan" value={block.provenance.planVersion} /><ReferenceField label="as-of" value={block.provenance.sourceAsOf} /><ReferenceField label="retrieved" value={block.provenance.retrievedAt} /><ReferenceField label="Provider" value={block.provenance.providers.join("、")} /><ReferenceField label="Source artifacts" value={block.provenance.sourceArtifactIds.join("、")} /><ReferenceField label="Research fingerprint" value={block.provenance.researchFingerprint} /><ReferenceField label="Coverage" value={`${block.quality.coverage.actual}/${block.quality.coverage.required}`} /></dl>{block.metrics.map((metric) => metric.formula ? <article key={`${block.id}:${metric.key}:formula`}><strong>{metric.label} · {metric.formula.id}@{metric.formula.version}</strong><code>{metric.formula.expression}</code><small>{Object.entries(metric.formula.parameters).map(([key, value]) => `${key}=${value}`).join(" · ")} · rounding={metric.formula.rounding}</small></article> : <p key={`${block.id}:${metric.key}:formula`}>{metric.label}为来源原值，无确定性派生公式。</p>)}</details><CitationButtons ids={[block.evidenceId]} sourceIndex={sourceIndex} onEvidence={onEvidence} /></article>;
+}
+
+function FactMetric({ metric }: { metric: ResearchReportFactMetric }) { return <div><span>{metric.label}</span><strong>{metric.decimal}</strong><small>{factUnitLabel(metric.unit)}</small></div>; }
+
+function ReferenceField({ label, value }: { label: string; value: string }) { return <div><dt>{label}</dt><dd>{value}</dd></div>; }
 
 function ReportObservationSection({ title, description, items, sourceIndex, onEvidence }: { title: string; description: string; items: AgentObservationView[]; sourceIndex: Map<string, number>; onEvidence(id: string): void }) {
   return <section className="research-report-v2__section"><header><div><h3>{title}</h3><p>{description}</p></div><span>{items.length}</span></header>{items.length ? <div className="research-report-v2__items">{items.map((item) => <article key={item.id} data-kind={item.class}><div><span>{observationLabel(item.class)}</span><strong>{item.title}</strong></div><p>{item.explanation}</p><CitationButtons ids={item.evidenceIds} sourceIndex={sourceIndex} onEvidence={onEvidence} /></article>)}</div> : <p className="research-report-v2__empty">本次没有可确认的{title}。</p>}</section>;
@@ -361,6 +413,22 @@ function statusLabel(status: string) { return ({ queued: "排队中", collecting
 function modeLabel(mode?: AgentRunMode, portfolioSnapshotId?: string | null) { if (mode === "portfolio-aware") return "持仓感知"; if (mode === "market-only") return "仅市场"; return portfolioSnapshotId ? "待持仓校验" : "待市场校验"; }
 function observationLabel(value: AgentObservationView["class"]) { return ({ fact: "事实", inference: "推断", unknown: "未知" } as const)[value]; }
 function evidenceKindLabel(kind: string) { return ({ market_fact: "市场事实", market_event: "市场事件", snapshot_diff: "快照差分", portfolio_impact: "持仓影响", confirmed_context: "确认上下文", limitation: "数据边界", execution_plan: "执行计划", prior_run: "历史 Run" } as Record<string, string>)[kind] ?? kind; }
+function factKindLabel(kind: ResearchReportFactBlock["kind"]) { return ({ instrument_mapping: "标的映射", market_baseline: "市场基线", financial_metric: "财务指标", valuation: "估值" } as const)[kind]; }
+function factUnitLabel(unit: ResearchReportFactMetric["unit"]) { return ({ CNY: "人民币", ratio: "比率", shares: "股" } as const)[unit]; }
+function factContextValue(value: string) { return value.replace(/T\d{2}:\d{2}:\d{2}\.\d{3}Z/g, (timestamp) => date(timestamp)); }
+function dateOnly(value: string) { const parsed = new Date(value); return Number.isFinite(parsed.getTime()) ? parsed.toLocaleDateString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" }) : value; }
+function marketReferenceContext(evidence: SealedEvidenceBundle | null): { reference: MarketReference | null; freshness: string | null } {
+  if (!evidence) return { reference: null, freshness: null };
+  for (const item of evidence.items) {
+    const value = uiRecord(item.value);
+    if (value?.type !== "snapshot_context") continue;
+    const quality = uiRecord(value.quality);
+    const freshness = typeof quality?.freshness === "string" ? quality.freshness : null;
+    return { reference: isMarketReference(value.reference) ? { ...value.reference } : null, freshness };
+  }
+  return { reference: null, freshness: null };
+}
+function uiRecord(value: unknown): Record<string, unknown> | null { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null; }
 function formatEvidenceValue(value: unknown) { const text = JSON.stringify(value, null, 2) ?? String(value); return text.length > 4_000 ? `${text.slice(0, 4_000)}\n[truncated]` : text; }
 function formatCash(value: number | null) { return value === null ? "—" : new Intl.NumberFormat("zh-CN", { style: "currency", currency: "CNY", maximumFractionDigits: 2 }).format(value); }
 function compactDuration(milliseconds: number) { if (milliseconds < 1_000) return `${Math.round(milliseconds)}ms`; if (milliseconds < 60_000) return `${(milliseconds / 1_000).toFixed(1)}s`; return `${Math.floor(milliseconds / 60_000)}m ${Math.floor((milliseconds % 60_000) / 1_000)}s`; }

@@ -64,7 +64,23 @@ test("Research Report sources are assembled from sealed deterministic provenance
       kind: "market_fact",
       origin: "server-observed",
       reliable: true,
-      value: { type: "research_fact", fact: { provenance: { providers: ["fixture"], sourceAsOf: "2026-08-15T07:00:00.000Z", retrievedAt: "2026-08-15T07:01:00.000Z" } } },
+      value: {
+        type: "research_fact",
+        researchFingerprint: "sha256:research",
+        planVersion: "price-context.v1",
+        fact: {
+          id: "fact-1",
+          kind: "market_baseline",
+          subjectId: "SSE:600000",
+          baselineType: "price_return",
+          window: 20,
+          observationPeriod: { start: "2026-07-18T07:00:00.000Z", end: "2026-08-15T07:00:00.000Z", tradingSessions: 20 },
+          value: { decimal: "0.1234", unit: "ratio" },
+          formula: { id: "market.price_return.v1", version: "1", expression: "close[t] / close[t-window] - 1", inputArtifactIds: ["bars:fixture"], parameters: { window: "20", annualizationSessions: "250", adjustment: "qfq" }, rounding: "decimal-12-nearest" },
+          provenance: { providers: ["fixture"], sourceArtifactIds: ["bars:fixture"], sourceAsOf: "2026-08-15T07:00:00.000Z", retrievedAt: "2026-08-15T07:01:00.000Z" },
+          quality: { status: "operational", reliable: true, coverage: { actual: 21, required: 21 }, warnings: [] },
+        },
+      },
     }],
     contextUses: [],
     fingerprint: "sha256:test",
@@ -88,6 +104,47 @@ test("Research Report sources are assembled from sealed deterministic provenance
     retrievedAt: "2026-08-15T07:01:00.000Z",
   });
   assert.deepEqual(report.conclusion.evidenceIds, ["research-1"]);
+  assert.deepEqual(report.factBlocks?.[0], {
+    id: "fact-block:research-1",
+    evidenceId: "research-1",
+    factId: "fact-1",
+    kind: "market_baseline",
+    subjectId: "SSE:600000",
+    title: "SSE:600000 · 20 日价格收益",
+    context: [{ label: "观察区间", value: "2026-07-18T07:00:00.000Z — 2026-08-15T07:00:00.000Z" }],
+    metrics: [{
+      key: "value",
+      label: "价格收益",
+      decimal: "0.1234",
+      unit: "ratio",
+      formula: { id: "market.price_return.v1", version: "1", expression: "close[t] / close[t-window] - 1", inputArtifactIds: ["bars:fixture"], parameters: { window: "20", annualizationSessions: "250", adjustment: "qfq" }, rounding: "decimal-12-nearest" },
+    }],
+    quality: { status: "operational", reliable: true, coverage: { actual: 21, required: 21 }, warnings: [] },
+    provenance: { researchFingerprint: "sha256:research", planVersion: "price-context.v1", providers: ["fixture"], sourceArtifactIds: ["bars:fixture"], sourceAsOf: "2026-08-15T07:00:00.000Z", retrievedAt: "2026-08-15T07:01:00.000Z" },
+  });
+
+  report.factBlocks![0].provenance.sourceArtifactIds = ["bars:other"];
+  assert.equal(compatibleAgentResult({ ...narration, mode: "market-only", report }).report?.factBlocks, undefined);
+});
+
+test("Research Fact blocks are current-only projections and remain backward compatible", () => {
+  const current = createResearchReportV2(legacy([]), {
+    schemaVersion: "market-agent.v1",
+    eventRuleVersion: "market-event.v1",
+    profileId: "p1",
+    workflow: "close_review",
+    watchlistRevision: "w1",
+    instrumentIds: [],
+    items: [],
+    contextUses: [],
+    fingerprint: "sha256:current",
+    sealedAt: "2026-08-15T07:02:00.000Z",
+  });
+  const legacyReport = createResearchReportV2(legacy([]));
+
+  assert.deepEqual(current.factBlocks, []);
+  assert.equal(Object.hasOwn(legacyReport, "factBlocks"), false);
+  assert.equal(compatibleAgentResult({ ...legacy([]), report: legacyReport }).report?.factBlocks, undefined);
 });
 
 test("Research Report sources retain quote source and corroborating providers", () => {

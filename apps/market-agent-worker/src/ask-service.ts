@@ -109,26 +109,28 @@ export class AskService {
     if (input.checkpoint && (!await verifyRunCheckpoint(input.checkpoint) || evidence.profileId !== input.command.profileId || evidence.workflow !== "ask" || evidence.ask?.scope !== input.command.scope || evidence.ask.planVersion !== "ask-plan.v1" || evidence.ask.priorRunId !== input.command.priorRunId || !sameValues(evidence.instrumentIds, input.command.resolvedInstrumentIds))) throw new Error("RUN_CHECKPOINT_SCOPE_MISMATCH");
     if (!input.checkpoint && input.onCheckpoint) await input.onCheckpoint(await createRunCheckpoint(snapshot, evidence, research));
     else await input.onProgress?.("evidence_sealed");
+    const mode = input.checkpoint ? hasReliablePortfolioImpact(evidence) ? "portfolio-aware" : "market-only" : portfolio?.reliable ? "portfolio-aware" : "market-only";
+    const researchOmittedInstrumentCount = input.checkpoint
+      ? sealedResearchOmittedInstrumentCount(evidence)
+      : plan.researchPurpose ? researchScope.omittedInstrumentIds.length : 0;
+    const evidenceAssessment = assessEvidence(input.command.scope, snapshot, mode === "portfolio-aware", research, researchOmittedInstrumentCount);
     await input.onProgress?.("generating");
     const narration = await narrateWithRepair(this.narrator, {
       workflow: "ask",
       evidence,
+      evidenceAssessment,
       askScope: input.command.scope,
       question: input.command.question,
       confirmedContext: matchingConfirmedContext(confirmedContext.contexts, evidence),
     });
     await input.onProgress?.("validating");
-    const mode = input.checkpoint ? hasReliablePortfolioImpact(evidence) ? "portfolio-aware" : "market-only" : portfolio?.reliable ? "portfolio-aware" : "market-only";
-    const researchOmittedInstrumentCount = input.checkpoint
-      ? sealedResearchOmittedInstrumentCount(evidence)
-      : plan.researchPurpose ? researchScope.omittedInstrumentIds.length : 0;
     return {
       evidence,
       repaired: narration.repaired,
       result: finalizeAgentResult({
         narration: narration.result,
         provenance: narration.provenance,
-        evidence: assessEvidence(input.command.scope, snapshot, mode === "portfolio-aware", research, researchOmittedInstrumentCount),
+        evidence: evidenceAssessment,
         sealedEvidence: evidence,
         mode,
         askScope: input.command.scope,

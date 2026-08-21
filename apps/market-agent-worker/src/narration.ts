@@ -1,11 +1,14 @@
-import type { AgentNarration, AgentObservation, AskScope, ConfirmedContext, MarketAgentCommand, NarrationProvenance, NarrationValidationCategory, NarrationValidationRule, SealedEvidenceBundle } from "@zxlab/market-agent-schema";
+import type { AgentNarration, AgentObservation, AskScope, ConfirmedContext, EvidenceAssessment, MarketAgentCommand, NarrationProvenance, NarrationValidationCategory, NarrationValidationRule, SealedEvidenceBundle } from "@zxlab/market-agent-schema";
 import { validateAgentNarration } from "@zxlab/market-agent-schema";
 import { buildNarrationContext } from "./narration-context.ts";
+import { resolveNarrativeDepthPolicy, validateNarrativeDepth } from "./narrative-depth.ts";
 
 export interface NarrationInput {
   workflow: MarketAgentCommand["workflow"];
   evidence: SealedEvidenceBundle;
   askScope?: AskScope;
+  /** The same authoritative assessment persisted in RunOutcome. */
+  evidenceAssessment?: EvidenceAssessment;
   /** Untrusted wording only. It never changes the sealed scope or evidence. */
   question?: string;
   /** Ephemeral canonical context. It must never be persisted or quoted in the result. */
@@ -42,10 +45,7 @@ export class DeterministicNarrator implements Narrator {
       const direction = event.kind === "price_rise" ? "上涨" : event.kind === "price_fall" ? "下跌" : "出现变化";
       return { id: `deterministic-${index}`, class: item.reliable ? "fact" : "unknown", importance: Math.abs(Number(event.actual ?? 0)) >= 1000 ? "high" : "medium", title: `${event.instrumentId ?? "标的"} ${direction}`, explanation: item.reliable ? `确定性规则检测到 ${String(event.actual ?? "未知")} bps 的价格变化。` : `规则检测到 ${String(event.actual ?? "未知")} bps 的价格变化，但底层行情不可靠，当前只能标记为未知。`, evidenceIds: [item.id] };
     });
-    const factObservations = facts
-      .filter((item) => input.workflow === "ask" || record(item.value)?.type === "quote")
-      .slice(0, input.workflow === "ask" ? 24 : 12)
-      .flatMap((item, index) => askFactObservation(item, index, marketState));
+    const factObservations = facts.flatMap((item, index) => askFactObservation(item, index, marketState));
     const diffObservations: AgentObservation[] = snapshotDiffs.flatMap((item, itemIndex) => {
       const value = record(item.value);
       const changes = Array.isArray(value?.changes) ? value.changes : [];
@@ -58,18 +58,29 @@ export class DeterministicNarrator implements Narrator {
           class: item.reliable ? "fact" as const : "unknown" as const,
           importance: Number.isFinite(deltaBps) && Math.abs(deltaBps) >= 1000 ? "high" as const : "medium" as const,
           title: `${change.instrumentId} 较上次冻结快照发生变化`,
-          explanation: item.reliable && Number.isFinite(deltaBps) ? `确定性差分为 ${deltaBps} bps。` : "冻结快照存在变化，但底层数据质量不足，当前只能标记为未知。",
+          explanation: item.reliable && Number.isFinite(deltaBps) ? `服务端对前后两份冻结快照执行了同口径差分，确定性变化为 ${deltaBps} bps；该结果来自已封存算子，不由模型补算。` : "冻结快照存在变化，但底层数据质量不足，当前只能标记为未知；后续需要新的可靠快照才能复核该变化。",
           evidenceIds: [item.id],
         }];
       });
     });
-    const observations = [...factObservations, ...diffObservations, ...eventObservations];
+    const basisObservations = diverseDeterministicBasis(factObservations, diffObservations, eventObservations);
+    const analysisObservations: AgentObservation[] = basisObservations.filter((item) => item.class === "fact").length >= 2
+      ? [{
+          id: "deterministic-cross-evidence-analysis",
+          class: "inference",
+          importance: "medium",
+          title: "多类证据需要合并解读",
+          explanation: "多项已封存事实共同构成当前观察的依据，因此单一变化不宜脱离历史或持仓语境解释；这种定性含义仍可能被后续市场事实改变，尚无法确认其持续性。",
+          evidenceIds: basisObservations.slice(0, 2).flatMap((item) => item.evidenceIds),
+        }]
+      : [];
+    const observations = [...basisObservations, ...analysisObservations].slice(0, 6);
     const portfolioImpacts: AgentObservation[] = input.evidence.items.flatMap((item, index) => {
       const value = item.value as { type?: unknown; impact?: { marketValue?: unknown; unrealizedPnl?: unknown; concentration?: unknown } };
       if (item.kind !== "portfolio_impact" || !item.reliable || value.type !== "risk_impact" || !value.impact) return [];
       const marketValue = Number(value.impact.marketValue);
       const unrealizedPnl = Number(value.impact.unrealizedPnl);
-      return [{ id: `deterministic-portfolio-${index}`, class: "fact", importance: "medium", title: "本地持仓风险快照已重估", explanation: `服务端已按当前可靠行情完成持仓重估；估算市值 ${Number.isFinite(marketValue) ? marketValue.toFixed(2) : "未知"}，未实现盈亏 ${Number.isFinite(unrealizedPnl) ? unrealizedPnl.toFixed(2) : "未知"}。`, evidenceIds: [item.id] }];
+      return [{ id: `deterministic-portfolio-${index}`, class: "fact", importance: "medium", title: "本地持仓风险快照已重估", explanation: `服务端已按当前可靠行情和固定风险口径完成持仓重估；估算市值 ${Number.isFinite(marketValue) ? marketValue.toFixed(2) : "未知"}，未实现盈亏 ${Number.isFinite(unrealizedPnl) ? unrealizedPnl.toFixed(2) : "未知"}，原始输入与计算结果均保留在所引 Evidence 中。`, evidenceIds: [item.id] }];
     });
     const declaredLimitations = input.evidence.items.filter((item) => item.kind === "limitation");
     const declaredMessages = declaredLimitations.flatMap((item) => limitationMessages(item.value));
@@ -84,7 +95,17 @@ export class DeterministicNarrator implements Narrator {
       : input.workflow === "morning_brief"
         ? "盘前简报"
         : "收盘复盘";
-    return { status: limitations.length ? "partial" : "success", headline: events.length ? `${label}检测到确定性事件` : `${label}没有检测到显著事件`, summary: facts.length ? `本次${input.workflow === "ask" ? "回答" : "简报"}仅依据已封存的市场事实与规则事件${portfolioImpacts.length ? "，并纳入已重新估值的本地持仓快照" : ""}。` : "当前没有可用的市场事实。", observations, portfolioImpacts, watchNext: [], limitations, evidenceFingerprint: input.evidence.fingerprint };
+    const citedEvidenceIds = [...new Set([...observations, ...portfolioImpacts].filter((item) => item.class === "fact").flatMap((item) => item.evidenceIds))].slice(0, 4);
+    const watchEvidenceIds = citedEvidenceIds.slice(0, 2);
+    const watchNext = watchEvidenceIds.length ? [{
+      condition: "关注后续可靠市场事实是否改变当前观察",
+      reason: "新的同口径 Evidence 可以复核当前结论是否继续成立，并区分一次性变化与可延续状态。",
+      evidenceIds: watchEvidenceIds,
+    }] : [];
+    const summary = facts.length || observations.length || portfolioImpacts.length
+      ? `本次${input.workflow === "ask" ? "回答" : "简报"}仅依据已封存的市场事实、确定性规则与可复核的研究口径形成，不使用模型自行补齐的数据。主文先列出能够直接确认的依据，再说明这些事实为何值得关注${portfolioImpacts.length ? "，并纳入服务端重新估值的本地持仓快照" : ""}。现有解释仍可能被后续市场事实改变，具体数值、观察时间、公式与来源应在所引 Evidence 中核对。`
+      : "当前没有可用于形成市场结论的可靠事实，因此本次结果只说明证据边界，不补写缺失信息。后续需要等待服务端取得新的可验证 Evidence，再按相同口径重新运行。任何具体数值、市场状态或变化方向都不应从这份受限结果中推断。";
+    return { status: limitations.length ? "partial" : "success", headline: events.length ? `${label}检测到确定性事件` : `${label}形成确定性证据复盘`, summary, conclusionEvidenceIds: citedEvidenceIds, observations, portfolioImpacts, watchNext, limitations, evidenceFingerprint: input.evidence.fingerprint };
   }
 }
 
@@ -107,6 +128,28 @@ function limitationMessages(value: unknown): string[] {
   if (typeof limitation.limitation === "string") return [`数据限制：${limitation.limitation}`];
   if (limitation.status === "unavailable" && typeof limitation.capability === "string") return [`数据能力暂不可用：${limitation.capability}`];
   return [];
+}
+
+function diverseDeterministicBasis(facts: AgentObservation[], diffs: AgentObservation[], events: AgentObservation[]): AgentObservation[] {
+  const pools = [
+    facts.filter((item) => item.id.startsWith("deterministic-ask-quote-")),
+    facts.filter((item) => item.id.startsWith("deterministic-ask-bars-")),
+    facts.filter((item) => item.id.startsWith("deterministic-research-")),
+    diffs,
+    events,
+    facts.filter((item) => !item.id.startsWith("deterministic-ask-quote-") && !item.id.startsWith("deterministic-ask-bars-") && !item.id.startsWith("deterministic-research-")),
+  ];
+  const selected: AgentObservation[] = [];
+  for (const pool of pools) {
+    const candidate = pool.find((item) => !selected.some((selectedItem) => selectedItem.id === item.id));
+    if (candidate) selected.push(candidate);
+    if (selected.length === 5) return selected;
+  }
+  for (const candidate of pools.flat()) {
+    if (!selected.some((item) => item.id === candidate.id)) selected.push(candidate);
+    if (selected.length === 5) break;
+  }
+  return selected;
 }
 
 export async function narrateWithRepair(narrator: Narrator, input: NarrationInput & { repair?: (issues: string[]) => Promise<unknown> }): Promise<{ result: AgentNarration; repaired: boolean; issues: string[]; provenance: NarrationProvenance }> {
@@ -133,7 +176,7 @@ export async function narrateWithRepair(narrator: Narrator, input: NarrationInpu
       issues = validateNarration(unwrapped.narration, input, Boolean(unwrapped.selection));
       if (!issues.length) return { result: unwrapped.narration as AgentNarration, repaired: true, issues, provenance: modelProvenance("model_repaired", unwrapped.selection) };
       if (unwrapped.selection && issues.some((issue) => issue.includes("model narration must not contain quantities"))) {
-        const qualitative = deterministicallyQualitativeNarration(unwrapped.narration);
+        const qualitative = deterministicallyQualitativeNarration(unwrapped.narration, input);
         issues = validateNarration(qualitative, input, true);
         if (!issues.length) return { result: qualitative as AgentNarration, repaired: true, issues, provenance: modelProvenance("model_repaired", unwrapped.selection) };
       }
@@ -187,6 +230,14 @@ function validationRuleIds(issues: string[]): NarrationValidationRule[] {
     if (/^(?:observations|portfolioImpacts)\[\d+\]\.inference must use uncertainty language$/.test(issue)) return "observation_uncertainty_missing";
     if (issue.startsWith("watchNext must be an array")) return "watch_collection_invalid";
     if (issue === "limitations must be a bounded string[]") return "limitations_invalid";
+    if (issue.startsWith("NARRATION_LIMITATION_UNSUPPORTED")) return "limitation_unsupported";
+    if (issue.startsWith("NARRATIVE_DEPTH_SUMMARY_TOO_SHORT")) return "summary_invalid";
+    if (issue.startsWith("NARRATIVE_DEPTH_CONCLUSION_EVIDENCE_TOO_SHALLOW")) return "conclusion_evidence_invalid";
+    if (issue.startsWith("NARRATIVE_DEPTH_BASIS_TOO_SHALLOW") || issue.startsWith("NARRATIVE_DEPTH_ANALYSIS_TOO_SHALLOW") || issue.startsWith("NARRATIVE_DEPTH_PORTFOLIO_TOO_SHALLOW")) return "observation_collection_invalid";
+    if (issue.startsWith("NARRATIVE_DEPTH_WATCH_NEXT_MISSING")) return "watch_collection_invalid";
+    if (issue.startsWith("NARRATIVE_DEPTH_REQUIRED_EVIDENCE_UNCOVERED")) return "observation_evidence_invalid";
+    if (issue.startsWith("NARRATIVE_DEPTH_REQUIRED_TOPIC_UNCOVERED")) return "observation_evidence_invalid";
+    if (issue.startsWith("NARRATIVE_DEPTH_EXPLANATION_TOO_SHORT") || issue.startsWith("NARRATIVE_DEPTH_EXPLANATION_MISSING_SIGNIFICANCE")) return "observation_explanation_invalid";
     if (issue === "trading instructions are forbidden") return "trading_instruction";
     if (issue.startsWith("summary must contain 2 to 4 sentences")) return "summary_sentence_count";
     if (issue.startsWith("output must not reproduce confirmed context")) return "context_leakage";
@@ -206,6 +257,10 @@ function validationRuleIds(issues: string[]): NarrationValidationRule[] {
 function validationCategories(issues: string[]): NarrationValidationCategory[] {
   const categories = issues.map<NarrationValidationCategory>((issue) => {
     if (issue === "trading instructions are forbidden") return "trading_policy";
+    if (issue.startsWith("NARRATION_LIMITATION_UNSUPPORTED")) return "material_limitations";
+    if (issue.startsWith("NARRATIVE_DEPTH_SUMMARY_TOO_SHORT")) return "summary_length";
+    if (issue.startsWith("NARRATIVE_DEPTH_REQUIRED_EVIDENCE_UNCOVERED") || issue.startsWith("NARRATIVE_DEPTH_REQUIRED_TOPIC_UNCOVERED")) return "citation_scope";
+    if (issue.startsWith("NARRATIVE_DEPTH_")) return "schema";
     if (issue.startsWith("summary must contain 2 to 4 sentences")) return "summary_length";
     if (issue.startsWith("output must not reproduce confirmed context")) return "context_leakage";
     if (issue.includes("numeric claims must match sealed deterministic facts") || issue.includes("model narration must not contain quantities")) return "numeric_grounding";
@@ -281,9 +336,30 @@ function askFactObservation(
       class: item.reliable ? "fact" : "unknown",
       importance: "medium",
       title: `${value.instrumentId} 行情事实`,
-      explanation: price === null ? "当前报价不可用。" : `${priceDescription(marketState, item.reliable)} ${price.toFixed(2)}。变化幅度没有由已封存的确定性算子直接提供，因此不在这里补算。`,
+      explanation: price === null ? "当前报价不可用，服务端没有能够安全展示的确定性价格；后续需要等待新的可靠行情再复核。" : `${priceDescription(marketState, item.reliable)} ${price.toFixed(2)}。该值直接来自已封存 Market Fact；变化幅度只有在确定性算子明确提供时才会展示，不在叙事层补算。`,
       evidenceIds: [item.id],
     }];
+  }
+  if (value.type === "bar_series" && typeof value.instrumentId === "string") {
+    const bars = Array.isArray(value.bars) ? value.bars.filter((bar): bar is Record<string, unknown> => record(bar) !== null) : [];
+    const last = bars.at(-1);
+    const close = finiteNumber(last?.close);
+    const volume = finiteNumber(last?.volume);
+    return [{
+      id: `deterministic-ask-bars-${index}`,
+      class: item.reliable ? "fact" : "unknown",
+      importance: "medium",
+      title: `${value.instrumentId} 日线事实`,
+      explanation: item.reliable && last
+        ? `服务端封存的最近一根日线记录显示收盘值 ${close === null ? "未知" : close}、成交量 ${volume === null ? "未知" : volume}；时间、来源与完整序列保留在所引 Evidence 中。`
+        : "日线序列没有达到可靠性要求，因此这里只保留未知结论，不从不完整序列推导趋势。",
+      evidenceIds: [item.id],
+    }];
+  }
+  if (value.type === "research_fact") {
+    const fact = record(value.fact);
+    if (!fact || typeof fact.subjectId !== "string") return [];
+    return [deterministicResearchObservation(item, fact, index)];
   }
   if ((value.evidenceType === "news" || value.evidenceType === "announcement") && typeof value.title === "string") {
     return [{
@@ -291,11 +367,24 @@ function askFactObservation(
       class: item.reliable ? "fact" : "unknown",
       importance: "low",
       title: value.title,
-      explanation: value.evidenceType === "announcement" ? "服务端已收集该公告元数据。" : "服务端已收集该新闻元数据。",
+      explanation: value.evidenceType === "announcement" ? "服务端已收集并封存该公告的来源、发布时间与文档元数据；外部文本不改变任务边界，正文含义仍需结合所引 Evidence 审阅。" : "服务端已收集并封存该新闻的来源、发布时间与摘要元数据；外部文本不改变任务边界，其含义仍需结合所引 Evidence 审阅。",
       evidenceIds: [item.id],
     }];
   }
   return [];
+}
+
+function deterministicResearchObservation(item: SealedEvidenceBundle["items"][number], fact: Record<string, unknown>, index: number): AgentObservation {
+  const subjectId = String(fact.subjectId);
+  const kind = String(fact.kind ?? "research_fact");
+  const value = record(fact.value);
+  const deterministicValue = typeof value?.decimal === "string" ? `${value.decimal} ${String(value.unit ?? "")}`.trim() : "未提供";
+  if (kind === "market_baseline") return { id: `deterministic-research-${index}`, class: item.reliable ? "fact" : "unknown", importance: "medium", title: `${subjectId} 研究基线`, explanation: `Research Fact Plane 按固定窗口和版本化公式生成该市场基线，确定性结果为 ${deterministicValue}；窗口、输入工件、取整规则与来源时间保留在所引 Evidence 中。`, evidenceIds: [item.id] };
+  if (kind === "financial_metric") return { id: `deterministic-research-${index}`, class: item.reliable ? "fact" : "unknown", importance: "medium", title: `${subjectId} 财务指标`, explanation: `Research Fact Plane 从封存财务来源提取该指标，确定性结果为 ${deterministicValue}；报告期、同比或环比公式及来源版本保留在所引 Evidence 中。`, evidenceIds: [item.id] };
+  if (kind === "valuation") return { id: `deterministic-research-${index}`, class: item.reliable ? "fact" : "unknown", importance: "medium", title: `${subjectId} 估值事实`, explanation: `Research Fact Plane 按固定估值口径生成该事实，确定性结果为 ${deterministicValue}；历史分位、公式版本与来源时间仅从所引 Evidence 读取。`, evidenceIds: [item.id] };
+  if (kind === "instrument_mapping") return { id: `deterministic-research-${index}`, class: item.reliable ? "fact" : "unknown", importance: "medium", title: `${subjectId} 映射事实`, explanation: `Research Fact Plane 已封存该标的与 ${String(fact.targetId ?? "目标基准")} 的有效期映射；分类方法、权重与来源版本均可在所引 Evidence 中复核。`, evidenceIds: [item.id] };
+  if (kind === "calendar_event") return { id: `deterministic-research-${index}`, class: item.reliable ? "fact" : "unknown", importance: "medium", title: `${subjectId} 事件日历`, explanation: `Research Fact Plane 已封存该事件的计划时间与确认状态；具体日期、精度、来源时间和数据质量均由所引 Evidence 确定性呈现。`, evidenceIds: [item.id] };
+  return { id: `deterministic-research-${index}`, class: item.reliable ? "fact" : "unknown", importance: "low", title: `${subjectId} 研究文档事实`, explanation: "Research Fact Plane 已封存文档段落或版本差异的稳定标识、来源时间与内容摘要；本次只引用确定性元数据，不由叙事层补写文档事实。", evidenceIds: [item.id] };
 }
 
 function record(value: unknown): Record<string, unknown> | null {
@@ -317,7 +406,8 @@ function validateNarration(value: unknown, input: NarrationInput, selectedGatewa
   const contextLeak = contextLeakIssue(candidate, input.confirmedContext ?? []);
   if (contextLeak) issues.push(contextLeak);
   const evidenceById = new Map(evidence.items.map((item) => [item.id, item]));
-  const presentedEvidence = buildNarrationContext({ evidence, workflow: input.workflow, askScope: input.askScope }).evidence;
+  const narrationContext = buildNarrationContext({ evidence, workflow: input.workflow, askScope: input.askScope });
+  const presentedEvidence = narrationContext.evidence;
   const presentedEvidenceIds = new Set(presentedEvidence.map((item) => item.id));
   if (Array.isArray(candidate.conclusionEvidenceIds) && candidate.conclusionEvidenceIds.some((id) => typeof id === "string" && !presentedEvidenceIds.has(id))) {
     issues.push("conclusionEvidenceIds cite evidence absent from the narration context");
@@ -325,7 +415,9 @@ function validateNarration(value: unknown, input: NarrationInput, selectedGatewa
   issues.push(...(selectedGatewayModel
     ? selectedModelQuantityIssues(candidate)
     : ungroundedNumericClaimIssues(candidate, evidenceById, presentedEvidence)));
-  const materialLimitations = evidence.items.some((item) => item.kind === "limitation" || (item.kind === "market_fact" && !item.reliable));
+  const materialLimitations = input.evidenceAssessment
+    ? input.evidenceAssessment.coverage !== "sufficient"
+    : evidence.items.some((item) => item.kind === "limitation" || (item.kind === "market_fact" && !item.reliable));
   if (materialLimitations && candidate.status !== "partial") issues.push("status must be partial when sealed evidence has material limitations");
   if (materialLimitations && (!Array.isArray(candidate.limitations) || candidate.limitations.length === 0)) issues.push("limitations must describe material evidence limitations");
   for (const field of ["observations", "portfolioImpacts"] as const) {
@@ -353,6 +445,10 @@ function validateNarration(value: unknown, input: NarrationInput, selectedGatewa
       }
     }
   }
+  if (selectedGatewayModel) {
+    const depthPolicy = resolveNarrativeDepthPolicy({ workflow: input.workflow, askScope: input.askScope, context: narrationContext, evidenceAssessment: input.evidenceAssessment });
+    issues.push(...validateNarrativeDepth(candidate, depthPolicy));
+  }
   return [...new Set(issues)];
 }
 
@@ -373,13 +469,14 @@ function selectedModelQuantityIssues(candidate: Record<string, unknown>): string
   });
 }
 
-function deterministicallyQualitativeNarration(value: unknown): unknown {
+function deterministicallyQualitativeNarration(value: unknown, input: NarrationInput): unknown {
   const candidate = record(value);
   if (!candidate) return value;
+  const policy = resolveNarrativeDepthPolicy({ workflow: input.workflow, askScope: input.askScope, context: buildNarrationContext({ evidence: input.evidence, workflow: input.workflow, askScope: input.askScope }) });
   const observations = arrayRecords(candidate.observations).map((item) => ({
     ...item,
     title: qualitativeNaturalLanguage(item.title, "已封存的市场观察"),
-    explanation: qualitativeNaturalLanguage(
+    explanation: qualitativeExplanation(
       item.explanation,
       item.class === "inference"
         ? "所引 Evidence 支持该推测，但后续仍需观察，尚无法确认其持续性。"
@@ -389,21 +486,25 @@ function deterministicallyQualitativeNarration(value: unknown): unknown {
   const portfolioImpacts = arrayRecords(candidate.portfolioImpacts).map((item) => ({
     ...item,
     title: qualitativeNaturalLanguage(item.title, "持仓影响已有确定性证据"),
-    explanation: qualitativeNaturalLanguage(
+    explanation: qualitativeExplanation(
       item.explanation,
       item.class === "inference"
         ? "所引 Evidence 支持该影响推测，但其持续性尚无法确认。"
         : "该影响仅作定性说明，具体定量事实与计算口径请在 Evidence 中核对。",
     ),
   }));
-  const watchNext = arrayRecords(candidate.watchNext).map((item) => ({
+  let watchNext: Array<Record<string, unknown>> = arrayRecords(candidate.watchNext).map((item) => ({
     ...item,
     condition: qualitativeNaturalLanguage(item.condition, "关注所引市场条件的后续变化"),
     reason: qualitativeNaturalLanguage(item.reason, "后续应以新的确定性 Evidence 复核该条件。"),
   }));
-  const limitations = Array.isArray(candidate.limitations)
+  const limitations = policy.allowLimitationClaims && Array.isArray(candidate.limitations)
     ? candidate.limitations.map((item) => qualitativeNaturalLanguage(item, "当前证据存在定量边界，具体范围请在 Evidence 中核对。"))
-    : candidate.limitations;
+    : [];
+  if (!watchNext.length) {
+    const evidenceIds = stringValues(candidate.conclusionEvidenceIds).slice(0, 2);
+    if (evidenceIds.length) watchNext = [{ condition: "关注后续可靠市场事实是否改变当前观察", reason: "新的封存 Evidence 可以检验当前定性判断是否继续成立。", evidenceIds }];
+  }
   return {
     ...candidate,
     headline: qualitativeNaturalLanguage(candidate.headline, "确定性证据支持当前市场复盘"),
@@ -418,9 +519,13 @@ function deterministicallyQualitativeNarration(value: unknown): unknown {
 function qualitativeSummary(value: unknown): unknown {
   if (typeof value !== "string") return value;
   const safeSentences = naturalLanguageSentences(value).filter((sentence) => !containsQuantity(sentence)).slice(0, 4);
-  if (safeSentences.length === 0) return "确定性市场证据已经封存。具体定量事实与计算口径由 Evidence 单独呈现。";
-  if (safeSentences.length === 1) return `${safeSentences[0]}具体定量事实与计算口径由 Evidence 单独呈现。`;
-  return safeSentences.join("");
+  const lead = safeSentences.length ? safeSentences.join("") : "确定性市场证据已经封存。";
+  return `${lead}主文只解释所引事实为何重要，并把能够确认的观察与仍需验证的含义分开。具体定量事实、观察时间、公式与来源由 Evidence 单独呈现，后续仍应以新的可靠证据复核当前判断。`;
+}
+
+function qualitativeExplanation(value: unknown, fallback: string): unknown {
+  const safe = qualitativeNaturalLanguage(value, fallback);
+  return typeof safe === "string" ? `${safe}具体定量事实与计算口径由所引 Evidence 单独呈现，该说明不会在叙事层补算或替换任何数值。` : safe;
 }
 
 function qualitativeNaturalLanguage(value: unknown, fallback: string): unknown {
@@ -570,6 +675,10 @@ function evidenceIds(value: Record<string, unknown>): string[] {
 
 function strings(...values: unknown[]): string {
   return values.filter((value): value is string => typeof value === "string").join("\n");
+}
+
+function stringValues(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
 function sentenceCount(value: string): number {

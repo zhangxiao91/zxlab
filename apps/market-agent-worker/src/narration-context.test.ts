@@ -19,7 +19,7 @@ function evidence(items: EvidenceItem[], scope: AskScope = "today_change"): Seal
   };
 }
 
-function snapshotContext(session: string, freshness = "fresh", reliable = true, capabilities: unknown[] = []): EvidenceItem {
+function snapshotContext(session: string, freshness = "fresh", reliable = true, capabilities: unknown[] = [], reference?: unknown): EvidenceItem {
   return {
     id: "snapshot-context",
     kind: "market_fact",
@@ -33,6 +33,7 @@ function snapshotContext(session: string, freshness = "fresh", reliable = true, 
       quality: { status: reliable ? "operational" : "degraded", reliable, freshness, warnings: reliable ? [] : ["stale quotes"], unavailableCapabilities: [] },
       markets: [{ exchange: "SSE", session, open: session === "open", calendarDate: "2026-08-07", reliable: session !== "unknown", freshness }],
       capabilities,
+      ...(reference ? { reference } : {}),
     },
   };
 }
@@ -52,6 +53,20 @@ test("claim policy changes deterministically across market sessions and freshnes
     const context = buildNarrationContext({ evidence: evidence([snapshotContext(fixture.session, fixture.freshness, fixture.reliable)]), workflow: "ask", askScope: "today_change" });
     assert.equal(context.marketState.claimPolicy, fixture.expected, `${fixture.session}/${fixture.freshness}`);
   }
+});
+
+test("today-change context treats a fresh Sunday snapshot as Friday's effective session, not stale data", () => {
+  const reference = { requestedCalendarDate: "2026-08-16", effectiveTradingDate: "2026-08-14", session: "holiday", semantics: "last_effective_session" };
+  const context = buildNarrationContext({
+    evidence: evidence([snapshotContext("holiday", "fresh", true, [], reference)]),
+    workflow: "ask",
+    askScope: "today_change",
+  });
+
+  assert.deepEqual(context.marketState.reference, reference);
+  assert.equal(context.marketState.claimPolicy, "last-observed-not-live");
+  assert.match(context.marketState.guidance.join(" "), /effective trading date/i);
+  assert.match(context.marketState.guidance.join(" "), /not stale/i);
 });
 
 test("data-quality scope retains capability failures and limitations ahead of a large quote set", () => {

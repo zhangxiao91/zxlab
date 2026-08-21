@@ -1,4 +1,4 @@
-import { isMarketAgentAskCommand, isRetryableRunStatus, isTerminalRunStatus, normalizePortfolioSnapshotUpload, subjectHash, validateBrowserAskIntent, validateBrowserRunIntent, type BrowserAskIntent, type BrowserRunIntent, type MarketAgentCommand } from "@zxlab/market-agent-schema";
+import { isMarketAgentAskCommand, isTerminalRunStatus, normalizePortfolioSnapshotUpload, subjectHash, validateBrowserAskIntent, validateBrowserRunIntent, type BrowserAskIntent, type BrowserRunIntent, type MarketAgentCommand } from "@zxlab/market-agent-schema";
 import { MemoryRunRepository } from "./foundation.ts";
 import { D1RunRepository } from "./d1-repository.ts";
 import { CloseReviewService } from "./close-review.ts";
@@ -19,6 +19,7 @@ import { MARKET_AGENT_RUN_LEASE_MS } from "./runtime-budget.ts";
 import { D1RunArchiveRepository } from "./run-archive.ts";
 import { settleRunFailure } from "./run-failure-policy.ts";
 import { handleRunFeedbackRequest } from "./run-feedback-route.ts";
+import { canCreateRunRevision } from "./run-revision-policy.ts";
 
 const repository = new MemoryRunRepository();
 type RunMessage = { runId: string; generation: number; kind: "initial" | "recovery" };
@@ -225,7 +226,10 @@ async function retryRun(request: Request, env: Env, runs: D1RunRepository, snaps
   const prior = await runs.get(priorRunId);
   const priorCommand = await runs.getCommand(priorRunId);
   if (prior?.profileId !== profileId || !priorCommand) return json({ error: "NOT_FOUND" }, 404);
-  if (!isRetryableRunStatus(prior.status)) return json({ error: "RUN_NOT_RETRYABLE", status: prior.status }, 409);
+  const priorEvidence = prior.status === "success" || prior.status === "partial"
+    ? await runs.getEvidence(priorRunId, profileId)
+    : null;
+  if (!canCreateRunRevision(prior.status, priorEvidence)) return json({ error: "RUN_NOT_RETRYABLE", status: prior.status }, 409);
   const command = { ...priorCommand, trigger: "manual" as const, idempotencyKey: body.idempotencyKey };
   const portfolioSnapshot = await snapshots.getCurrent(profileId);
   const created = await runs.createQueued(command, { command, actorScope: profileId, commandHash: await sha256({ command, revisionOfRunId: prior.id }), revisionOfRunId: prior.id, portfolioSnapshotId: isMarketAgentAskCommand(command) && !askEvidencePlan(command.scope).requiresPortfolioSnapshot ? null : portfolioSnapshot?.id ?? null });

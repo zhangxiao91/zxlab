@@ -34,6 +34,7 @@ export async function buildDeterministicCloseReview(command: MarketAgentCommand,
       asOf: snapshot.asOf,
       receivedAt: snapshot.receivedAt,
       marketTimestamp: snapshot.marketTimestamp,
+      ...(snapshot.reference ? { reference: snapshot.reference } : {}),
       quality: {
         status: snapshot.quality.status,
         reliable: snapshot.quality.reliable,

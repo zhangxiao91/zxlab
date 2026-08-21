@@ -2,6 +2,7 @@ import type {
   MarketExchange,
   MarketFactQuality,
   MarketFreshness,
+  MarketReference,
   MarketSession,
   TradingCalendar,
 } from "../../../packages/market-schema/src/index.ts";
@@ -20,6 +21,7 @@ export interface IntradayFreshnessDecision {
   expectedCloseDate: string | null;
   ageSeconds: number;
   warnings: string[];
+  reference: MarketReference;
 }
 
 export type DailyBarFreshnessDecision = IntradayFreshnessDecision;
@@ -52,11 +54,12 @@ export async function assessIntradayFreshness(
       expectedCloseDate: null,
       ageSeconds,
       warnings: unique([...status.warnings, "交易日历状态未知，无法确认行情新鲜度"]),
+      reference: status.reference,
     };
   }
 
   if (status.session === "holiday") {
-    const expectedCloseDate = await previousTradingDate(status.calendarDate, calendar);
+    const expectedCloseDate = status.reference.effectiveTradingDate;
     const fresh = expectedCloseDate != null
       && input.marketTimestamp != null
       && isEffectiveCloseObservation(input.marketTimestamp, input.receivedAt, expectedCloseDate);
@@ -69,11 +72,12 @@ export async function assessIntradayFreshness(
       warnings: fresh ? status.warnings : unique([...status.warnings, expectedCloseDate
         ? `最近有效收盘应为 ${expectedCloseDate} 15:00`
         : "无法定位最近一个可靠交易日"]),
+      reference: status.reference,
     };
   }
 
   if (status.session === "preopen") {
-    const expectedCloseDate = await previousTradingDate(status.calendarDate, calendar);
+    const expectedCloseDate = status.reference.effectiveTradingDate;
     const timelyAuction = input.marketTimestamp != null
       && isSameShanghaiDate(input.marketTimestamp, status.calendarDate)
       && isTimely(input.marketTimestamp, input.receivedAt);
@@ -90,6 +94,7 @@ export async function assessIntradayFreshness(
       warnings: fresh ? [] : [expectedCloseDate
         ? `盘前行情既非实时集合竞价，也非 ${expectedCloseDate} 15:00 的最近有效收盘`
         : "无法定位盘前最近一个可靠交易日"],
+      reference: status.reference,
     };
   }
 
@@ -104,6 +109,7 @@ export async function assessIntradayFreshness(
       expectedCloseDate: null,
       ageSeconds,
       warnings: fresh ? [] : [`连续交易阶段行情已延迟 ${formatAge(ageSeconds)}`],
+      reference: status.reference,
     };
   }
 
@@ -117,15 +123,12 @@ export async function assessIntradayFreshness(
       expectedCloseDate: status.calendarDate,
       ageSeconds,
       warnings: fresh ? [] : ["午休阶段最近有效行情应为当日 11:30 的早盘收盘"],
+      reference: status.reference,
     };
   }
 
   if (status.session === "closed") {
-    const receivedMinutes = shanghaiMinutes(input.receivedAt);
-    const afterClose = receivedMinutes != null && receivedMinutes >= 15 * 60;
-    const expectedCloseDate = afterClose
-      ? status.calendarDate
-      : await previousTradingDate(status.calendarDate, calendar);
+    const expectedCloseDate = status.reference.effectiveTradingDate;
     const fresh = expectedCloseDate != null
       && input.marketTimestamp != null
       && isEffectiveCloseObservation(input.marketTimestamp, input.receivedAt, expectedCloseDate);
@@ -138,6 +141,7 @@ export async function assessIntradayFreshness(
       warnings: fresh ? [] : [expectedCloseDate
         ? `闭市阶段最近有效收盘应为 ${expectedCloseDate} 15:00`
         : "无法定位闭市阶段最近一个可靠交易日"],
+      reference: status.reference,
     };
   }
 
@@ -148,6 +152,7 @@ export async function assessIntradayFreshness(
     expectedCloseDate: null,
     ageSeconds,
     warnings: ["当前交易时段的新鲜度规则尚未匹配"],
+    reference: status.reference,
   };
 }
 
@@ -162,17 +167,17 @@ export async function assessDailyBarFreshness(
     ? Math.max(0, (received.valueOf() - market.valueOf()) / 1_000)
     : Number.POSITIVE_INFINITY;
   if (!status.reliable || status.session === "unknown") {
-    return { freshness: "unknown", stale: true, session: "unknown", expectedCloseDate: null, ageSeconds, warnings: unique([...status.warnings, "交易日历状态未知，无法确认日 K 新鲜度"]) };
+    return { freshness: "unknown", stale: true, session: "unknown", expectedCloseDate: null, ageSeconds, warnings: unique([...status.warnings, "交易日历状态未知，无法确认日 K 新鲜度"]), reference: status.reference };
   }
 
   const barDate = input.marketTimestamp ? shanghaiDate(input.marketTimestamp) : null;
   let expectedCloseDate: string | null;
   let acceptableDates: string[];
   if (status.session === "holiday") {
-    expectedCloseDate = await previousTradingDate(status.calendarDate, calendar);
+    expectedCloseDate = status.reference.effectiveTradingDate;
     acceptableDates = expectedCloseDate ? [expectedCloseDate] : [];
   } else if (status.session === "closed" && (shanghaiMinutes(input.receivedAt) ?? 0) >= 15 * 60) {
-    expectedCloseDate = status.calendarDate;
+    expectedCloseDate = status.reference.effectiveTradingDate;
     acceptableDates = [status.calendarDate];
   } else {
     expectedCloseDate = await previousTradingDate(status.calendarDate, calendar);
@@ -190,6 +195,7 @@ export async function assessDailyBarFreshness(
     warnings: fresh ? status.warnings : unique([...status.warnings, expectedCloseDate
       ? `日 K 最新有效交易日应为 ${expectedCloseDate}`
       : "无法定位日 K 最近一个可靠交易日"]),
+    reference: status.reference,
   };
 }
 
