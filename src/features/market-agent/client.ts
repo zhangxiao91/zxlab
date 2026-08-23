@@ -1,4 +1,4 @@
-import { isRunStatus, isRunTrace, isRunTraceEvent, isTerminalRunStatus, type RunStatus } from "@zxlab/market-agent-schema";
+import { isRunStatus, isRunTrace, isRunTraceEvent, isTerminalRunStatus, isToolTrace, isToolTraceEvent, type RunStatus } from "@zxlab/market-agent-schema";
 import type {
   AgentFeedback,
   AgentFeedbackValue,
@@ -8,6 +8,8 @@ import type {
   RunTiming,
   RunTrace,
   RunTraceEvent,
+  ToolTrace,
+  ToolTraceEvent,
   PortfolioSnapshotUpload,
   SealedEvidenceBundle,
 } from "@zxlab/market-agent-schema";
@@ -215,6 +217,7 @@ export async function getAgentRun(runId: string, signal?: AbortSignal): Promise<
 export interface AgentRunStreamHandlers {
   onStatus?(run: AgentRunView): void;
   onTrace?(event: RunTraceEvent): void;
+  onToolTrace?(event: ToolTraceEvent): void;
   onAnswerDelta?(delta: string): void;
   onDone?(run: AgentRunView): void;
 }
@@ -242,6 +245,8 @@ export async function streamAgentRun(
   let completed: AgentRunView | null = null;
   let lastTraceSequence = 0;
   const traceIds = new Set<string>();
+  let lastToolTraceSequence = 0;
+  const toolTraceIds = new Set<string>();
 
   const dispatch = () => {
     if (!dataLines.length) {
@@ -269,6 +274,17 @@ export async function streamAgentRun(
       lastTraceSequence = data.event.sequence;
       traceIds.add(data.event.id);
       handlers.onTrace?.(data.event);
+    }
+    if (eventName === "tool_trace") {
+      if (!isToolTraceEvent(data.event)
+        || data.event.runId !== runId
+        || data.event.sequence <= lastToolTraceSequence
+        || toolTraceIds.has(data.event.id)) {
+        throw new MarketAgentApiError("RUN_STREAM_INVALID", "Agent 实时工具事件与当前 Run 不匹配", response.status);
+      }
+      lastToolTraceSequence = data.event.sequence;
+      toolTraceIds.add(data.event.id);
+      handlers.onToolTrace?.(data.event);
     }
     if (eventName === "answer_delta" && typeof data.delta === "string") handlers.onAnswerDelta?.(data.delta);
     if (eventName === "done") {
@@ -361,6 +377,19 @@ export async function getAgentRunTrace(runId: string, signal?: AbortSignal): Pro
   const data = await response.json() as unknown;
   if (!isRunTrace(data) || data.runId !== runId) {
     throw new MarketAgentApiError("RUN_TRACE_INVALID", "Run 运行记录响应格式无效", response.status);
+  }
+  return data;
+}
+
+export async function getAgentToolTrace(runId: string, signal?: AbortSignal): Promise<ToolTrace> {
+  const response = await marketAgentFetch(
+    `/api/private/market-agent/runs/${encodeURIComponent(runId)}/tool-trace`,
+    { headers: { accept: "application/json" }, signal },
+  );
+  if (!response.ok) throw await apiError(response, "Tool 运行记录暂不可用");
+  const data = await response.json() as unknown;
+  if (!isToolTrace(data) || data.runId !== runId) {
+    throw new MarketAgentApiError("TOOL_TRACE_INVALID", "Tool 运行记录响应格式无效", response.status);
   }
   return data;
 }

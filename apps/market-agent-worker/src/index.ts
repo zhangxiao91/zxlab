@@ -15,11 +15,14 @@ import { decideScheduledWorkflow, scheduledWorkflowAt } from "./schedule.ts";
 import { requireMarketAgentScope, resolveMarketAgentActor } from "./auth.ts";
 import { SignalMemoryAdapter } from "./confirmed-context.ts";
 import { createRunEventStream } from "./run-stream.ts";
-import { MARKET_AGENT_RUN_LEASE_MS } from "./runtime-budget.ts";
+import { marketAgentRunLeaseMs, marketAgentRunStreamTimeoutMs } from "./runtime-budget.ts";
 import { D1RunArchiveRepository } from "./run-archive.ts";
 import { settleRunFailure } from "./run-failure-policy.ts";
 import { handleRunFeedbackRequest } from "./run-feedback-route.ts";
 import { canCreateRunRevision } from "./run-revision-policy.ts";
+import { D1FinancialToolInvocationRepository } from "./financial-tool-repository.ts";
+import { FinancialToolRuntime } from "./financial-tool-runtime.ts";
+import { GatewayFinancialToolPlanner } from "./financial-tool-planner.ts";
 
 const repository = new MemoryRunRepository();
 type RunMessage = { runId: string; generation: number; kind: "initial" | "recovery" };
@@ -31,9 +34,10 @@ export default {
     if (url.pathname === "/internal/runtime/health" && request.method === "GET") return await runtimeHealth(request, env);
     const path = privatePath(url.pathname);
     if (path === "/health" && request.method === "GET") return json({ ok: true, service: "market-agent", generation: "evidence-bound-gateway" });
-    if (!env.DB) return json({ error: "DATABASE_UNAVAILABLE" }, 503);
     try {
-      const actor = await resolveMarketAgentActor(request, env); requireMarketAgentScope(actor, request.method); const profiles = new D1ProfileRepository(env.DB); const profile = await profiles.resolve(await subjectHash(actor.ownerSubject, marketAgentProxySecret(env))); const runs = new D1RunRepository(env.DB); const archive = new D1RunArchiveRepository(env.DB); const snapshots = new D1PortfolioSnapshotRepository(env.DB);
+      const actor = await resolveMarketAgentActor(request, env); requireMarketAgentScope(actor, request.method);
+      if (!env.DB) return json({ error: "DATABASE_UNAVAILABLE" }, 503);
+      const profiles = new D1ProfileRepository(env.DB); const profile = await profiles.resolve(await subjectHash(actor.ownerSubject, marketAgentProxySecret(env))); const runs = new D1RunRepository(env.DB); const archive = new D1RunArchiveRepository(env.DB); const snapshots = new D1PortfolioSnapshotRepository(env.DB); const financialTools = new D1FinancialToolInvocationRepository(env.DB);
       if (path === "/profile" && request.method === "GET") return json(profile);
       if (path === "/watchlist" && request.method === "GET") return json({ profile, watchlist: await profiles.getWatchlist(profile.profileId) });
       if (path === "/watchlist" && request.method === "POST") {
@@ -125,7 +129,11 @@ export default {
       if (streamMatch && request.method === "GET") {
         const run = await runs.get(streamMatch[1]);
         return run?.profileId === profile.profileId
-          ? createRunEventStream(request, runs, run.id, profile.profileId, { initialRun: run })
+          ? createRunEventStream(request, {
+              get: (runId) => runs.get(runId),
+              listTraceAfter: (runId, profileId, afterSequence) => runs.listTraceAfter(runId, profileId, afterSequence),
+              listToolTraceAfter: (runId, profileId, afterSequence) => financialTools.listToolTraceAfter(runId, profileId, afterSequence),
+            }, run.id, profile.profileId, { initialRun: run, timeoutMs: marketAgentRunStreamTimeoutMs(configuredFinancialToolRuntimeMode(env)) })
           : json({ error: "NOT_FOUND" }, 404);
       }
       const evidenceMatch = path.match(/^\/runs\/([^/]+)\/evidence$/);
@@ -136,6 +144,11 @@ export default {
       const traceMatch = path.match(/^\/runs\/([^/]+)\/trace$/);
       if (traceMatch && request.method === "GET") {
         const trace = await runs.getTrace(traceMatch[1], profile.profileId);
+        return trace ? json(trace) : json({ error: "NOT_FOUND" }, 404);
+      }
+      const toolTraceMatch = path.match(/^\/runs\/([^/]+)\/tool-trace$/);
+      if (toolTraceMatch && request.method === "GET") {
+        const trace = await financialTools.getToolTrace(toolTraceMatch[1], profile.profileId);
         return trace ? json(trace) : json({ error: "NOT_FOUND" }, 404);
       }
       const cancelMatch = path.match(/^\/runs\/([^/]+)\/cancel$/);
@@ -161,7 +174,7 @@ export default {
 } satisfies ExportedHandler<Env, RunMessage>;
 
 export async function processRun(runId: string, env: Env): Promise<"ack" | "retry"> {
-  if (!env.DB) return "retry"; const runs = new D1RunRepository(env.DB); const claim = await runs.claim(runId, "market-agent-consumer", new Date().toISOString(), new Date(Date.now() + MARKET_AGENT_RUN_LEASE_MS).toISOString());
+  if (!env.DB) return "retry"; const runs = new D1RunRepository(env.DB); const claim = await runs.claim(runId, "market-agent-consumer", new Date().toISOString(), new Date(Date.now() + marketAgentRunLeaseMs(configuredFinancialToolRuntimeMode(env))).toISOString());
   if (claim.kind === "terminal" || claim.kind === "missing") return "ack"; if (claim.kind === "leased") return "retry";
   const command = await runs.getCommand(runId); if (!command) { await runs.fail(runId, claim.lease.leaseToken, "COMMAND_MISSING"); return "ack"; }
   let checkpoint: Awaited<ReturnType<D1RunRepository["getCheckpoint"]>>;
@@ -175,7 +188,7 @@ export async function processRun(runId: string, env: Env): Promise<"ack" | "retr
   }
   const profiles = new D1ProfileRepository(env.DB);
   const snapshots = new D1PortfolioSnapshotRepository(env.DB);
-  const watchlist = await profiles.getWatchlist(command.profileId); if (!checkpoint && command.trigger === "scheduled" && !watchlist) { await runs.fail(runId, claim.lease.leaseToken, "WATCHLIST_BOOTSTRAP_REQUIRED"); return "ack"; }
+  const watchlist = checkpoint ? null : await profiles.getWatchlist(command.profileId); if (!checkpoint && command.trigger === "scheduled" && !watchlist) { await runs.fail(runId, claim.lease.leaseToken, "WATCHLIST_BOOTSTRAP_REQUIRED"); return "ack"; }
   if (isMarketAgentAskCommand(command)) {
     const plan = askEvidencePlan(command.scope);
     if (!validResolvedAskScope(command.resolvedInstrumentIds)) { await runs.fail(runId, claim.lease.leaseToken, "ASK_SCOPE_INVALID"); return "ack"; }
@@ -198,7 +211,12 @@ export async function processRun(runId: string, env: Env): Promise<"ack" | "retr
     }
     try {
       const reader = new MarketSnapshotAdapter({ service: env.MARKET_SNAPSHOT_SERVICE, baseUrl: env.MARKET_SNAPSHOT_URL });
-      const output = await new AskService(reader, narratorFor(env), contextReaderFor(env), researchReaderFor(env), { companyUpdateEnabled: companyUpdateResearchEnabled(env) }).execute({ runId, command, watchlistRevision: watchlist?.revision ?? checkpoint?.evidence.watchlistRevision ?? "ask-without-watchlist", portfolioSnapshot, previous, previousSnapshot: previousCheckpoint?.snapshot, checkpoint: checkpoint ?? undefined, onCheckpoint: (value) => checkpointRun(runs, runId, command.profileId, claim.lease.leaseToken, value), onProgress: (status) => advanceRun(runs, runId, claim.lease.leaseToken, status) });
+      const financialToolRuntimeMode = configuredFinancialToolRuntimeMode(env);
+      const output = await new AskService(reader, narratorFor(env), contextReaderFor(env), researchReaderFor(env), {
+        companyUpdateEnabled: companyUpdateResearchEnabled(env),
+        financialToolRuntimeMode,
+        ...(financialToolRuntimeMode === "disabled" ? {} : { financialToolRuntime: financialToolRuntimeFor(env) }),
+      }).execute({ runId, command, attempt: claim.lease.attempt, watchlistRevision: watchlist?.revision ?? checkpoint?.evidence.watchlistRevision ?? "ask-without-watchlist", portfolioSnapshot, previous, previousSnapshot: previousCheckpoint?.snapshot, checkpoint: checkpoint ?? undefined, assertActive: () => assertRunActive(runs, runId, command.profileId, claim.lease.attempt), onCheckpoint: (value) => checkpointRun(runs, runId, command.profileId, claim.lease.leaseToken, value), onProgress: (status) => advanceRun(runs, runId, claim.lease.leaseToken, status) });
       await runs.complete(runId, claim.lease.leaseToken, output.evidence, output.result);
       return "ack";
     } catch (cause) {
@@ -256,6 +274,23 @@ function narratorFor(env: Env): GatewayNarrator | DeterministicNarrator { return
 function contextReaderFor(env: Env): SignalMemoryAdapter { return new SignalMemoryAdapter({ service: env.SIGNAL_MEMORY_SERVICE, baseUrl: env.SIGNAL_MEMORY_URL, token: env.MARKET_AGENT_MEMORY_TOKEN }); }
 function researchReaderFor(env: Env): ResearchFactAdapter { return new ResearchFactAdapter({ service: env.MARKET_SNAPSHOT_SERVICE, baseUrl: env.MARKET_SNAPSHOT_URL, token: env.MARKET_RESEARCH_TOKEN }); }
 function companyUpdateResearchEnabled(env: Env): boolean { return env.COMPANY_UPDATE_RESEARCH_ENABLED === "true"; }
+function configuredFinancialToolRuntimeMode(env: Env): "disabled" | "shadow" | "enabled" {
+  return env.FINANCIAL_TOOL_RUNTIME_MODE === "shadow" || env.FINANCIAL_TOOL_RUNTIME_MODE === "enabled"
+    ? env.FINANCIAL_TOOL_RUNTIME_MODE
+    : "disabled";
+}
+function financialToolRuntimeFor(env: Env): FinancialToolRuntime {
+  return new FinancialToolRuntime({
+    repository: new D1FinancialToolInvocationRepository(env.DB),
+    planner: new GatewayFinancialToolPlanner({ apiUrl: env.MARKET_AGENT_GATEWAY_URL ?? "", token: env.MARKET_AGENT_GATEWAY_TOKEN ?? "", timeoutMs: 12_000 }),
+    research: new ResearchFactAdapter({ service: env.MARKET_SNAPSHOT_SERVICE, baseUrl: env.MARKET_SNAPSHOT_URL, token: env.MARKET_RESEARCH_TOKEN, timeoutMs: 35_000 }),
+  });
+}
+async function assertRunActive(runs: D1RunRepository, runId: string, profileId: string, attempt: number): Promise<void> {
+  const run = await runs.get(runId);
+  if (run?.profileId === profileId && run.status === "cancelled") throw new Error("RUN_CANCELLED");
+  if (run?.profileId !== profileId || run.status !== "collecting" || run.attempt !== attempt) throw new Error("RUN_LEASE_LOST");
+}
 async function advanceRun(runs: D1RunRepository, runId: string, leaseToken: string, status: "evidence_sealed" | "generating" | "validating"): Promise<void> { if (!await runs.advance(runId, leaseToken, status)) throw new Error("RUN_LEASE_LOST"); }
 async function checkpointRun(runs: D1RunRepository, runId: string, profileId: string, leaseToken: string, checkpoint: import("./run-checkpoint.ts").RunCheckpoint): Promise<void> { if (!await runs.checkpoint(runId, profileId, leaseToken, checkpoint)) throw new Error("RUN_LEASE_LOST"); }
 

@@ -56,6 +56,26 @@ _Avoid_: Prompt, context window
 One auditable execution of a named Agent workflow against a sealed Evidence Bundle.
 _Avoid_: Chat, response, generation
 
+**Tool Definition**:
+A versioned, read-only capability contract owned by the Market Agent. It fixes the allowed Ask scope, input boundary, output capability, and execution budget; it does not let the model choose providers, formulas, URLs, storage locations, or historical cutoffs.
+_Avoid_: Prompt function, arbitrary API call
+
+**Tool Invocation**:
+One server-identified attempt by an Agent Run to execute an allowed Tool Definition after Tool Policy evaluation. Its instrument and observation cutoff come from the Run and Market Snapshot, not from model-produced arguments.
+_Avoid_: Model request, provider request
+
+**Tool Result**:
+An immutable execution envelope that binds a Tool Invocation to its outcome and Research Fact fingerprint. The enclosed Research Fact Bundle remains the fact authority; the envelope does not create or calculate financial facts.
+_Avoid_: Model answer, raw provider response
+
+**Tool Trace**:
+An append-only, privacy-filtered record of tool selection and execution state. It may expose stable identifiers, bounded status codes, timing, outcome, and Research fingerprint, but never questions, arguments, results, provider bodies, model text, or private reasoning.
+_Avoid_: Chain of thought, tool output, Run Trace
+
+**Tool Policy**:
+A versioned server-owned policy that limits which Tool Definitions a workflow may select, the number and shape of invocations, their time budget, and fallback behavior. A model decision can narrow execution by skipping a tool but cannot expand this policy.
+_Avoid_: System prompt, model discretion
+
 **Observation**:
 An evidence-linked statement produced by an Agent Run and classified as fact, inference, or unknown.
 _Avoid_: Advice, conclusion, signal

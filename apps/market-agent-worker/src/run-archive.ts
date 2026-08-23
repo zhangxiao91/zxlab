@@ -187,11 +187,12 @@ export class D1RunArchiveRepository {
         this.db.prepare("DELETE FROM run_market_events WHERE run_id = ? AND EXISTS (SELECT 1 FROM agent_runs WHERE id = ? AND profile_id = ?)").bind(candidate.id, candidate.id, candidate.profile_id),
         this.db.prepare("DELETE FROM market_events WHERE run_id = ? AND EXISTS (SELECT 1 FROM agent_runs WHERE id = ? AND profile_id = ?)").bind(candidate.id, candidate.id, candidate.profile_id),
         this.db.prepare("DELETE FROM run_market_snapshots WHERE run_id = ? AND EXISTS (SELECT 1 FROM agent_runs WHERE id = ? AND profile_id = ?)").bind(candidate.id, candidate.id, candidate.profile_id),
+        this.db.prepare("UPDATE financial_tool_invocations SET result_json = NULL, result_purged_at = ?, updated_at = ? WHERE run_id = ? AND profile_id = ? AND result_json IS NOT NULL").bind(purgedAt, purgedAt, candidate.id, candidate.profile_id),
         this.db.prepare("UPDATE agent_runs SET command_json = NULL, result_json = NULL, evidence_json = NULL, payload_purged_at = ? WHERE id = ? AND profile_id = ? AND status IN ('success', 'partial', 'failed', 'cancelled') AND payload_purged_at IS NULL").bind(purgedAt, candidate.id, candidate.profile_id),
       );
     }
     const responses = await this.db.batch(statements);
-    const tombstones = candidates.flatMap((candidate, index) => Number(responses[index * 6 + 5]?.meta.changes ?? 0) > 0
+    const tombstones = candidates.flatMap((candidate, index) => Number(responses[index * 7 + 6]?.meta.changes ?? 0) > 0
       ? [{ runId: candidate.id, evidenceFingerprint: candidate.evidence_fingerprint, purgedAt, reason: "retention" as const }]
       : []);
     return { purged: tombstones.length, tombstones };
@@ -207,9 +208,10 @@ export class D1RunArchiveRepository {
       this.db.prepare("DELETE FROM run_market_events WHERE run_id = ? AND EXISTS (SELECT 1 FROM agent_runs WHERE id = ? AND profile_id = ?)").bind(candidate.id, candidate.id, profileId),
       this.db.prepare("DELETE FROM market_events WHERE run_id = ? AND EXISTS (SELECT 1 FROM agent_runs WHERE id = ? AND profile_id = ?)").bind(candidate.id, candidate.id, profileId),
       this.db.prepare("DELETE FROM run_market_snapshots WHERE run_id = ? AND EXISTS (SELECT 1 FROM agent_runs WHERE id = ? AND profile_id = ?)").bind(candidate.id, candidate.id, profileId),
+      this.db.prepare("UPDATE financial_tool_invocations SET result_json = NULL, result_purged_at = ?, updated_at = ? WHERE run_id = ? AND profile_id = ? AND result_json IS NOT NULL").bind(purgedAt, purgedAt, candidate.id, profileId),
       this.db.prepare("UPDATE agent_runs SET command_json = NULL, result_json = NULL, evidence_json = NULL, payload_purged_at = ? WHERE id = ? AND profile_id = ? AND status IN ('success', 'partial', 'failed', 'cancelled') AND payload_purged_at IS NULL").bind(purgedAt, candidate.id, profileId),
     ]);
-    if (Number(responses[5]?.meta.changes ?? 0) === 0) return this.getTombstone(profileId, runId);
+    if (Number(responses[6]?.meta.changes ?? 0) === 0) return this.getTombstone(profileId, runId);
     return {
       runId: candidate.id,
       evidenceFingerprint: candidate.evidence_fingerprint,

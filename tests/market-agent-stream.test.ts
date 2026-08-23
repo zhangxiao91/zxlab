@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   cancelAgentRun,
   getAgentRunTrace,
+  getAgentToolTrace,
   pollAgentRunUntilTerminal,
   retryAgentRun,
   streamAgentRun,
@@ -73,13 +74,37 @@ test("browser Run client forwards bounded trace events without inventing activit
   assert.deepEqual(received, [event]);
 });
 
-test("trace, cancel, and retry clients use the profile-scoped Run control routes", async (context) => {
+test("browser Run client forwards bounded tool trace events independently", async () => {
+  const event = toolTraceEvent();
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode(`event: tool_trace\ndata: ${JSON.stringify({ event })}\n\n`));
+      controller.enqueue(new TextEncoder().encode(`event: done\ndata: ${JSON.stringify({ run: fixtureRun("success") })}\n\n`));
+      controller.close();
+    },
+  });
+  const received: unknown[] = [];
+
+  await streamAgentRun("run-1", {
+    onToolTrace: (next) => received.push(next),
+  }, {
+    fetcher: async () => new Response(stream, { headers: { "content-type": "text/event-stream" } }),
+  });
+
+  assert.deepEqual(received, [event]);
+});
+
+test("trace, tool trace, cancel, and retry clients use the profile-scoped Run control routes", async (context) => {
   const requests: Array<{ url: string; method: string; body: unknown }> = [];
   context.mock.method(globalThis, "fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
     requests.push({
       url: String(input),
       method: init?.method ?? "GET",
       body: init?.body ? JSON.parse(String(init.body)) : null,
+    });
+    if (String(input).endsWith("/tool-trace")) return Response.json({
+      runId: "run-1",
+      events: [toolTraceEvent()],
     });
     if (String(input).endsWith("/trace")) return Response.json({
       runId: "run-1",
@@ -91,15 +116,27 @@ test("trace, cancel, and retry clients use the profile-scoped Run control routes
   });
 
   const trace = await getAgentRunTrace("run-1");
+  const toolTrace = await getAgentToolTrace("run-1");
   await cancelAgentRun("run-1");
   await retryAgentRun("run-1", "retry:run-1:fixed-key");
 
   assert.equal(trace.runId, "run-1");
+  assert.equal(toolTrace.events[0]?.invocationId, "invocation-1");
   assert.deepEqual(requests, [
     { url: "/api/private/market-agent/runs/run-1/trace", method: "GET", body: null },
+    { url: "/api/private/market-agent/runs/run-1/tool-trace", method: "GET", body: null },
     { url: "/api/private/market-agent/runs/run-1/cancel", method: "POST", body: null },
     { url: "/api/private/market-agent/runs/run-1/retry", method: "POST", body: { idempotencyKey: "retry:run-1:fixed-key" } },
   ]);
+});
+
+test("tool trace client rejects events bound to another Run", async (context) => {
+  context.mock.method(globalThis, "fetch", async () => Response.json({
+    runId: "run-1",
+    events: [toolTraceEvent({ runId: "run-2" })],
+  }));
+
+  await assert.rejects(getAgentToolTrace("run-1"), /响应格式无效/);
 });
 
 test("retry client rejects a non-queued replacement Run", async (context) => {
@@ -181,6 +218,25 @@ function baseTraceEvent() {
     recoveryGeneration: 0,
     occurredAt: "2026-08-16T08:00:01.000Z",
     provenance: { source: "market-agent-worker" as const, operation: "run.claim" as const },
+  };
+}
+
+function toolTraceEvent(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "tool-trace-1",
+    runId: "run-1",
+    invocationId: "invocation-1",
+    sequence: 1,
+    type: "completed" as const,
+    tool: { id: "company_financial_update" as const, version: "1" as const },
+    attempt: 1,
+    occurredAt: "2026-08-16T08:00:02.000Z",
+    selectionSource: "model" as const,
+    durationMs: 1_250,
+    outcome: "operational" as const,
+    researchFingerprint: `sha256:${"abcdef0123456789".repeat(4)}`,
+    provenance: { source: "market-agent-worker" as const, operation: "tool.execute" as const },
+    ...overrides,
   };
 }
 

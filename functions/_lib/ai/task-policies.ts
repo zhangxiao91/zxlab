@@ -13,6 +13,7 @@ export const TASK_POLICIES: Record<string, Partial<AITaskPolicy>> = {
   "portfolio-review": { maxOutputTokens: 3_000, temperature: 0.2 },
   "market-agent-close-review": { timeoutMs: 80_000, totalBudgetMs: 90_000, maxOutputTokens: 4_800, temperature: 0 },
   "market-agent-answer": { timeoutMs: 80_000, totalBudgetMs: 90_000, maxOutputTokens: 2_600, temperature: 0.2 },
+  "market-agent-financial-tool-plan": { timeoutMs: 12_000, totalBudgetMs: 12_000, maxOutputTokens: 80, temperature: 0 },
   "holdings-parse": { maxOutputTokens: 2_400, temperature: 0 },
   "signal-editorial-filter": { timeoutMs: 60_000, totalBudgetMs: 120_000, maxOutputTokens: 8_000, temperature: 0 },
   "signal-briefing": { timeoutMs: 60_000, totalBudgetMs: 150_000, maxOutputTokens: 12_000, temperature: 0 },
@@ -25,10 +26,11 @@ export const TASK_POLICIES: Record<string, Partial<AITaskPolicy>> = {
 export function resolveTaskPolicy(input: GenerateAIInput): AITaskPolicy {
   const defaults = TASK_POLICIES.default as AITaskPolicy;
   const task = TASK_POLICIES[input.task] ?? {};
+  const fixedTemperature = input.task === "market-agent-financial-tool-plan";
   return {
     ...defaults,
     ...task,
-    ...(input.temperature === undefined ? {} : { temperature: input.temperature }),
+    ...(input.temperature === undefined || fixedTemperature ? {} : { temperature: input.temperature }),
     ...(input.maxOutputTokens === undefined ? {} : {
       maxOutputTokens: Math.min(input.maxOutputTokens, task.maxOutputTokens ?? defaults.maxOutputTokens),
     }),

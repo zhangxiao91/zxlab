@@ -19,7 +19,7 @@ test("run deletion scopes every evidence-related delete to the owning profile", 
       };
     },
     async batch() {
-      return [{}, {}, {}, {}, {}, { meta: { changes: 1 } }];
+      return [{}, {}, {}, {}, {}, {}, {}, { meta: { changes: 1 } }];
     },
   } as unknown as D1Database;
   const deleted = await new D1RunRepository(db).delete("run-1", "profile-owner");
@@ -28,6 +28,8 @@ test("run deletion scopes every evidence-related delete to the owning profile", 
     assert.match(statement.sql, /profile_id = \?/);
     assert.ok(statement.values.includes("profile-owner"));
   }
+  assert.ok(statements.some((statement) => statement.sql.includes("DELETE FROM financial_tool_trace_events")));
+  assert.ok(statements.some((statement) => statement.sql.includes("DELETE FROM financial_tool_invocations")));
 });
 
 test("schedule decisions never create an Agent Run", async () => {

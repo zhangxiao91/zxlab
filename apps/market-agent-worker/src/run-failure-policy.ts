@@ -1,4 +1,5 @@
 import { researchFactFailure } from "./research-fact-reader.ts";
+import { financialToolRuntimeFailure } from "./financial-tool-runtime.ts";
 
 export interface RunFailureRepository {
   fail(runId: string, leaseToken: string, code: string): Promise<boolean>;
@@ -12,10 +13,10 @@ export async function settleRunFailure(
   cause: unknown,
   fallbackCode: string,
 ): Promise<"ack" | "retry"> {
-  const research = researchFactFailure(cause);
-  if (research && !research.retryable) {
-    await runs.fail(runId, leaseToken, research.code);
+  const classified = financialToolRuntimeFailure(cause) ?? researchFactFailure(cause);
+  if (classified && !classified.retryable) {
+    await runs.fail(runId, leaseToken, classified.code);
     return "ack";
   }
-  return await runs.defer(runId, leaseToken, research?.code ?? fallbackCode) ? "retry" : "ack";
+  return await runs.defer(runId, leaseToken, classified?.code ?? fallbackCode) ? "retry" : "ack";
 }

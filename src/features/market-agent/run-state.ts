@@ -1,4 +1,4 @@
-import type { AgentFeedback, RunTraceEvent } from "@zxlab/market-agent-schema";
+import type { AgentFeedback, RunTraceEvent, ToolTraceEvent } from "@zxlab/market-agent-schema";
 import type { AgentRunView } from "./client";
 
 export function enqueueRunFeedback(
@@ -79,12 +79,42 @@ export function mergeRunTraceEvents(
     if (existingAtSequence && existingAtSequence !== event.id) throw new Error("RUN_TRACE_SEQUENCE_CONFLICT");
     const existingById = byId.get(event.id);
     if (existingById && existingById.sequence !== event.sequence) throw new Error("RUN_TRACE_ID_CONFLICT");
+    if (existingById && canonicalEvent(existingById) !== canonicalEvent(event)) throw new Error("RUN_TRACE_CONTENT_CONFLICT");
     bySequence.set(event.sequence, event.id);
     byId.set(event.id, event);
   }
   return [...byId.values()].sort((left, right) => (
     left.sequence - right.sequence || left.id.localeCompare(right.id)
   ));
+}
+
+export function mergeToolTraceEvents(
+  persisted: ToolTraceEvent[],
+  streamed: ToolTraceEvent[],
+): ToolTraceEvent[] {
+  const byId = new Map<string, ToolTraceEvent>();
+  const bySequence = new Map<number, string>();
+  for (const event of [...persisted, ...streamed]) {
+    const existingAtSequence = bySequence.get(event.sequence);
+    if (existingAtSequence && existingAtSequence !== event.id) throw new Error("TOOL_TRACE_SEQUENCE_CONFLICT");
+    const existingById = byId.get(event.id);
+    if (existingById && existingById.sequence !== event.sequence) throw new Error("TOOL_TRACE_ID_CONFLICT");
+    if (existingById && canonicalEvent(existingById) !== canonicalEvent(event)) throw new Error("TOOL_TRACE_CONTENT_CONFLICT");
+    bySequence.set(event.sequence, event.id);
+    byId.set(event.id, event);
+  }
+  return [...byId.values()].sort((left, right) => (
+    left.sequence - right.sequence || left.id.localeCompare(right.id)
+  ));
+}
+
+function canonicalEvent(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalEvent).join(",")}]`;
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${canonicalEvent(record[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
 }
 
 export function retryKeyForRun(

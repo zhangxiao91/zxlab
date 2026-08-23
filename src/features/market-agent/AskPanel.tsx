@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { isCancellableRunStatus, isRetryableRunStatus, type AskScope, type RunOutcome, type RunTiming, type RunTrace, type RunTraceEvent } from "@zxlab/market-agent-schema";
+import { isCancellableRunStatus, isRetryableRunStatus, type AskScope, type RunOutcome, type RunTiming, type RunTrace, type RunTraceEvent, type SealedEvidenceBundle, type ToolTrace, type ToolTraceEvent } from "@zxlab/market-agent-schema";
 import type { AgentAskIntent, AgentRunView } from "./client";
 
 interface AskScopeOption {
@@ -143,12 +143,16 @@ export interface RunActivityProps {
   status?: string;
   runId?: string;
   trace?: RunTrace | null;
+  toolTrace?: ToolTrace | null;
+  evidence?: SealedEvidenceBundle | null;
   timing?: RunTiming;
   limitations?: string[];
   outcome?: RunOutcome;
   controlBusy?: "cancel" | "retry" | null;
   traceLoading?: boolean;
   traceError?: string | null;
+  toolTraceLoading?: boolean;
+  toolTraceError?: string | null;
   controlsDisabled?: boolean;
   onCancel?(): Promise<unknown>;
   onRetry?(): Promise<unknown>;
@@ -158,10 +162,14 @@ export function RunActivity({
   status,
   runId,
   trace,
+  toolTrace,
+  evidence,
   timing,
   controlBusy = null,
   traceLoading = false,
   traceError = null,
+  toolTraceLoading = false,
+  toolTraceError = null,
   controlsDisabled = false,
   onCancel,
   onRetry,
@@ -170,7 +178,7 @@ export function RunActivity({
   const effectiveTiming = trace?.timing ?? timing;
   const elapsed = useServerElapsed(effectiveTiming, terminal);
   if (!status) return null;
-  const events = [...(trace?.events ?? [])].sort((left, right) => left.sequence - right.sequence);
+  const events = mergeActivityEvents(trace?.events ?? [], toolTrace?.events ?? []);
   const canCancel = isCancellableRunStatus(status) && Boolean(onCancel);
   const canRetry = isRetryableRunStatus(status) && Boolean(onRetry);
   return (
@@ -183,11 +191,30 @@ export function RunActivity({
           <code>{runId ? runId.slice(0, 8) : "pending"}</code>
         </div>
       </header>
-      {events.length ? <ol>{events.map((event) => <RunTraceRow key={event.id} event={event} />)}</ol> : <p>{traceLoading ? "正在读取服务器运行事件。" : "尚未读取到服务器运行事件；不会根据当前 status 补造中间步骤。"}</p>}
+      {events.length ? <ol>{events.map((item) => item.kind === "run"
+        ? <RunTraceRow key={`run:${item.event.id}`} event={item.event} />
+        : <ToolTraceRow key={`tool:${item.event.id}`} event={item.event} resultSealed={toolResultIsSealed(item.event, evidence)} />)}</ol> : <p>{traceLoading || toolTraceLoading ? "正在读取服务器运行事件。" : "尚未读取到服务器运行事件；不会根据当前 status 补造中间步骤。"}</p>}
       {traceError && <p className="agent-trace__error" role="status">运行事件读取失败：{traceError}</p>}
-      <p className="agent-trace__boundary">仅显示服务端持久化的阶段、重试、取消与耗时；不展示或模拟私密思考过程。</p>
+      {toolTraceError && <p className="agent-trace__error" role="status">工具事件读取失败：{toolTraceError}</p>}
+      <p className="agent-trace__boundary">仅显示服务端持久化的阶段、工具调用、重试、取消与耗时；不展示工具原始输入输出，也不展示或模拟私密思考过程。</p>
     </section>
   );
+}
+
+type ActivityEvent =
+  | { kind: "run"; event: RunTraceEvent }
+  | { kind: "tool"; event: ToolTraceEvent };
+
+function mergeActivityEvents(runEvents: RunTraceEvent[], toolEvents: ToolTraceEvent[]): ActivityEvent[] {
+  return [
+    ...runEvents.map((event): ActivityEvent => ({ kind: "run", event })),
+    ...toolEvents.map((event): ActivityEvent => ({ kind: "tool", event })),
+  ].sort((left, right) => {
+    const timeOrder = Date.parse(left.event.occurredAt) - Date.parse(right.event.occurredAt);
+    if (Number.isFinite(timeOrder) && timeOrder !== 0) return timeOrder;
+    if (left.kind !== right.kind) return left.kind === "run" ? -1 : 1;
+    return left.event.sequence - right.event.sequence || left.event.id.localeCompare(right.event.id);
+  });
 }
 
 function RunTraceRow({ event }: { event: RunTraceEvent }) {
@@ -197,6 +224,59 @@ function RunTraceRow({ event }: { event: RunTraceEvent }) {
     <div><strong>{traceEventLabel(event)}</strong><small>{traceEventMeta(event)}</small></div>
     <time dateTime={event.occurredAt}>{traceTime(event.occurredAt)}</time>
   </li>;
+}
+
+function ToolTraceRow({ event, resultSealed }: { event: ToolTraceEvent; resultSealed: boolean }) {
+  return <li data-state={toolTraceTone(event)} data-trace-kind="tool">
+    <span className="agent-progress__node" />
+    <div><strong>{toolTraceEventLabel(event)}</strong><small>{toolTraceEventMeta(event, resultSealed)}</small></div>
+    <time dateTime={event.occurredAt}>{traceTime(event.occurredAt)}</time>
+  </li>;
+}
+
+function toolTraceEventLabel(event: ToolTraceEvent): string {
+  if (event.type === "selected") return "财务工具已选择";
+  if (event.type === "skipped") return "财务工具未选择";
+  if (event.type === "started") return "财务工具执行开始";
+  if (event.type === "completed") return "财务工具执行完成";
+  return "财务工具执行失败";
+}
+
+function toolTraceEventMeta(event: ToolTraceEvent, resultSealed: boolean): string {
+  const parts = [
+    "Company Financial Update v1",
+    event.selectionSource === "model" ? "模型选择" : "策略降级选择",
+    `第 ${event.attempt} 次执行`,
+  ];
+  const duration = "durationMs" in event ? nonNegativeNumber(event.durationMs) : null;
+  if (duration !== null) parts.push(formatDuration(duration));
+  if (event.type === "completed") {
+    parts.push(({ operational: "可用", partial: "部分可用", unavailable: "不可用" } as const)[event.outcome]);
+    parts.push(resultSealed ? "结果已封存到 Evidence" : "尚未确认封存到 Evidence");
+    parts.push(`fingerprint ${fingerprintPrefix(event.researchFingerprint)}`);
+  }
+  if ((event.type === "skipped" || event.type === "failed") && event.code) parts.push(event.code);
+  return parts.join(" · ");
+}
+
+function toolResultIsSealed(event: ToolTraceEvent, evidence: SealedEvidenceBundle | null | undefined): boolean {
+  if (event.type !== "completed" || !evidence) return false;
+  return evidence.items.some((item) => {
+    if (!item.value || typeof item.value !== "object" || Array.isArray(item.value)) return false;
+    const value = item.value as Record<string, unknown>;
+    return value.researchFingerprint === event.researchFingerprint;
+  });
+}
+
+function toolTraceTone(event: ToolTraceEvent): string {
+  if (event.type === "failed") return "failed";
+  if (event.type === "skipped" || (event.type === "completed" && event.outcome !== "operational")) return "degraded";
+  if (event.type === "started" || event.type === "selected") return "active";
+  return "complete";
+}
+
+function fingerprintPrefix(value: string): string {
+  return value.replace(/^sha256:/, "").slice(0, 12);
 }
 
 function useServerElapsed(timing: RunTiming | undefined, terminal: boolean): number | null {

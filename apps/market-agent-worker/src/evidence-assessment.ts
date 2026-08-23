@@ -1,10 +1,10 @@
-import type { AgentWorkflow, AskScope, EvidenceAssessment, EvidenceLimitation } from "@zxlab/market-agent-schema";
+import type { AgentWorkflow, AskScope, EvidenceAssessment, EvidenceLimitation, FinancialToolSessionReceipt } from "@zxlab/market-agent-schema";
 import type { MarketCapabilityHealth, MarketSnapshot } from "@zxlab/market-schema";
 import type { ResearchCapabilityOutcome, ResearchFactBundle } from "@zxlab/research-fact-schema";
 
 export type EvidencePurpose = AgentWorkflow | AskScope;
 
-export function assessEvidence(purpose: EvidencePurpose, snapshot: MarketSnapshot, hasPortfolioSnapshot: boolean, research?: ResearchFactBundle, researchOmittedInstrumentCount = 0): EvidenceAssessment {
+export function assessEvidence(purpose: EvidencePurpose, snapshot: MarketSnapshot, hasPortfolioSnapshot: boolean, research?: ResearchFactBundle, researchOmittedInstrumentCount = 0, financialToolSession?: FinancialToolSessionReceipt): EvidenceAssessment {
   const fallbackCapabilities = snapshot.capabilities
     .filter(usedFallbackSuccessfully)
     .map((capability) => capability.id)
@@ -18,6 +18,12 @@ export function assessEvidence(purpose: EvidencePurpose, snapshot: MarketSnapsho
     capability: "research:scope",
     severity: "material",
     message: `Research Facts 仅覆盖前 20 个确定性选择的标的，另有 ${researchOmittedInstrumentCount} 个标的未纳入研究基线。`,
+  });
+  if (financialToolSession?.status === "skipped") limitations.push({
+    code: "FINANCIAL_TOOL_NOT_SELECTED",
+    capability: "research:fundamentals",
+    severity: "material",
+    message: "本次模型选择未调用只读公司财务工具，fundamentals 未纳入封存 Evidence。",
   });
 
   if (purpose === "portfolio_impact" && !hasPortfolioSnapshot) {

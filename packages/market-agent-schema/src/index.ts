@@ -4,6 +4,9 @@ export const MARKET_AGENT_SCHEMA_VERSION = "market-agent.v1" as const;
 export const EVENT_RULE_VERSION = "market-event.v1" as const;
 export const RESEARCH_REPORT_VERSION = "research-report.v2" as const;
 export const PORTFOLIO_SNAPSHOT_SCHEMA_VERSION = "portfolio-snapshot.v1" as const;
+export const FINANCIAL_TOOL_POLICY_VERSION = "financial-tools.v1" as const;
+export const COMPANY_FINANCIAL_UPDATE_TOOL = { id: "company_financial_update", version: "1" } as const;
+export const COMPANY_FINANCIAL_UPDATE_TOOL_NAME = "company_financial_update.v1" as const;
 export const PORTFOLIO_SNAPSHOT_MAX_POSITIONS = 200;
 export const PORTFOLIO_SNAPSHOT_MAX_TTL_MS = 36 * 60 * 60 * 1_000;
 export const PORTFOLIO_SNAPSHOT_MAX_AGE_MS = 36 * 60 * 60 * 1_000;
@@ -56,6 +59,105 @@ export interface RunTiming {
   serverNow: string;
 }
 export interface RunTrace { runId: string; timing: RunTiming; events: RunTraceEvent[]; }
+
+export type FinancialToolDefinitionRef = typeof COMPANY_FINANCIAL_UPDATE_TOOL;
+export type FinancialToolQualifiedName = typeof COMPANY_FINANCIAL_UPDATE_TOOL_NAME;
+export type FinancialToolSelectionSource = "model" | "policy_fallback";
+export type FinancialToolOutcome = "operational" | "partial" | "unavailable";
+export interface FinancialToolDefinition {
+  ref: FinancialToolDefinitionRef;
+  qualifiedName: FinancialToolQualifiedName;
+  access: "read_only";
+  allowedScope: Extract<AskScope, "news_and_announcements">;
+  outputCapability: "fundamentals";
+  timeoutMs: 35_000;
+}
+export const COMPANY_FINANCIAL_UPDATE_DEFINITION: FinancialToolDefinition = {
+  ref: COMPANY_FINANCIAL_UPDATE_TOOL,
+  qualifiedName: COMPANY_FINANCIAL_UPDATE_TOOL_NAME,
+  access: "read_only",
+  allowedScope: "news_and_announcements",
+  outputCapability: "fundamentals",
+  timeoutMs: 35_000,
+};
+export type FinancialToolPlannerDecision =
+  | { decision: "invoke"; tool: FinancialToolQualifiedName }
+  | { decision: "skip" };
+export interface FinancialToolRuntimeInput {
+  runId: string;
+  profileId: string;
+  attempt: number;
+  scope: Extract<AskScope, "news_and_announcements">;
+  selectedInstrumentId: string;
+  snapshotAsOf: string;
+  question?: string;
+}
+export interface FinancialToolInvocation {
+  invocationId: string;
+  runId: string;
+  profileId: string;
+  policyVersion: typeof FINANCIAL_TOOL_POLICY_VERSION;
+  tool: FinancialToolDefinitionRef;
+  ordinal: 1;
+  attempt: number;
+  scope: Extract<AskScope, "news_and_announcements">;
+  selectedInstrumentId: string;
+  observationCutoff: string;
+  selectionSource: FinancialToolSelectionSource;
+}
+export interface FinancialToolExecutionReceipt {
+  invocationId: string;
+  tool: FinancialToolDefinitionRef;
+  attempt: number;
+  outcome: FinancialToolOutcome;
+  researchFingerprint: `sha256:${string}`;
+  startedAt: string;
+  completedAt: string;
+  durationMs: number;
+}
+export type FinancialToolSessionReceipt =
+  | {
+    policyVersion: typeof FINANCIAL_TOOL_POLICY_VERSION;
+    runId: string;
+    status: "skipped";
+    selectionSource: "model";
+    invocationId: string;
+    tool: FinancialToolDefinitionRef;
+    attempt: number;
+    completedAt: string;
+  }
+  | {
+    policyVersion: typeof FINANCIAL_TOOL_POLICY_VERSION;
+    runId: string;
+    status: "completed";
+    selectionSource: FinancialToolSelectionSource;
+    execution: FinancialToolExecutionReceipt;
+  };
+export interface FinancialToolResult<TResearchFactBundle = unknown> {
+  receipt: FinancialToolExecutionReceipt;
+  research: TResearchFactBundle;
+}
+export type ToolTraceEventType = "selected" | "skipped" | "started" | "completed" | "failed";
+export type ToolTraceOperation = "tool.select" | "tool.skip" | "tool.execute";
+interface ToolTraceEventBase {
+  id: string;
+  runId: string;
+  invocationId: string;
+  sequence: number;
+  tool: FinancialToolDefinitionRef;
+  attempt: number;
+  occurredAt: string;
+  selectionSource: FinancialToolSelectionSource;
+  provenance: { source: "market-agent-worker"; operation: ToolTraceOperation };
+}
+export type ToolTraceEvent = ToolTraceEventBase & (
+  | { type: "selected"; durationMs: number; outcome?: never; researchFingerprint?: never; code?: never }
+  | { type: "skipped"; selectionSource: "model"; durationMs: number; code: "FINANCIAL_TOOL_NOT_SELECTED"; outcome?: never; researchFingerprint?: never }
+  | { type: "started"; durationMs?: never; outcome?: never; researchFingerprint?: never; code?: never }
+  | { type: "completed"; durationMs: number; outcome: FinancialToolOutcome; researchFingerprint: `sha256:${string}`; code?: never }
+  | { type: "failed"; durationMs: number; code: string; outcome?: never; researchFingerprint?: never }
+);
+export interface ToolTrace { runId: string; events: ToolTraceEvent[]; }
 
 const runTraceEventTypes = new Set<RunTraceEventType>(["run_created", "stage_started", "stage_completed", "retry_scheduled", "cancel_requested", "run_cancelled", "run_completed", "run_failed"]);
 const runTraceOperations = new Set<RunTraceOperation>(["run.create", "run.claim", "run.collect", "evidence.seal", "narration.generate", "result.validate", "run.retry", "run.cancel", "run.complete", "run.fail"]);
@@ -119,11 +221,149 @@ export function isRunTrace(value: unknown): value is RunTrace {
   return true;
 }
 
+export function isFinancialToolPlannerDecision(value: unknown): value is FinancialToolPlannerDecision {
+  const decision = recordValue(value);
+  if (!decision) return false;
+  const keys = Object.keys(decision).sort();
+  if (decision.decision === "skip") return keys.length === 1 && keys[0] === "decision";
+  return decision.decision === "invoke"
+    && decision.tool === COMPANY_FINANCIAL_UPDATE_TOOL_NAME
+    && keys.length === 2
+    && keys[0] === "decision"
+    && keys[1] === "tool";
+}
+
+export function isFinancialToolRuntimeInput(value: unknown): value is FinancialToolRuntimeInput {
+  const input = recordValue(value);
+  if (!input || !hasNoExtraKeys(input, ["runId", "profileId", "attempt", "scope", "selectedInstrumentId", "snapshotAsOf", "question"])) return false;
+  return boundedTraceIdentifier(input.runId)
+    && boundedTraceIdentifier(input.profileId)
+    && boundedCounter(input.attempt)
+    && input.scope === "news_and_announcements"
+    && typeof input.selectedInstrumentId === "string"
+    && /^(SSE|SZSE):\d{6}$/.test(input.selectedInstrumentId)
+    && canonicalIsoTimestamp(input.snapshotAsOf)
+    && (input.question === undefined || (typeof input.question === "string" && input.question.length <= 800));
+}
+
+export function isFinancialToolExecutionReceipt(value: unknown): value is FinancialToolExecutionReceipt {
+  const receipt = recordValue(value);
+  if (!receipt || !hasOnlyKeys(receipt, ["invocationId", "tool", "attempt", "outcome", "researchFingerprint", "startedAt", "completedAt", "durationMs"])) return false;
+  return boundedTraceIdentifier(receipt.invocationId)
+    && isFinancialToolDefinitionRef(receipt.tool)
+    && boundedCounter(receipt.attempt)
+    && oneOf(receipt.outcome, ["operational", "partial", "unavailable"])
+    && boundedFingerprint(receipt.researchFingerprint)
+    && canonicalIsoTimestamp(receipt.startedAt)
+    && canonicalIsoTimestamp(receipt.completedAt)
+    && Date.parse(String(receipt.completedAt)) >= Date.parse(String(receipt.startedAt))
+    && boundedDuration(receipt.durationMs);
+}
+
+export function isFinancialToolSessionReceipt(value: unknown): value is FinancialToolSessionReceipt {
+  const receipt = recordValue(value);
+  if (!receipt || receipt.policyVersion !== FINANCIAL_TOOL_POLICY_VERSION || !boundedTraceIdentifier(receipt.runId)) return false;
+  if (receipt.status === "skipped") {
+    return hasOnlyKeys(receipt, ["policyVersion", "runId", "status", "selectionSource", "invocationId", "tool", "attempt", "completedAt"])
+      && receipt.selectionSource === "model"
+      && boundedTraceIdentifier(receipt.invocationId)
+      && isFinancialToolDefinitionRef(receipt.tool)
+      && boundedCounter(receipt.attempt)
+      && canonicalIsoTimestamp(receipt.completedAt);
+  }
+  return receipt.status === "completed"
+    && hasOnlyKeys(receipt, ["policyVersion", "runId", "status", "selectionSource", "execution"])
+    && oneOf(receipt.selectionSource, ["model", "policy_fallback"])
+    && isFinancialToolExecutionReceipt(receipt.execution);
+}
+
+export function isToolTraceEvent(value: unknown): value is ToolTraceEvent {
+  const event = recordValue(value);
+  const provenance = recordValue(event?.provenance);
+  if (!event || !provenance
+    || !hasOnlyKeys(provenance, ["source", "operation"])
+    || !boundedTraceIdentifier(event.id)
+    || !boundedTraceIdentifier(event.runId)
+    || !boundedTraceIdentifier(event.invocationId)
+    || !Number.isSafeInteger(event.sequence) || Number(event.sequence) <= 0
+    || !isFinancialToolDefinitionRef(event.tool)
+    || !boundedCounter(event.attempt)
+    || !canonicalIsoTimestamp(event.occurredAt)
+    || !oneOf(event.selectionSource, ["model", "policy_fallback"])
+    || provenance.source !== "market-agent-worker") return false;
+  if (event.type === "selected") {
+    return hasOnlyKeys(event, toolTraceKeys(["durationMs"]))
+      && boundedDuration(event.durationMs)
+      && provenance.operation === "tool.select";
+  }
+  if (event.type === "skipped") {
+    return hasOnlyKeys(event, toolTraceKeys(["durationMs", "code"]))
+      && event.selectionSource === "model"
+      && boundedDuration(event.durationMs)
+      && event.code === "FINANCIAL_TOOL_NOT_SELECTED"
+      && provenance.operation === "tool.skip";
+  }
+  if (event.type === "started") {
+    return hasOnlyKeys(event, toolTraceKeys([])) && provenance.operation === "tool.execute";
+  }
+  if (event.type === "completed") {
+    return hasOnlyKeys(event, toolTraceKeys(["durationMs", "outcome", "researchFingerprint"]))
+      && boundedDuration(event.durationMs)
+      && oneOf(event.outcome, ["operational", "partial", "unavailable"])
+      && boundedFingerprint(event.researchFingerprint)
+      && provenance.operation === "tool.execute";
+  }
+  return event.type === "failed"
+    && hasOnlyKeys(event, toolTraceKeys(["durationMs", "code"]))
+    && boundedDuration(event.durationMs)
+    && boundedErrorCode(event.code)
+    && provenance.operation === "tool.execute";
+}
+
+export function isToolTrace(value: unknown): value is ToolTrace {
+  const trace = recordValue(value);
+  if (!trace || !hasOnlyKeys(trace, ["runId", "events"]) || !boundedTraceIdentifier(trace.runId)
+    || !Array.isArray(trace.events) || trace.events.length > 100 || !trace.events.every(isToolTraceEvent)) return false;
+  let previousSequence = 0;
+  const ids = new Set<string>();
+  for (const event of trace.events) {
+    if (event.runId !== trace.runId || event.sequence <= previousSequence || ids.has(event.id)) return false;
+    previousSequence = event.sequence;
+    ids.add(event.id);
+  }
+  return true;
+}
+
+function isFinancialToolDefinitionRef(value: unknown): value is FinancialToolDefinitionRef {
+  const ref = recordValue(value);
+  return Boolean(ref)
+    && hasOnlyKeys(ref!, ["id", "version"])
+    && ref!.id === COMPANY_FINANCIAL_UPDATE_TOOL.id
+    && ref!.version === COMPANY_FINANCIAL_UPDATE_TOOL.version;
+}
+
+function toolTraceKeys(extra: string[]): string[] {
+  return ["id", "runId", "invocationId", "sequence", "type", "tool", "attempt", "occurredAt", "selectionSource", "provenance", ...extra];
+}
+
+function hasOnlyKeys(value: Record<string, unknown>, allowed: string[]): boolean {
+  return Object.keys(value).length === allowed.length && Object.keys(value).every((key) => allowed.includes(key));
+}
+function hasNoExtraKeys(value: Record<string, unknown>, allowed: string[]): boolean {
+  return Object.keys(value).every((key) => allowed.includes(key));
+}
+
 function boundedTraceIdentifier(value: unknown): value is string { return typeof value === "string" && /^[A-Za-z0-9._:-]{1,128}$/.test(value); }
 function boundedIsoTimestamp(value: unknown): value is string { return typeof value === "string" && value.length <= 40 && Number.isFinite(Date.parse(value)); }
+function canonicalIsoTimestamp(value: unknown): value is string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)) return false;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) && new Date(parsed).toISOString() === value;
+}
 function boundedCounter(value: unknown): value is number { return Number.isSafeInteger(value) && Number(value) >= 0 && Number(value) <= 100; }
 function boundedDuration(value: unknown): value is number { return Number.isSafeInteger(value) && Number(value) >= 0; }
 function boundedErrorCode(value: unknown): value is string { return typeof value === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(value); }
+function boundedFingerprint(value: unknown): value is `sha256:${string}` { return typeof value === "string" && /^sha256:[a-f0-9]{64}$/.test(value); }
 export type EvidenceKind = "market_fact" | "market_event" | "snapshot_diff" | "portfolio_impact" | "confirmed_context" | "limitation" | "execution_plan" | "prior_run";
 export type ObservationClass = "fact" | "inference" | "unknown";
 export type ObservationImportance = "high" | "medium" | "low";

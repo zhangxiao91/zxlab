@@ -269,6 +269,7 @@ test("private Market Agent allowlist admits the bounded Ask lifecycle only", asy
     { path: "runs/run-1/evidence", method: "GET" },
     { path: "runs/run-1/stream", method: "GET" },
     { path: "runs/run-1/trace", method: "GET" },
+    { path: "runs/run-1/tool-trace", method: "GET" },
     { path: "runs/run-1/cancel", method: "POST" },
     { path: "runs/run-1/retry", method: "POST" },
     { path: "runs/run-1/rerun", method: "POST" },
@@ -313,6 +314,7 @@ test("private Market Agent control routes reject the wrong HTTP method", async (
   let called = false;
   const requests = [
     new Request("https://beta.zxlab.pages.dev/api/private/market-agent/runs/run-1/trace", { method: "POST", body: "{}" }),
+    new Request("https://beta.zxlab.pages.dev/api/private/market-agent/runs/run-1/tool-trace", { method: "POST", body: "{}" }),
     new Request("https://beta.zxlab.pages.dev/api/private/market-agent/runs/run-1/cancel"),
     new Request("https://beta.zxlab.pages.dev/api/private/market-agent/runs/run-1/retry"),
     new Request("https://beta.zxlab.pages.dev/api/private/market-agent/runs/run-1/rerun"),

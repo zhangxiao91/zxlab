@@ -1,4 +1,4 @@
-import type { SealedEvidenceBundle } from "@zxlab/market-agent-schema";
+import { isFinancialToolSessionReceipt, type FinancialToolSessionReceipt, type SealedEvidenceBundle } from "@zxlab/market-agent-schema";
 import { parseMarketSnapshot, type MarketSnapshot } from "@zxlab/market-schema";
 import { parseResearchFactBundle, verifyResearchFactBundleFingerprint, type ResearchFactBundle } from "@zxlab/research-fact-schema";
 
@@ -6,35 +6,67 @@ export interface RunCheckpoint {
   snapshot: MarketSnapshot;
   evidence: SealedEvidenceBundle;
   research?: ResearchFactBundle;
+  toolSession?: FinancialToolSessionReceipt;
   integrityFingerprint: `sha256:${string}`;
 }
 
-export async function createRunCheckpoint(snapshot: MarketSnapshot, evidence: SealedEvidenceBundle, research?: ResearchFactBundle): Promise<RunCheckpoint> {
-  return { snapshot, evidence, ...(research ? { research } : {}), integrityFingerprint: await checkpointIntegrityFingerprint(snapshot, evidence, research) };
+export async function createRunCheckpoint(snapshot: MarketSnapshot, evidence: SealedEvidenceBundle, research?: ResearchFactBundle, toolSession?: FinancialToolSessionReceipt): Promise<RunCheckpoint> {
+  assertToolSessionResearch(toolSession, research);
+  return {
+    snapshot,
+    evidence,
+    ...(research ? { research } : {}),
+    ...(toolSession ? { toolSession } : {}),
+    integrityFingerprint: await checkpointIntegrityFingerprint(snapshot, evidence, research, toolSession),
+  };
 }
 
 export async function verifyRunCheckpoint(checkpoint: RunCheckpoint): Promise<boolean> {
   if (checkpoint.research && !await verifyResearchFactBundleFingerprint(checkpoint.research)) return false;
-  return checkpoint.integrityFingerprint === await checkpointIntegrityFingerprint(checkpoint.snapshot, checkpoint.evidence, checkpoint.research);
+  try { assertToolSessionResearch(checkpoint.toolSession, checkpoint.research); }
+  catch { return false; }
+  return checkpoint.integrityFingerprint === await checkpointIntegrityFingerprint(checkpoint.snapshot, checkpoint.evidence, checkpoint.research, checkpoint.toolSession);
 }
 
 export function checkpointSnapshotPayload(checkpoint: RunCheckpoint): unknown {
+  if (checkpoint.toolSession) return {
+    schemaVersion: "run-checkpoint.v3",
+    snapshot: checkpoint.snapshot,
+    ...(checkpoint.research ? { research: checkpoint.research } : {}),
+    toolSession: checkpoint.toolSession,
+  };
   return checkpoint.research
     ? { schemaVersion: "run-checkpoint.v2", snapshot: checkpoint.snapshot, research: checkpoint.research }
     : checkpoint.snapshot;
 }
 
-export function parseCheckpointSnapshotPayload(value: unknown): Pick<RunCheckpoint, "snapshot" | "research"> {
+export function parseCheckpointSnapshotPayload(value: unknown): Pick<RunCheckpoint, "snapshot" | "research" | "toolSession"> {
+  if (isRecord(value) && value.schemaVersion === "run-checkpoint.v3") {
+    const research = value.research === undefined ? undefined : parseResearchFactBundle(value.research);
+    if (!isFinancialToolSessionReceipt(value.toolSession)) throw new Error("RUN_CHECKPOINT_TOOL_SESSION_INVALID");
+    assertToolSessionResearch(value.toolSession, research);
+    return { snapshot: parseMarketSnapshot(value.snapshot), ...(research ? { research } : {}), toolSession: value.toolSession };
+  }
   if (isRecord(value) && value.schemaVersion === "run-checkpoint.v2") {
     return { snapshot: parseMarketSnapshot(value.snapshot), research: parseResearchFactBundle(value.research) };
   }
   return { snapshot: parseMarketSnapshot(value) };
 }
 
-async function checkpointIntegrityFingerprint(snapshot: MarketSnapshot, evidence: SealedEvidenceBundle, research?: ResearchFactBundle): Promise<`sha256:${string}`> {
-  const canonical = stableJson(research ? { snapshot, evidence, research } : { snapshot, evidence });
+async function checkpointIntegrityFingerprint(snapshot: MarketSnapshot, evidence: SealedEvidenceBundle, research?: ResearchFactBundle, toolSession?: FinancialToolSessionReceipt): Promise<`sha256:${string}`> {
+  const canonical = stableJson(toolSession
+    ? { snapshot, evidence, ...(research ? { research } : {}), toolSession }
+    : research ? { snapshot, evidence, research } : { snapshot, evidence });
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical)));
   return `sha256:${[...digest].map((byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+}
+
+function assertToolSessionResearch(toolSession: FinancialToolSessionReceipt | undefined, research: ResearchFactBundle | undefined): void {
+  if (!toolSession) return;
+  if (!isFinancialToolSessionReceipt(toolSession)) throw new Error("RUN_CHECKPOINT_TOOL_SESSION_INVALID");
+  if (toolSession.status === "completed") {
+    if (!research || toolSession.execution.researchFingerprint !== research.fingerprint) throw new Error("RUN_CHECKPOINT_TOOL_RESEARCH_MISMATCH");
+  } else if (research) throw new Error("RUN_CHECKPOINT_SKIPPED_TOOL_HAS_RESEARCH");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -100,6 +100,8 @@ export class D1RunRepository {
       this.db.prepare("DELETE FROM run_market_snapshots WHERE run_id = ? AND EXISTS (SELECT 1 FROM agent_runs WHERE id = ? AND profile_id = ?)").bind(runId, runId, profileId),
       this.db.prepare("DELETE FROM run_dispatch_outbox WHERE run_id = ? AND EXISTS (SELECT 1 FROM agent_runs WHERE id = ? AND profile_id = ?)").bind(runId, runId, profileId),
       this.db.prepare("DELETE FROM dead_letter_records WHERE run_id = ? AND EXISTS (SELECT 1 FROM agent_runs WHERE id = ? AND profile_id = ?)").bind(runId, runId, profileId),
+      this.db.prepare("DELETE FROM financial_tool_trace_events WHERE run_id = ? AND profile_id = ? AND EXISTS (SELECT 1 FROM agent_runs WHERE id = ? AND profile_id = ?)").bind(runId, profileId, runId, profileId),
+      this.db.prepare("DELETE FROM financial_tool_invocations WHERE run_id = ? AND profile_id = ? AND EXISTS (SELECT 1 FROM agent_runs WHERE id = ? AND profile_id = ?)").bind(runId, profileId, runId, profileId),
       this.db.prepare("DELETE FROM agent_runs WHERE id = ? AND profile_id = ?").bind(runId, profileId),
     ]);
     return Boolean(deleted.at(-1)?.meta.changes);

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { AgentRun, RunStatus, RunTraceEvent } from "@zxlab/market-agent-schema";
+import { COMPANY_FINANCIAL_UPDATE_TOOL, type AgentRun, type RunStatus, type RunTraceEvent, type ToolTraceEvent } from "@zxlab/market-agent-schema";
 import { createRunEventStream } from "./run-stream.ts";
 
 test("Run stream emits real statuses, answer deltas, and the terminal Run", async () => {
@@ -18,6 +18,9 @@ test("Run stream emits real statuses, answer deltas, and the terminal Run", asyn
     },
     async listTraceAfter(_runId: string, _profileId: string, afterSequence: number) {
       return traceEvents().filter((event) => event.sequence > afterSequence);
+    },
+    async listToolTraceAfter(_runId: string, _profileId: string, afterSequence: number) {
+      return toolTraceEvents().filter((event) => event.sequence > afterSequence);
     },
   };
   const response = createRunEventStream(
@@ -44,7 +47,29 @@ test("Run stream emits real statuses, answer deltas, and the terminal Run", asyn
     events.filter((event) => event.name === "trace").map((event) => event.data.event.sequence),
     [1, 2],
   );
+  assert.deepEqual(
+    events.filter((event) => event.name === "tool_trace").map((event) => event.data.event.sequence),
+    [1],
+  );
 });
+
+function toolTraceEvents(): ToolTraceEvent[] {
+  return [{
+    id: "tool-trace-1",
+    runId: "run-1",
+    invocationId: "tool-invocation-1",
+    sequence: 1,
+    type: "completed",
+    tool: COMPANY_FINANCIAL_UPDATE_TOOL,
+    attempt: 1,
+    occurredAt: "2026-08-11T08:00:01.500Z",
+    selectionSource: "model",
+    durationMs: 500,
+    outcome: "operational",
+    researchFingerprint: `sha256:${"a".repeat(64)}`,
+    provenance: { source: "market-agent-worker", operation: "tool.execute" },
+  }];
+}
 
 function traceEvents(): RunTraceEvent[] {
   return [

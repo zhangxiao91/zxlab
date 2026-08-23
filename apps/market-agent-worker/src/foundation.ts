@@ -1,7 +1,7 @@
 import type { MarketSnapshot } from "@zxlab/market-schema";
 import type { ResearchFact, ResearchFactBundle } from "@zxlab/research-fact-schema";
 import type { RiskImpact } from "@zxlab/risk-domain";
-import type { AgentResult, AgentRun, ConfirmedContext, ConfirmedContextUse, EvidenceItem, MarketAgentAskCommand, MarketAgentCommand, MarketEvent, PortfolioSnapshot, RunClaimResult, RunCreation, SealedEvidenceBundle } from "@zxlab/market-agent-schema";
+import type { AgentResult, AgentRun, ConfirmedContext, ConfirmedContextUse, EvidenceItem, FinancialToolSessionReceipt, MarketAgentAskCommand, MarketAgentCommand, MarketEvent, PortfolioSnapshot, RunClaimResult, RunCreation, SealedEvidenceBundle } from "@zxlab/market-agent-schema";
 import { EVENT_RULE_VERSION, MARKET_AGENT_SCHEMA_VERSION, eventEvidenceId, isMarketAgentAskCommand, isTerminalRunStatus } from "@zxlab/market-agent-schema";
 import type { AskEvidencePlan } from "./ask-plan.ts";
 import type { RunCheckpoint } from "./run-checkpoint.ts";
@@ -156,6 +156,7 @@ export async function buildDeterministicAskEvidence(input: {
   previousSnapshot?: MarketSnapshot;
   research?: ResearchFactBundle;
   researchOmittedInstrumentIds?: string[];
+  financialToolSession?: FinancialToolSessionReceipt;
 }): Promise<SealedEvidenceBundle> {
   const base = await buildDeterministicCloseReview(
     input.command,
@@ -188,6 +189,22 @@ export async function buildDeterministicAskEvidence(input: {
       reliable: true,
     },
   ];
+  if (input.financialToolSession?.status === "skipped") {
+    items.push({
+      id: `${input.runId}:financial-tool:limitation`,
+      kind: "limitation",
+      origin: "server-observed",
+      reliable: true,
+      value: {
+        type: "financial_tool_selection",
+        code: "FINANCIAL_TOOL_NOT_SELECTED",
+        capability: "fundamentals",
+        status: "unavailable",
+        invocationId: input.financialToolSession.invocationId,
+        policyVersion: input.financialToolSession.policyVersion,
+      },
+    });
+  }
   if (input.previous) {
     items.push({
       id: `${input.runId}:ask:previous-run`,
@@ -215,6 +232,7 @@ export async function buildDeterministicAskEvidence(input: {
         evidenceFingerprint: input.previous.evidenceFingerprint,
         result: input.previous.result,
       } : null,
+      ...(input.financialToolSession ? { financialToolSession: input.financialToolSession } : {}),
     },
   });
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical)));

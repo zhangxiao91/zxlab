@@ -101,6 +101,8 @@ test("research adapter classifies authentication, throttling, and upstream failu
 test("research adapter preserves only whitelisted non-retryable Risk errors", async () => {
   const cases = [
     { status: 502, body: { error: { code: "RESEARCH_HISTORY_INTEGRITY_FAILURE", message: "safe", retryable: false } }, expectedCode: "RESEARCH_HISTORY_INTEGRITY_FAILURE", retryable: false },
+    { status: 502, body: { error: { code: "RESEARCH_ARTIFACT_INTEGRITY_FAILURE", message: "safe", retryable: false } }, expectedCode: "RESEARCH_ARTIFACT_INTEGRITY_FAILURE", retryable: false },
+    { status: 502, body: { error: { code: "FINANCIAL_STATEMENT_INTEGRITY_FAILURE", message: "safe", retryable: false } }, expectedCode: "FINANCIAL_STATEMENT_INTEGRITY_FAILURE", retryable: false },
     { status: 400, body: { error: { code: "OBSERVATION_CUTOFF_OUT_OF_RANGE", message: "safe", retryable: false } }, expectedCode: "OBSERVATION_CUTOFF_OUT_OF_RANGE", retryable: false },
     { status: 502, body: { error: { code: "ATTACKER_CONTROLLED", retryable: false } }, expectedCode: "RESEARCH_FACT_UPSTREAM_UNAVAILABLE", retryable: true },
     { status: 502, body: { error: { code: "RESEARCH_HISTORY_INTEGRITY_FAILURE", retryable: true } }, expectedCode: "RESEARCH_FACT_UPSTREAM_UNAVAILABLE", retryable: true },

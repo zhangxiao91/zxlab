@@ -7,7 +7,7 @@
     "dev": "wrangler dev --port 8790",
     "types": "wrangler types --outFile worker-configuration.generated.d.ts",
     "typecheck": "tsc --noEmit --pretty false",
-    "test": "node --experimental-strip-types --test src/*.test.ts",
+    "test": "node --experimental-transform-types --test src/*.test.ts",
     "db:migrate:local": "wrangler d1 migrations apply market-agent --local",
     "db:migrate:beta": "wrangler d1 migrations apply market-agent-beta --remote --config wrangler.beta.jsonc",
     "deploy:dry": "wrangler deploy --dry-run",

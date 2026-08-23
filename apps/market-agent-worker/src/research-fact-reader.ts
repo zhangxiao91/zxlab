@@ -122,6 +122,8 @@ export class ResearchFactAdapter implements ResearchFactReader {
 const WHITELISTED_RISK_ERRORS: Record<string, number> = {
   OBSERVATION_CUTOFF_OUT_OF_RANGE: 400,
   RESEARCH_HISTORY_INTEGRITY_FAILURE: 502,
+  RESEARCH_ARTIFACT_INTEGRITY_FAILURE: 502,
+  FINANCIAL_STATEMENT_INTEGRITY_FAILURE: 502,
 };
 
 async function readWhitelistedRiskError(response: Response): Promise<ResearchFactError | null> {

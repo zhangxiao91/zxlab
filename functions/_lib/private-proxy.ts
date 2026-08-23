@@ -48,7 +48,7 @@ const marketAgentPathAllowed = (path: string, method: string) => {
   if (["/portfolio-snapshot/stop", "/portfolio-snapshot/purge"].includes(path)) return method === "POST";
   if (/^\/runs\/[^/]+$/.test(path)) return method === "GET" || method === "DELETE";
   if (/^\/runs\/[^/]+\/(?:feedback|rerun|retry|cancel)$/.test(path)) return method === "POST";
-  return /^\/runs\/[^/]+\/(?:evidence|stream|trace)$/.test(path) && method === "GET";
+  return /^\/runs\/[^/]+\/(?:evidence|stream|trace|tool-trace)$/.test(path) && method === "GET";
 };
 
 function target(service: PrivateService, rawPath: string, method: string, env: PrivateProxyEnv): URL {

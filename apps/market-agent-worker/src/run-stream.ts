@@ -1,9 +1,10 @@
-import { isTerminalRunStatus, type AgentRun, type RunTraceEvent } from "@zxlab/market-agent-schema";
+import { isTerminalRunStatus, type AgentRun, type RunTraceEvent, type ToolTraceEvent } from "@zxlab/market-agent-schema";
 import { MARKET_AGENT_RUN_STREAM_TIMEOUT_MS } from "./runtime-budget.ts";
 
 export interface RunStreamRepository {
   get(runId: string): Promise<AgentRun | null>;
   listTraceAfter(runId: string, profileId: string, afterSequence: number): Promise<RunTraceEvent[]>;
+  listToolTraceAfter?(runId: string, profileId: string, afterSequence: number): Promise<ToolTraceEvent[]>;
 }
 
 export interface RunStreamOptions {
@@ -44,6 +45,7 @@ export function createRunEventStream(
         let current = options.initialRun;
         let lastStatus = "";
         let lastTraceSequence = 0;
+        let lastToolTraceSequence = 0;
         let lastHeartbeatAt = startedAt;
 
         while (!cancelled && !request.signal.aborted) {
@@ -59,6 +61,14 @@ export function createRunEventStream(
             if (event.sequence <= lastTraceSequence) continue;
             send("trace", { event });
             lastTraceSequence = event.sequence;
+          }
+          if (repository.listToolTraceAfter) {
+            const toolTraceEvents = await repository.listToolTraceAfter(runId, profileId, lastToolTraceSequence);
+            for (const event of toolTraceEvents) {
+              if (event.sequence <= lastToolTraceSequence) continue;
+              send("tool_trace", { event });
+              lastToolTraceSequence = event.sequence;
+            }
           }
 
           if (isTerminalRunStatus(current.status)) {

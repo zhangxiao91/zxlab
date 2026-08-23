@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { EvidenceLimitation, RunOutcome, RunTiming, RunTraceEvent } from "@zxlab/market-agent-schema";
+import type { EvidenceLimitation, RunOutcome, RunTiming, RunTraceEvent, SealedEvidenceBundle, ToolTraceEvent } from "@zxlab/market-agent-schema";
 import { degradedTool, projectRunElapsed, RunActivity } from "../src/features/market-agent/AskPanel.tsx";
-import { clearRetryKeyForRun, mergeRunTraceEvents, retryKeyForRun } from "../src/features/market-agent/run-state.ts";
+import { clearRetryKeyForRun, mergeRunTraceEvents, mergeToolTraceEvents, retryKeyForRun } from "../src/features/market-agent/run-state.ts";
 
 function outcome(limitations: EvidenceLimitation[]): RunOutcome {
   return {
@@ -59,6 +59,66 @@ test("Run activity renders only persisted trace events and server durations", ()
   assert.match(source, /总耗时 9\.0 秒/);
   assert.doesNotMatch(source, /报告生成中/);
   assert.equal((source.match(/<li/g) ?? []).length, 4);
+});
+
+test("Run activity merges tool trace chronologically and only renders safe metadata", () => {
+  const source = renderToStaticMarkup(createElement(RunActivity, {
+    status: "success",
+    runId: "run-1",
+    trace: {
+      runId: "run-1",
+      timing: terminalTiming(),
+      events: [traceEvent({ id: "trace-2", sequence: 2, type: "stage_started", stage: "collecting", occurredAt: "2026-08-16T08:00:02.000Z" })],
+    },
+    toolTrace: {
+      runId: "run-1",
+      events: [{
+        ...toolTraceEvent({ occurredAt: "2026-08-16T08:00:01.000Z" }),
+        question: "secret question",
+        result: { raw: "raw output" },
+        thought: "private reasoning",
+      } as unknown as ToolTraceEvent],
+    },
+  }));
+
+  assert.match(source, /财务工具执行完成/);
+  assert.match(source, /模型选择/);
+  assert.match(source, /1\.3 秒/);
+  assert.match(source, /abcdef012345/);
+  assert.match(source, /尚未确认封存到 Evidence/);
+  assert.ok(source.indexOf("财务工具执行完成") < source.indexOf("事实收集开始"));
+  assert.doesNotMatch(source, /secret question|raw output|private reasoning/);
+});
+
+test("completed tool trace claims Evidence sealing only after the matching Research fingerprint is present", () => {
+  const fingerprint = `sha256:${"abcdef0123456789".repeat(4)}` as const;
+  const evidence = {
+    schemaVersion: "market-agent.v1",
+    eventRuleVersion: "market-event.v1",
+    profileId: "profile-1",
+    workflow: "ask",
+    watchlistRevision: "watchlist-1",
+    instrumentIds: ["SSE:600000"],
+    items: [{
+      id: "run-1:research:0",
+      kind: "market_fact",
+      origin: "server-observed",
+      reliable: true,
+      value: { type: "research_fact", researchFingerprint: fingerprint },
+    }],
+    contextUses: [],
+    fingerprint: `sha256:${"1".repeat(64)}`,
+    sealedAt: "2026-08-16T08:00:03.000Z",
+  } satisfies SealedEvidenceBundle;
+  const source = renderToStaticMarkup(createElement(RunActivity, {
+    status: "success",
+    runId: "run-1",
+    evidence,
+    toolTrace: { runId: "run-1", events: [toolTraceEvent({ researchFingerprint: fingerprint })] },
+  }));
+
+  assert.match(source, /结果已封存到 Evidence/);
+  assert.doesNotMatch(source, /尚未确认封存到 Evidence/);
 });
 
 test("live elapsed advances only from a server timing snapshot", () => {
@@ -130,6 +190,20 @@ test("trace merge rejects a sequence reused by another persisted event", () => {
   assert.throws(() => mergeRunTraceEvents([first], [conflict]), /RUN_TRACE_SEQUENCE_CONFLICT/);
 });
 
+test("tool trace events merge by id and reject a reused server sequence", () => {
+  const first = toolTraceEvent({ id: "tool-trace-1", sequence: 1 });
+  const streamed = toolTraceEvent({ id: "tool-trace-2", sequence: 2, type: "started", occurredAt: "2026-08-16T08:00:02.000Z", durationMs: undefined, outcome: undefined, researchFingerprint: undefined });
+  assert.deepEqual(mergeToolTraceEvents([first], [streamed, first]).map((event) => event.id), ["tool-trace-1", "tool-trace-2"]);
+  assert.throws(
+    () => mergeToolTraceEvents([first], [toolTraceEvent({ id: "other", sequence: 1 })]),
+    /TOOL_TRACE_SEQUENCE_CONFLICT/,
+  );
+  assert.throws(
+    () => mergeToolTraceEvents([first], [toolTraceEvent({ outcome: "partial" })]),
+    /TOOL_TRACE_CONTENT_CONFLICT/,
+  );
+});
+
 test("a source Run reuses its retry idempotency key until success clears it", () => {
   const keys = new Map<string, string>();
   let created = 0;
@@ -173,6 +247,25 @@ function traceEvent(overrides: Partial<RunTraceEvent> & Pick<RunTraceEvent, "id"
     provenance: { source: "market-agent-worker", operation: "run.fail" },
     ...overrides,
   } as unknown as RunTraceEvent;
+}
+
+function toolTraceEvent(overrides: Partial<ToolTraceEvent> = {}): ToolTraceEvent {
+  return {
+    id: "tool-trace-1",
+    runId: "run-1",
+    invocationId: "invocation-1",
+    sequence: 1,
+    type: "completed",
+    tool: { id: "company_financial_update", version: "1" },
+    attempt: 1,
+    occurredAt: "2026-08-16T08:00:01.000Z",
+    selectionSource: "model",
+    durationMs: 1_250,
+    outcome: "operational",
+    researchFingerprint: `sha256:${"abcdef0123456789".repeat(4)}`,
+    provenance: { source: "market-agent-worker", operation: "tool.execute" },
+    ...overrides,
+  } as ToolTraceEvent;
 }
 
 function activeTiming(): RunTiming {

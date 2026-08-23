@@ -2,6 +2,7 @@ import type {
   AgentResult,
   ConfirmedContext,
   MarketAgentAskCommand,
+  FinancialToolSessionReceipt,
   PortfolioSnapshot,
   RunStatus,
   SealedEvidenceBundle,
@@ -22,6 +23,7 @@ import { assessEvidence } from "./evidence-assessment.ts";
 import { finalizeAgentResult } from "./run-outcome.ts";
 import { createRunCheckpoint, verifyRunCheckpoint } from "./run-checkpoint.ts";
 import { assertResearchFactScope, researchExpectedLatestSessionDate, selectResearchInstrumentScope, type ResearchFactReader } from "./research-fact-reader.ts";
+import type { FinancialToolRuntime } from "./financial-tool-runtime.ts";
 
 export interface AskPreviousRun {
   runId: string;
@@ -35,12 +37,14 @@ export interface AskServiceInput {
   runId: string;
   command: MarketAgentAskCommand;
   watchlistRevision: string;
+  attempt?: number;
   portfolioSnapshot?: PortfolioSnapshot | null;
   previous?: AskPreviousRun;
   previousSnapshot?: MarketSnapshot;
   checkpoint?: EvidenceCheckpoint;
   onCheckpoint?: (checkpoint: EvidenceCheckpoint) => Promise<void> | void;
   onProgress?: (status: Extract<RunStatus, "evidence_sealed" | "generating" | "validating">) => Promise<void> | void;
+  assertActive?: () => Promise<void>;
 }
 
 export class AskService {
@@ -49,13 +53,17 @@ export class AskService {
   private readonly contextReader?: ConfirmedContextReader;
   private readonly researchReader?: ResearchFactReader;
   private readonly companyUpdateEnabled: boolean;
+  private readonly financialToolRuntime?: FinancialToolRuntime;
+  private readonly financialToolRuntimeMode: "disabled" | "shadow" | "enabled";
 
-  constructor(reader: CurrentMarketSnapshotReader, narrator: Narrator = new DeterministicNarrator(), contextReader?: ConfirmedContextReader, researchReader?: ResearchFactReader, options: { companyUpdateEnabled?: boolean } = {}) {
+  constructor(reader: CurrentMarketSnapshotReader, narrator: Narrator = new DeterministicNarrator(), contextReader?: ConfirmedContextReader, researchReader?: ResearchFactReader, options: { companyUpdateEnabled?: boolean; financialToolRuntime?: FinancialToolRuntime; financialToolRuntimeMode?: "disabled" | "shadow" | "enabled" } = {}) {
     this.reader = reader;
     this.narrator = narrator;
     this.contextReader = contextReader;
     this.researchReader = researchReader;
     this.companyUpdateEnabled = options.companyUpdateEnabled ?? true;
+    this.financialToolRuntime = options.financialToolRuntime;
+    this.financialToolRuntimeMode = options.financialToolRuntimeMode ?? "disabled";
   }
 
   async execute(input: AskServiceInput): Promise<{
@@ -75,15 +83,40 @@ export class AskService {
       quoteMode: plan.quoteMode,
     });
     assertFixedSnapshotScope(snapshot, input.command, plan);
+    const runtimeOwnsCompanyUpdate = plan.researchPurpose === "company_update"
+      && this.financialToolRuntimeMode === "enabled"
+      && Boolean(this.financialToolRuntime);
     const researchPurpose = input.checkpoint?.research?.purpose
-      ?? (plan.researchPurpose === "company_update" && !this.companyUpdateEnabled ? undefined : plan.researchPurpose);
+      ?? (plan.researchPurpose === "company_update" && !runtimeOwnsCompanyUpdate && !this.companyUpdateEnabled ? undefined : plan.researchPurpose);
     const expectedLatestSessionDate = researchPurpose === "price_context" || researchPurpose === "relative_performance"
       ? researchExpectedLatestSessionDate(snapshot)
       : undefined;
     const researchScope = selectResearchInstrumentScope(input.command.resolvedInstrumentIds, input.command.instrumentId);
     let research: ResearchFactBundle | undefined;
+    let financialToolSession: FinancialToolSessionReceipt | undefined = input.checkpoint?.toolSession;
     if (input.checkpoint) research = input.checkpoint.research;
-    else if (researchPurpose && this.researchReader) {
+    else if (plan.researchPurpose === "company_update" && this.financialToolRuntime && this.financialToolRuntimeMode !== "disabled") {
+      if (!input.command.instrumentId || researchScope.instrumentIds.length !== 1 || researchScope.instrumentIds[0] !== input.command.instrumentId) throw new Error("FINANCIAL_TOOL_SCOPE_INVALID");
+      try {
+        const financial = await this.financialToolRuntime.execute({
+          runId: input.runId,
+          profileId: input.command.profileId,
+          attempt: input.attempt ?? 1,
+          scope: "news_and_announcements",
+          selectedInstrumentId: input.command.instrumentId,
+          snapshotAsOf: snapshot.asOf,
+          ...(input.command.question ? { question: input.command.question } : {}),
+        }, { assertActive: input.assertActive });
+        if (this.financialToolRuntimeMode === "enabled") {
+          financialToolSession = financial.session;
+          research = financial.research;
+        }
+      } catch (cause) {
+        const code = cause instanceof Error ? cause.message : "";
+        if (this.financialToolRuntimeMode === "enabled" || code === "RUN_CANCELLED" || code === "RUN_LEASE_LOST") throw cause;
+      }
+    }
+    if (!input.checkpoint && !runtimeOwnsCompanyUpdate && researchPurpose && this.researchReader) {
       research = await this.researchReader.materialize({
         purpose: researchPurpose,
         instrumentIds: researchScope.instrumentIds,
@@ -112,16 +145,26 @@ export class AskService {
         previousSnapshot: input.previousSnapshot,
         confirmedContext,
         research,
+        financialToolSession,
         researchOmittedInstrumentIds: researchPurpose ? researchScope.omittedInstrumentIds : [],
       });
-    if (input.checkpoint && (!await verifyRunCheckpoint(input.checkpoint) || evidence.profileId !== input.command.profileId || evidence.workflow !== "ask" || evidence.ask?.scope !== input.command.scope || evidence.ask.planVersion !== "ask-plan.v1" || evidence.ask.priorRunId !== input.command.priorRunId || !sameValues(evidence.instrumentIds, input.command.resolvedInstrumentIds))) throw new Error("RUN_CHECKPOINT_SCOPE_MISMATCH");
-    if (!input.checkpoint && input.onCheckpoint) await input.onCheckpoint(await createRunCheckpoint(snapshot, evidence, research));
+    if (input.checkpoint && (
+      !await verifyRunCheckpoint(input.checkpoint)
+      || (Boolean(input.checkpoint.toolSession) && input.checkpoint.toolSession?.runId !== input.runId)
+      || evidence.profileId !== input.command.profileId
+      || evidence.workflow !== "ask"
+      || evidence.ask?.scope !== input.command.scope
+      || evidence.ask.planVersion !== "ask-plan.v1"
+      || evidence.ask.priorRunId !== input.command.priorRunId
+      || !sameValues(evidence.instrumentIds, input.command.resolvedInstrumentIds)
+    )) throw new Error("RUN_CHECKPOINT_SCOPE_MISMATCH");
+    if (!input.checkpoint && input.onCheckpoint) await input.onCheckpoint(await createRunCheckpoint(snapshot, evidence, research, financialToolSession));
     else await input.onProgress?.("evidence_sealed");
     const mode = input.checkpoint ? hasReliablePortfolioImpact(evidence) ? "portfolio-aware" : "market-only" : portfolio?.reliable ? "portfolio-aware" : "market-only";
     const researchOmittedInstrumentCount = input.checkpoint
       ? sealedResearchOmittedInstrumentCount(evidence)
       : researchPurpose ? researchScope.omittedInstrumentIds.length : 0;
-    const evidenceAssessment = assessEvidence(input.command.scope, snapshot, mode === "portfolio-aware", research, researchOmittedInstrumentCount);
+    const evidenceAssessment = assessEvidence(input.command.scope, snapshot, mode === "portfolio-aware", research, researchOmittedInstrumentCount, financialToolSession);
     await input.onProgress?.("generating");
     const narration = await narrateWithRepair(this.narrator, {
       workflow: "ask",

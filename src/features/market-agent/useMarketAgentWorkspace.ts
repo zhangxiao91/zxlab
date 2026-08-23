@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { isCancellableRunStatus, type AgentFeedback, type AgentFeedbackValue, type RunTrace, type RunTraceEvent, type SealedEvidenceBundle } from "@zxlab/market-agent-schema";
+import { isCancellableRunStatus, type AgentFeedback, type AgentFeedbackValue, type RunTrace, type RunTraceEvent, type SealedEvidenceBundle, type ToolTrace, type ToolTraceEvent } from "@zxlab/market-agent-schema";
 import { loadMarketWatchlist } from "../market/watchlist";
 import { LocalPortfolioRepository } from "../risk/ledger";
 import {
@@ -11,6 +11,7 @@ import {
   getAgentRunEvidence,
   getAgentRunPage,
   getAgentRunTrace,
+  getAgentToolTrace,
   getPortfolioSnapshotControlState,
   marketAgentAccessRequired,
   pollAgentRunUntilTerminal,
@@ -46,6 +47,7 @@ import {
   mergeRunWithCurrentFeedback,
   clearRetryKeyForRun,
   mergeRunTraceEvents,
+  mergeToolTraceEvents,
   retryKeyForRun,
   evidenceSelectionAfterRunSelection,
   resolveSelectedRun,
@@ -80,6 +82,9 @@ export interface MarketAgentWorkspace {
     trace: RunTrace | null;
     traceLoading: boolean;
     traceError: string | null;
+    toolTrace: ToolTrace | null;
+    toolTraceLoading: boolean;
+    toolTraceError: string | null;
     runControlBusy: { runId: string; action: "cancel" | "retry" } | null;
   };
   watchlist: {
@@ -148,6 +153,10 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
   const [streamedTraceByRunId, setStreamedTraceByRunId] = useState<Record<string, RunTraceEvent[]>>({});
   const [traceLoadingRunId, setTraceLoadingRunId] = useState<string | null>(null);
   const [traceError, setTraceError] = useState<string | null>(null);
+  const [toolTraceByRunId, setToolTraceByRunId] = useState<Record<string, ToolTrace>>({});
+  const [streamedToolTraceByRunId, setStreamedToolTraceByRunId] = useState<Record<string, ToolTraceEvent[]>>({});
+  const [toolTraceLoadingRunId, setToolTraceLoadingRunId] = useState<string | null>(null);
+  const [toolTraceError, setToolTraceError] = useState<string | null>(null);
   const [runControlBusy, setRunControlBusy] = useState<{ runId: string; action: "cancel" | "retry" } | null>(null);
   const [portfolioPreview, setPortfolioPreview] =
     useState<LocalPortfolioSnapshotPreview | null>(null);
@@ -232,6 +241,18 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
             }
           });
         },
+        onToolTrace: (event) => {
+          setStreamedToolTraceByRunId((current) => {
+            try {
+              return {
+                ...current,
+                [event.runId]: mergeToolTraceEvents(current[event.runId] ?? [], [event]),
+              };
+            } catch {
+              return current;
+            }
+          });
+        },
         onAnswerDelta: (delta) => {
           setStreamingAnswers((current) => ({
             ...current,
@@ -244,6 +265,9 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
           void getAgentRunTrace(runId).then((trace) => {
             setTraceByRunId((current) => ({ ...current, [runId]: trace }));
           }).catch(() => undefined);
+          void getAgentToolTrace(runId).then((trace) => {
+            setToolTraceByRunId((current) => ({ ...current, [runId]: trace }));
+          }).catch(() => undefined);
         },
       }, { signal: controller.signal });
       clearAgentIssue();
@@ -253,6 +277,12 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
         const run = await pollAgentRunUntilTerminal(runId, updateRun, controller.signal);
         updateRun(run);
         clearStreamingAnswer(runId);
+        const [trace, toolTrace] = await Promise.allSettled([
+          getAgentRunTrace(runId),
+          getAgentToolTrace(runId),
+        ]);
+        if (trace.status === "fulfilled") setTraceByRunId((current) => ({ ...current, [runId]: trace.value }));
+        if (toolTrace.status === "fulfilled") setToolTraceByRunId((current) => ({ ...current, [runId]: toolTrace.value }));
         clearAgentIssue();
       } catch (fallbackCause) {
         if (!controller.signal.aborted) {
@@ -364,6 +394,25 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
     setSelectedEvidenceId(null);
     setEvidenceError(null);
     setTraceError(null);
+    setToolTraceError(null);
+  }, [selectedRun?.id]);
+
+  useEffect(() => {
+    if (!selectedRun?.id) return;
+    const controller = new AbortController();
+    setToolTraceLoadingRunId(selectedRun.id);
+    setToolTraceError(null);
+    void getAgentToolTrace(selectedRun.id, controller.signal)
+      .then((trace) => {
+        setToolTraceByRunId((current) => ({ ...current, [trace.runId]: trace }));
+      })
+      .catch((cause) => {
+        if (!controller.signal.aborted) setToolTraceError(cause instanceof Error ? cause.message : "无法读取服务器工具事件");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setToolTraceLoadingRunId((current) => current === selectedRun.id ? null : current);
+      });
+    return () => controller.abort();
   }, [selectedRun?.id]);
 
   useEffect(() => {
@@ -762,6 +811,13 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
       events: mergeRunTraceEvents(persisted.events, streamed),
     };
   }, [selectedRun, streamedTraceByRunId, traceByRunId]);
+  const selectedToolTrace = useMemo(() => {
+    if (!selectedRun) return null;
+    const persisted = toolTraceByRunId[selectedRun.id];
+    const streamed = streamedToolTraceByRunId[selectedRun.id] ?? [];
+    if (!persisted) return streamed.length ? { runId: selectedRun.id, events: streamed } : null;
+    return { ...persisted, events: mergeToolTraceEvents(persisted.events, streamed) };
+  }, [selectedRun, streamedToolTraceByRunId, toolTraceByRunId]);
   const askInstruments = useMemo(
     () => [...new Set([
       ...localWatchlist.map((item) => item.instrumentId),
@@ -799,6 +855,9 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
       trace: selectedTrace,
       traceLoading: Boolean(selectedRun && traceLoadingRunId === selectedRun.id),
       traceError,
+      toolTrace: selectedToolTrace,
+      toolTraceLoading: Boolean(selectedRun && toolTraceLoadingRunId === selectedRun.id),
+      toolTraceError,
       runControlBusy,
     },
     watchlist: {

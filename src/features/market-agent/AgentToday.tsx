@@ -93,7 +93,8 @@ export default function AgentToday({
     runs, latest, selectedRun, askInstruments, bootstrap, loading, reviewBusy, askBusy,
     streamingAnswer, error, accessRequired, setupNote, deletingRunId, loadingMoreRuns,
     hasMoreRuns, evidence, evidenceLoading, evidenceError, selectedEvidenceId,
-    exportBusy, exportNote, exportError, trace, traceLoading, traceError, runControlBusy,
+    exportBusy, exportNote, exportError, trace, traceLoading, traceError,
+    toolTrace, toolTraceLoading, toolTraceError, runControlBusy,
   } = agent;
   const { items: localWatchlist, syncing: syncBusy } = watchlist;
   const {
@@ -192,8 +193,11 @@ export default function AgentToday({
               evidenceLoading={evidenceLoading}
               streamingAnswer={streamingAnswer}
               trace={trace}
+              toolTrace={toolTrace}
               traceLoading={traceLoading}
               traceError={traceError}
+              toolTraceLoading={toolTraceLoading}
+              toolTraceError={toolTraceError}
               controlBusy={selectedRun && runControlBusy?.runId === selectedRun.id ? runControlBusy.action : null}
               controlsDisabled={Boolean(runControlBusy)}
               onCancel={() => selectedRun ? cancelRun(selectedRun.id) : Promise.resolve()}
@@ -267,14 +271,17 @@ export function RunNavigator({ runs, selectedRunId, onSelect, onExport, onLoadMo
   return <aside className="agent-run-navigator" aria-label="运行记录"><header><div><h2>运行记录</h2><span>{runs.length}</span></div><button type="button" onClick={() => void onExport()} disabled={!runs.length || exportBusy}>{runExportLabel(exportBusy)}</button></header><div className="agent-run-navigator__list">{runs.length ? runs.map((run) => <button type="button" key={run.id} className="agent-run-nav-item" aria-current={selectedRunId === run.id ? "true" : undefined} onClick={() => onSelect(run.id)}><span><i className={`agent-run-nav-item__status agent-status--${run.status}`}>{statusLabel(run.status)}</i><time dateTime={run.createdAt}>{date(run.createdAt)}</time></span><strong>{run.payloadPurgedAt ? "正文已清除" : run.result?.headline ?? runLabel(run)}</strong><small>{run.input?.question ?? modeLabel(run.result?.mode, run.portfolioSnapshotId)}{run.timing ? ` · ${compactDuration(run.timing.durationMs ?? run.timing.elapsedMs)}` : ""}</small></button>) : <div className="agent-run-navigator__empty"><strong>还没有 Run</strong><p>开始一次盘后复盘或受限问答后，记录会出现在这里。</p></div>}</div>{hasMore && <button type="button" className="agent-run-navigator__more" onClick={() => void onLoadMore()} disabled={loadingMore}>{loadingMore ? "读取中" : "加载更早记录"}</button>}<p className="agent-run-navigator__note" aria-live="polite">{exportNote ?? "历史选择不会创建第二套回答状态。"}</p></aside>;
 }
 
-function SelectedRunView({ run, evidence, evidenceLoading, streamingAnswer, trace, traceLoading, traceError, controlBusy, controlsDisabled, onCancel, onRetry, onEvidence }: {
+function SelectedRunView({ run, evidence, evidenceLoading, streamingAnswer, trace, toolTrace, traceLoading, toolTraceLoading, traceError, toolTraceError, controlBusy, controlsDisabled, onCancel, onRetry, onEvidence }: {
   run?: AgentRunView;
   evidence: SealedEvidenceBundle | null;
   evidenceLoading: boolean;
   streamingAnswer: string;
   trace: ReturnType<typeof useMarketAgentWorkspace>["agent"]["trace"];
+  toolTrace: ReturnType<typeof useMarketAgentWorkspace>["agent"]["toolTrace"];
   traceLoading: boolean;
+  toolTraceLoading: boolean;
   traceError: string | null;
+  toolTraceError: string | null;
   controlBusy: "cancel" | "retry" | null;
   controlsDisabled: boolean;
   onCancel(): Promise<unknown>;
@@ -285,7 +292,7 @@ function SelectedRunView({ run, evidence, evidenceLoading, streamingAnswer, trac
   const report = run.result ? buildMarketReviewReport(run.result) : null;
   return <article className="agent-selected-run">
     <header className="agent-selected-run__header"><div><span className={`agent-status agent-status--${run.status}`}>{statusLabel(run.status)}</span><h2>{report?.conclusion.headline ?? (streamingAnswer ? "正在形成研究报告" : runLabel(run))}</h2><p>{runPrompt(run)}</p>{run.revisionOfRunId && <p className="agent-selected-run__revision">重试自 Run <span title={run.revisionOfRunId}>{run.revisionOfRunId.slice(0, 8)}</span></p>}</div><dl><div><dt>时间</dt><dd>{date(run.createdAt)}</dd></div><div><dt>模式</dt><dd>{modeLabel(run.result?.mode, run.portfolioSnapshotId)}</dd></div></dl></header>
-    <RunActivity status={run.status} runId={run.id} trace={trace} timing={run.timing} limitations={run.result?.limitations} outcome={run.result?.outcome} traceLoading={traceLoading} traceError={traceError} controlBusy={controlBusy} controlsDisabled={controlsDisabled} onCancel={onCancel} onRetry={onRetry} />
+    <RunActivity status={run.status} runId={run.id} trace={trace} toolTrace={toolTrace} evidence={evidence} timing={run.timing} limitations={run.result?.limitations} outcome={run.result?.outcome} traceLoading={traceLoading} toolTraceLoading={toolTraceLoading} traceError={traceError} toolTraceError={toolTraceError} controlBusy={controlBusy} controlsDisabled={controlsDisabled} onCancel={onCancel} onRetry={onRetry} />
     {!run.payloadPurgedAt && run.result && <MarketReferenceSummary evidence={evidence} loading={evidenceLoading} outcome={run.result.outcome} retrying={controlBusy === "retry"} disabled={controlsDisabled} onRetry={onRetry} />}
     {run.payloadPurgedAt ? <div className="agent-selected-run__state"><strong>正文与 Evidence 已清除</strong><p>审计 fingerprint 仍保留：{run.evidenceFingerprint ?? "未形成"}</p></div> : report ? <ResearchReport report={report} onEvidence={onEvidence} /> : streamingAnswer ? <p className="agent-streamed-answer agent-selected-run__stream">{streamingAnswer}<span className="agent-stream-cursor" aria-hidden="true" /></p> : <div className="agent-selected-run__state"><strong>{run.status === "failed" ? "本次 Run 未能完成" : run.status === "cancelled" ? "本次 Run 已取消" : "确定性事实正在处理"}</strong><p>{run.status === "failed" ? `失败代码：${run.failure?.code ?? "未提供"}` : run.status === "cancelled" ? "原始记录与取消事件已保留；可以从这条 Run 发起一次可追溯的重试。" : "结果只有在 Evidence 封存并通过校验后才会显示。"}</p></div>}
   </article>;

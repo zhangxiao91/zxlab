@@ -52,9 +52,10 @@ function storedRun(id: string, profileId: string, createdAt: string): StoredRun 
   };
 }
 
-function fakeArchiveDb(initialRows: StoredRun[]): D1Database {
+function fakeArchiveDb(initialRows: StoredRun[], financialResultKeys: string[] = []): D1Database & { financialResults: Map<string, boolean> } {
   const rows = initialRows.map((row) => ({ ...row }));
   const tombstones = new Map<string, { run_id: string; evidence_fingerprint: string | null; purged_at: string; reason: "retention" | "user_deleted" }>();
+  const financialResults = new Map(financialResultKeys.map((key) => [key, true]));
   const execute = async (sql: string, values: unknown[]) => {
     if (sql.includes("FROM agent_runs WHERE profile_id = ?") && sql.includes("ORDER BY created_at DESC")) {
       const profileId = String(values[0]);
@@ -127,9 +128,18 @@ function fakeArchiveDb(initialRows: StoredRun[]): D1Database {
       if (hasUpdatedAt) row.updated_at = String(values[1]);
       return { meta: { changes: 1 } };
     }
+    if (sql.startsWith("UPDATE financial_tool_invocations SET result_json = NULL")) {
+      const runId = String(values[2]);
+      const profileId = String(values[3]);
+      const key = `${profileId}:${runId}`;
+      if (!financialResults.get(key)) return { meta: { changes: 0 } };
+      financialResults.set(key, false);
+      return { meta: { changes: 1 } };
+    }
     return { results: [], meta: { changes: 0 } };
   };
   return {
+    financialResults,
     prepare(sql: string) {
       return {
         bind(...values: unknown[]) {
@@ -146,7 +156,7 @@ function fakeArchiveDb(initialRows: StoredRun[]): D1Database {
     async batch(statements: Array<{ sql: string; values: unknown[] }>) {
       return Promise.all(statements.map((statement) => execute(statement.sql, statement.values)));
     },
-  } as unknown as D1Database;
+  } as unknown as D1Database & { financialResults: Map<string, boolean> };
 }
 
 test("run archive cursor pagination is stable and profile-scoped", async () => {
@@ -311,7 +321,7 @@ test("retention sweep tombstones terminal payloads while preserving run metadata
     active,
     storedRun("run-recent", "profile-owner", "2026-08-13T00:00:00.000Z"),
     storedRun("run-private", "profile-other", "2026-06-01T00:00:00.000Z"),
-  ]);
+  ], ["profile-owner:run-old", "profile-other:run-private"]);
   const archive = new D1RunArchiveRepository(db);
 
   const swept = await archive.sweepRetention("profile-owner", {
@@ -354,6 +364,8 @@ test("retention sweep tombstones terminal payloads while preserving run metadata
       activeResult: null,
     },
   );
+  assert.equal(db.financialResults.get("profile-owner:run-old"), false);
+  assert.equal(db.financialResults.get("profile-other:run-private"), true);
 });
 
 test("global retention reaches every profile and clears a failed command-only payload", async () => {
@@ -379,7 +391,7 @@ test("explicit run payload deletion cannot cross profile ownership", async () =>
   const db = fakeArchiveDb([
     storedRun("run-owner", "profile-owner", "2026-08-01T00:00:00.000Z"),
     storedRun("run-private", "profile-other", "2026-08-01T00:00:00.000Z"),
-  ]);
+  ], ["profile-owner:run-owner", "profile-other:run-private"]);
   const archive = new D1RunArchiveRepository(db);
 
   const denied = await archive.purgeRunPayload("profile-owner", "run-private", {
@@ -412,6 +424,8 @@ test("explicit run payload deletion cannot cross profile ownership", async () =>
       otherResult: null,
     },
   );
+  assert.equal(db.financialResults.get("profile-owner:run-owner"), false);
+  assert.equal(db.financialResults.get("profile-other:run-private"), true);
 });
 
 test("explicit run deletion returns the existing tombstone on retry", async () => {

@@ -5,6 +5,8 @@ import type { MarketSnapshot, MarketSnapshotRequest } from "@zxlab/market-schema
 import { calculateResearchFactBundleFingerprint, parseResearchFactBundle, type ResearchFactBundle } from "@zxlab/research-fact-schema";
 import { researchFactBundleFixture } from "@zxlab/research-fact-schema/fixtures";
 import { AskService } from "./ask-service.ts";
+import { FinancialToolRuntime } from "./financial-tool-runtime.ts";
+import { MemoryFinancialToolInvocationRepository } from "./financial-tool-repository.ts";
 import { createRunCheckpoint } from "./run-checkpoint.ts";
 
 function ask(overrides: Partial<MarketAgentAskCommand> = {}): MarketAgentAskCommand {
@@ -425,6 +427,80 @@ test("news and announcements seals company-update financial facts once and repla
   assert.equal(researchCalls, 1);
 });
 
+test("enabled financial runtime seals a v3 tool session and replay performs zero tool I/O", async () => {
+  const command = ask({ scope: "news_and_announcements", instrumentId: "SSE:600000" });
+  const research = await companyUpdateResearch();
+  let plannerCalls = 0;
+  let researchCalls = 0;
+  const runtime = new FinancialToolRuntime({
+    repository: new MemoryFinancialToolInvocationRepository(),
+    planner: { async plan() {
+      plannerCalls += 1;
+      return { decision: "invoke", tool: "company_financial_update.v1", selection: { provider: "fixture", model: "fixture", fallbackIndex: 0, gatewayRequestId: "gateway-tool-1" } };
+    } },
+    research: { async materialize() { researchCalls += 1; return research; } },
+  });
+  let checkpoint: Parameters<AskService["execute"]>[0]["checkpoint"];
+  const service = new AskService(
+    { getCurrentSnapshot: async (input) => marketSnapshot(input) },
+    undefined,
+    undefined,
+    undefined,
+    { companyUpdateEnabled: false, financialToolRuntime: runtime, financialToolRuntimeMode: "enabled" },
+  );
+
+  const first = await service.execute({
+    runId: "ask-financial-runtime",
+    command,
+    attempt: 1,
+    watchlistRevision: "watchlist-1",
+    onCheckpoint: async (value) => { checkpoint = value; },
+  });
+
+  assert.equal(checkpoint?.toolSession?.status, "completed");
+  assert.equal(checkpoint?.research?.fingerprint, research.fingerprint);
+  assert.equal(first.evidence.items.some((item) => (item.value as { type?: unknown })?.type === "research_fact"), true);
+
+  const replayed = await new AskService(
+    { getCurrentSnapshot: async () => { throw new Error("snapshot I/O must be zero"); } },
+    undefined,
+    undefined,
+    { materialize: async () => { throw new Error("research I/O must be zero"); } },
+    { financialToolRuntime: { execute: async () => { throw new Error("tool I/O must be zero"); } } as unknown as FinancialToolRuntime, financialToolRuntimeMode: "enabled" },
+  ).execute({ runId: "ask-financial-runtime", command, attempt: 2, watchlistRevision: "watchlist-1", checkpoint });
+
+  assert.equal(replayed.evidence.fingerprint, first.evidence.fingerprint);
+  assert.equal(plannerCalls, 1);
+  assert.equal(researchCalls, 1);
+});
+
+test("a model-selected financial tool skip seals an explicit fundamentals limitation", async () => {
+  const runtime = new FinancialToolRuntime({
+    repository: new MemoryFinancialToolInvocationRepository(),
+    planner: { async plan() { return { decision: "skip", selection: { provider: "fixture", model: "fixture", fallbackIndex: 0, gatewayRequestId: "gateway-tool-skip" } }; } },
+    research: { async materialize() { throw new Error("skipped tool must not perform Research I/O"); } },
+  });
+  let checkpoint: Parameters<AskService["execute"]>[0]["checkpoint"];
+  const output = await new AskService(
+    { getCurrentSnapshot: async (request) => marketSnapshot(request) },
+    undefined,
+    undefined,
+    undefined,
+    { companyUpdateEnabled: false, financialToolRuntime: runtime, financialToolRuntimeMode: "enabled" },
+  ).execute({
+    runId: "ask-financial-tool-skip",
+    command: ask({ scope: "news_and_announcements", instrumentId: "SSE:600000" }),
+    watchlistRevision: "watchlist-1",
+    onCheckpoint: async (value) => { checkpoint = value; },
+  });
+
+  assert.equal(checkpoint?.toolSession?.status, "skipped");
+  assert.equal(checkpoint?.research, undefined);
+  assert.equal(output.result.status, "partial");
+  assert.equal(output.result.outcome?.evidence.limitations.some((item) => item.code === "FINANCIAL_TOOL_NOT_SELECTED" && item.capability === "research:fundamentals"), true);
+  assert.equal(output.evidence.items.some((item) => item.kind === "limitation" && (item.value as { code?: unknown }).code === "FINANCIAL_TOOL_NOT_SELECTED"), true);
+});
+
 test("news and announcements does not request company-update research while the runtime gate is disabled", async () => {
   let researchCalls = 0;
   let checkpoint: Parameters<AskService["execute"]>[0]["checkpoint"];
@@ -443,6 +519,54 @@ test("news and announcements does not request company-update research while the 
 
   assert.equal(researchCalls, 0);
   assert.equal(checkpoint?.research, undefined);
+});
+
+test("shadow financial runtime failures never affect the existing Ask result", async () => {
+  let checkpoint: Parameters<AskService["execute"]>[0]["checkpoint"];
+  const output = await new AskService(
+    { getCurrentSnapshot: async (input) => marketSnapshot(input) },
+    undefined,
+    undefined,
+    undefined,
+    {
+      companyUpdateEnabled: false,
+      financialToolRuntimeMode: "shadow",
+      financialToolRuntime: { execute: async () => { throw new Error("FINANCIAL_TOOL_TIMEOUT"); } } as unknown as FinancialToolRuntime,
+    },
+  ).execute({
+    runId: "ask-company-update-shadow-failure",
+    command: ask({ scope: "news_and_announcements", instrumentId: "SSE:600000" }),
+    watchlistRevision: "watchlist-1",
+    onCheckpoint: async (value) => { checkpoint = value; },
+  });
+
+  assert.equal(output.result.status, "partial");
+  assert.equal(checkpoint?.toolSession, undefined);
+  assert.equal(checkpoint?.research, undefined);
+  assert.equal(output.evidence.items.some((item) => JSON.stringify(item.value).includes("FINANCIAL_TOOL_TIMEOUT")), false);
+});
+
+test("shadow mode never suppresses Run cancellation or lease fencing", async () => {
+  for (const code of ["RUN_CANCELLED", "RUN_LEASE_LOST"]) {
+    const service = new AskService(
+      { getCurrentSnapshot: async (input) => marketSnapshot(input) },
+      undefined,
+      undefined,
+      undefined,
+      {
+        financialToolRuntimeMode: "shadow",
+        financialToolRuntime: { execute: async () => { throw new Error(code); } } as unknown as FinancialToolRuntime,
+      },
+    );
+    await assert.rejects(
+      service.execute({
+        runId: `ask-company-update-shadow-${code.toLowerCase()}`,
+        command: ask({ scope: "news_and_announcements", instrumentId: "SSE:600000" }),
+        watchlistRevision: "watchlist-1",
+      }),
+      new RegExp(code),
+    );
+  }
 });
 
 test("weekend company update does not bind financial freshness to the effective trading session", async () => {
