@@ -1,5 +1,5 @@
 import type { AIStreamEvent, GenerateAIErrorResponse } from "../../../src/lib/ai/types.ts";
-import { enforceAIAccess, enforceAITaskScope } from "../../_lib/ai/abuse.ts";
+import { enforceAIAccess, enforceAITaskScope, resolveAIRequestId } from "../../_lib/ai/abuse.ts";
 import type { AIEnv } from "../../_lib/ai/config.ts";
 import { AIError, asAIError, httpStatusForAIError } from "../../_lib/ai/errors.ts";
 import { streamAI } from "../../_lib/ai/router.ts";
@@ -45,7 +45,7 @@ function encodeEvent(encoder: TextEncoder, event: AIStreamEvent): Uint8Array {
 }
 
 export async function onRequest(context: FunctionContext): Promise<Response> {
-  const requestId = crypto.randomUUID();
+  let requestId: string = crypto.randomUUID();
   if (context.request.method !== "POST") {
     return new Response(JSON.stringify({
       ok: false, error: { code: "INVALID_INPUT", message: "Only POST is allowed." }, requestId,
@@ -54,6 +54,7 @@ export async function onRequest(context: FunctionContext): Promise<Response> {
 
   try {
     const caller = await enforceAIAccess(context.request, context.env);
+    requestId = resolveAIRequestId(context.request, caller);
     const input = await readGenerateAIRequest(context.request);
     enforceAITaskScope(caller, input.task, input.context?.source);
     const encoder = new TextEncoder();

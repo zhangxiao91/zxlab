@@ -11,7 +11,7 @@ import { generateAI, streamAI } from "../functions/_lib/ai/router.ts";
 import { validateGenerateAIInput } from "../functions/_lib/ai/validation.ts";
 import { estimateLLMCost, normalizeUsage, type LLMUsageDatabase } from "../functions/_lib/ai/telemetry.ts";
 import { resolveTaskPolicy } from "../functions/_lib/ai/task-policies.ts";
-import { enforceAIAccess, enforceAITaskScope } from "../functions/_lib/ai/abuse.ts";
+import { enforceAIAccess, enforceAITaskScope, resolveAIRequestId } from "../functions/_lib/ai/abuse.ts";
 
 const candidates: ModelCandidate[] = [
   { id: "deepseek-v4-flash-official", tier: "deepseek-flash", provider: "deepseek", providerInstance: "deepseek-official", adapter: "openai-compatible", model: "deepseek-v4-flash", baseUrl: "https://api.deepseek.com", apiKey: "deep-secret" },
@@ -253,6 +253,49 @@ test("Signal authenticates with the shared Runtime transport token and stays tas
     () => enforceAITaskScope(caller, "signal-annotation-reply", "other-service"),
     (error: unknown) => error instanceof AIError && error.code === "UNAUTHORIZED",
   );
+});
+
+test("Signal Preview authenticates with its dedicated token and stays task-scoped", async () => {
+  const caller = await enforceAIAccess(new Request("https://beta.zxlab.pages.dev/api/ai/stream", {
+    headers: { authorization: "Bearer signal-preview-transport-token" },
+  }), {
+    ENVIRONMENT: "production",
+    ZX_SIGNAL_PREVIEW_SERVICE_TOKEN: "signal-preview-transport-token",
+  });
+
+  assert.equal(caller, "signal");
+  assert.doesNotThrow(() => enforceAITaskScope(caller, "signal-briefing", "signal-worker"));
+  assert.throws(
+    () => enforceAITaskScope(caller, "portfolio-review", "signal-worker"),
+    (error: unknown) => error instanceof AIError && error.code === "UNAUTHORIZED",
+  );
+  assert.throws(
+    () => enforceAITaskScope(caller, "signal-briefing", "market-agent-worker"),
+    (error: unknown) => error instanceof AIError && error.code === "UNAUTHORIZED",
+  );
+});
+
+test("production without the optional Signal Preview token rejects that identity", async () => {
+  await assert.rejects(
+    enforceAIAccess(new Request("https://zx-dx.xyz/api/ai/stream", {
+      headers: { authorization: "Bearer signal-preview-transport-token" },
+    }), {
+      ENVIRONMENT: "production",
+      AI_GATEWAY_ACCESS_TOKEN: "general-gateway-token",
+      ZX_RUNTIME_SERVICE_TOKEN: "runtime-transport-token",
+    }),
+    (error: unknown) => error instanceof AIError && error.code === "UNAUTHORIZED",
+  );
+});
+
+test("only an authenticated Signal caller may bind its invocation id to Gateway telemetry", () => {
+  const invocationId = "8e14c2bd-aec4-4970-96e6-211e9f5d6300";
+  const request = new Request("https://beta.zxlab.pages.dev/api/ai/stream", {
+    headers: { "x-request-id": invocationId },
+  });
+  assert.equal(resolveAIRequestId(request, "signal", () => "generated"), invocationId);
+  assert.equal(resolveAIRequestId(request, "same-origin", () => "generated"), "generated");
+  assert.equal(resolveAIRequestId(new Request(request.url, { headers: { "x-request-id": "invalid" } }), "signal", () => "generated"), "generated");
 });
 
 test("Signal editorial filtering allows DeepSeek enough time for reasoning output", () => {

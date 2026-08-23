@@ -46,7 +46,20 @@ function dossiersByCandidate(storyDossiers: StoryDossier[]): Map<string, string[
 interface StoryComponent {
   order: number;
   releaseOnly: boolean;
+  candidateIndexes: number[];
   candidateIndexesByFamily: Map<string, number[]>;
+}
+
+function editionFamilyCaps(candidates: CandidateSignal[]): Map<string, number> {
+  const caps = new Map<string, number>();
+  for (const candidate of candidates) {
+    const classification = signalSourcePolicy.classify(candidate);
+    caps.set(classification.family, Math.min(
+      caps.get(classification.family) ?? classification.dailyEditionQuota,
+      classification.dailyEditionQuota,
+    ));
+  }
+  return caps;
 }
 
 function storyComponents(input: UniqueEditionCandidateInput): StoryComponent[] {
@@ -93,8 +106,9 @@ function storyComponents(input: UniqueEditionCandidateInput): StoryComponent[] {
   });
   const orderedComponents = [...components.values()].sort((left, right) => left[0]! - right[0]!);
   return orderedComponents.map((indexes) => {
-    const nonReleaseIndexes = indexes.filter((index) => !signalSourcePolicy.isReleaseNote(input.candidates[index]!));
-    const eligibleIndexes = nonReleaseIndexes.length > 0 ? nonReleaseIndexes : indexes;
+    const dailyIndexes = indexes.filter((index) => signalSourcePolicy.classify(input.candidates[index]!).dailyEligible);
+    const nonReleaseIndexes = dailyIndexes.filter((index) => !signalSourcePolicy.isReleaseNote(input.candidates[index]!));
+    const eligibleIndexes = nonReleaseIndexes.length > 0 ? nonReleaseIndexes : dailyIndexes;
     const candidateIndexesByFamily = new Map<string, number[]>();
     for (const index of eligibleIndexes) {
       const family = signalSourcePolicy.familyFor(input.candidates[index]!);
@@ -105,6 +119,7 @@ function storyComponents(input: UniqueEditionCandidateInput): StoryComponent[] {
     return {
       order: indexes[0]!,
       releaseOnly: nonReleaseIndexes.length === 0,
+      candidateIndexes: indexes,
       candidateIndexesByFamily,
     };
   });
@@ -127,6 +142,7 @@ function matchStoryFamilies(
   itemCount: number,
   familyCap: number,
   releaseLimit: number,
+  hardFamilyCaps: ReadonlyMap<string, number>,
 ): Map<number, string> | undefined {
   if (itemCount === 0) return new Map();
   if (components.length < itemCount || familyCap < 1) return undefined;
@@ -137,7 +153,11 @@ function matchStoryFamilies(
       if (!families.has(family)) families.set(family, families.size);
     }
   }
-  if (families.size * familyCap < itemCount) return undefined;
+  const totalFamilyCapacity = [...families.keys()].reduce(
+    (total, family) => total + Math.min(familyCap, hardFamilyCaps.get(family) ?? familyCap),
+    0,
+  );
+  if (totalFamilyCapacity < itemCount) return undefined;
 
   const sourceNode = 0;
   const nonReleaseNode = 1;
@@ -156,7 +176,9 @@ function matchStoryFamilies(
 
   addEdge(sourceNode, nonReleaseNode, itemCount);
   addEdge(sourceNode, releaseNode, Math.min(itemCount, Math.max(0, releaseLimit)));
-  for (const [, familyIndex] of families) addEdge(familyStart + familyIndex, sinkNode, familyCap);
+  for (const [family, familyIndex] of families) {
+    addEdge(familyStart + familyIndex, sinkNode, Math.min(familyCap, hardFamilyCaps.get(family) ?? familyCap));
+  }
 
   const assignmentEdges: Array<Array<{ family: string; edge: FlowEdge }>> = [];
   components.forEach((component, componentIndex) => {
@@ -220,6 +242,7 @@ function matchStoryFamilies(
  */
 export function selectUniqueEditionCandidates(input: UniqueEditionCandidateInput): CandidateSignal[] {
   const components = storyComponents(input);
+  const hardFamilyCaps = editionFamilyCaps(input.candidates);
   const requestedLimit = Math.max(0, Math.min(input.limit ?? components.length, components.length));
   const nonReleaseCount = components.filter((component) => !component.releaseOnly).length;
   const releaseCount = components.length - nonReleaseCount;
@@ -238,6 +261,7 @@ export function selectUniqueEditionCandidates(input: UniqueEditionCandidateInput
       limit,
       familyCap,
       signalSourcePolicy.releaseNoteLimit(limit),
+      hardFamilyCaps,
     );
     if (!assignment) continue;
     return [...assignment.entries()]
@@ -257,6 +281,13 @@ export function selectUniqueEditionCandidates(input: UniqueEditionCandidateInput
  */
 export function assertEditionQuality(input: EditionQualityInput): GeneratedBriefingDraft {
   const candidatesById = new Map(input.candidates.map((candidate) => [candidate.id, candidate]));
+  const candidateComponent = new Map<string, number>();
+  storyComponents({ candidates: input.candidates, storyDossiers: input.storyDossiers })
+    .forEach((component, componentIndex) => {
+      component.candidateIndexes.forEach((candidateIndex) => {
+        candidateComponent.set(input.candidates[candidateIndex]!.id, componentIndex);
+      });
+    });
   const firstItemBySourceId = new Map<string, number>();
   const firstItemByUrl = new Map<string, number>();
   const firstItemByHash = new Map<string, number>();
@@ -274,8 +305,31 @@ export function assertEditionQuality(input: EditionQualityInput): GeneratedBrief
   };
 
   input.draft.items.forEach((item, itemIndex) => {
+    const storyComponentIds = new Set(item.sourceIds.map((sourceId) => candidateComponent.get(sourceId)));
+    if (storyComponentIds.size > 1) {
+      throw new SignalValidationError(
+        `Edition quality rejected item ${itemIndex + 1} sources from unrelated story components`,
+      );
+    }
     const primaryCandidate = candidatesById.get(item.sourceIds[0]!);
-    if (primaryCandidate && signalSourcePolicy.isReleaseNote(primaryCandidate)) releaseNoteCount += 1;
+    if (primaryCandidate) {
+      const primaryClassification = signalSourcePolicy.classify(primaryCandidate);
+      if (!primaryClassification.dailyEligible) {
+        throw new SignalValidationError(
+          `Edition quality rejected non-daily source ${primaryCandidate.source.sourceId} as item ${itemIndex + 1} primary evidence`,
+        );
+      }
+      if (primaryClassification.releaseNote) releaseNoteCount += 1;
+    }
+    if (itemIndex === 0) {
+      const leadFamilies = new Set(item.sourceIds.map((sourceId) => {
+        const candidate = candidatesById.get(sourceId);
+        return candidate ? signalSourcePolicy.familyFor(candidate) : "unknown";
+      }));
+      if (leadFamilies.size === 1 && leadFamilies.has("producthunt")) {
+        throw new SignalValidationError("Edition quality rejected Product Hunt-only lead without independent supporting evidence");
+      }
+    }
     for (const sourceId of item.sourceIds) {
       const candidate = candidatesById.get(sourceId);
       if (!candidate) throw new SignalValidationError(`Edition quality found unknown candidate sourceId ${sourceId}`);
@@ -313,19 +367,21 @@ export function assertEditionQuality(input: EditionQualityInput): GeneratedBrief
     );
   }
   const familyCap = Math.floor(itemCount / 3);
+  const hardFamilyCaps = editionFamilyCaps(input.candidates);
   const familyAssignment = matchStoryFamilies(
     storyComponents({ candidates: input.candidates, storyDossiers: input.storyDossiers }),
     itemCount,
     familyCap,
     signalSourcePolicy.releaseNoteLimit(itemCount),
+    hardFamilyCaps,
   );
-  if (familyAssignment) {
-    for (const [family, itemIndexes] of familyItems) {
-      if (itemIndexes.size > familyCap) {
-        throw new SignalValidationError(
-          `Edition quality rejected source family ${family} in ${itemIndexes.size}/${itemCount} items; maximum ${familyCap} when diverse candidates are available`,
-        );
-      }
+  for (const [family, itemIndexes] of familyItems) {
+    const hardCap = hardFamilyCaps.get(family) ?? Number.POSITIVE_INFINITY;
+    const effectiveCap = Math.min(familyAssignment ? familyCap : Number.POSITIVE_INFINITY, hardCap);
+    if (itemIndexes.size > effectiveCap) {
+      throw new SignalValidationError(
+        `Edition quality rejected source family ${family} in ${itemIndexes.size}/${itemCount} items; maximum ${effectiveCap}${familyAssignment ? " when diverse candidates are available" : " by source policy"}`,
+      );
     }
   }
 

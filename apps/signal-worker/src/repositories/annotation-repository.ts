@@ -1,5 +1,6 @@
-import type { Annotation, AnnotationInput, AnnotationReply, BriefingItem, MemoryCandidate } from "@zxlab/signal-schema";
+import type { Annotation, AnnotationAction, AnnotationInput, AnnotationReply, AnnotationResponse, BriefingItem, MemoryCandidate, MemoryCandidateStatus } from "@zxlab/signal-schema";
 import { SignalError } from "../lib/errors";
+import type { AnnotationOperationCommit } from "../services/annotation-operation";
 
 export interface AnnotationItemContext extends BriefingItem {
   briefingId: string;
@@ -37,10 +38,53 @@ export class AnnotationRepository {
     };
   }
 
-  async save(input: { request: AnnotationInput; annotation: Annotation; reply: AnnotationReply; memoryCandidate?: MemoryCandidate }): Promise<void> {
+  async getResponse(annotationId: string): Promise<AnnotationResponse> {
+    const annotation = await this.db.prepare(`SELECT id, briefing_id, briefing_item_id, selected_text, comment, action_type, created_at
+      FROM annotations WHERE id=?`).bind(annotationId).first<{
+        id: string; briefing_id: string; briefing_item_id: string; selected_text: string; comment: string;
+        action_type: AnnotationAction; created_at: string;
+      }>();
+    if (!annotation) throw new SignalError("ITEM_NOT_FOUND", "Committed annotation was not found", 404);
+    const reply = await this.db.prepare(`SELECT id, annotation_id, content, model, created_at FROM annotation_messages
+      WHERE annotation_id=? AND role='assistant' ORDER BY created_at DESC LIMIT 1`).bind(annotationId).first<{
+        id: string; annotation_id: string; content: string; model: string | null; created_at: string;
+      }>();
+    if (!reply) throw new SignalError("ITEM_NOT_FOUND", "Committed annotation reply was not found", 404);
+    const candidate = await this.db.prepare(`SELECT id, namespace, kind, content, confidence, reason, status, created_at, resolved_at
+      FROM memory_consolidation_candidates WHERE source_event_ids_json=? ORDER BY created_at DESC LIMIT 1`)
+      .bind(JSON.stringify([annotationId])).first<{
+        id: string; namespace: string | null; kind: string | null; content: string | null; confidence: number | null;
+        reason: string; status: MemoryCandidateStatus; created_at: string; resolved_at: string | null;
+      }>();
+    const memoryCandidate: MemoryCandidate | undefined = candidate?.content && candidate.confidence !== null ? {
+      id: candidate.id,
+      annotationId,
+      scope: candidate.namespace === "global" ? "preference" : candidate.kind === "fact" ? "belief"
+        : candidate.namespace === "briefing" ? "discussion" : "project",
+      scopeKey: candidate.namespace === "zxlab" || candidate.namespace === "markets" ? candidate.namespace : undefined,
+      content: candidate.content,
+      confidence: candidate.confidence,
+      reason: candidate.reason,
+      status: candidate.status,
+      createdAt: candidate.created_at,
+      resolvedAt: candidate.resolved_at ?? undefined,
+    } : undefined;
+    return {
+      annotation: { id: annotation.id, briefingId: annotation.briefing_id, briefingItemId: annotation.briefing_item_id,
+        selectedText: annotation.selected_text, comment: annotation.comment, action: annotation.action_type, createdAt: annotation.created_at },
+      reply: { id: reply.id, annotationId: reply.annotation_id, content: reply.content, model: reply.model ?? undefined, createdAt: reply.created_at },
+      memoryCandidate,
+    };
+  }
+
+  async save(input: { request: AnnotationInput; annotation: Annotation; reply: AnnotationReply; memoryCandidate?: MemoryCandidate;
+    operation?: AnnotationOperationCommit }): Promise<void> {
     const statements = [
-      this.db.prepare(`INSERT INTO annotations (id, briefing_id, briefing_item_id, selected_text, comment, action_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
-        .bind(input.annotation.id, input.annotation.briefingId, input.annotation.briefingItemId, input.annotation.selectedText, input.annotation.comment, input.annotation.action, input.annotation.createdAt),
+      this.db.prepare(`INSERT INTO annotations
+        (id, briefing_id, briefing_item_id, selected_text, comment, action_type, created_at, operation_key_hash)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+        .bind(input.annotation.id, input.annotation.briefingId, input.annotation.briefingItemId, input.annotation.selectedText,
+          input.annotation.comment, input.annotation.action, input.annotation.createdAt, input.operation?.keyHash ?? null),
       this.db.prepare(`INSERT INTO annotation_messages (id, annotation_id, role, content, model, created_at) VALUES (?, ?, 'user', ?, NULL, ?)`)
         .bind(crypto.randomUUID(), input.annotation.id, input.request.comment, input.annotation.createdAt),
       this.db.prepare(`INSERT INTO annotation_messages (id, annotation_id, role, content, model, created_at) VALUES (?, ?, 'assistant', ?, ?, ?)`)
@@ -58,6 +102,11 @@ export class AnnotationRepository {
         VALUES (?, 'create', ?, ?, ?, ?, ?, ?, ?, 'proposed', ?)`)
         .bind(input.memoryCandidate.id, input.memoryCandidate.reason, namespace, kind, input.memoryCandidate.content,
           input.memoryCandidate.confidence, input.memoryCandidate.confidence, JSON.stringify([input.annotation.id]), input.memoryCandidate.createdAt));
+    }
+    if (input.operation) {
+      statements.push(this.db.prepare(`UPDATE annotation_operations SET status='succeeded', annotation_id=?, lease_token=NULL,
+        lease_expires_at=NULL, error_code=NULL, updated_at=? WHERE key_hash=?`)
+        .bind(input.annotation.id, input.annotation.createdAt, input.operation.keyHash));
     }
     try { await this.db.batch(statements); }
     catch (cause) { throw new SignalError("DATABASE_WRITE_FAILED", "The annotation could not be persisted", 500, cause); }

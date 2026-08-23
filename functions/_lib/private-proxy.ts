@@ -19,6 +19,7 @@ type PrivateService = "runtime" | "signal" | "market-agent";
 export interface PrivateProxyDependencies {
   verifyAccess?: typeof verifyCloudflareAccess;
   fetcher?: typeof fetch;
+  createTraceId?: () => string;
 }
 
 const jsonHeaders = {
@@ -61,16 +62,20 @@ function target(service: PrivateService, rawPath: string, method: string, env: P
 }
 
 export async function proxyPrivateRequest(context: PrivateProxyContext, service: PrivateService, rawPath: string, dependencies: PrivateProxyDependencies = {}): Promise<Response> {
+  const startedAt = Date.now();
+  const traceId = (dependencies.createTraceId ?? (() => crypto.randomUUID()))();
+  const method = context.request.method.toUpperCase();
+  const pathname = `/${rawPath.replace(/^\/+/, "")}`;
   try {
     const actor = await resolveAccessActor(context.request, context.env, { verifyAccess: dependencies.verifyAccess });
     const token = (service === "market-agent" ? context.env.MARKET_AGENT_PROXY_TOKEN : context.env.ZX_RUNTIME_SERVICE_TOKEN)?.trim();
     if (!token) throw new RiskReviewError("PRIVATE_PROXY_UNAVAILABLE", "Private service credentials are unavailable.", 503);
 
-    const method = context.request.method.toUpperCase();
     const upstream = target(service, rawPath, method, context.env);
     upstream.search = new URL(context.request.url).search;
     requireActorScope(actor, privateScope(service, method));
     const headers = new Headers({ Authorization: `Bearer ${token}`, Accept: context.request.headers.get("accept") ?? "application/json" });
+    headers.set("X-ZX-Trace-Id", traceId);
     if (service === "market-agent") {
       const issuedAt = Math.floor(Date.now() / 1_000);
       headers.set("X-ZX-Actor", await signActorEnvelope({
@@ -89,6 +94,8 @@ export async function proxyPrivateRequest(context: PrivateProxyContext, service:
     }
     const contentType = context.request.headers.get("content-type");
     if (contentType) headers.set("Content-Type", contentType);
+    const idempotencyKey = context.request.headers.get("idempotency-key");
+    if (service === "signal" && idempotencyKey) headers.set("Idempotency-Key", idempotencyKey);
     const fetcher = dependencies.fetcher ?? (service === "market-agent" && context.env.MARKET_AGENT_SERVICE
       ? (input: RequestInfo | URL, init?: RequestInit) => context.env.MARKET_AGENT_SERVICE!.fetch(new Request(input, init))
       : fetch);
@@ -99,7 +106,8 @@ export async function proxyPrivateRequest(context: PrivateProxyContext, service:
       redirect: "manual",
     });
     if (response.status === 401) {
-      console.error(JSON.stringify({ event: "private_proxy.upstream_auth_failed", service, path: upstream.pathname }));
+      console.error(JSON.stringify({ event: "private_proxy.upstream_auth_failed", service, traceId, method, pathname: upstream.pathname,
+        status: response.status, durationMs: Date.now() - startedAt, errorCode: "PRIVATE_UPSTREAM_AUTH_FAILED" }));
       throw new RiskReviewError("PRIVATE_UPSTREAM_AUTH_FAILED", "Private service authentication failed.", 502);
     }
     const responseHeaders = new Headers(jsonHeaders);
@@ -107,10 +115,18 @@ export async function proxyPrivateRequest(context: PrivateProxyContext, service:
       const value = response.headers.get(name);
       if (value) responseHeaders.set(name, value);
     }
+    responseHeaders.set("X-ZX-Trace-Id", traceId);
+    console.log(JSON.stringify({ event: "private_proxy.completed", service, traceId, method, pathname: upstream.pathname,
+      status: response.status, durationMs: Date.now() - startedAt }));
     return new Response(response.body, { status: response.status, statusText: response.statusText, headers: responseHeaders });
   } catch (cause) {
     const error = cause instanceof RiskReviewError ? cause : new RiskReviewError("PRIVATE_PROXY_UNAVAILABLE", "Private service is temporarily unavailable.", 502, { cause });
-    return new Response(JSON.stringify({ error: { code: error.code, message: error.safeMessage } }), { status: error.status, headers: jsonHeaders });
+    console.error(JSON.stringify({ event: "private_proxy.failed", service, traceId, method, pathname,
+      status: error.status, durationMs: Date.now() - startedAt, errorCode: error.code }));
+    return new Response(JSON.stringify({ error: { code: error.code, message: error.safeMessage } }), {
+      status: error.status,
+      headers: { ...jsonHeaders, "X-ZX-Trace-Id": traceId },
+    });
   }
 }
 

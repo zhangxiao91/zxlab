@@ -61,7 +61,8 @@ interface JsonRunOptions<T> {
 }
 
 function gatewayToken(env: Env): string {
-  return String(env.ZX_RUNTIME_SERVICE_TOKEN ?? "").trim();
+  return String(env.ZX_SIGNAL_PREVIEW_SERVICE_TOKEN ?? "").trim()
+    || String(env.ZX_RUNTIME_SERVICE_TOKEN ?? "").trim();
 }
 
 function partialJsonStringField(source: string, field: string): string | undefined {
@@ -240,9 +241,9 @@ export class ProjectApiSignalLLM implements SignalLLM {
     } catch (cause) {
       if (cause instanceof GatewayRequestError) failureCode = cause.failureCode;
       const invalid = cause instanceof SignalValidationError || cause instanceof SyntaxError;
-      if (!invalid && failureCode === "MODEL_REQUEST_FAILED" && cause instanceof Error) {
-        const detail = `${cause.name}_${cause.message}`.replace(/[^a-zA-Z0-9_.-]+/g, "_");
-        failureCode = `FETCH_${detail}`.slice(0, 120);
+      if (!invalid && failureCode === "MODEL_REQUEST_FAILED") {
+        failureCode = cause instanceof DOMException && cause.name === "TimeoutError" ? "GATEWAY_TIMEOUT"
+          : cause instanceof TypeError ? "GATEWAY_FETCH_FAILED" : "MODEL_REQUEST_FAILED";
       }
       await this.invocations.fail(invocationId, invalid ? "INVALID_MODEL_OUTPUT" : failureCode);
       console.error(JSON.stringify({
@@ -250,8 +251,7 @@ export class ProjectApiSignalLLM implements SignalLLM {
         task: options.task,
         model: this.env.ZX_SIGNAL_LLM_LABEL,
         promptVersion: options.promptVersion,
-        errorType: cause instanceof Error ? cause.name : "Unknown",
-        errorMessage: cause instanceof Error ? cause.message.slice(0, 240) : "Unknown model failure",
+        errorCode: invalid ? "INVALID_MODEL_OUTPUT" : failureCode,
       }));
       if (invalid && options.repair) return this.repairJson(options, cause);
       throw new SignalError(invalid ? "INVALID_MODEL_OUTPUT" : "MODEL_REQUEST_FAILED",

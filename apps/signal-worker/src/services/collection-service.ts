@@ -60,8 +60,8 @@ export class CollectionService {
       } catch (cause) {
         failedSources += 1;
         const error = cause instanceof SignalError ? cause : new SignalError("SOURCE_FETCH_FAILED", "Source collection failed", 502, cause);
-        errors.push(`${source.id}:${error.code}:${error.message.replace(/\s+/g, " ").slice(0, 240)}`);
-        await this.repository.failSourceRun(sourceRunId, error.code, error.message);
+        errors.push(`${source.id}:${error.code}`);
+        await this.repository.failSourceRun(sourceRunId, error.code);
       }
     }
     await this.repository.finalizeRun(runId, { successSources, failedSources, fetched, inserted, duplicates, errors });
@@ -86,7 +86,7 @@ export class CollectionService {
       if (!source.enabled || (request.sourceTypes?.length && !request.sourceTypes.includes(source.type))) return false;
       const missingSecret = this.missingSecret(source);
       if (missingSecret) {
-        console.warn(JSON.stringify({ event: "signal_source_skipped", sourceId: source.id, reason: "missing_secret", secret: missingSecret }));
+        console.warn(JSON.stringify({ event: "signal_source_skipped", sourceId: source.id, reason: "missing_secret" }));
         return false;
       }
       return true;

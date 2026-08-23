@@ -70,7 +70,8 @@ export async function requireWriteAccess(request: Request, env: Env, pathname = 
   if (marketAgentToken && marketAgentMemoryRoute(request, pathname) && providedBearer && await safeEqual(providedBearer, marketAgentToken)) return;
 
   if (String(env.ENVIRONMENT) === "development") {
-    if (providedBearer && await safeEqual(providedBearer, env.ZX_SIGNAL_WRITE_TOKEN)) return;
+    const writeToken = String(env.ZX_SIGNAL_WRITE_TOKEN ?? "").trim();
+    if (writeToken && providedBearer && await safeEqual(providedBearer, writeToken)) return;
     throw new SignalError("UNAUTHORIZED", "A valid local development write token is required", 401);
   }
 

@@ -1,5 +1,8 @@
 import type { SignalCategory, SignalSourceType } from "@zxlab/signal-schema";
 
+export type SignalDeliveryMode = "daily" | "inbox" | "weekly" | "watch-only" | "disabled";
+export type SignalMaterialityPolicy = "standard" | "cloudflare-material-change" | "product-launch";
+
 export interface SignalSourceConfig {
   id: string;
   name: string;
@@ -7,7 +10,11 @@ export interface SignalSourceConfig {
   type: SignalSourceType;
   enabled: boolean;
   categoryHint: SignalCategory;
-  priority: number;
+  collectionPriority: number;
+  dailyCandidateQuota: number;
+  dailyEditionQuota: number;
+  materialityPolicy: SignalMaterialityPolicy;
+  deliveryMode: SignalDeliveryMode;
   url?: string;
   repository?: string;
   query?: string;
@@ -22,7 +29,17 @@ export interface SignalSourceConfig {
   tags: string[];
 }
 
-export const SIGNAL_SOURCES: readonly SignalSourceConfig[] = [
+type SignalSourceDefinition = Omit<SignalSourceConfig,
+  "collectionPriority" | "dailyCandidateQuota" | "dailyEditionQuota" | "materialityPolicy" | "deliveryMode"
+> & {
+  priority: number;
+  dailyCandidateQuota?: number;
+  dailyEditionQuota?: number;
+  materialityPolicy?: SignalMaterialityPolicy;
+  deliveryMode?: SignalDeliveryMode;
+};
+
+const SIGNAL_SOURCE_DEFINITIONS: readonly SignalSourceDefinition[] = [
   {
     id: "cloudflare-developer-platform",
     name: "Cloudflare Developer Platform Changelog",
@@ -30,12 +47,16 @@ export const SIGNAL_SOURCES: readonly SignalSourceConfig[] = [
     type: "rss",
     enabled: true,
     categoryHint: "zxlab",
-    priority: 100,
+    priority: 40,
     url: "https://developers.cloudflare.com/changelog/rss/developer-platform.xml",
-    maxItemsPerRun: 24,
+    maxItemsPerRun: 6,
     lookbackHours: 168,
     tags: ["cloudflare", "workers", "d1", "workflows", "ai-gateway"],
     dedupGroup: "cloudflare-platform",
+    dailyCandidateQuota: 2,
+    dailyEditionQuota: 1,
+    materialityPolicy: "cloudflare-material-change",
+    deliveryMode: "weekly",
   },
   {
     id: "github-workers-sdk-releases",
@@ -44,13 +65,17 @@ export const SIGNAL_SOURCES: readonly SignalSourceConfig[] = [
     type: "github-release",
     enabled: true,
     categoryHint: "zxlab",
-    priority: 90,
+    priority: 35,
     repository: "cloudflare/workers-sdk",
     includePrereleases: false,
-    maxItemsPerRun: 12,
+    maxItemsPerRun: 4,
     lookbackHours: 336,
     tags: ["cloudflare", "workers", "open-source", "sdk"],
     dedupGroup: "github-releases",
+    dailyCandidateQuota: 2,
+    dailyEditionQuota: 1,
+    materialityPolicy: "cloudflare-material-change",
+    deliveryMode: "weekly",
   },
   {
     id: "github-openai-node-releases",
@@ -290,13 +315,24 @@ export const SIGNAL_SOURCES: readonly SignalSourceConfig[] = [
     type: "producthunt",
     enabled: true,
     categoryHint: "ai-engineering",
-    priority: 42,
+    priority: 76,
     requiresSecret: "PRODUCTHUNT_DEVELOPER_TOKEN",
-    topics: ["Artificial Intelligence", "Developer Tools"],
+    topics: [
+      "Artificial Intelligence",
+      "Developer Tools",
+      "Productivity",
+      "Personal Knowledge Management",
+      "Research Tools",
+      "Design Tools",
+    ],
     maxItemsPerRun: 20,
     lookbackHours: 72,
     tags: ["producthunt", "launch", "devtools", "ai"],
     dedupGroup: "product-launches",
+    dailyCandidateQuota: 3,
+    dailyEditionQuota: 2,
+    materialityPolicy: "product-launch",
+    deliveryMode: "daily",
   },
   {
     id: "openai-official-updates",
@@ -359,6 +395,25 @@ export const SIGNAL_SOURCES: readonly SignalSourceConfig[] = [
     dedupGroup: "a-share-market-news",
   },
 ] as const;
+
+export const SIGNAL_SOURCES: readonly SignalSourceConfig[] = SIGNAL_SOURCE_DEFINITIONS.map((definition) => {
+  const {
+    priority,
+    dailyCandidateQuota = 3,
+    dailyEditionQuota = 12,
+    materialityPolicy = "standard",
+    deliveryMode = "daily",
+    ...source
+  } = definition;
+  return {
+    ...source,
+    collectionPriority: priority,
+    dailyCandidateQuota,
+    dailyEditionQuota,
+    materialityPolicy,
+    deliveryMode,
+  };
+});
 
 export function findSource(id: string): SignalSourceConfig | undefined {
   return SIGNAL_SOURCES.find((source) => source.id === id);

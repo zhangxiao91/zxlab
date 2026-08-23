@@ -2,6 +2,7 @@ import type { AnnotationInput, AnnotationResponse, MemoryCandidate } from "@zxla
 import { AnnotationRepository } from "../repositories/annotation-repository";
 import type { SignalLLM } from "./llm";
 import { MemoryService } from "../memory/service/memory-service";
+import type { AnnotationOperationCommit } from "./annotation-operation";
 
 export interface AnnotationResponseObserver {
   replyDelta?(text: string): void;
@@ -19,7 +20,7 @@ export class AnnotationResponder {
     this.memories = new MemoryService(env.DB);
   }
 
-  async respond(input: AnnotationInput, observer: AnnotationResponseObserver = {}): Promise<AnnotationResponse> {
+  async respond(input: AnnotationInput, observer: AnnotationResponseObserver = {}, operation?: AnnotationOperationCommit): Promise<AnnotationResponse> {
     const item = await this.annotations.getItemContext(input.briefingId, input.briefingItemId);
     const retrieved = await this.memories.retrieve({
       task: "signal-annotation-reply",
@@ -49,7 +50,6 @@ export class AnnotationResponder {
     const annotation = { id: annotationId, briefingId: input.briefingId, briefingItemId: input.briefingItemId,
       selectedText: input.selectedText, comment: input.comment, action: input.action, createdAt };
     const reply = { id: crypto.randomUUID(), annotationId, content: replyDraft.reply, createdAt: new Date().toISOString(), model: this.env.ZX_SIGNAL_LLM_LABEL };
-    observer.replyReady?.({ annotation, reply });
     let memoryCandidate: MemoryCandidate | undefined;
     if (input.action !== "track") {
       const memoryDraft = await this.llm.extractMemory({ item, selectedText: input.selectedText, comment: input.comment, action: input.action, reply: replyDraft.reply });
@@ -59,8 +59,9 @@ export class AnnotationResponder {
           confidence: memoryDraft.confidence, reason: memoryDraft.reason, status: "proposed", createdAt: new Date().toISOString() };
       }
     }
+    await this.annotations.save({ request: input, annotation, reply, memoryCandidate, operation });
+    observer.replyReady?.({ annotation, reply });
     observer.memoryReady?.(memoryCandidate);
-    await this.annotations.save({ request: input, annotation, reply, memoryCandidate });
     return { annotation, reply, memoryCandidate };
   }
 }

@@ -183,7 +183,7 @@ describe("edition quality", () => {
 
   it("enforces the final release-note invariant from each item's primary source", () => {
     const candidates = [
-      candidate("release-1", "cloudflare-developer-platform"),
+      candidate("release-1", "github-google-genai-js-releases"),
       candidate("release-2", "github-openai-node-releases"),
       candidate("release-3", "anthropic-official-updates"),
       candidate("news-1", "mit-technology-review"),
@@ -204,9 +204,77 @@ describe("edition quality", () => {
     })).toThrow(/1\/1 routine release-note items.*maximum 0/i);
   });
 
+  it("enforces source-policy edition quotas without relaxing them", () => {
+    const cloudflare = [
+      { ...candidate("cf-1", "cloudflare-developer-platform"), title: "Breaking change to Workers bindings" },
+      { ...candidate("cf-2", "github-workers-sdk-releases"), title: "Security vulnerability fixed in Workers SDK" },
+    ];
+    const productHunt = [
+      candidate("ph-1", "producthunt-ai-devtools"),
+      candidate("ph-2", "producthunt-ai-devtools"),
+      candidate("ph-3", "producthunt-ai-devtools"),
+    ];
+    const reporting = Array.from({ length: 5 }, (_, index) => candidate(`news-${index}`, `publisher-${index}`));
+    const candidates = [...cloudflare, ...productHunt, ...reporting];
+    const storyDossiers = candidates.map((value) => dossier(`story-${value.id}`, [value.id]));
+
+    expect(() => assertEditionQuality({
+      draft: draft([["cf-1"], ["cf-2"], ["news-0"], ["news-1"], ["news-2"], ["news-3"]]),
+      candidates,
+      storyDossiers,
+    })).toThrow(/source family cloudflare.*2.*maximum 1/i);
+
+    expect(() => assertEditionQuality({
+      draft: draft([["news-0"], ["ph-1"], ["ph-2"], ["ph-3"], ["news-1"], ["news-2"]]),
+      candidates,
+      storyDossiers,
+    })).toThrow(/source family producthunt.*3.*maximum 2/i);
+
+    const selected = selectUniqueEditionCandidates({ candidates, storyDossiers, limit: 8 });
+    expect(selected.filter((value) => value.source.sourceId.startsWith("cloudflare-") || value.source.sourceId === "github-workers-sdk-releases")).toHaveLength(1);
+    expect(selected.filter((value) => value.source.sourceId === "producthunt-ai-devtools")).toHaveLength(2);
+  });
+
+  it("rejects a Product Hunt-only lead unless independent evidence supports it", () => {
+    const ph = candidate("ph-lead", "producthunt-ai-devtools");
+    const independent = candidate("independent", "publisher-independent");
+
+    expect(() => assertEditionQuality({
+      draft: draft([[ph.id], [independent.id]]),
+      candidates: [ph, independent],
+      storyDossiers: [dossier("story-ph", [ph.id]), dossier("story-independent", [independent.id])],
+    })).toThrow(/Product Hunt-only lead.*independent/i);
+
+    expect(assertEditionQuality({
+      draft: draft([[ph.id, independent.id]]),
+      candidates: [ph, independent],
+      storyDossiers: [dossier("story-supported", [ph.id, independent.id])],
+    }).items).toHaveLength(1);
+  });
+
+  it("rejects unrelated candidates packed into one item to bypass family quotas", () => {
+    const candidates = [
+      { ...candidate("cf-1", "cloudflare-developer-platform"), title: "Breaking change to Workers bindings" },
+      { ...candidate("cf-2", "github-workers-sdk-releases"), title: "Security vulnerability in Workers SDK" },
+      candidate("ph-1", "producthunt-ai-devtools"),
+      candidate("independent", "publisher-independent"),
+    ];
+
+    for (const sourceIds of [["cf-1", "cf-2"], ["ph-1", "independent"]]) {
+      expect(() => assertEditionQuality({
+        draft: draft([sourceIds]),
+        candidates,
+        storyDossiers: candidates.map((value) => dossier(`story-${value.id}`, [value.id])),
+      })).toThrow(/unrelated story components/i);
+    }
+  });
+
   it("selects the largest deterministic fallback subset that satisfies the release-note invariant", () => {
     const candidates = [
-      ...Array.from({ length: 4 }, (_, index) => candidate(`release-${index}`, "cloudflare-developer-platform")),
+      candidate("release-0", "github-openai-node-releases"),
+      candidate("release-1", "github-anthropic-sdk-typescript-releases"),
+      candidate("release-2", "github-google-genai-js-releases"),
+      candidate("release-3", "anthropic-official-updates"),
       candidate("news-1", "mit-technology-review"),
       candidate("news-2", "the-verge-ai"),
       candidate("news-3", "techcrunch-ai"),
@@ -219,7 +287,12 @@ describe("edition quality", () => {
     });
 
     expect(selected).toHaveLength(6);
-    expect(selected.filter((value) => value.source.sourceId === "cloudflare-developer-platform")).toHaveLength(2);
+    expect(selected.filter((value) => [
+      "github-openai-node-releases",
+      "github-anthropic-sdk-typescript-releases",
+      "github-google-genai-js-releases",
+      "anthropic-official-updates",
+    ].includes(value.source.sourceId))).toHaveLength(2);
     expect(selectUniqueEditionCandidates({
       candidates: candidates.slice(0, 4),
       storyDossiers: candidates.slice(0, 4).map((value) => dossier(`story-${value.id}`, [value.id])),

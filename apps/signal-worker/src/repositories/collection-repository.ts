@@ -101,7 +101,7 @@ export class CollectionRepository {
       ON CONFLICT(id) DO UPDATE SET name=excluded.name, type=excluded.type, enabled=excluded.enabled,
         source_family=excluded.source_family, category_hint=excluded.category_hint, priority=excluded.priority,
         config_json=excluded.config_json, updated_at=excluded.updated_at`)
-      .bind(source.id, source.name, source.family, source.type, source.enabled ? 1 : 0, source.categoryHint, source.priority,
+      .bind(source.id, source.name, source.family, source.type, source.enabled ? 1 : 0, source.categoryHint, source.collectionPriority,
         JSON.stringify(source), now, now)), retryOptions);
   }
 
@@ -124,9 +124,9 @@ export class CollectionRepository {
       .bind(new Date().toISOString(), counts.fetched, counts.inserted, counts.duplicates, id).run();
   }
 
-  async failSourceRun(id: string, code: string, message: string): Promise<void> {
+  async failSourceRun(id: string, code: string): Promise<void> {
     await this.db.prepare(`UPDATE collection_source_runs SET status='failed', completed_at=?, error_code=?, error_message=? WHERE id=?`)
-      .bind(new Date().toISOString(), code, message.slice(0, 500), id).run();
+      .bind(new Date().toISOString(), code, null, id).run();
   }
 
   async persistCandidate(value: CandidateSignal, dryRun = false): Promise<{ inserted: boolean; duplicate: boolean; candidate: CandidateSignal }> {
@@ -188,13 +188,28 @@ export class CollectionRepository {
     return { ...run(row), sources: sources.results.map((source) => ({ id: source.id, collectionRunId: source.collection_run_id,
       sourceId: source.source_id, sourceName: source.source_name ?? undefined, status: source.status, startedAt: source.started_at,
       completedAt: source.completed_at ?? undefined, fetchedCount: source.fetched_count, insertedCount: source.inserted_count,
-      duplicateCount: source.duplicate_count, errorCode: source.error_code ?? undefined, errorMessage: source.error_message ?? undefined })) };
+      duplicateCount: source.duplicate_count, errorCode: source.error_code ?? undefined })) };
   }
 
   async getCandidate(id: string): Promise<CandidateListItem> {
     const row = await this.db.prepare(`${this.candidateSelect()} WHERE c.id=?`).bind(id).first<CandidateRow>();
     if (!row) throw new SignalError("SOURCE_NOT_FOUND", "Candidate not found", 404);
     return { ...candidate(row), editorialDecision: decision(row) };
+  }
+
+  async candidatesByIds(ids: string[], collectionRunId: string): Promise<CandidateSignal[]> {
+    if (ids.length === 0) return [];
+    const uniqueIds = [...new Set(ids)];
+    const placeholders = uniqueIds.map(() => "?").join(",");
+    const result = await this.db.prepare(`${this.candidateSelect()}
+      WHERE c.collection_run_id=? AND c.id IN (${placeholders})`)
+      .bind(collectionRunId, ...uniqueIds).all<CandidateRow>();
+    const byId = new Map(result.results.map((row) => [row.id, candidate(row)]));
+    const ordered = ids.map((id) => byId.get(id));
+    if (ordered.some((value) => !value)) {
+      throw new SignalError("DATABASE_WRITE_FAILED", "Daily pipeline candidate checkpoint is incomplete", 409);
+    }
+    return ordered as CandidateSignal[];
   }
 
   async listCandidates(filters: {

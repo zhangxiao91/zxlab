@@ -7,7 +7,7 @@ import { transformGitHubReleases } from "../src/collectors/github-releases";
 import { HackerNewsCollector, transformHackerNewsStory } from "../src/collectors/hacker-news";
 import { transformHfDailyPapers } from "../src/collectors/hf-daily-papers";
 import { transformMarketNews } from "../src/collectors/market-news";
-import { transformProductHuntPosts } from "../src/collectors/producthunt";
+import { ProductHuntCollector, transformProductHuntPosts } from "../src/collectors/producthunt";
 import { parseFeed } from "../src/collectors/rss";
 import { parseWebChangelog } from "../src/collectors/web-changelog";
 import { findSource } from "../src/config/sources";
@@ -29,6 +29,39 @@ const collector: SignalCollector = {
 };
 
 describe("Signal collection pipeline", () => {
+  it("configures Product Hunt for the personal product-discovery interests", () => {
+    expect(findSource("producthunt-ai-devtools")?.topics).toEqual([
+      "Artificial Intelligence",
+      "Developer Tools",
+      "Productivity",
+      "Personal Knowledge Management",
+      "Research Tools",
+      "Design Tools",
+    ]);
+  });
+
+  it("matches Product Hunt against exact API topics rather than launch copy", () => {
+    const source = findSource("producthunt-ai-devtools");
+    const items = transformProductHuntPosts({ data: { posts: { edges: [
+      { node: {
+        id: "copy-only",
+        name: "Design Tools for Games",
+        tagline: "AI productivity for every developer",
+        url: "https://www.producthunt.com/posts/copy-only",
+        topics: { edges: [{ node: { name: "Games" } }] },
+      } },
+      { node: {
+        id: "topic-match",
+        name: "Focused Workspace",
+        tagline: "A calm place to work",
+        url: "https://www.producthunt.com/posts/topic-match",
+        topics: { edges: [{ node: { name: "Productivity" } }] },
+      } },
+    ] } } }, source);
+
+    expect(items.map((item) => item.externalId)).toEqual(["topic-match"]);
+  });
+
   it("parses RSS, arXiv, Hacker News, GitHub release and new source shapes", () => {
     expect(parseFeed(`<rss><channel><item><guid>rss-1</guid><title>Runtime &amp; API</title><link>https://example.com/rss</link><description><![CDATA[<p>Details</p>]]></description><pubDate>Sat, 18 Jul 2026 08:00:00 GMT</pubDate></item></channel></rss>`)[0])
       .toMatchObject({ externalId: "rss-1", title: "Runtime & API", url: "https://example.com/rss" });
@@ -66,6 +99,104 @@ describe("Signal collection pipeline", () => {
     const items = await collector.collect(source!, { runId: "hn-budget", now: "2026-07-18T10:00:00.000Z", since: "2026-07-18T00:00:00.000Z" });
     expect(requests).toBe(11);
     expect(items).toHaveLength(6);
+  });
+
+  it("paginates Product Hunt safely until it finds 20 configured-topic products", async () => {
+    const requests: Array<{ first?: number; after?: string; postedAfter?: string }> = [];
+    const pages = Array.from({ length: 3 }, (_, pageIndex) => ({
+      data: {
+        posts: {
+          edges: Array.from({ length: 50 }, (_, itemIndex) => {
+            const id = pageIndex * 50 + itemIndex + 1;
+            return {
+              node: {
+                id: `ph-${id}`,
+                name: `Launch ${id}`,
+                tagline: itemIndex < 8 ? "A focused maker tool" : "A new game",
+                url: `https://www.producthunt.com/posts/launch-${id}`,
+                createdAt: "2026-07-18T08:00:00.000Z",
+                topics: { edges: [{ node: { name: itemIndex < 8 ? "Developer Tools" : "Games" } }] },
+              },
+            };
+          }),
+          pageInfo: { hasNextPage: true, endCursor: `cursor-${pageIndex + 1}` },
+        },
+      },
+    }));
+    const collector = new ProductHuntCollector("developer-token", async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { variables?: { first?: number; after?: string; postedAfter?: string } };
+      requests.push(body.variables ?? {});
+      return new Response(JSON.stringify(pages[requests.length - 1]), { headers: { "content-type": "application/json" } });
+    });
+    const source = findSource("producthunt-ai-devtools");
+
+    const items = await collector.collect(source!, {
+      runId: "producthunt-pagination",
+      now: "2026-07-18T10:00:00.000Z",
+      since: "2026-07-15T10:00:00.000Z",
+    });
+
+    expect(items).toHaveLength(20);
+    expect(items[0]?.externalId).toBe("ph-1");
+    expect(items[19]?.externalId).toBe("ph-104");
+    expect(requests).toEqual([
+      { first: 50, postedAfter: "2026-07-15T10:00:00.000Z" },
+      { first: 50, after: "cursor-1", postedAfter: "2026-07-15T10:00:00.000Z" },
+      { first: 50, after: "cursor-2", postedAfter: "2026-07-15T10:00:00.000Z" },
+    ]);
+  });
+
+  it("stops Product Hunt pagination at three pages even when more pages exist", async () => {
+    let requests = 0;
+    const collector = new ProductHuntCollector("developer-token", async () => {
+      requests += 1;
+      return new Response(JSON.stringify({
+        data: {
+          posts: {
+            edges: Array.from({ length: 50 }, (_, itemIndex) => ({
+              node: {
+                id: `page-${requests}-post-${itemIndex}`,
+                name: `Unrelated launch ${itemIndex}`,
+                tagline: "A game",
+                url: `https://www.producthunt.com/posts/unrelated-${requests}-${itemIndex}`,
+                topics: { edges: [{ node: { name: "Games" } }] },
+              },
+            })),
+            pageInfo: { hasNextPage: true, endCursor: `cursor-${requests}` },
+          },
+        },
+      }), { headers: { "content-type": "application/json" } });
+    });
+    const source = findSource("producthunt-ai-devtools");
+
+    const items = await collector.collect(source!, { runId: "producthunt-page-cap", now: "2026-07-18T10:00:00.000Z" });
+
+    expect(items).toEqual([]);
+    expect(requests).toBe(3);
+  });
+
+  it("ignores Product Hunt posts beyond the 150-post scan budget", async () => {
+    const collector = new ProductHuntCollector("developer-token", async () => new Response(JSON.stringify({
+      data: {
+        posts: {
+          edges: Array.from({ length: 151 }, (_, itemIndex) => ({
+            node: {
+              id: `scan-${itemIndex + 1}`,
+              name: `Launch ${itemIndex + 1}`,
+              tagline: itemIndex === 150 ? "Developer workflow" : "A game",
+              url: `https://www.producthunt.com/posts/scan-${itemIndex + 1}`,
+              topics: { edges: [{ node: { name: itemIndex === 150 ? "Developer Tools" : "Games" } }] },
+            },
+          })),
+          pageInfo: { hasNextPage: false, endCursor: null },
+        },
+      },
+    }), { headers: { "content-type": "application/json" } }));
+    const source = findSource("producthunt-ai-devtools");
+
+    const items = await collector.collect(source!, { runId: "producthunt-scan-cap", now: "2026-07-18T10:00:00.000Z" });
+
+    expect(items).toEqual([]);
   });
 
   it("persists normalized candidates and records later sightings as duplicates", async () => {
@@ -138,8 +269,9 @@ describe("Signal collection pipeline", () => {
     };
     const service = new CollectionService(env, new Map<SignalSourceType, SignalCollector>([["rss", failingCollector]]));
     const run = await service.run({ sourceIds: ["cloudflare-developer-platform"] }, { runId: "source-error-detail", now: "2026-07-18T10:00:00.000Z" });
-    expect(run.errorSummary).toContain("cloudflare-developer-platform:SOURCE_FETCH_FAILED:Source returned HTTP 403");
-    expect(run.sources[0]).toMatchObject({ errorCode: "SOURCE_FETCH_FAILED", errorMessage: "Source returned HTTP 403" });
+    expect(run.errorSummary).toBe("cloudflare-developer-platform:SOURCE_FETCH_FAILED");
+    expect(run.sources[0]).toMatchObject({ errorCode: "SOURCE_FETCH_FAILED" });
+    expect(run.sources[0]?.errorMessage).toBeUndefined();
   });
 
   it("deduplicates different URLs with the same title and summary inside a dedup group", async () => {

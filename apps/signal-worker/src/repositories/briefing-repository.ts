@@ -1,6 +1,7 @@
 import type { BriefingItem, CandidateSignal, DailyBriefing, GeneratedBriefingDraft, LongTermThread } from "@zxlab/signal-schema";
 import { SignalError } from "../lib/errors";
 import type { PriorBriefingContext } from "../services/story-context";
+import { SIGNAL_SOURCE_POLICY_VERSION } from "../services/source-policy";
 
 interface BriefingRow {
   id: string; run_id: string; briefing_date: string; title: string; summary: string; status: string;
@@ -44,7 +45,7 @@ export class BriefingRepository {
     startedAt: string; completedAt?: string; candidateCount: number; selectedCount: number;
     fetchedCount: number | null; uniqueCount: number | null; balancedCount: number | null;
     synthesisCount: number | null; publishedCount: number;
-    errorCode?: string; errorMessage?: string; collectionRunId?: string;
+    errorCode?: string; collectionRunId?: string;
     invocations: Array<{ id: string; task: string; model: string; status: "running" | "succeeded" | "failed"; startedAt: string; completedAt?: string; errorCode?: string }>;
   }>> {
     const runs = await this.db.prepare(`SELECT id, briefing_date, status, trigger_type, started_at, completed_at,
@@ -63,7 +64,7 @@ export class BriefingRepository {
         balancedCount: run.balanced_count,
         synthesisCount: run.synthesis_count,
         publishedCount: run.selected_count,
-        errorCode: run.error_code ?? undefined, errorMessage: run.error_message ?? undefined,
+        errorCode: run.error_code ?? undefined,
         collectionRunId: run.collection_run_id ?? undefined,
         invocations: invocations.results.map((invocation) => ({
           id: invocation.id, task: invocation.task, model: invocation.model, status: invocation.status,
@@ -82,15 +83,22 @@ export class BriefingRepository {
     const stats = input.stats ?? { fetched: null, unique: null, balanced: null };
     await this.db.prepare(`INSERT INTO briefing_runs
       (id, briefing_date, status, trigger_type, prompt_version, model, started_at, candidate_count, collection_run_id,
-       fetched_count, unique_count, balanced_count)
-      VALUES (?, ?, 'running', ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+       fetched_count, unique_count, balanced_count, source_policy_version)
+      VALUES (?, ?, 'running', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET status='running', trigger_type=excluded.trigger_type,
+        prompt_version=excluded.prompt_version, model=excluded.model, started_at=excluded.started_at,
+        completed_at=NULL, candidate_count=excluded.candidate_count, selected_count=0,
+        error_code=NULL, error_message=NULL, collection_run_id=excluded.collection_run_id,
+        fetched_count=excluded.fetched_count, unique_count=excluded.unique_count,
+        balanced_count=excluded.balanced_count, synthesis_count=NULL, source_policy_version=excluded.source_policy_version
+      WHERE briefing_runs.status='failed'`)
       .bind(input.id, input.date, input.triggerType, input.promptVersion, input.model, input.startedAt, input.candidateCount,
-        input.collectionRunId ?? null, stats.fetched, stats.unique, stats.balanced).run();
+        input.collectionRunId ?? null, stats.fetched, stats.unique, stats.balanced, SIGNAL_SOURCE_POLICY_VERSION).run();
   }
 
-  async failRun(runId: string, code: string, message: string): Promise<void> {
+  async failRun(runId: string, code: string, _message?: string): Promise<void> {
     await this.db.prepare(`UPDATE briefing_runs SET status = 'failed', completed_at = ?, error_code = ?, error_message = ? WHERE id = ?`)
-      .bind(new Date().toISOString(), code, message.slice(0, 500), runId).run();
+      .bind(new Date().toISOString(), code, null, runId).run();
   }
 
   async saveGenerated(input: {

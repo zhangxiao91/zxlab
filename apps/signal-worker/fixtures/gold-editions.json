@@ -1,0 +1,33 @@
+[
+  {
+    "id": "gold-balanced-daily-v1",
+    "briefingId": "gold-balanced-daily-v1",
+    "date": "2026-08-23",
+    "sourcePolicyVersion": "signal-sources-v2",
+    "promptVersion": "signal-editor-v1.1",
+    "model": "test-project-gateway",
+    "generationMode": "model",
+    "qualityStatus": "passed",
+    "qualityGate": {
+      "expected": "pass",
+      "candidateIds": ["gold-independent-report"]
+    },
+    "counts": {
+      "fetched": 18,
+      "unique": 15,
+      "balanced": 9,
+      "synthesized": 6,
+      "published": 5
+    },
+    "ratings": {
+      "informationGain": 2,
+      "personalRelevance": 2,
+      "freshness": 2,
+      "technicalBalance": 2,
+      "sourceSufficiency": 2,
+      "dailyBudgetFit": 2,
+      "leadSelection": 2,
+      "threeDayValue": 1
+    }
+  }
+]

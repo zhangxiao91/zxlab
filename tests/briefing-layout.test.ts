@@ -100,7 +100,7 @@ test("private annotation failures use the unified HTML access callback", async (
   assert.doesNotMatch(page, /catch\s*\{\s*\/\/ Keep the preserved comment and login action visible until Access is ready\./);
   assert.match(recovery, /PRIVATE_UPSTREAM_AUTH_FAILED/);
   assert.match(recovery, /授权返回后验证失败/);
-  assert.match(page, /savePendingAnnotation\(window\.sessionStorage, draft\)/);
+  assert.match(page, /reservePendingAnnotation\(window\.sessionStorage, draft\)/);
   assert.match(page, /loadPendingAnnotation\(window\.sessionStorage\)/);
   assert.match(page, /clearPendingAnnotation\(window\.sessionStorage\)/);
   assert.match(page, /restoredAnnotation[\s\S]*?void resumePendingAnnotation\(\)/);

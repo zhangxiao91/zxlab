@@ -23,15 +23,26 @@ function originAllowed(request: Request, env: AIEnv): boolean {
 }
 
 export type AICaller = "general" | "market-agent" | "signal" | "same-origin";
+const requestIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export function resolveAIRequestId(request: Request, caller: AICaller, createId: () => string = () => crypto.randomUUID()): string {
+  const candidate = request.headers.get("x-request-id")?.trim() ?? "";
+  return caller === "signal" && requestIdPattern.test(candidate) ? candidate : createId();
+}
+
 export async function enforceAIAccess(request: Request, env: AIEnv): Promise<AICaller> {
   const expectedToken = env.AI_GATEWAY_ACCESS_TOKEN?.trim();
   const marketAgentToken = env.MARKET_AGENT_GATEWAY_TOKEN?.trim();
   const signalToken = env.ZX_RUNTIME_SERVICE_TOKEN?.trim();
+  const signalPreviewToken = env.ZX_SIGNAL_PREVIEW_SERVICE_TOKEN?.trim();
   const authorization = request.headers.get("authorization");
   const suppliedToken = authorization?.startsWith("Bearer ") ? authorization.slice(7) : "";
   const authenticated = Boolean(expectedToken && suppliedToken && await tokenMatches(suppliedToken, expectedToken));
   const marketAgent = Boolean(marketAgentToken && suppliedToken && await tokenMatches(suppliedToken, marketAgentToken));
-  const signal = Boolean(signalToken && suppliedToken && await tokenMatches(suppliedToken, signalToken));
+  const signal = Boolean(suppliedToken && (
+    (signalToken && await tokenMatches(suppliedToken, signalToken))
+    || (signalPreviewToken && await tokenMatches(suppliedToken, signalPreviewToken))
+  ));
   const sameOrigin = originAllowed(request, env);
 
   if (expectedToken && !authenticated && !marketAgent && !signal) throw new AIError("UNAUTHORIZED");

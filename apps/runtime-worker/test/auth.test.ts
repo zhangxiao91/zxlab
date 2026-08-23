@@ -77,6 +77,8 @@ describe("Runtime private authentication", () => {
       authorization: string | null;
       accept: string | null;
       contentType: string | null;
+      idempotencyKey: string | null;
+      traceId: string | null;
       body: string;
     } | undefined;
     const body = JSON.stringify({
@@ -99,6 +101,8 @@ describe("Runtime private authentication", () => {
             authorization: headers.get("authorization"),
             accept: headers.get("accept"),
             contentType: headers.get("content-type"),
+            idempotencyKey: headers.get("idempotency-key"),
+            traceId: headers.get("x-zx-trace-id"),
             body: await new Response(init?.body).text(),
           };
           return new Response('data: {"type":"start"}\n\n', {
@@ -116,6 +120,8 @@ describe("Runtime private authentication", () => {
           accept: "text/event-stream",
           authorization: "Bearer runtime-service-secret",
           "content-type": "application/json",
+          "idempotency-key": "5cab3051-247e-47b9-b90a-630a1a5b8067",
+          "x-zx-trace-id": "8e14c2bd-aec4-4970-96e6-211e9f5d6300",
         },
         body,
       },
@@ -123,6 +129,7 @@ describe("Runtime private authentication", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("text/event-stream");
+    expect(response.headers.get("x-zx-trace-id")).toBe("8e14c2bd-aec4-4970-96e6-211e9f5d6300");
     expect(await response.text()).toBe('data: {"type":"start"}\n\n');
     expect(forwarded).toEqual({
       url: "https://signal.internal/api/annotations?stream=1",
@@ -130,6 +137,8 @@ describe("Runtime private authentication", () => {
       authorization: "Bearer runtime-service-secret",
       accept: "text/event-stream",
       contentType: "application/json",
+      idempotencyKey: "5cab3051-247e-47b9-b90a-630a1a5b8067",
+      traceId: "8e14c2bd-aec4-4970-96e6-211e9f5d6300",
       body,
     });
   });

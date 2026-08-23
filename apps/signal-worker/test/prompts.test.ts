@@ -67,6 +67,20 @@ describe("Signal prompts", () => {
     expect(editorial.system).toContain("public significance");
   });
 
+  it("penalizes launch hype and keeps infrastructure radar subordinate", () => {
+    const editorial = buildEditorialPrompt({ candidates: [candidate("product")], memories: [] });
+    const briefing = buildBriefingPrompt({ date: "2026-08-21", candidates: [candidate("product")], memories: [] });
+
+    for (const prompt of [editorial.system, briefing.system]) {
+      expect(prompt).toContain("Product Hunt");
+      expect(prompt).toContain("launch hype");
+      expect(prompt).toContain("Cloudflare");
+      expect(prompt).toContain("breaking change");
+      expect(prompt).toContain("pricing");
+      expect(prompt).toContain("quota");
+    }
+  });
+
   it("reduces the requested item range when candidates collapse into fewer independent dossiers", () => {
     const candidates = Array.from({ length: 12 }, (_, index) => candidate(`story-${index}`));
     const storyDossiers = [

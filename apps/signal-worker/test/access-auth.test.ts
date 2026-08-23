@@ -47,6 +47,17 @@ describe("Cloudflare Access authentication", () => {
       .rejects.toMatchObject({ code: "UNAUTHORIZED" });
   });
 
+  it("fails closed when a development deployment has no write-token secret", async () => {
+    const request = new Request("https://signal.example/api/admin/collection-runs", {
+      method: "POST",
+      headers: { authorization: "Bearer undefined" },
+    });
+    await expect(requireWriteAccess(request, accessEnv({
+      ENVIRONMENT: "development",
+      ZX_SIGNAL_WRITE_TOKEN: undefined,
+    }))).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  });
+
   it("allows the dedicated bridge token only on the two canonical Memory routes", async () => {
     const env = accessEnv({ ZX_MEMORY_BRIDGE_TOKEN: "memory-bridge-secret" });
     const headers = { authorization: "Bearer memory-bridge-secret" };

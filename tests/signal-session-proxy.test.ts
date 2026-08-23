@@ -55,6 +55,7 @@ test("the authenticated browser Signal gateway preserves the streaming annotatio
         accept: "text/event-stream",
         "content-type": "application/json",
         cookie: "CF_Authorization=browser-session",
+        "x-zx-trace-id": "browser-spoofed",
       },
       body,
     }),
@@ -62,6 +63,7 @@ test("the authenticated browser Signal gateway preserves the streaming annotatio
     params: { path: ["api", "annotations"] },
   }, {
     verifyAccess: async () => ({ sub: "access-user-1" }) as never,
+    createTraceId: () => "8e14c2bd-aec4-4970-96e6-211e9f5d6300",
     fetcher: async (input, init) => {
       forwardedUrl = String(input);
       forwardedMethod = init?.method ?? "";
@@ -75,12 +77,14 @@ test("the authenticated browser Signal gateway preserves the streaming annotatio
 
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("content-type"), "text/event-stream; charset=utf-8");
+  assert.equal(response.headers.get("x-zx-trace-id"), "8e14c2bd-aec4-4970-96e6-211e9f5d6300");
   assert.equal(await response.text(), 'data: {"type":"start"}\n\n');
   assert.equal(forwardedUrl, "https://runtime-api.zx-dx.xyz/api/v1/private/signal/api/annotations?stream=1");
   assert.equal(forwardedMethod, "POST");
   assert.equal(forwardedHeaders.get("authorization"), "Bearer server-only-token");
   assert.equal(forwardedHeaders.get("accept"), "text/event-stream");
   assert.equal(forwardedHeaders.get("content-type"), "application/json");
+  assert.equal(forwardedHeaders.get("x-zx-trace-id"), "8e14c2bd-aec4-4970-96e6-211e9f5d6300");
   assert.equal(forwardedHeaders.has("cookie"), false);
   assert.equal(forwardedBody, body);
 });

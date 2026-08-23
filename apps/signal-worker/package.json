@@ -10,8 +10,11 @@
     "typecheck": "npm run types && tsc --noEmit --pretty false",
     "test": "vitest run",
     "deploy:dry": "wrangler deploy --dry-run",
+    "deploy:preview:dry": "wrangler deploy --env preview --dry-run",
+    "deploy:preview": "wrangler deploy --env preview",
     "deploy": "wrangler deploy",
     "db:migrate:local": "wrangler d1 migrations apply zx-signal --local",
+    "db:migrate:preview": "wrangler d1 migrations apply zx-signal-preview --env preview --remote",
     "db:migrate:remote": "wrangler d1 migrations apply zx-signal --remote"
   },
   "dependencies": {

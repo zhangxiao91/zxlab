@@ -49,22 +49,33 @@ test("private proxy rejects paths outside each service allowlist", async () => {
 test("private Signal requests travel through the Runtime service-binding bridge", async () => {
   let forwardedUrl = "";
   let forwardedAuthorization: string | null = null;
+  let forwardedIdempotencyKey: string | null = null;
+  let forwardedTraceId: string | null = null;
   const response = await proxyPrivateRequest(
-    { request: new Request("https://beta.zxlab.pages.dev/api/private/signal/api/annotations?stream=1", { method: "POST", body: "{}" }), env },
+    { request: new Request("https://beta.zxlab.pages.dev/api/private/signal/api/annotations?stream=1", {
+      method: "POST", headers: { "idempotency-key": "5cab3051-247e-47b9-b90a-630a1a5b8067", "x-zx-trace-id": "spoofed" }, body: "{}",
+    }), env },
     "signal",
     "api/annotations",
     {
       verifyAccess,
       fetcher: async (input, init) => {
         forwardedUrl = String(input);
-        forwardedAuthorization = new Headers(init?.headers).get("authorization");
+        const headers = new Headers(init?.headers);
+        forwardedAuthorization = headers.get("authorization");
+        forwardedIdempotencyKey = headers.get("idempotency-key");
+        forwardedTraceId = headers.get("x-zx-trace-id");
         return new Response("ok", { headers: { "content-type": "text/event-stream" } });
       },
+      createTraceId: () => "8e14c2bd-aec4-4970-96e6-211e9f5d6300",
     },
   );
   assert.equal(response.status, 200);
   assert.equal(forwardedUrl, "https://runtime-api.zx-dx.xyz/api/v1/private/signal/api/annotations?stream=1");
   assert.equal(forwardedAuthorization, "Bearer server-only-token");
+  assert.equal(forwardedIdempotencyKey, "5cab3051-247e-47b9-b90a-630a1a5b8067");
+  assert.equal(forwardedTraceId, "8e14c2bd-aec4-4970-96e6-211e9f5d6300");
+  assert.equal(response.headers.get("x-zx-trace-id"), "8e14c2bd-aec4-4970-96e6-211e9f5d6300");
 });
 
 test("private proxy does not misreport upstream service authentication as an Access failure", async () => {

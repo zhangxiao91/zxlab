@@ -1,11 +1,6 @@
 import type { SignalErrorCode } from "@zxlab/signal-schema";
 import { SignalError } from "../lib/errors";
 
-function transportDetail(cause: unknown): string {
-  if (cause instanceof Error && cause.message.trim()) return cause.message.trim().replace(/\s+/g, " ").slice(0, 240);
-  return "unknown transport failure";
-}
-
 export async function fetchSource(
   fetcher: typeof fetch,
   url: string,
@@ -18,8 +13,8 @@ export async function fetchSource(
   } catch (cause) {
     const timeout = cause instanceof DOMException && cause.name === "TimeoutError";
     const code: SignalErrorCode = timeout ? "SOURCE_TIMEOUT" : "SOURCE_FETCH_FAILED";
-    const prefix = timeout ? "Source request timed out" : "Source request failed";
-    throw new SignalError(code, `${prefix}: ${transportDetail(cause)}`, timeout ? 504 : 502, cause);
+    const message = timeout ? "Source request timed out" : "Source request failed";
+    throw new SignalError(code, message, timeout ? 504 : 502, cause);
   }
   if (response.status === 429) throw new SignalError("RATE_LIMITED", "Source rate limit exceeded", 429);
   if (!response.ok) throw new SignalError("SOURCE_FETCH_FAILED", `Source returned HTTP ${response.status}`, 502);

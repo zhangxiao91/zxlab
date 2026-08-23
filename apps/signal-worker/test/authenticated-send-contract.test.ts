@@ -15,6 +15,7 @@ import type {
 } from "../src/services/llm";
 
 class AnnotationFixtureLLM implements SignalLLM {
+  replyCalls = 0;
   async filterCandidates(_input: EditorialFilterInput): Promise<never> {
     throw new Error("Not used by the authenticated send contract");
   }
@@ -27,6 +28,7 @@ class AnnotationFixtureLLM implements SignalLLM {
     _input: AnnotationReplyInput,
     options: { onDelta?: (text: string) => void } = {},
   ): Promise<AnnotationReplyDraft> {
+    this.replyCalls += 1;
     options.onDelta?.("已完成入口合同验证。");
     return { reply: "已完成入口合同验证。" };
   }
@@ -78,6 +80,7 @@ describe("authenticated Signal send contract", () => {
         headers: {
           authorization: "Bearer runtime-service-secret",
           "content-type": "application/json",
+          "x-zx-trace-id": "8e14c2bd-aec4-4970-96e6-211e9f5d6300",
         },
         body: JSON.stringify({
           briefingId: seeded.briefingId,
@@ -91,6 +94,7 @@ describe("authenticated Signal send contract", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("text/event-stream");
+    expect(response.headers.get("x-zx-trace-id")).toBe("8e14c2bd-aec4-4970-96e6-211e9f5d6300");
     const streamed = await events(response);
     expect(streamed.map((event) => event.type)).toEqual([
       "start", "reply_delta", "reply", "memory", "done",
@@ -105,5 +109,38 @@ describe("authenticated Signal send contract", () => {
       .bind(seeded.briefingId)
       .first<{ action_type: string }>();
     expect(stored?.action_type).toBe("challenge");
+  });
+
+  it("replays a committed annotation when stream recovery repeats the same idempotency key", async () => {
+    const seeded = await seedBriefing();
+    const llm = new AnnotationFixtureLLM();
+    const key = crypto.randomUUID();
+    const body = JSON.stringify({
+      briefingId: seeded.briefingId,
+      briefingItemId: seeded.itemId,
+      selectedText: "同一段原文",
+      comment: "同一个操作只能写入一次。",
+      actionType: "challenge",
+    });
+    const first = await handleSignalFetch(new Request("https://signal.example/api/annotations?stream=1", {
+      method: "POST",
+      headers: { authorization: "Bearer runtime-service-secret", "content-type": "application/json", "idempotency-key": key },
+      body,
+    }), env, { annotations: { llm } });
+    const firstDone = (await events(first)).at(-1)?.response;
+    const replay = await handleSignalFetch(new Request("https://signal.example/api/annotations", {
+      method: "POST",
+      headers: { authorization: "Bearer runtime-service-secret", "content-type": "application/json", "idempotency-key": key },
+      body,
+    }), env, { annotations: { llm } });
+
+    expect(replay.status).toBe(201);
+    expect(await replay.json()).toEqual(firstDone);
+    expect(llm.replyCalls).toBe(1);
+    expect(await env.DB.prepare("SELECT COUNT(*) count FROM annotations WHERE briefing_id=?").bind(seeded.briefingId).first())
+      .toEqual({ count: 1 });
+    expect(await env.DB.prepare(`SELECT COUNT(*) count FROM annotation_messages m
+      JOIN annotations a ON a.id=m.annotation_id WHERE a.briefing_id=?`).bind(seeded.briefingId).first())
+      .toEqual({ count: 2 });
   });
 });

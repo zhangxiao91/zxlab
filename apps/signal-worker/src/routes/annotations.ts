@@ -2,6 +2,8 @@ import { parseAnnotationInput } from "@zxlab/signal-schema";
 import { readJson, json } from "../lib/http";
 import { AnnotationResponder } from "../services/annotation-responder";
 import { ProjectApiSignalLLM, type SignalLLM } from "../services/llm";
+import { AnnotationOperation } from "../services/annotation-operation";
+import { SignalError } from "../lib/errors";
 
 export interface AnnotationDependencies {
   llm?: SignalLLM;
@@ -21,6 +23,8 @@ export async function handleAnnotations(request: Request, pathname: string, env:
   if (request.method !== "POST" || pathname !== "/api/annotations") return null;
   const input = parseAnnotationInput(await readJson(request));
   const responder = new AnnotationResponder(env, dependencies.llm ?? new ProjectApiSignalLLM(env));
+  const idempotencyKey = request.headers.get("idempotency-key")?.trim() || crypto.randomUUID();
+  const operation = new AnnotationOperation(env.DB);
   const streamRequested = new URL(request.url).searchParams.get("stream") === "1"
     || request.headers.get("accept")?.toLowerCase().includes("text/event-stream");
   if (streamRequested) {
@@ -30,15 +34,15 @@ export async function handleAnnotations(request: Request, pathname: string, env:
         const send = (type: string, data: Record<string, unknown> = {}) => controller.enqueue(encodeEvent(encoder, type, data));
         try {
           send("start");
-          const response = await responder.respond(input, {
+          const response = await operation.run(idempotencyKey, input, (commit) => responder.respond(input, {
             replyDelta: (text) => send("reply_delta", { text }),
             replyReset: () => send("reply_reset"),
             replyReady: ({ annotation, reply }) => send("reply", { annotation, reply }),
             memoryReady: (memoryCandidate) => send("memory", { memoryCandidate }),
-          });
+          }, commit));
           send("done", { response });
         } catch (cause) {
-          send("error", { error: { message: cause instanceof Error ? cause.message : "Signal annotation failed" } });
+          send("error", { error: { code: cause instanceof SignalError ? cause.code : "ANNOTATION_FAILED", message: "Signal annotation failed" } });
         } finally {
           controller.close();
         }
@@ -46,5 +50,5 @@ export async function handleAnnotations(request: Request, pathname: string, env:
     });
     return new Response(body, { status: 200, headers: streamHeaders });
   }
-  return json(await responder.respond(input), 201);
+  return json(await operation.run(idempotencyKey, input, (commit) => responder.respond(input, {}, commit)), 201);
 }

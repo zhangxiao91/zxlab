@@ -18,6 +18,7 @@ import { SignalError } from "../src/lib/errors";
 import { GatewayRequestError } from "../src/services/gateway-client";
 import { findSource } from "../src/config/sources";
 import type { BriefingGenerationInput } from "../src/services/briefing-generator";
+import type { DailyPipelineCheckpoint } from "../src/services/daily-pipeline-runner";
 import type {
   AnnotationReplyInput,
   EditorialFilterInput,
@@ -143,6 +144,21 @@ class InvalidBriefingLLM extends PipelineLLM {
   }
 }
 
+class CheckpointCountingLLM extends PipelineLLM {
+  filterCalls = 0;
+  generationCalls = 0;
+
+  override async filterCandidates(input: EditorialFilterInput) {
+    this.filterCalls += 1;
+    return super.filterCandidates(input);
+  }
+
+  override async generateBriefing(input: GenerateBriefingInput): Promise<GeneratedBriefingDraft> {
+    this.generationCalls += 1;
+    return super.generateBriefing(input);
+  }
+}
+
 describe("Daily Signal pipeline", () => {
   it("runs the complete pipeline and refreshes Pages through the admin recovery route", async () => {
     const calls: string[] = [];
@@ -242,6 +258,22 @@ describe("Daily Signal pipeline", () => {
 
     expect(selected).toHaveLength(12);
     expect(selected.filter((item) => item.source.sourceId.startsWith("linuxdo-"))).toHaveLength(3);
+  });
+
+  it("enforces daily eligibility and hard family quotas before editorial filtering", () => {
+    const selected = selectBalancedDailyCandidates([
+      candidate("cf-routine", "zxlab", "cloudflare-developer-platform", "rss"),
+      ...Array.from({ length: 4 }, (_, index) => ({
+        ...candidate(`cf-material-${index}`, "zxlab", "cloudflare-developer-platform", "rss"),
+        title: `Breaking change ${index} to Workers bindings`,
+      })),
+      ...Array.from({ length: 5 }, (_, index) => candidate(`ph-${index}`, "ai-engineering", "producthunt-ai-devtools", "producthunt")),
+      ...Array.from({ length: 7 }, (_, index) => candidate(`news-${index}`, "ai-engineering", `publisher-${index}`)),
+    ], 12);
+
+    expect(selected.some((item) => item.id === "cf-routine")).toBe(false);
+    expect(selected.filter((item) => item.source.sourceId === "cloudflare-developer-platform")).toHaveLength(2);
+    expect(selected.filter((item) => item.source.sourceId === "producthunt-ai-devtools")).toHaveLength(3);
   });
 
   it("exposes failed briefing and model invocation diagnostics", async () => {
@@ -477,5 +509,68 @@ describe("Daily Signal pipeline", () => {
     await expect(pipeline.run(Date.parse("2026-07-31T23:30:00.000Z"), {
       sourceIds: ["mit-technology-review"],
     })).rejects.toMatchObject({ code: "INVALID_MODEL_OUTPUT" });
+  });
+
+  it("resumes from frozen editorial and validated-draft checkpoints after publication fails", async () => {
+    const checkpointCollector: SignalCollector = {
+      type: "rss",
+      async collect() {
+        return [{
+          externalId: "checkpoint-recovery",
+          title: "Checkpoint recovery keeps an edition stable",
+          url: "https://example.com/checkpoint-recovery",
+          summary: "The same candidate and validated edition must survive a retry.",
+          publishedAt: "2026-08-20T22:00:00.000Z",
+        }];
+      },
+    };
+    const collection = new CollectionService(env, new Map<SignalSourceType, SignalCollector>([["rss", checkpointCollector]]));
+    const llm = new CheckpointCountingLLM();
+    const pipeline = new DailySignalPipeline(env, collection, llm);
+    let checkpoint: DailyPipelineCheckpoint = {};
+    let publicationAttempts = 0;
+    const common = {
+      collectionRunId: "checkpoint-collection",
+      briefingRunId: "checkpoint-briefing-run",
+      briefingId: "checkpoint-briefing",
+      onCollectionReady: async () => {},
+      onCheckpoint: async (patch: Partial<DailyPipelineCheckpoint>) => { checkpoint = { ...checkpoint, ...patch }; },
+    };
+
+    await expect(pipeline.run(Date.parse("2026-08-20T23:30:00.000Z"), {
+      sourceIds: ["mit-technology-review"],
+    }, {
+      ...common,
+      checkpoint,
+      onStage: async (stage) => {
+        if (stage === "publishing" && publicationAttempts++ === 0) throw new Error("private publication failure");
+      },
+    })).rejects.toThrow("private publication failure");
+
+    expect(checkpoint.candidateIds).toHaveLength(1);
+    expect(checkpoint.editorialDecisions).toHaveLength(1);
+    expect(checkpoint.synthesisCandidateIds).toEqual(checkpoint.candidateIds);
+    expect(checkpoint.validatedDraft).toMatchObject({
+      generationMode: "model",
+      qualityStatus: "passed",
+      draft: { title: "每日自动 Signal" },
+    });
+
+    const result = await pipeline.run(Date.parse("2026-08-20T23:30:00.000Z"), {
+      sourceIds: ["mit-technology-review"],
+    }, {
+      ...common,
+      checkpoint,
+      onStage: async (stage) => { if (stage === "publishing") publicationAttempts += 1; },
+    });
+
+    expect(result).toEqual({
+      collectionRunId: "checkpoint-collection",
+      briefingId: "checkpoint-briefing",
+      briefingRunId: "checkpoint-briefing-run",
+    });
+    expect(llm.filterCalls).toBe(1);
+    expect(llm.generationCalls).toBe(1);
+    expect(publicationAttempts).toBe(2);
   });
 });

@@ -20,6 +20,7 @@ export interface AIEnv {
   AI_GATEWAY_ACCESS_TOKEN?: string;
   MARKET_AGENT_GATEWAY_TOKEN?: string;
   ZX_RUNTIME_SERVICE_TOKEN?: string;
+  ZX_SIGNAL_PREVIEW_SERVICE_TOKEN?: string;
   AI_GATEWAY_ALLOWED_ORIGINS?: string;
   AI_RATE_LIMITER?: { limit(options: { key: string }): Promise<{ success: boolean }> };
   LLM_USAGE_DB?: LLMUsageDatabase;

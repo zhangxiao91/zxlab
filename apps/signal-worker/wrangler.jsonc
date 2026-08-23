@@ -13,7 +13,7 @@
     }
   ],
   "triggers": {
-    "crons": ["30 23 * * *"]
+    "crons": ["30 23 * * *", "45 23 * * *", "0 0 * * *"]
   },
   "routes": [
     { "pattern": "signal-api.zx-dx.xyz", "custom_domain": true }
@@ -36,5 +36,45 @@
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1
+  },
+  "env": {
+    "preview": {
+      "name": "zx-signal-preview",
+      "compatibility_date": "2026-08-22",
+      "compatibility_flags": ["nodejs_compat"],
+      "workers_dev": true,
+      "preview_urls": true,
+      "routes": [],
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "zx-signal-preview",
+          "database_id": "ff23b0e4-e275-4c2b-b03e-e683805c605c",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "triggers": {
+        "crons": []
+      },
+      "vars": {
+        "ENVIRONMENT": "development",
+        "ZX_SIGNAL_LLM_API_URL": "https://beta.zxlab.pages.dev/api/ai/stream",
+        "ZX_SIGNAL_LLM_LABEL": "zxlab-project-gateway-preview",
+        "ZX_SIGNAL_USER_AGENT": "zxlab-signal-preview/0.2 (+https://zx-dx.xyz)",
+        "ZX_SIGNAL_ALLOWED_ORIGINS": "https://beta.zxlab.pages.dev,https://*.zxlab.pages.dev,http://localhost:4321",
+        "ZX_SIGNAL_ACCESS_ENABLED": "false",
+        "ZX_SIGNAL_SCHEDULE_ENABLED": "false",
+        "ZX_SIGNAL_MARKET_NEWS_URL": "",
+        "CF_ACCESS_TEAM_DOMAIN": "",
+        "CF_ACCESS_AUD": ""
+      },
+      "secrets": {
+        "required": ["ZX_SIGNAL_PREVIEW_SERVICE_TOKEN"]
+      },
+      "observability": {
+        "enabled": true,
+        "head_sampling_rate": 1
+      }
+    }
   }
 }

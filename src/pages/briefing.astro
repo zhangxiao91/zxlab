@@ -140,8 +140,8 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
     import {
       clearPendingAnnotation,
       loadPendingAnnotation,
-      savePendingAnnotation,
-      type PendingAnnotation,
+      reservePendingAnnotation,
+      type PendingAnnotationDraft,
     } from "../features/briefing/pending-annotation";
     import { resolveLongTermThreads } from "../features/briefing/long-term-threads";
     import { briefingSessionStore } from "../features/briefing/store";
@@ -216,7 +216,7 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
       }
       form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     };
-    const pendingAnnotationFromForm = (): PendingAnnotation | null => {
+    const pendingAnnotationFromForm = (): PendingAnnotationDraft | null => {
       if (!form) return null;
       const values = new FormData(form);
       const comment = String(values.get("comment") ?? "").trim();
@@ -236,7 +236,7 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
     annotationAccessLink?.addEventListener("click", (event) => {
       event.preventDefault();
       const draft = pendingAnnotationFromForm();
-      if (draft) savePendingAnnotation(window.sessionStorage, draft);
+      if (draft) reservePendingAnnotation(window.sessionStorage, draft);
       window.location.assign(annotationAccessLink.href || privateAccessUrl);
     });
     const accessChannel = typeof BroadcastChannel === "function"
@@ -847,6 +847,9 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
       result?.scrollIntoView({ behavior: reducedPanelMotion.matches ? "auto" : "smooth", block: "start" });
 
       try {
+        const draft = pendingAnnotationFromForm();
+        if (!draft) throw new Error("Annotation request is incomplete");
+        const pendingAnnotation = reservePendingAnnotation(window.sessionStorage, draft);
         let finalResponse: AnnotationResponse | null = null;
         let streamedReply = "";
         for await (const streamEvent of submitAnnotationStream({
@@ -855,7 +858,7 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
           selectedText: annotationSelectedText,
           comment,
           action,
-        })) {
+        }, pendingAnnotation.idempotencyKey)) {
           if (streamEvent.type === "start") {
             if (submitLabel) submitLabel.textContent = "Signal 正在回应";
           } else if (streamEvent.type === "reply_delta") {
@@ -919,7 +922,7 @@ const resolvedThreads = resolveLongTermThreads(briefing.longTermThreads);
         pendingAccessRetry = accessRequired;
         if (accessRequired) {
           const draft = pendingAnnotationFromForm();
-          if (draft) savePendingAnnotation(window.sessionStorage, draft);
+          if (draft) reservePendingAnnotation(window.sessionStorage, draft);
         }
         if (submitError) {
           submitError.hidden = false;

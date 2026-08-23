@@ -80,15 +80,20 @@ export async function getLatestBriefing(state: BriefingPreviewState = "ready"): 
   return apiRequest<DailyBriefing>("/api/briefings/latest");
 }
 
-export async function submitAnnotation(input: AnnotationInput): Promise<AnnotationResponse> {
+async function submitAnnotationWithKey(input: AnnotationInput, idempotencyKey: string): Promise<AnnotationResponse> {
   if (dataMode === "mock") {
     const annotation = { ...input, id: `annotation-${Date.now()}`, createdAt: new Date().toISOString() };
     return createMockAnnotationResponse(annotation);
   }
   return apiRequest<AnnotationResponse>("/api/annotations", {
     method: "POST",
+    headers: { "idempotency-key": idempotencyKey },
     body: JSON.stringify({ ...input, actionType: input.action }),
   }, 45_000);
+}
+
+export async function submitAnnotation(input: AnnotationInput): Promise<AnnotationResponse> {
+  return submitAnnotationWithKey(input, crypto.randomUUID());
 }
 
 function annotationStreamEvent(value: unknown): AnnotationStreamEvent {
@@ -139,7 +144,7 @@ async function* parseAnnotationStream(body: ReadableStream<Uint8Array>): AsyncGe
   }
 }
 
-export async function* submitAnnotationStream(input: AnnotationInput): AsyncGenerator<AnnotationStreamEvent> {
+export async function* submitAnnotationStream(input: AnnotationInput, idempotencyKey: string): AsyncGenerator<AnnotationStreamEvent> {
   if (dataMode === "mock") {
     const annotation = { ...input, id: `annotation-${Date.now()}`, createdAt: new Date().toISOString() };
     const response = createMockAnnotationResponse(annotation);
@@ -159,12 +164,12 @@ export async function* submitAnnotationStream(input: AnnotationInput): AsyncGene
       credentials: "include",
       redirect: "manual",
       signal: AbortSignal.timeout(60_000),
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", "idempotency-key": idempotencyKey },
       body: JSON.stringify({ ...input, actionType: input.action }),
     });
   } catch (cause) {
     try {
-      yield { type: "done", response: await submitAnnotation(input) };
+      yield { type: "done", response: await submitAnnotationWithKey(input, idempotencyKey) };
       return;
     } catch (fallbackCause) {
       if (fallbackCause instanceof SignalApiError) throw fallbackCause;

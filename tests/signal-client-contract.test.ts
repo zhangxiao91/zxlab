@@ -10,6 +10,7 @@ const input: AnnotationInput = {
   comment: "请验证这条判断。",
   action: "challenge",
 };
+const idempotencyKey = "5cab3051-247e-47b9-b90a-630a1a5b8067";
 
 const response = {
   annotation: {
@@ -47,7 +48,7 @@ test("streaming annotations use the complete authenticated browser request contr
   });
 
   const events = [];
-  for await (const event of submitAnnotationStream(input)) events.push(event);
+  for await (const event of submitAnnotationStream(input, idempotencyKey)) events.push(event);
 
   assert.equal(String(call?.input), "/api/signal/api/annotations?stream=1");
   assert.equal(call?.init?.method, "POST");
@@ -56,6 +57,7 @@ test("streaming annotations use the complete authenticated browser request contr
   const requestHeaders = new Headers(call?.init?.headers);
   assert.equal(requestHeaders.get("content-type"), "application/json");
   assert.equal(requestHeaders.has("x-request-id"), false);
+  assert.match(requestHeaders.get("idempotency-key") ?? "", /^[0-9a-f-]{36}$/i);
   assert.deepEqual(JSON.parse(String(call?.init?.body)), { ...input, actionType: "challenge" });
   assert.deepEqual(events, [
     { type: "start" },
@@ -73,14 +75,18 @@ test("a failed stream falls back to the non-stream annotation contract", async (
   });
 
   const events = [];
-  for await (const event of submitAnnotationStream(input)) events.push(event);
+  for await (const event of submitAnnotationStream(input, idempotencyKey)) events.push(event);
 
   assert.equal(calls.length, 2);
   assert.equal(String(calls[1]?.input), "/api/signal/api/annotations");
   assert.equal(calls[1]?.init?.method, "POST");
   assert.equal(calls[1]?.init?.credentials, "include");
   assert.equal(calls[1]?.init?.redirect, "manual");
-  assert.equal(new Headers(calls[1]?.init?.headers).get("content-type"), "application/json");
+  const streamHeaders = new Headers(calls[0]?.init?.headers);
+  const fallbackHeaders = new Headers(calls[1]?.init?.headers);
+  assert.equal(fallbackHeaders.get("content-type"), "application/json");
+  assert.match(streamHeaders.get("idempotency-key") ?? "", /^[0-9a-f-]{36}$/i);
+  assert.equal(fallbackHeaders.get("idempotency-key"), streamHeaders.get("idempotency-key"));
   assert.deepEqual(JSON.parse(String(calls[1]?.init?.body)), { ...input, actionType: "challenge" });
   assert.deepEqual(events, [{ type: "done", response }]);
 });
@@ -91,7 +97,7 @@ test("generic network failures remain network failures instead of being reported
   });
 
   await assert.rejects(async () => {
-    for await (const event of submitAnnotationStream(input)) void event;
+    for await (const event of submitAnnotationStream(input, idempotencyKey)) void event;
   }, (error: unknown) => {
     assert.ok(error instanceof SignalApiError);
     assert.equal(error.code, "SIGNAL_API_UNAVAILABLE");
@@ -107,7 +113,7 @@ test("explicit Access failures stay distinct from network failures", async (cont
   }, { status: 401 }));
 
   await assert.rejects(async () => {
-    for await (const event of submitAnnotationStream(input)) void event;
+    for await (const event of submitAnnotationStream(input, idempotencyKey)) void event;
   }, (error: unknown) => {
     assert.ok(error instanceof SignalApiError);
     assert.equal(error.code, "ACCESS_REQUIRED");
@@ -123,6 +129,6 @@ test("an SSE error frame remains a send failure instead of an Access failure", a
   ));
 
   const events = [];
-  for await (const event of submitAnnotationStream(input)) events.push(event);
+  for await (const event of submitAnnotationStream(input, idempotencyKey)) events.push(event);
   assert.deepEqual(events, [{ type: "error", error: { message: "Signal annotation failed" } }]);
 });

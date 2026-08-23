@@ -107,6 +107,7 @@ describe("ProjectApiSignalLLM", () => {
   });
 
   it("calls the project gateway and records the selected provider model", async () => {
+    let gatewayInvocationId = "";
     const fetcher = vi.fn<typeof fetch>(async (input, init) => {
       expect(String(input)).toContain("/api/ai/stream");
       expect(init?.headers).toMatchObject({
@@ -114,6 +115,7 @@ describe("ProjectApiSignalLLM", () => {
         "Content-Type": "application/json",
         Accept: "text/event-stream",
       });
+      gatewayInvocationId = new Headers(init?.headers).get("x-request-id") ?? "";
       const body = JSON.parse(String(init?.body)) as { task: string; messages: Array<{ content: string }>; responseFormat: { type: string }; context?: { source?: string } };
       expect(body.task).toBe("signal-annotation-reply");
       expect(body.context).toEqual({ source: "signal-worker" });
@@ -140,16 +142,45 @@ describe("ProjectApiSignalLLM", () => {
 
     expect(result).toEqual({ reply: "已通过项目网关生成。" });
     expect(fetcher).toHaveBeenCalledOnce();
-    const invocation = await env.DB.prepare(`SELECT status, model, input_tokens, output_tokens
+    const invocation = await env.DB.prepare(`SELECT id, status, model, input_tokens, output_tokens
       FROM model_invocations ORDER BY started_at DESC LIMIT 1`).first<{
-        status: string; model: string; input_tokens: number; output_tokens: number;
+        id: string; status: string; model: string; input_tokens: number; output_tokens: number;
       }>();
     expect(invocation).toEqual({
+      id: gatewayInvocationId,
       status: "succeeded",
       model: "provider1/gpt-test",
       input_tokens: 40,
       output_tokens: 8,
     });
+  });
+
+  it("prefers the dedicated Signal Preview token when it is configured", async () => {
+    const previewEnv = Object.assign(Object.create(env), {
+      ZX_SIGNAL_PREVIEW_SERVICE_TOKEN: "signal-preview-service-secret",
+      ZX_RUNTIME_SERVICE_TOKEN: "runtime-service-secret",
+    }) as Env;
+    const fetcher = vi.fn<typeof fetch>(async (_input, init) => {
+      expect(new Headers(init?.headers).get("authorization")).toBe("Bearer signal-preview-service-secret");
+      return gatewayStream({
+        text: JSON.stringify({ reply: "Preview identity accepted." }),
+        json: { reply: "Preview identity accepted." },
+        provider: "provider1",
+        model: "gpt-test",
+        fallbackIndex: 0,
+        latencyMs: 8,
+      }, "gateway-preview-identity");
+    });
+    const llm = new ProjectApiSignalLLM(previewEnv, fetcher);
+
+    await expect(llm.replyToAnnotation({
+      item,
+      selectedText: "preview identity",
+      comment: "verify dedicated transport",
+      action: "comment",
+      memories: [],
+    })).resolves.toEqual({ reply: "Preview identity accepted." });
+    expect(fetcher).toHaveBeenCalledOnce();
   });
 
   it("streams annotation reply deltas from the gateway JSON field", async () => {

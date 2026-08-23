@@ -17,7 +17,12 @@ export function json(value: unknown, status = 200, headers?: HeadersInit): Respo
   return Response.json(value, { status, headers });
 }
 
-export function errorResponse(error: unknown, path: string): Response {
+export function errorResponse(error: unknown, context: {
+  path: string;
+  method: string;
+  traceId: string;
+  startedAt: number;
+}): Response {
   const normalized = error instanceof SignalError
     ? error
     : error instanceof SignalValidationError
@@ -26,12 +31,16 @@ export function errorResponse(error: unknown, path: string): Response {
 
   console.error(JSON.stringify({
     event: "signal.request.failed",
-    path,
-    code: normalized.code,
-    errorType: error instanceof Error ? error.name : "Unknown",
+    service: "signal",
+    traceId: context.traceId,
+    method: context.method,
+    pathname: context.path,
+    status: normalized.status || errorStatus(normalized.code),
+    durationMs: Date.now() - context.startedAt,
+    errorCode: normalized.code,
   }));
   const body: SignalErrorResponse = { error: { code: normalized.code, message: normalized.message } };
-  return json(body, normalized.status || errorStatus(normalized.code));
+  return json(body, normalized.status || errorStatus(normalized.code), { "X-ZX-Trace-Id": context.traceId });
 }
 
 export function corsHeaders(request: Request, env: Env): Headers {
