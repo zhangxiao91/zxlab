@@ -317,7 +317,8 @@ export class DailyPipelineRunner {
 
   async run(scheduledTime: number, options: { force?: boolean } = {}): Promise<DailyPipelineRun> {
     let run = await this.repository.acquire(scheduledTime, this.now());
-    if (run.status === "succeeded") return run;
+    const canForceMissingPagesRefresh = options.force && run.pagesRefreshStatus === "not-configured";
+    if (run.status === "succeeded" && !canForceMissingPagesRefresh) return run;
     if (!options.force && run.attemptCount >= 3) return run;
     const claim = await this.repository.claimAttempt(run.id, this.now(), Boolean(options.force));
     if (!claim) return this.repository.getById(run.id);

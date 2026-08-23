@@ -342,7 +342,7 @@ const SIGNAL_SOURCE_DEFINITIONS: readonly SignalSourceDefinition[] = [
     enabled: true,
     categoryHint: "ai-engineering",
     priority: 92,
-    url: "https://developers.openai.com/resources/changelog/",
+    url: "https://developers.openai.com/api/docs/changelog/",
     selectorPreset: "official-update-links",
     maxItemsPerRun: 18,
     lookbackHours: 336,

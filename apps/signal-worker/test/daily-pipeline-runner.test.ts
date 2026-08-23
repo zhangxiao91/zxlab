@@ -83,6 +83,39 @@ describe("DailyPipelineRunner", () => {
     expect(refreshes).toBe(2);
   });
 
+  it("force-refreshes Pages for a succeeded run without repeating the pipeline", async () => {
+    let executions = 0;
+    let refreshes = 0;
+    const runner = new DailyPipelineRunner(env.DB, {
+      execute: async (input) => {
+        executions += 1;
+        await input.onStage("collecting");
+        await input.onCollectionReady("collection-published");
+        for (const stage of ["filtering", "generating", "validating", "publishing"] satisfies DailyPipelineStage[]) {
+          await input.onStage(stage);
+        }
+        return {
+          collectionRunId: "collection-published",
+          briefingId: "briefing-published",
+          briefingRunId: "briefing-run-published",
+        };
+      },
+      refreshPages: async () => {
+        refreshes += 1;
+        return refreshes === 1 ? "not-configured" : "triggered";
+      },
+      now: () => new Date("2026-08-22T00:07:00.000Z"),
+    });
+
+    const first = await runner.run(scheduledTime);
+    const second = await runner.run(scheduledTime, { force: true });
+
+    expect(first).toMatchObject({ status: "succeeded", pagesRefreshStatus: "not-configured", attemptCount: 1 });
+    expect(second).toMatchObject({ status: "succeeded", pagesRefreshStatus: "triggered", attemptCount: 2 });
+    expect(executions).toBe(1);
+    expect(refreshes).toBe(2);
+  });
+
   it("leases a daily run so concurrent triggers cannot execute it twice", async () => {
     let releaseExecution!: () => void;
     const blocked = new Promise<void>((resolve) => { releaseExecution = resolve; });

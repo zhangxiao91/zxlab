@@ -69,7 +69,7 @@
         "CF_ACCESS_AUD": ""
       },
       "secrets": {
-        "required": ["ZX_SIGNAL_PREVIEW_SERVICE_TOKEN"]
+        "required": ["ZX_SIGNAL_PREVIEW_SERVICE_TOKEN", "ZX_SIGNAL_WRITE_TOKEN", "PAGES_DEPLOY_HOOK_URL"]
       },
       "observability": {
         "enabled": true,

@@ -9,7 +9,7 @@ import { transformHfDailyPapers } from "../src/collectors/hf-daily-papers";
 import { transformMarketNews } from "../src/collectors/market-news";
 import { ProductHuntCollector, transformProductHuntPosts } from "../src/collectors/producthunt";
 import { parseFeed } from "../src/collectors/rss";
-import { parseWebChangelog } from "../src/collectors/web-changelog";
+import { parseWebChangelog, WebChangelogCollector } from "../src/collectors/web-changelog";
 import { findSource } from "../src/config/sources";
 import { CollectionRepository } from "../src/repositories/collection-repository";
 import { CollectionService } from "../src/services/collection-service";
@@ -81,6 +81,31 @@ describe("Signal collection pipeline", () => {
       .toMatchObject({ title: "Gemini API model update", url: "https://ai.google.dev/gemini-api/docs/changelog#models" });
     expect(transformMarketNews({ data: [{ id: "n1", title: "ETF announcement", url: "https://example.com/news", source: "cninfo-announcement", type: "announcement" }] })[0])
       .toMatchObject({ externalId: "n1", title: "ETF announcement" });
+  });
+
+  it("collects OpenAI updates from the current official API changelog", async () => {
+    const requestedUrls: string[] = [];
+    const collector = new WebChangelogCollector(async (input) => {
+      requestedUrls.push(String(input));
+      return new Response(
+        `<main><time>August 21, 2026</time><a href="/api/docs/changelog/#responses">Responses API update</a></main>`,
+        { headers: { "content-type": "text/html" } },
+      );
+    });
+    const source = findSource("openai-official-updates");
+
+    expect(source).toBeDefined();
+    const items = await collector.collect(source!, {
+      runId: "openai-official-source",
+      now: "2026-08-23T00:00:00.000Z",
+      since: "2026-08-16T00:00:00.000Z",
+    });
+
+    expect(requestedUrls).toEqual(["https://developers.openai.com/api/docs/changelog/"]);
+    expect(items[0]).toMatchObject({
+      title: "Responses API update",
+      url: "https://developers.openai.com/api/docs/changelog/#responses",
+    });
   });
 
   it("caps Hacker News probes so the daily Worker retains gateway subrequest capacity", async () => {
