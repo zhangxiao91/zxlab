@@ -48,12 +48,14 @@ export class AskService {
   private readonly narrator: Narrator;
   private readonly contextReader?: ConfirmedContextReader;
   private readonly researchReader?: ResearchFactReader;
+  private readonly companyUpdateEnabled: boolean;
 
-  constructor(reader: CurrentMarketSnapshotReader, narrator: Narrator = new DeterministicNarrator(), contextReader?: ConfirmedContextReader, researchReader?: ResearchFactReader) {
+  constructor(reader: CurrentMarketSnapshotReader, narrator: Narrator = new DeterministicNarrator(), contextReader?: ConfirmedContextReader, researchReader?: ResearchFactReader, options: { companyUpdateEnabled?: boolean } = {}) {
     this.reader = reader;
     this.narrator = narrator;
     this.contextReader = contextReader;
     this.researchReader = researchReader;
+    this.companyUpdateEnabled = options.companyUpdateEnabled ?? true;
   }
 
   async execute(input: AskServiceInput): Promise<{
@@ -73,20 +75,24 @@ export class AskService {
       quoteMode: plan.quoteMode,
     });
     assertFixedSnapshotScope(snapshot, input.command, plan);
-    const expectedLatestSessionDate = researchExpectedLatestSessionDate(snapshot);
+    const researchPurpose = input.checkpoint?.research?.purpose
+      ?? (plan.researchPurpose === "company_update" && !this.companyUpdateEnabled ? undefined : plan.researchPurpose);
+    const expectedLatestSessionDate = researchPurpose === "price_context" || researchPurpose === "relative_performance"
+      ? researchExpectedLatestSessionDate(snapshot)
+      : undefined;
     const researchScope = selectResearchInstrumentScope(input.command.resolvedInstrumentIds, input.command.instrumentId);
     let research: ResearchFactBundle | undefined;
     if (input.checkpoint) research = input.checkpoint.research;
-    else if (plan.researchPurpose && this.researchReader) {
+    else if (researchPurpose && this.researchReader) {
       research = await this.researchReader.materialize({
-        purpose: plan.researchPurpose,
+        purpose: researchPurpose,
         instrumentIds: researchScope.instrumentIds,
         ...(input.command.instrumentId ? { selectedInstrumentId: input.command.instrumentId } : {}),
         observationCutoff: snapshot.asOf,
         ...(expectedLatestSessionDate ? { expectedLatestSessionDate } : {}),
       });
     }
-    if (research) await assertResearchFactScope({ research, purpose: plan.researchPurpose, instrumentIds: researchScope.instrumentIds, observationCutoff: snapshot.asOf, expectedLatestSessionDate, allowLegacyExpectedSession: Boolean(input.checkpoint) });
+    if (research) await assertResearchFactScope({ research, purpose: researchPurpose, instrumentIds: researchScope.instrumentIds, observationCutoff: snapshot.asOf, expectedLatestSessionDate, allowLegacyExpectedSession: Boolean(input.checkpoint) });
 
     const confirmedContext = !input.checkpoint && this.contextReader
       ? await this.contextReader.retrieve({ profileId: input.command.profileId, workflow: "ask", instrumentIds: input.command.resolvedInstrumentIds, question: input.command.question })
@@ -106,7 +112,7 @@ export class AskService {
         previousSnapshot: input.previousSnapshot,
         confirmedContext,
         research,
-        researchOmittedInstrumentIds: plan.researchPurpose ? researchScope.omittedInstrumentIds : [],
+        researchOmittedInstrumentIds: researchPurpose ? researchScope.omittedInstrumentIds : [],
       });
     if (input.checkpoint && (!await verifyRunCheckpoint(input.checkpoint) || evidence.profileId !== input.command.profileId || evidence.workflow !== "ask" || evidence.ask?.scope !== input.command.scope || evidence.ask.planVersion !== "ask-plan.v1" || evidence.ask.priorRunId !== input.command.priorRunId || !sameValues(evidence.instrumentIds, input.command.resolvedInstrumentIds))) throw new Error("RUN_CHECKPOINT_SCOPE_MISMATCH");
     if (!input.checkpoint && input.onCheckpoint) await input.onCheckpoint(await createRunCheckpoint(snapshot, evidence, research));
@@ -114,7 +120,7 @@ export class AskService {
     const mode = input.checkpoint ? hasReliablePortfolioImpact(evidence) ? "portfolio-aware" : "market-only" : portfolio?.reliable ? "portfolio-aware" : "market-only";
     const researchOmittedInstrumentCount = input.checkpoint
       ? sealedResearchOmittedInstrumentCount(evidence)
-      : plan.researchPurpose ? researchScope.omittedInstrumentIds.length : 0;
+      : researchPurpose ? researchScope.omittedInstrumentIds.length : 0;
     const evidenceAssessment = assessEvidence(input.command.scope, snapshot, mode === "portfolio-aware", research, researchOmittedInstrumentCount);
     await input.onProgress?.("generating");
     const narration = await narrateWithRepair(this.narrator, {

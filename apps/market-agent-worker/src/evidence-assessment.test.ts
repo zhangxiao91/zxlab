@@ -88,3 +88,17 @@ test("research coverage keeps the subject, metric, window, and sample counts", (
   assert.equal(assessment.coverage, "limited");
   assert.match(assessment.limitations.find((item) => item.code === "INSUFFICIENT_SAMPLE")?.message ?? "", /SSE:600000 realized_volatility:250.*180\/251/);
 });
+
+test("financial comparison limitations retain metric, comparison kind, and period", () => {
+  const research = researchFactBundleFixture();
+  const fundamentals = research.capabilities.find((capability) => capability.id === "fundamentals")!;
+  fundamentals.required = true;
+  fundamentals.status = "degraded";
+  fundamentals.warnings = ["COMPARISON_NOT_MEANINGFUL"];
+  fundamentals.limitations = [{ code: "COMPARISON_NOT_MEANINGFUL", subjectId: "SSE:600000", metric: "operating_revenue", comparisonKind: "qoq", periodEnd: "2026-06-30", retryable: false }];
+
+  const assessment = assessEvidence("news_and_announcements", snapshot, false, research);
+
+  assert.equal(assessment.coverage, "limited");
+  assert.match(assessment.limitations.find((item) => item.code === "COMPARISON_NOT_MEANINGFUL")?.message ?? "", /SSE:600000 operating_revenue:qoq period=2026-06-30/);
+});

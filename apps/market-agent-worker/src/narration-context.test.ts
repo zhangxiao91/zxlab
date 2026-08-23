@@ -148,6 +148,44 @@ test("relative-performance context retains deterministic Research Facts with for
   assert.equal(((projected.value.fact as { formula?: { version?: string } }).formula?.version), "1");
 });
 
+test("news-and-announcements context retains financial Research Facts beside external reports", () => {
+  const announcements: EvidenceItem[] = Array.from({ length: 40 }, (_, index) => ({
+    id: `announcement-${index}`,
+    kind: "market_fact",
+    origin: "server-observed",
+    reliable: true,
+    value: { evidenceType: "announcement", instrumentId: "SSE:600000", title: `公告 ${index}`, publishedAt: "2026-08-15T07:00:00.000Z" },
+  }));
+  const research: EvidenceItem = {
+    id: "research-financial",
+    kind: "market_fact",
+    origin: "server-observed",
+    reliable: true,
+    value: {
+      type: "research_fact",
+      researchFingerprint: "sha256:financial",
+      planVersion: "company-update.v1",
+      purpose: "company_update",
+      fact: {
+        id: "financial:SSE:600000:operating_revenue:2026Q2",
+        kind: "financial_metric",
+        subjectId: "SSE:600000",
+        metric: "operating_revenue",
+        period: { start: "2026-04-01T00:00:00.000Z", end: "2026-06-30T00:00:00.000Z", basis: "quarter" },
+        value: { decimal: "2500000000", unit: "CNY" },
+        comparisons: [{ kind: "yoy", decimal: "0.12", unit: "ratio" }],
+      },
+    },
+  };
+
+  const context = buildNarrationContext({ evidence: evidence([...announcements, research], "news_and_announcements"), workflow: "ask", askScope: "news_and_announcements" });
+  const projected = context.evidence.find((item) => item.id === research.id);
+
+  assert.ok(projected);
+  assert.equal(context.focus.strategy, "announcements-financials-and-material-context-first");
+  assert.equal((((projected.value.fact as { comparisons?: unknown[] }).comparisons)?.length), 1);
+});
+
 test("close review keeps the point-in-time Snapshot diff ahead of a large quote set", () => {
   const quotes: EvidenceItem[] = Array.from({ length: 120 }, (_, index) => ({
     id: `quote-${index}`,

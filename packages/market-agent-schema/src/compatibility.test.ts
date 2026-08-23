@@ -147,6 +147,73 @@ test("Research Fact blocks are current-only projections and remain backward comp
   assert.equal(compatibleAgentResult({ ...legacy([]), report: legacyReport }).report?.factBlocks, undefined);
 });
 
+test("financial Fact Blocks project source or derived values and distinct YoY and QoQ comparisons", () => {
+  const evidence: SealedEvidenceBundle = {
+    schemaVersion: "market-agent.v1",
+    eventRuleVersion: "market-event.v1",
+    profileId: "p1",
+    workflow: "ask",
+    watchlistRevision: "w1",
+    instrumentIds: ["SSE:600000"],
+    items: [{
+      id: "financial-1",
+      kind: "market_fact",
+      origin: "server-observed",
+      reliable: true,
+      value: {
+        type: "research_fact",
+        researchFingerprint: "sha256:financial",
+        planVersion: "company-update.v1",
+        purpose: "company_update",
+        fact: {
+          id: "financial:SSE:600000:operating_revenue:2026Q2",
+          kind: "financial_metric",
+          subjectId: "SSE:600000",
+          metric: "operating_revenue",
+          period: { start: "2026-04-01T00:00:00.000Z", end: "2026-06-30T00:00:00.000Z", basis: "quarter" },
+          value: { decimal: "2500000000", unit: "CNY" },
+          formula: { id: "financial.single_quarter.v1", version: "1", expression: "current_cumulative - previous_cumulative", inputArtifactIds: ["filing:h1", "filing:q1"], parameters: { period: "Q2" }, rounding: "exact-decimal" },
+          comparisons: [{
+            kind: "yoy",
+            comparablePeriod: { start: "2025-04-01T00:00:00.000Z", end: "2025-06-30T00:00:00.000Z", basis: "quarter" },
+            decimal: "0.12",
+            unit: "ratio",
+            formula: { id: "financial.yoy.v1", version: "1", expression: "current / prior - 1", inputArtifactIds: ["filing:h1", "filing:q1", "filing:h1-prior", "filing:q1-prior"], parameters: {}, rounding: "decimal-12-nearest" },
+          }, {
+            kind: "qoq",
+            comparablePeriod: { start: "2026-01-01T00:00:00.000Z", end: "2026-03-31T00:00:00.000Z", basis: "quarter" },
+            decimal: "0.03",
+            unit: "ratio",
+            formula: { id: "financial.qoq.v1", version: "1", expression: "current / prior - 1", inputArtifactIds: ["filing:h1", "filing:q1"], parameters: {}, rounding: "decimal-12-nearest" },
+          }],
+          provenance: { providers: ["eastmoney", "cninfo"], sourceArtifactIds: ["filing:h1", "filing:q1", "filing:h1-prior", "filing:q1-prior"], sourceAsOf: "2026-08-15T07:00:00.000Z", retrievedAt: "2026-08-15T07:01:00.000Z" },
+          quality: { status: "operational", reliable: true, coverage: { actual: 4, required: 4 }, warnings: [] },
+        },
+      },
+    }],
+    contextUses: [],
+    fingerprint: "sha256:evidence",
+    sealedAt: "2026-08-15T07:02:00.000Z",
+    ask: { scope: "news_and_announcements", planVersion: "ask-plan.v1" },
+  };
+
+  const report = createResearchReportV2(legacy([]), evidence);
+  const block = report.factBlocks?.[0];
+
+  assert.equal(block?.title, "SSE:600000 · 营业收入");
+  assert.deepEqual(block?.metrics.map((metric) => [metric.key, metric.label]), [
+    ["value", "营业收入"],
+    ["comparison_yoy", "同比"],
+    ["comparison_qoq", "环比"],
+  ]);
+  assert.equal(block?.metrics[0]?.formula?.id, "financial.single_quarter.v1");
+  assert.deepEqual(block?.context.map((item) => item.label), ["报告期", "报告口径", "同比可比期", "环比可比期"]);
+  assert.equal(compatibleAgentResult({ ...legacy([]), report }).report?.factBlocks?.[0]?.metrics.length, 3);
+
+  block!.metrics.push({ ...block!.metrics[1]! });
+  assert.equal(compatibleAgentResult({ ...legacy([]), report }).report?.factBlocks, undefined);
+});
+
 test("Research Report sources retain quote source and corroborating providers", () => {
   const evidence: SealedEvidenceBundle = {
     schemaVersion: "market-agent.v1",

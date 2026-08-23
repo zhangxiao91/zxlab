@@ -6,6 +6,8 @@ import { DEFAULT_QUOTE_CONFLICT_THRESHOLD_BPS, type MarketFactQuality, type Mark
 import type { ResearchFactPlane as ResearchFactPlaneInterface, ResearchFactRequest } from "@zxlab/research-fact-schema";
 import { ResearchFactPlane, type DailyHistoryResult } from "./research/fact-plane.ts";
 import { StaticVersionedBenchmarkMappingRegistry } from "./research/benchmark-mappings.ts";
+import { D1R2PointInTimeResearchArtifactStore, UnavailablePointInTimeResearchArtifactStore } from "./research/artifact-store.ts";
+import { EastmoneyCninfoFinancialStatementAdapter } from "./research/financial-statements.ts";
 
 type NullableNumber = number | null;
 type Quality = MarketFactQuality;
@@ -781,9 +783,19 @@ async function loadStatus(exchange: "SSE" | "SZSE"): Promise<SnapshotLoadResult<
   return { data, meta: { capability: `status:${exchange}`, capabilityStatus: data.quality, asOf: data.asOf, receivedAt: data.receivedAt, freshness: data.freshness, reference: data.reference, warnings: data.warnings } };
 }
 
-function productionResearchFactPlane(): ResearchFactPlane {
+function productionResearchFactPlane(env: Partial<ResearchEnv>): ResearchFactPlane {
+  const artifactMode = researchArtifactMode(env.RESEARCH_ARTIFACT_MODE);
+  const artifactStore = env.RESEARCH_ARTIFACT_DB && env.RESEARCH_ARTIFACT_BLOBS
+    ? new D1R2PointInTimeResearchArtifactStore({
+      db: env.RESEARCH_ARTIFACT_DB,
+      blobs: env.RESEARCH_ARTIFACT_BLOBS,
+    })
+    : artifactMode === "disabled" ? undefined : new UnavailablePointInTimeResearchArtifactStore();
   return new ResearchFactPlane({
     benchmarkMappings: new StaticVersionedBenchmarkMappingRegistry(),
+    artifactMode,
+    artifactStore,
+    financialStatements: new EastmoneyCninfoFinancialStatementAdapter(),
     history: {
       async loadDailyHistory(input) {
         const loaded = await loadBars(input.instrumentId, "1d");
@@ -791,6 +803,10 @@ function productionResearchFactPlane(): ResearchFactPlane {
       },
     },
   });
+}
+
+function researchArtifactMode(value: string | undefined): "disabled" | "shadow" | "required" {
+  return value === "shadow" || value === "required" ? value : "disabled";
 }
 
 export function projectDailyHistoryForResearch(instrumentId: string, loaded: LoadResult<StandardBar[]>): DailyHistoryResult {
@@ -839,6 +855,8 @@ export async function handleResearchFactRequest(request: Request, serviceToken: 
     if (message === "UNSUPPORTED_RESEARCH_PURPOSE") return privateJson({ error: { code: message, message: "Research purpose is not implemented" } }, 422);
     if (message === "OBSERVATION_CUTOFF_OUT_OF_RANGE") return privateJson({ error: { code: message, message: "observationCutoff must be within the previous 15 minutes", retryable: false } }, 400);
     if (message === "RESEARCH_HISTORY_INTEGRITY_FAILURE") return privateJson({ error: { code: message, message: "Research history failed integrity validation", retryable: false } }, 502);
+    if (message === "RESEARCH_ARTIFACT_INTEGRITY_FAILURE") return privateJson({ error: { code: message, message: "Research artifacts failed integrity validation", retryable: false } }, 502);
+    if (message === "FINANCIAL_STATEMENT_INTEGRITY_FAILURE") return privateJson({ error: { code: message, message: "Financial statements failed integrity validation", retryable: false } }, 502);
     console.error(JSON.stringify({ event: "research_fact_error", code: "RESEARCH_FACT_MATERIALIZATION_FAILED", path: new URL(request.url).pathname }));
     return privateJson({ error: { code: "RESEARCH_FACT_MATERIALIZATION_FAILED", message: "Research facts could not be materialized" } }, 502);
   }
@@ -908,7 +926,8 @@ function uniqueQuery(value: string | null): string[] { return [...new Set((value
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    if (new URL(request.url).pathname === "/api/market/research/facts") return handleResearchFactRequest(request, (env as Env & { MARKET_RESEARCH_TOKEN?: string }).MARKET_RESEARCH_TOKEN, productionResearchFactPlane());
+    const researchEnv: Partial<ResearchEnv> = env;
+    if (new URL(request.url).pathname === "/api/market/research/facts") return handleResearchFactRequest(request, researchEnv.MARKET_RESEARCH_TOKEN, productionResearchFactPlane(researchEnv));
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
     if (request.method !== "GET") return json({ error: { code: "METHOD_NOT_ALLOWED", message: "仅支持 GET" } }, 405);
     if (new URL(request.url).pathname === "/internal/runtime/health") {

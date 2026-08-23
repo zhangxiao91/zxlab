@@ -28,10 +28,12 @@ operators, quality thresholds, and payload budgets. Browser and model callers
 cannot choose those values.
 
 The request's `observationCutoff` is fixed to the current Market Snapshot
-`asOf`. After acquisition, the Plane creates `knowledgeCutoff` from the latest
-retrieval admitted to the Bundle. This keeps market as-of and system knowledge
-time distinct: `sourceAsOf <= observationCutoff` and
-`retrievedAt <= knowledgeCutoff <= generatedAt`.
+`asOf`. After acquisition, the Plane creates the server-owned
+`knowledgeCutoff` as a system-knowledge boundary: it is never earlier than the
+observation cutoff and advances to the latest `retrievedAt` or
+`firstObservedAt` among admitted Artifacts. This keeps market as-of and durable
+system knowledge distinct: `sourceAsOf <= observationCutoff <= knowledgeCutoff`
+and `retrievedAt, firstObservedAt <= knowledgeCutoff <= generatedAt`.
 
 The production adapter uses the Market Worker service binding and a dedicated
 `MARKET_RESEARCH_TOKEN`; it does not reuse the Runtime health identity. Tests
@@ -89,6 +91,15 @@ that unsupported research domains are already available.
   minimum-coverage rules.
 - Point-in-time source artifact storage so historical Runs cannot see later
   financial revisions.
+
+The first Slice B increment is `company-update.v1`: five canonical statement
+metrics, deterministic standalone-quarter conversion, and comparable YoY/QoQ
+changes backed by the Point-in-Time Research Artifact Store. Eastmoney report
+dates never substitute for disclosure time; `NOTICE_DATE` is the structured
+source time and CNINFO supplies the official filing identity when uniquely
+matched. Raw response retention remains disabled unless the provider grants an
+explicit storage right; the capability stays unavailable rather than silently
+dropping the audit contract.
 
 ### Slice C: documents and version differences
 

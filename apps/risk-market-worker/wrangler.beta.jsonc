@@ -10,5 +10,22 @@
     "traces": { "enabled": true, "head_sampling_rate": 0.05 }
   },
   "workers_dev": true,
+  "vars": {
+    "RESEARCH_ARTIFACT_MODE": "shadow"
+  },
+  "d1_databases": [
+    {
+      "binding": "RESEARCH_ARTIFACT_DB",
+      "database_name": "risk-market-research-beta",
+      "database_id": "8568562a-dbd7-4121-a27f-a0496de7dfa5",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "RESEARCH_ARTIFACT_BLOBS",
+      "bucket_name": "risk-market-research-artifacts-beta"
+    }
+  ],
   "secrets": { "required": ["ZX_RUNTIME_SERVICE_TOKEN", "MARKET_RESEARCH_TOKEN"] }
 }

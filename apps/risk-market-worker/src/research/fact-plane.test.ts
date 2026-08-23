@@ -3,9 +3,12 @@ import test from "node:test";
 import { ResearchFactPlane, type DailyHistoryPort, type VersionedBenchmarkMappingPort } from "./fact-plane.ts";
 import { validateResearchFactBundle, verifyResearchFactBundleFingerprint } from "@zxlab/research-fact-schema";
 import { StaticVersionedBenchmarkMappingRegistry } from "./benchmark-mappings.ts";
+import { InMemoryPointInTimeResearchArtifactStore, ResearchArtifactStoreError, UnavailablePointInTimeResearchArtifactStore, type FinancialStatementProjection, type OfficialFilingProjection, type PointInTimeResearchArtifactStore, type ResearchArtifactCandidate } from "./artifact-store.ts";
+import type { FinancialStatementPort } from "./financial-statements.ts";
 
 const AS_OF = "2026-08-14T07:00:00.000Z";
 const SUNDAY = "2026-08-16T04:00:00.000Z";
+const FINANCIAL_NOW = "2026-08-23T07:00:00.000Z";
 
 function constantHistory(instrumentId: string, sessions = 251): DailyHistoryPort {
   return {
@@ -48,6 +51,66 @@ function historyEndingAt(instrumentId: string, endDate: string, sessions = 251):
 const noMappings: VersionedBenchmarkMappingPort = {
   async findEffectiveBenchmark() { return null; },
 };
+
+function statementCandidate(periodEnd: string, basis: FinancialStatementProjection["reportPeriod"]["basis"], values: Record<string, string>, filingKey: string): ResearchArtifactCandidate[] {
+  const start = basis === "quarter" && periodEnd.endsWith("03-31T00:00:00.000Z") ? `${periodEnd.slice(0, 4)}-01-01T00:00:00.000Z` : `${periodEnd.slice(0, 4)}-01-01T00:00:00.000Z`;
+  const definitions: Array<[FinancialStatementProjection["statementType"], string[]]> = [
+    ["income", ["operating_revenue", "operating_profit", "net_profit_attributable_to_parent"]],
+    ["cash_flow", ["net_cash_flow_from_operating_activities"]],
+    ["balance_sheet", ["total_assets"]],
+  ];
+  return definitions.map(([statementType, metrics]) => {
+    const projection: FinancialStatementProjection = {
+      statementType,
+      reportPeriod: { start, end: periodEnd, basis },
+      reportTypeCode: "fixture",
+      dataState: "F",
+      cells: metrics.map((metric) => ({ metric, value: values[metric], unit: "CNY" })),
+    };
+    return {
+      kind: "financial_statement.v1",
+      subjectId: "SSE:600000",
+      logicalKey: `SSE:600000:${statementType}:${periodEnd}:${basis}`,
+      provider: "fixture-financials",
+      providerVersion: "fixture-financials.v1",
+      sourceAsOf: `${periodEnd.slice(0, 4)}-08-20T00:00:00.000Z`,
+      retrievedAt: FINANCIAL_NOW,
+      payload: { ...projection, officialFilingLogicalKey: filingKey },
+      rawPayload: { fixture: true, projection },
+      projection,
+    };
+  });
+}
+
+function filingCandidate(periodEnd: string): ResearchArtifactCandidate {
+  const year = periodEnd.slice(0, 4);
+  const type: OfficialFilingProjection["reportType"] = periodEnd.includes("06-30") ? "semiannual" : "quarterly";
+  const projection: OfficialFilingProjection = { filingId: `filing-${periodEnd}`, reportPeriodEnd: periodEnd, reportType: type, title: `${year} report`, publishedAt: `${year}-08-20T01:00:00.000Z`, url: `https://static.cninfo.com.cn/${year}.pdf` };
+  return { kind: "official_filing_identity.v1", subjectId: "SSE:600000", logicalKey: `SSE:600000:official-filing:${periodEnd}:${type}`, provider: "fixture-cninfo", providerVersion: "fixture-cninfo.v1", sourceAsOf: projection.publishedAt, retrievedAt: FINANCIAL_NOW, payload: projection, rawPayload: { fixture: true }, projection };
+}
+
+function companyUpdatePort(): FinancialStatementPort {
+  const periods = [
+    { end: "2025-03-31T00:00:00.000Z", basis: "quarter" as const, values: { operating_revenue: "40", operating_profit: "8", net_profit_attributable_to_parent: "6", net_cash_flow_from_operating_activities: "5", total_assets: "760" } },
+    { end: "2025-06-30T00:00:00.000Z", basis: "year_to_date" as const, values: { operating_revenue: "100", operating_profit: "20", net_profit_attributable_to_parent: "16", net_cash_flow_from_operating_activities: "15", total_assets: "800" } },
+    { end: "2026-03-31T00:00:00.000Z", basis: "quarter" as const, values: { operating_revenue: "50", operating_profit: "10", net_profit_attributable_to_parent: "8", net_cash_flow_from_operating_activities: "7", total_assets: "850" } },
+    { end: "2026-06-30T00:00:00.000Z", basis: "year_to_date" as const, values: { operating_revenue: "120", operating_profit: "25", net_profit_attributable_to_parent: "20", net_cash_flow_from_operating_activities: "18", total_assets: "900" } },
+  ];
+  return {
+    async loadArtifacts() {
+      const filings = periods.map((period) => filingCandidate(period.end));
+      const statements = periods.flatMap((period, index) => statementCandidate(period.end, period.basis, period.values, filings[index].logicalKey));
+      return {
+        candidates: [...statements, ...filings],
+        relations: statements.map((statement, index) => ({
+          fromLogicalKey: statement.logicalKey,
+          toLogicalKey: filings[Math.floor(index / 3)].logicalKey,
+          relation: "corroborated_by" as const,
+        })),
+      };
+    },
+  };
+}
 
 test("price_context materializes deterministic 20/60/250 session baselines", async () => {
   const plane = new ResearchFactPlane({
@@ -352,7 +415,8 @@ test("materialization rejects observation cutoffs outside the trailing fifteen-m
 });
 
 test("daily input artifacts are content-addressed and formulas pin qfq adjustment", async () => {
-  const first = await new ResearchFactPlane({ history: constantHistory("SSE:600000"), benchmarkMappings: noMappings, now: () => AS_OF }).materialize({
+  const artifactStore = new InMemoryPointInTimeResearchArtifactStore({ now: () => AS_OF });
+  const first = await new ResearchFactPlane({ history: constantHistory("SSE:600000"), benchmarkMappings: noMappings, artifactStore, artifactMode: "required", now: () => AS_OF }).materialize({
     purpose: "price_context",
     instrumentIds: ["SSE:600000"],
     observationCutoff: AS_OF,
@@ -373,6 +437,25 @@ test("daily input artifacts are content-addressed and formulas pin qfq adjustmen
   assert.ok(firstArtifacts.every((artifactId) => /^daily-bars:SSE:600000:sha256:[a-f0-9]{64}$/.test(artifactId)));
   assert.notDeepEqual([...new Set(firstArtifacts)], [...new Set(secondArtifacts)]);
   assert.ok(first.facts.filter((fact) => fact.kind === "market_baseline").every((fact) => fact.formula.parameters.adjustment === "qfq"));
+  const stored = await artifactStore.selectAsOf({ subjectIds: ["SSE:600000"], kinds: ["normalized_daily_history.v1"], observationCutoff: AS_OF, knowledgeCutoff: AS_OF });
+  assert.equal(stored.artifacts.length, 1);
+  assert.equal(stored.artifacts[0].artifactId, firstArtifacts[0]);
+});
+
+test("shadow capture persists daily artifacts without changing the legacy price-context output", async () => {
+  const history = constantHistory("SSE:600000");
+  const request = { purpose: "price_context" as const, instrumentIds: ["SSE:600000"], observationCutoff: AS_OF };
+  const disabled = await new ResearchFactPlane({ history, benchmarkMappings: noMappings, now: () => AS_OF }).materialize(request);
+  const store = new InMemoryPointInTimeResearchArtifactStore({ now: () => AS_OF });
+  const shadow = await new ResearchFactPlane({ history, benchmarkMappings: noMappings, artifactStore: store, artifactMode: "shadow", now: () => AS_OF }).materialize(request);
+
+  assert.deepEqual(shadow, disabled);
+  assert.equal((await store.selectAsOf({
+    subjectIds: ["SSE:600000"],
+    kinds: ["normalized_daily_history.v1"],
+    observationCutoff: AS_OF,
+    knowledgeCutoff: AS_OF,
+  })).artifacts.length, 1);
 });
 
 test("history subject and normalized bar integrity failures abort the whole materialization", async () => {
@@ -406,7 +489,187 @@ test("server knowledge cutoff is assigned after collection and bounds retrieval 
   const plane = new ResearchFactPlane({ history: collectedHistory, benchmarkMappings: noMappings, now: () => clockReads++ === 0 ? AS_OF : generatedAt });
   const bundle = await plane.materialize({ purpose: "price_context", instrumentIds: ["SSE:600000"], observationCutoff: AS_OF });
   assert.equal(bundle.observationCutoff, AS_OF);
-  assert.equal(bundle.knowledgeCutoff, generatedAt);
+  assert.equal(bundle.knowledgeCutoff, retrievedAt);
   assert.equal(bundle.generatedAt, generatedAt);
   assert.ok(bundle.facts.every((fact) => fact.provenance.retrievedAt === retrievedAt && fact.provenance.retrievedAt <= bundle.knowledgeCutoff));
+});
+
+test("knowledge cutoff uses the latest included artifact observation while generatedAt remains report time", async () => {
+  const retrievedAt = "2026-08-14T07:00:02.000Z";
+  const firstObservedAt = "2026-08-14T07:00:04.000Z";
+  const generatedAt = "2026-08-14T07:00:05.000Z";
+  const artifactStore = new InMemoryPointInTimeResearchArtifactStore({ now: () => firstObservedAt });
+  const history: DailyHistoryPort = {
+    async loadDailyHistory(input) {
+      const loaded = await constantHistory(input.instrumentId).loadDailyHistory(input);
+      return { ...loaded, retrievedAt };
+    },
+  };
+  let clockReads = 0;
+  const bundle = await new ResearchFactPlane({ history, benchmarkMappings: noMappings, artifactStore, artifactMode: "required", now: () => clockReads++ === 0 ? AS_OF : generatedAt }).materialize({
+    purpose: "price_context",
+    instrumentIds: ["SSE:600000"],
+    observationCutoff: AS_OF,
+  });
+
+  assert.equal(bundle.knowledgeCutoff, firstObservedAt);
+  assert.equal(bundle.generatedAt, generatedAt);
+  assert.ok(bundle.facts.every((fact) => fact.provenance.retrievedAt === retrievedAt));
+  assert.equal(validateResearchFactBundle(bundle).ok, true);
+});
+
+test("provider failure falls back to the latest legal daily artifact without treating Sunday as stale", async () => {
+  const store = new InMemoryPointInTimeResearchArtifactStore({ now: () => AS_OF });
+  const initial = await new ResearchFactPlane({ history: historyEndingAt("SSE:600000", "2026-08-14", 251), benchmarkMappings: noMappings, artifactStore: store, artifactMode: "required", now: () => SUNDAY }).materialize({
+    purpose: "price_context",
+    instrumentIds: ["SSE:600000"],
+    observationCutoff: SUNDAY,
+    expectedLatestSessionDate: "2026-08-14",
+  });
+  const initialArtifactId = initial.facts.find((fact) => fact.kind === "market_baseline")!.formula.inputArtifactIds[0];
+  const unavailable: DailyHistoryPort = { async loadDailyHistory() { throw Object.assign(new Error("provider unavailable"), { code: "ALL_PROVIDERS_FAILED" }); } };
+  const bundle = await new ResearchFactPlane({ history: unavailable, benchmarkMappings: noMappings, artifactStore: store, artifactMode: "required", now: () => SUNDAY }).materialize({
+    purpose: "price_context",
+    instrumentIds: ["SSE:600000"],
+    observationCutoff: SUNDAY,
+    expectedLatestSessionDate: "2026-08-14",
+  });
+
+  const baselines = bundle.facts.filter((fact) => fact.kind === "market_baseline");
+  assert.ok(baselines.length > 0);
+  assert.ok(baselines.every((fact) => fact.formula.inputArtifactIds.includes(initialArtifactId) && fact.quality.status === "degraded"));
+  assert.equal(bundle.capabilities[0].status, "degraded");
+  assert.ok(bundle.capabilities[0].limitations.some((limitation) => limitation.code === "HISTORY_PROVIDER_EXHAUSTED" && limitation.retryable));
+  assert.equal(bundle.capabilities[0].limitations.some((limitation) => limitation.code === "LATEST_SESSION_MISSING"), false);
+  assert.equal(bundle.capabilities[0].asOf, "2026-08-14T07:00:00.000Z");
+});
+
+test("persistence failure uses the prior stored revision instead of unpersisted provider data", async () => {
+  const seeded = new InMemoryPointInTimeResearchArtifactStore({ now: () => AS_OF });
+  const initial = await new ResearchFactPlane({ history: historyEndingAt("SSE:600000", "2026-08-14", 251), benchmarkMappings: noMappings, artifactStore: seeded, artifactMode: "required", now: () => SUNDAY }).materialize({
+    purpose: "price_context",
+    instrumentIds: ["SSE:600000"],
+    observationCutoff: SUNDAY,
+    expectedLatestSessionDate: "2026-08-14",
+  });
+  const initialArtifactId = initial.facts.find((fact) => fact.kind === "market_baseline")!.formula.inputArtifactIds[0];
+  const store: PointInTimeResearchArtifactStore = {
+    async capture() { throw new ResearchArtifactStoreError("ARTIFACT_PERSISTENCE_FAILED"); },
+    selectAsOf(query) { return seeded.selectAsOf(query); },
+  };
+  const changedHistory: DailyHistoryPort = {
+    async loadDailyHistory(input) {
+      const loaded = await historyEndingAt(input.instrumentId, "2026-08-14", 251).loadDailyHistory(input);
+      return { ...loaded, bars: loaded.bars.map((bar, index) => index === 0 ? { ...bar, close: "200" } : bar) };
+    },
+  };
+  const bundle = await new ResearchFactPlane({ history: changedHistory, benchmarkMappings: noMappings, artifactStore: store, artifactMode: "required", now: () => SUNDAY }).materialize({
+    purpose: "price_context",
+    instrumentIds: ["SSE:600000"],
+    observationCutoff: SUNDAY,
+    expectedLatestSessionDate: "2026-08-14",
+  });
+
+  const baselines = bundle.facts.filter((fact) => fact.kind === "market_baseline");
+  assert.ok(baselines.length > 0);
+  assert.ok(baselines.every((fact) => fact.formula.inputArtifactIds.includes(initialArtifactId) && fact.quality.status === "degraded"));
+  assert.ok(bundle.capabilities[0].limitations.some((limitation) => limitation.code === "ARTIFACT_PERSISTENCE_FAILED" && limitation.retryable));
+  assert.equal(bundle.capabilities[0].limitations.some((limitation) => limitation.code === "LATEST_SESSION_MISSING"), false);
+});
+
+test("company update knowledge cutoff is derived from selected artifact observations", async () => {
+  const firstObservedAt = "2026-08-23T07:00:03.000Z";
+  const generatedAt = "2026-08-23T07:00:05.000Z";
+  const store = new InMemoryPointInTimeResearchArtifactStore({ now: () => firstObservedAt });
+  let clockReads = 0;
+  const plane = new ResearchFactPlane({
+    history: constantHistory("SSE:600000"),
+    benchmarkMappings: noMappings,
+    artifactStore: store,
+    financialStatements: companyUpdatePort(),
+    artifactMode: "required",
+    now: () => clockReads++ === 0 ? FINANCIAL_NOW : generatedAt,
+  });
+  const bundle = await plane.materialize({ purpose: "company_update", instrumentIds: ["SSE:600000"], observationCutoff: FINANCIAL_NOW });
+
+  assert.equal(bundle.knowledgeCutoff, firstObservedAt);
+  assert.equal(bundle.generatedAt, generatedAt);
+  assert.equal(validateResearchFactBundle(bundle).ok, true);
+});
+
+test("company_update materializes reported and standalone-quarter financial facts with deterministic comparisons", async () => {
+  const store = new InMemoryPointInTimeResearchArtifactStore({ now: () => FINANCIAL_NOW });
+  const plane = new ResearchFactPlane({
+    history: constantHistory("SSE:600000"),
+    benchmarkMappings: noMappings,
+    artifactStore: store,
+    financialStatements: companyUpdatePort(),
+    artifactMode: "required",
+    now: () => FINANCIAL_NOW,
+  });
+  const bundle = await plane.materialize({ purpose: "company_update", instrumentIds: ["SSE:600000"], observationCutoff: FINANCIAL_NOW });
+
+  assert.equal(validateResearchFactBundle(bundle).ok, true);
+  assert.equal(bundle.planVersion, "company-update.v1");
+  assert.deepEqual(bundle.capabilities.map((capability) => capability.id), ["fundamentals"]);
+  const revenue = bundle.facts.filter((fact) => fact.kind === "financial_metric" && fact.metric === "operating_revenue");
+  const reported = revenue.find((fact) => fact.period.basis === "year_to_date")!;
+  const quarter = revenue.find((fact) => fact.period.basis === "quarter")!;
+  assert.equal(reported.value.decimal, "120");
+  assert.equal(reported.comparisons?.find((comparison) => comparison.kind === "yoy")?.decimal, "0.2");
+  assert.equal(quarter.value.decimal, "70");
+  assert.equal(quarter.formula?.id, "financial.single_quarter.v1");
+  assert.equal(quarter.comparisons?.find((comparison) => comparison.kind === "yoy")?.decimal, "0.166666666667");
+  assert.equal(quarter.comparisons?.find((comparison) => comparison.kind === "qoq")?.decimal, "0.4");
+  const assets = bundle.facts.find((fact) => fact.kind === "financial_metric" && fact.metric === "total_assets")!;
+  assert.equal(assets.value.decimal, "900");
+  assert.equal(assets.comparisons?.find((comparison) => comparison.kind === "yoy")?.decimal, "0.125");
+  assert.equal(assets.comparisons?.find((comparison) => comparison.kind === "qoq")?.decimal, "0.058823529412");
+  assert.equal(bundle.capabilities[0].status, "operational");
+  assert.equal(await verifyResearchFactBundleFingerprint(bundle), true);
+});
+
+test("company_update keeps store outage inside the fundamentals capability", async () => {
+  const plane = new ResearchFactPlane({
+    history: constantHistory("SSE:600000"),
+    benchmarkMappings: noMappings,
+    artifactStore: new UnavailablePointInTimeResearchArtifactStore(),
+    financialStatements: companyUpdatePort(),
+    artifactMode: "required",
+    now: () => FINANCIAL_NOW,
+  });
+  const bundle = await plane.materialize({ purpose: "company_update", instrumentIds: ["SSE:600000"], observationCutoff: FINANCIAL_NOW });
+  assert.equal(validateResearchFactBundle(bundle).ok, true);
+  assert.equal(bundle.facts.length, 0);
+  assert.equal(bundle.capabilities[0].status, "unavailable");
+  assert.ok(bundle.capabilities[0].limitations.some((limitation) => limitation.code === "ARTIFACT_STORE_UNAVAILABLE" && limitation.retryable));
+});
+
+test("company_update keeps a current value but omits misleading ratios when the comparison base is non-positive", async () => {
+  const base = companyUpdatePort();
+  const financialStatements: FinancialStatementPort = {
+    async loadArtifacts(input) {
+      const batch = await base.loadArtifacts(input);
+      for (const candidate of batch.candidates) {
+        if (candidate.kind !== "financial_statement.v1" || !candidate.logicalKey.includes("2025-06-30") || !candidate.projection || !("statementType" in candidate.projection)) continue;
+        const revenue = candidate.projection.cells.find((cell) => cell.metric === "operating_revenue");
+        if (revenue) revenue.value = "0";
+      }
+      return batch;
+    },
+  };
+  const plane = new ResearchFactPlane({
+    history: constantHistory("SSE:600000"),
+    benchmarkMappings: noMappings,
+    artifactStore: new InMemoryPointInTimeResearchArtifactStore({ now: () => FINANCIAL_NOW }),
+    financialStatements,
+    artifactMode: "required",
+    now: () => FINANCIAL_NOW,
+  });
+  const bundle = await plane.materialize({ purpose: "company_update", instrumentIds: ["SSE:600000"], observationCutoff: FINANCIAL_NOW });
+  const revenue = bundle.facts.find((fact) => fact.kind === "financial_metric" && fact.metric === "operating_revenue" && fact.period.basis === "year_to_date")!;
+  assert.equal(revenue.value.decimal, "120");
+  assert.equal(revenue.comparisons?.some((comparison) => comparison.kind === "yoy") ?? false, false);
+  assert.ok(bundle.capabilities[0].limitations.some((limitation) => limitation.code === "COMPARISON_NOT_MEANINGFUL" && limitation.metric === "operating_revenue" && limitation.comparisonKind === "yoy"));
+  assert.equal(revenue.quality.reliable, true);
 });

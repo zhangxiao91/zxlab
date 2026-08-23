@@ -107,3 +107,15 @@ test("research facts route does not downgrade history integrity failures", async
   assert.equal(response.status, 502);
   assert.deepEqual(await response.json(), { error: { code: "RESEARCH_HISTORY_INTEGRITY_FAILURE", message: "Research history failed integrity validation", retryable: false } });
 });
+
+test("research facts route maps artifact integrity failures to a safe nonretryable response", async () => {
+  const response = await handleResearchFactRequest(new Request("https://market.example/api/market/research/facts", {
+    method: "POST",
+    headers: { authorization: `Bearer ${RESEARCH_TOKEN}`, "content-type": "application/json" },
+    body: JSON.stringify({ purpose: "company_update", instrumentIds: ["SSE:600000"], observationCutoff: NOW }),
+  }), RESEARCH_TOKEN, {
+    async materialize() { throw new Error("RESEARCH_ARTIFACT_INTEGRITY_FAILURE"); },
+  });
+  assert.equal(response.status, 502);
+  assert.deepEqual(await response.json(), { error: { code: "RESEARCH_ARTIFACT_INTEGRITY_FAILURE", message: "Research artifacts failed integrity validation", retryable: false } });
+});

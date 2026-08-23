@@ -14,6 +14,14 @@ import {
   type ResearchFactPlane as ResearchFactPlaneInterface,
   type ResearchFactRequest,
 } from "@zxlab/research-fact-schema";
+import {
+  ResearchArtifactStoreError,
+  type PointInTimeResearchArtifactStore,
+  type ResearchArtifact,
+  type ResearchArtifactCandidate,
+} from "./artifact-store.ts";
+import { buildCompanyUpdateFacts } from "./financial-facts.ts";
+import { FinancialStatementProviderError, type FinancialStatementPort } from "./financial-statements.ts";
 
 const WINDOWS: readonly MarketBaselineWindow[] = [20, 60, 250];
 const BASELINE_ORDER: readonly MarketBaselineType[] = ["price_return", "volume_median", "realized_volatility", "relative_return"];
@@ -68,16 +76,30 @@ interface LoadedHistory {
   result: DailyHistoryResult;
   bars: NormalizedDailyBar[];
   artifactId: string;
+  firstObservedAt?: string;
 }
 
 export class ResearchFactPlane implements ResearchFactPlaneInterface {
   private readonly history: DailyHistoryPort;
   private readonly benchmarkMappings: VersionedBenchmarkMappingPort;
+  private readonly artifactStore?: PointInTimeResearchArtifactStore;
+  private readonly financialStatements?: FinancialStatementPort;
+  private readonly artifactMode: "disabled" | "shadow" | "required";
   private readonly now: () => string;
 
-  constructor(dependencies: { history: DailyHistoryPort; benchmarkMappings: VersionedBenchmarkMappingPort; now?: () => string }) {
+  constructor(dependencies: {
+    history: DailyHistoryPort;
+    benchmarkMappings: VersionedBenchmarkMappingPort;
+    artifactStore?: PointInTimeResearchArtifactStore;
+    financialStatements?: FinancialStatementPort;
+    artifactMode?: "disabled" | "shadow" | "required";
+    now?: () => string;
+  }) {
     this.history = dependencies.history;
     this.benchmarkMappings = dependencies.benchmarkMappings;
+    this.artifactStore = dependencies.artifactStore;
+    this.financialStatements = dependencies.financialStatements;
+    this.artifactMode = dependencies.artifactMode ?? "disabled";
     this.now = dependencies.now ?? (() => new Date().toISOString());
   }
 
@@ -116,26 +138,66 @@ export class ResearchFactPlane implements ResearchFactPlaneInterface {
     const startedAt = this.now();
     const cutoffAgeMs = Date.parse(startedAt) - Date.parse(request.observationCutoff);
     if (!Number.isFinite(cutoffAgeMs) || cutoffAgeMs < 0 || cutoffAgeMs > 15 * 60_000) throw new Error("OBSERVATION_CUTOFF_OUT_OF_RANGE");
+    if (request.purpose === "company_update") return this.materializeCompanyUpdate(request as ResearchFactRequest & { purpose: "company_update" });
     const plan = await this.preparePlan(request);
     const histories = new Map<string, LoadedHistory>();
     const limitations = [...plan.limitations];
 
     for (const instrumentId of plan.historySubjects) {
       let result: DailyHistoryResult;
+      let bars: NormalizedDailyBar[] | undefined;
+      let artifactId: string | undefined;
+      let firstObservedAt: string | undefined;
       try {
         result = await this.history.loadDailyHistory({ instrumentId, observationCutoff: plan.request.observationCutoff, minimumSessions: 251 });
       } catch (error) {
         if (hasErrorCode(error, "UPSTREAM_SCHEMA_CHANGED")) throw new Error("RESEARCH_HISTORY_INTEGRITY_FAILURE");
         if (!isRecoverableHistoryFailure(error)) throw error;
         limitations.push({ capability: "market_baselines", code: "HISTORY_PROVIDER_EXHAUSTED", subjectId: instrumentId, retryable: true, message: `Daily history is unavailable for ${instrumentId}` });
-        continue;
+        const fallback = await this.selectStoredDailyHistory({ instrumentId, request: plan.request, knowledgeCutoff: startedAt, warning: "HISTORY_PROVIDER_EXHAUSTED", limitations });
+        if (!fallback) continue;
+        ({ result, bars, artifactId, firstObservedAt } = fallback);
       }
-      let bars: NormalizedDailyBar[];
-      try {
-        assertHistoryIntegrity(result, instrumentId);
-        bars = canonicalBars(result.bars, plan.request.observationCutoff, plan.request.expectedLatestSessionDate);
-      } catch {
-        throw new Error("RESEARCH_HISTORY_INTEGRITY_FAILURE");
+      if (!bars) {
+        try {
+          assertHistoryIntegrity(result, instrumentId);
+          bars = canonicalBars(result.bars, plan.request.observationCutoff, plan.request.expectedLatestSessionDate);
+        } catch {
+          throw new Error("RESEARCH_HISTORY_INTEGRITY_FAILURE");
+        }
+        artifactId = await historyArtifactId(result, bars);
+      }
+      if (!artifactId) throw new Error("RESEARCH_HISTORY_INTEGRITY_FAILURE");
+      if (!firstObservedAt && bars.length && this.artifactStore && this.artifactMode !== "disabled") {
+        const candidate: ResearchArtifactCandidate = {
+          kind: "normalized_daily_history.v1",
+          subjectId: instrumentId,
+          logicalKey: `${instrumentId}:normalized-daily-history:qfq`,
+          provider: result.provider,
+          providerVersion: result.providerVersion,
+          sourceAsOf: closeIso(bars.at(-1)!.sessionDate),
+          retrievedAt: result.retrievedAt,
+          payload: { bars },
+          rawPayload: { bars },
+          warnings: result.warnings,
+        };
+        try {
+          const captured = (await this.artifactStore.capture({ candidates: [candidate] })).artifacts[0];
+          if (!captured) throw new ResearchArtifactStoreError("ARTIFACT_PERSISTENCE_FAILED");
+          if (this.artifactMode === "required") {
+            artifactId = captured.artifactId;
+            firstObservedAt = captured.firstObservedAt;
+          }
+        } catch (error) {
+          if (error instanceof ResearchArtifactStoreError && error.code === "RESEARCH_ARTIFACT_INTEGRITY_FAILURE") throw error;
+          if (this.artifactMode === "required") {
+            const code = error instanceof ResearchArtifactStoreError ? error.code : "ARTIFACT_PERSISTENCE_FAILED";
+            limitations.push({ capability: "market_baselines", code, subjectId: instrumentId, retryable: true, message: `${instrumentId} daily history could not be persisted` });
+            const fallback = await this.selectStoredDailyHistory({ instrumentId, request: plan.request, knowledgeCutoff: startedAt, warning: code, limitations });
+            if (!fallback) continue;
+            ({ result, bars, artifactId, firstObservedAt } = fallback);
+          }
+        }
       }
       const providerWarnings = result.warnings ?? [];
       const actualSessionDate = bars.at(-1)?.sessionDate;
@@ -157,14 +219,18 @@ export class ResearchFactPlane implements ResearchFactPlaneInterface {
         });
         result = { ...result, warnings: [...new Set([...providerWarnings, "LATEST_SESSION_MISSING"])] };
       }
-      const artifactId = await historyArtifactId(result, bars);
-      histories.set(instrumentId, { result, bars, artifactId });
-      for (const warning of providerWarnings) limitations.push({ capability: "market_baselines", code: warning, subjectId: instrumentId, retryable: false, message: `${instrumentId} daily history is degraded: ${warning}` });
+      histories.set(instrumentId, { result, bars, artifactId, ...(firstObservedAt ? { firstObservedAt } : {}) });
+      for (const warning of providerWarnings) {
+        if (!limitations.some((limitation) => limitation.capability === "market_baselines" && limitation.subjectId === instrumentId && limitation.code === warning)) {
+          limitations.push({ capability: "market_baselines", code: warning, subjectId: instrumentId, retryable: false, message: `${instrumentId} daily history is degraded: ${warning}` });
+        }
+      }
     }
 
     const generatedAt = this.now();
-    if ([...histories.values()].some((history) => Date.parse(history.result.retrievedAt) > Date.parse(generatedAt))) throw new Error("RESEARCH_HISTORY_INTEGRITY_FAILURE");
-    const mappingFacts = plan.mappings.map((mapping) => mappingFact(mapping, generatedAt));
+    const knowledgeCutoff = researchKnowledgeCutoff(plan.request.observationCutoff, [...histories.values()].flatMap((history) => [history.result.retrievedAt, ...(history.firstObservedAt ? [history.firstObservedAt] : [])]));
+    if (Date.parse(knowledgeCutoff) > Date.parse(generatedAt)) throw new Error("RESEARCH_HISTORY_INTEGRITY_FAILURE");
+    const mappingFacts = plan.mappings.map((mapping) => mappingFact(mapping, knowledgeCutoff));
     const baselineFacts: MarketBaselineFact[] = [];
 
     for (const instrumentId of plan.request.instrumentIds) {
@@ -192,18 +258,114 @@ export class ResearchFactPlane implements ResearchFactPlaneInterface {
     }
 
     const facts: ResearchFact[] = [...mappingFacts, ...baselineFacts].sort(compareFacts);
-    const capabilities = buildCapabilities(plan, facts, limitations, histories, generatedAt);
+    const capabilities = buildCapabilities(plan, facts, limitations, histories, knowledgeCutoff);
     const unsigned: Omit<ResearchFactBundle, "fingerprint"> = {
       schemaVersion: "research-facts.v2",
       planVersion: plan.planVersion,
       purpose: plan.request.purpose,
       observationCutoff: plan.request.observationCutoff,
       ...(plan.request.expectedLatestSessionDate ? { expectedLatestSessionDate: plan.request.expectedLatestSessionDate } : {}),
-      knowledgeCutoff: generatedAt,
+      knowledgeCutoff,
       generatedAt,
       instrumentIds: plan.request.instrumentIds,
       facts,
       capabilities,
+    };
+    return parseResearchFactBundle({ ...unsigned, fingerprint: await calculateResearchFactBundleFingerprint(unsigned) });
+  }
+
+  private async selectStoredDailyHistory(input: {
+    instrumentId: string;
+    request: PreparedResearchFactPlan["request"];
+    knowledgeCutoff: string;
+    warning: string;
+    limitations: InternalLimitation[];
+  }): Promise<LoadedHistory | null> {
+    if (!this.artifactStore || this.artifactMode === "disabled") return null;
+    let artifacts: ResearchArtifact[];
+    try {
+      artifacts = (await this.artifactStore.selectAsOf({
+        subjectIds: [input.instrumentId],
+        kinds: ["normalized_daily_history.v1"],
+        observationCutoff: input.request.observationCutoff,
+        knowledgeCutoff: input.knowledgeCutoff,
+      })).artifacts;
+    } catch (error) {
+      if (error instanceof ResearchArtifactStoreError && error.code === "RESEARCH_ARTIFACT_INTEGRITY_FAILURE") throw error;
+      const code = error instanceof ResearchArtifactStoreError ? error.code : "ARTIFACT_STORE_UNAVAILABLE";
+      input.limitations.push({ capability: "market_baselines", code, subjectId: input.instrumentId, retryable: true, message: `${input.instrumentId} stored daily history could not be selected` });
+      return null;
+    }
+    const artifact = artifacts.find((candidate) => candidate.logicalKey === `${input.instrumentId}:normalized-daily-history:qfq`);
+    if (!artifact) return null;
+    try {
+      if (artifact.kind !== "normalized_daily_history.v1" || artifact.subjectId !== input.instrumentId || !isRecord(artifact.payload) || !Array.isArray(artifact.payload.bars)) throw new Error("invalid stored history");
+      const result: DailyHistoryResult = {
+        instrumentId: artifact.subjectId,
+        provider: artifact.provider,
+        providerVersion: artifact.providerVersion,
+        retrievedAt: artifact.retrievedAt,
+        bars: artifact.payload.bars as NormalizedDailyBar[],
+        warnings: [...new Set([...artifact.warnings, input.warning])],
+      };
+      assertHistoryIntegrity(result, input.instrumentId);
+      const bars = canonicalBars(result.bars, input.request.observationCutoff, input.request.expectedLatestSessionDate);
+      return { result, bars, artifactId: artifact.artifactId, firstObservedAt: artifact.firstObservedAt };
+    } catch {
+      throw new ResearchArtifactStoreError("RESEARCH_ARTIFACT_INTEGRITY_FAILURE");
+    }
+  }
+
+  private async materializeCompanyUpdate(request: ResearchFactRequest & { purpose: "company_update" }): Promise<ResearchFactBundle> {
+    const limitations: ResearchCapabilityLimitation[] = [];
+    if (!this.artifactStore || !this.financialStatements || this.artifactMode !== "required") {
+      limitations.push({ code: "ARTIFACT_STORE_UNAVAILABLE", retryable: true });
+    } else {
+      for (const instrumentId of request.instrumentIds) {
+        try {
+          const batch = await this.financialStatements.loadArtifacts({ instrumentId, observationCutoff: request.observationCutoff });
+          if (batch.candidates.length) await this.artifactStore.capture(batch);
+          else limitations.push({ code: "FINANCIAL_REPORT_NOT_FOUND", subjectId: instrumentId, retryable: false });
+        } catch (error) {
+          if (error instanceof FinancialStatementProviderError && error.code === "FINANCIAL_STATEMENT_INTEGRITY_FAILURE") throw error;
+          if (error instanceof ResearchArtifactStoreError && error.code === "RESEARCH_ARTIFACT_INTEGRITY_FAILURE") throw error;
+          const code = error instanceof ResearchArtifactStoreError ? error.code
+            : error instanceof FinancialStatementProviderError ? error.code
+              : "FINANCIAL_PROVIDER_EXHAUSTED";
+          limitations.push({ code, subjectId: instrumentId, retryable: true });
+        }
+      }
+    }
+    const generatedAt = this.now();
+    let snapshot = { observationCutoff: request.observationCutoff, knowledgeCutoff: generatedAt, artifacts: [] as ResearchArtifact[] };
+    if (this.artifactStore && this.artifactMode === "required") {
+      try {
+        snapshot = await this.artifactStore.selectAsOf({
+          subjectIds: request.instrumentIds,
+          kinds: ["financial_statement.v1", "official_filing_identity.v1"],
+          observationCutoff: request.observationCutoff,
+          knowledgeCutoff: generatedAt,
+        });
+      } catch (error) {
+        if (error instanceof ResearchArtifactStoreError && error.code === "RESEARCH_ARTIFACT_INTEGRITY_FAILURE") throw error;
+        limitations.push({ code: error instanceof ResearchArtifactStoreError ? error.code : "ARTIFACT_STORE_UNAVAILABLE", retryable: true });
+      }
+    }
+    const knowledgeCutoff = researchKnowledgeCutoff(request.observationCutoff, snapshot.artifacts.flatMap((artifact) => [artifact.firstObservedAt, artifact.retrievedAt]));
+    if (Date.parse(knowledgeCutoff) > Date.parse(generatedAt)) throw new ResearchArtifactStoreError("RESEARCH_ARTIFACT_INTEGRITY_FAILURE");
+    snapshot = { ...snapshot, knowledgeCutoff };
+    const built = buildCompanyUpdateFacts({ snapshot, instrumentIds: request.instrumentIds, initialLimitations: limitations, retrievedAt: knowledgeCutoff });
+    const unsigned: Omit<ResearchFactBundle, "fingerprint"> = {
+      schemaVersion: "research-facts.v2",
+      planVersion: "company-update.v1",
+      purpose: "company_update",
+      observationCutoff: request.observationCutoff,
+      ...(request.expectedLatestSessionDate ? { expectedLatestSessionDate: request.expectedLatestSessionDate } : {}),
+      knowledgeCutoff,
+      generatedAt,
+      instrumentIds: request.instrumentIds,
+      facts: built.facts,
+      capabilities: [built.capability],
     };
     return parseResearchFactBundle({ ...unsigned, fingerprint: await calculateResearchFactBundleFingerprint(unsigned) });
   }
@@ -416,6 +578,12 @@ function format(value: number): string {
   return Object.is(normalized, -0) ? "0" : String(normalized);
 }
 function latest(values: string[]): string | null { return [...values].sort().at(-1) ?? null; }
+function researchKnowledgeCutoff(observationCutoff: string, artifactTimes: string[]): string {
+  return latest([observationCutoff, ...artifactTimes])!;
+}
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
 function compareFacts(left: ResearchFact, right: ResearchFact): number {
   const subject = left.subjectId.localeCompare(right.subjectId);
   if (subject) return subject;

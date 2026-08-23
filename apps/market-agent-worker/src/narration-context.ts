@@ -383,6 +383,7 @@ function evidencePriority(item: EvidenceItem, scope: AskScope | undefined, selec
   if (selectedInstrumentId && instrumentId === selectedInstrumentId) score += 350;
   if (scope === "data_quality" && (item.kind === "limitation" || type === "snapshot_context" || type === "market_status" || !item.reliable)) score += 800;
   if (scope === "news_and_announcements" && (evidenceType === "news" || evidenceType === "announcement")) score += 800;
+  if (scope === "news_and_announcements" && type === "research_fact") score += 900;
   if (scope === "relative_performance" && type === "quote") score += 700 + Math.min(250, Math.abs(quoteMovePct(value)) * 10);
   if (scope === "relative_performance" && type === "research_fact") score += 900;
   if (scope === "portfolio_impact" && item.kind === "portfolio_impact") score += 800;
@@ -402,7 +403,7 @@ function selectionStrategy(scope: AskScope | undefined): string {
   return {
     today_change: "session-and-selected-instrument-first",
     relative_performance: "selected-instrument-and-largest-relative-moves-first",
-    news_and_announcements: "session-then-recent-external-material-first",
+    news_and_announcements: "announcements-financials-and-material-context-first",
     data_quality: "quality-limitations-and-capability-issues-first",
     portfolio_impact: "quality-then-portfolio-impact-first",
     compare_previous_run: "quality-then-prior-run-delta-first",

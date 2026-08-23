@@ -260,7 +260,7 @@ export interface ResearchReportFactFormula {
   rounding: string;
 }
 export interface ResearchReportFactMetric {
-  key: "value" | "weight" | "comparison" | "historical_percentile";
+  key: "value" | "weight" | "comparison" | "comparison_yoy" | "comparison_qoq" | "historical_percentile";
   label: string;
   decimal: string;
   unit: ResearchReportFactUnit;
@@ -414,7 +414,7 @@ function validReportFactBlock(value: unknown): boolean {
     && typeof block.subjectId === "string"
     && typeof block.title === "string"
     && Array.isArray(block.context) && block.context.every((entry) => typeof recordValue(entry)?.label === "string" && typeof recordValue(entry)?.value === "string")
-    && Array.isArray(block.metrics) && block.metrics.length > 0 && block.metrics.every(validReportFactMetric)
+    && validReportFactMetrics(block.metrics)
     && (quality?.status === "operational" || quality?.status === "degraded")
     && typeof quality.reliable === "boolean"
     && Number.isSafeInteger(coverage?.actual) && Number(coverage?.actual) >= 0
@@ -428,10 +428,16 @@ function validReportFactBlock(value: unknown): boolean {
     && boundedIsoTimestamp(provenance.retrievedAt);
 }
 
+function validReportFactMetrics(value: unknown): boolean {
+  if (!Array.isArray(value) || value.length === 0 || !value.every(validReportFactMetric)) return false;
+  const keys = value.map((metric) => recordValue(metric)?.key);
+  return new Set(keys).size === keys.length;
+}
+
 function validReportFactMetric(value: unknown): boolean {
   const metric = recordValue(value);
   const formula = recordValue(metric?.formula);
-  return ["value", "weight", "comparison", "historical_percentile"].includes(String(metric?.key))
+  return ["value", "weight", "comparison", "comparison_yoy", "comparison_qoq", "historical_percentile"].includes(String(metric?.key))
     && typeof metric?.label === "string"
     && typeof metric.decimal === "string" && /^[-+]?(?:0|[1-9]\d*)(?:\.\d+)?$/.test(metric.decimal)
     && ["CNY", "ratio", "shares"].includes(String(metric.unit))
@@ -592,10 +598,19 @@ function researchReportFactBlocks(evidence: SealedEvidenceBundle): ResearchRepor
 function researchFactMetrics(fact: Record<string, unknown>): ResearchReportFactMetric[] {
   if (fact.kind === "market_baseline") return metric(fact.value, "value", baselineLabel(fact.baselineType), fact.formula);
   if (fact.kind === "instrument_mapping") return metric(fact.weight, "weight", "指数权重");
-  if (fact.kind === "financial_metric") return [
-    ...metric(fact.value, "value", typeof fact.metric === "string" ? fact.metric : "财务指标"),
-    ...metric(fact.comparison, "comparison", comparisonLabel(recordValue(fact.comparison)?.kind), recordValue(fact.comparison)?.formula),
-  ];
+  if (fact.kind === "financial_metric") {
+    const comparisons = Array.isArray(fact.comparisons)
+      ? fact.comparisons.flatMap((value) => recordValue(value) ? [recordValue(value)!] : [])
+      : [];
+    comparisons.sort((left, right) => comparisonOrder(left.kind) - comparisonOrder(right.kind));
+    return [
+      ...metric(fact.value, "value", financialMetricLabel(fact.metric), fact.formula),
+      ...metric(fact.comparison, "comparison", comparisonLabel(recordValue(fact.comparison)?.kind), recordValue(fact.comparison)?.formula),
+      ...comparisons.flatMap((comparison) => comparison.kind === "yoy" || comparison.kind === "qoq"
+        ? metric(comparison, comparison.kind === "yoy" ? "comparison_yoy" : "comparison_qoq", comparisonLabel(comparison.kind), comparison.formula)
+        : []),
+    ];
+  }
   if (fact.kind === "valuation") return [
     ...metric(fact.value, "value", valuationLabel(fact.metric)),
     ...metric(fact.historicalPercentile, "historical_percentile", "历史分位", recordValue(fact.historicalPercentile)?.formula),
@@ -621,7 +636,7 @@ function researchReportFormula(value: unknown): ResearchReportFactFormula | unde
 function researchFactTitle(fact: Record<string, unknown>): string {
   if (fact.kind === "market_baseline") return `${fact.subjectId} · ${String(fact.window)} 日${baselineLabel(fact.baselineType)}`;
   if (fact.kind === "instrument_mapping") return `${fact.subjectId} · ${mappingLabel(fact.mappingType)}`;
-  if (fact.kind === "financial_metric") return `${fact.subjectId} · ${typeof fact.metric === "string" ? fact.metric : "财务指标"}`;
+  if (fact.kind === "financial_metric") return `${fact.subjectId} · ${financialMetricLabel(fact.metric)}`;
   return `${fact.subjectId} · ${valuationLabel(fact.metric)}`;
 }
 
@@ -638,9 +653,21 @@ function researchFactContext(fact: Record<string, unknown>): Array<{ label: stri
     ...(typeof fact.methodologyVersion === "string" ? [{ label: "方法版本", value: fact.methodologyVersion }] : []),
   ];
   const period = recordValue(fact.period);
-  return period && typeof period.start === "string" && typeof period.end === "string"
-    ? [{ label: "报告期", value: `${period.start} — ${period.end}` }]
+  const comparisons = Array.isArray(fact.comparisons)
+    ? fact.comparisons.flatMap((value) => recordValue(value) ? [recordValue(value)!] : [])
     : [];
+  comparisons.sort((left, right) => comparisonOrder(left.kind) - comparisonOrder(right.kind));
+  return [
+    ...(period && typeof period.start === "string" && typeof period.end === "string"
+      ? [{ label: "报告期", value: `${period.start} — ${period.end}` }]
+      : []),
+    ...(typeof period?.basis === "string" ? [{ label: "报告口径", value: reportingBasisLabel(period.basis) }] : []),
+    ...comparisons.flatMap((comparison) => {
+      const comparable = recordValue(comparison.comparablePeriod);
+      if ((comparison.kind !== "yoy" && comparison.kind !== "qoq") || typeof comparable?.start !== "string" || typeof comparable.end !== "string") return [];
+      return [{ label: `${comparisonLabel(comparison.kind)}可比期`, value: `${comparable.start} — ${comparable.end}` }];
+    }),
+  ];
 }
 
 function baselineLabel(value: unknown): string {
@@ -649,6 +676,20 @@ function baselineLabel(value: unknown): string {
 function mappingLabel(value: unknown): string { return ({ benchmark: "基准映射", industry: "行业映射", index_membership: "指数成分" } as Record<string, string>)[String(value)] ?? "标的映射"; }
 function valuationLabel(value: unknown): string { return ({ pe_ttm: "市盈率 TTM", pb: "市净率", ps_ttm: "市销率 TTM", dividend_yield: "股息率" } as Record<string, string>)[String(value)] ?? "估值指标"; }
 function comparisonLabel(value: unknown): string { return value === "yoy" ? "同比" : value === "qoq" ? "环比" : "指标变化"; }
+function comparisonOrder(value: unknown): number { return value === "yoy" ? 0 : value === "qoq" ? 1 : 2; }
+function financialMetricLabel(value: unknown): string {
+  const label = ({
+    operating_revenue: "营业收入",
+    operating_profit: "营业利润",
+    net_profit_attributable_to_parent: "归母净利润",
+    net_cash_flow_from_operating_activities: "经营现金流",
+    total_assets: "总资产",
+  } as Record<string, string>)[String(value)];
+  return label ?? (typeof value === "string" && value ? value : "财务指标");
+}
+function reportingBasisLabel(value: unknown): string {
+  return ({ quarter: "单季度", single_quarter: "单季度", year_to_date: "年初至报告期末", fiscal_year: "财政年度", point_in_time: "期末时点" } as Record<string, string>)[String(value)] ?? String(value);
+}
 function stringRecord(value: unknown): value is Record<string, string> { return Boolean(value) && typeof value === "object" && !Array.isArray(value) && Object.values(value as Record<string, unknown>).every((item) => typeof item === "string"); }
 
 function cloneObservation(item: AgentObservation): AgentObservation {

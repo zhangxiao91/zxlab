@@ -88,6 +88,51 @@ test("Research Report renders sealed deterministic values, formula, provider, as
   for (const expected of ["确定性 Fact Blocks", "0.1234", "比率", "market.price_return.v1@1", "close[t] / close[t-window] - 1", "fixture-provider", "bars:fixture", "price-context.v1", "来源 1"]) assert.match(source, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 });
 
+test("Research Report renders financial period, derived value, and distinct YoY and QoQ metrics", () => {
+  const report = buildMarketReviewReport({
+    status: "success",
+    headline: "财务更新",
+    summary: "公告事实与财务变化均来自封存证据。",
+    observations: [],
+    portfolioImpacts: [],
+    watchNext: [],
+    limitations: [],
+    report: {
+      version: "research-report.v2",
+      conclusion: { headline: "财务更新", summary: "公告事实与财务变化均来自封存证据。", evidenceIds: [] },
+      factBlocks: [{
+        id: "fact-block:financial-1",
+        evidenceId: "financial-1",
+        factId: "financial:SSE:600000:operating_revenue:2026Q2",
+        kind: "financial_metric",
+        subjectId: "SSE:600000",
+        title: "SSE:600000 · 营业收入",
+        context: [
+          { label: "报告期", value: "2026-04-01T00:00:00.000Z — 2026-06-30T00:00:00.000Z" },
+          { label: "报告口径", value: "单季度" },
+          { label: "同比可比期", value: "2025-04-01T00:00:00.000Z — 2025-06-30T00:00:00.000Z" },
+          { label: "环比可比期", value: "2026-01-01T00:00:00.000Z — 2026-03-31T00:00:00.000Z" },
+        ],
+        metrics: [
+          { key: "value", label: "营业收入", decimal: "2500000000", unit: "CNY", formula: { id: "financial.single_quarter.v1", version: "1", expression: "current_cumulative - previous_cumulative", inputArtifactIds: ["filing:h1", "filing:q1"], parameters: { period: "Q2" }, rounding: "exact-decimal" } },
+          { key: "comparison_yoy", label: "同比", decimal: "0.12", unit: "ratio", formula: { id: "financial.yoy.v1", version: "1", expression: "current / prior - 1", inputArtifactIds: ["filing:h1", "filing:q1"], parameters: {}, rounding: "decimal-12-nearest" } },
+          { key: "comparison_qoq", label: "环比", decimal: "0.03", unit: "ratio", formula: { id: "financial.qoq.v1", version: "1", expression: "current / prior - 1", inputArtifactIds: ["filing:h1", "filing:q1"], parameters: {}, rounding: "decimal-12-nearest" } },
+        ],
+        quality: { status: "operational", reliable: true, coverage: { actual: 4, required: 4 }, warnings: [] },
+        provenance: { researchFingerprint: "sha256:financial", planVersion: "company-update.v1", providers: ["eastmoney", "cninfo"], sourceArtifactIds: ["filing:h1", "filing:q1"], sourceAsOf: "2026-07-31T10:00:00.000Z", retrievedAt: "2026-08-15T07:01:00.000Z" },
+      }],
+      basis: [],
+      analysis: [],
+      risks: [],
+      watchNext: [],
+      sources: [{ evidenceId: "financial-1", providers: ["eastmoney", "cninfo"], asOf: "2026-07-31T10:00:00.000Z", reliable: true }],
+    },
+  });
+
+  const source = renderToStaticMarkup(createElement(ResearchReport, { report, onEvidence: () => undefined }));
+  for (const expected of ["财务指标", "营业收入", "同比", "环比", "报告期", "报告口径", "同比可比期", "环比可比期", "financial.single_quarter.v1@1", "current_cumulative - previous_cumulative", "eastmoney", "cninfo"]) assert.match(source, new RegExp(expected));
+});
+
 test("Market reference separates weekend equivalence, freshness, coverage, and delivery", () => {
   const evidence = {
     schemaVersion: "market-agent.v1" as const,

@@ -67,11 +67,15 @@ function researchLimitationFor(capability: ResearchCapabilityOutcome): EvidenceL
 function researchLimitationMessage(limitation: ResearchCapabilityOutcome["limitations"][number]): string {
   const subject = limitation.subjectId ? `${limitation.subjectId} ` : "";
   const baseline = limitation.baselineType && limitation.window ? `${limitation.baselineType}:${limitation.window}` : limitation.baselineType ?? "";
+  const financial = limitation.metric
+    ? `${limitation.metric}${limitation.comparisonKind ? `:${limitation.comparisonKind}` : ""}`
+    : "";
   const coverage = typeof limitation.actual === "number" && typeof limitation.required === "number" ? ` 样本 ${limitation.actual}/${limitation.required}` : "";
+  const period = limitation.periodEnd ? ` period=${limitation.periodEnd}` : "";
   const latestSession = limitation.code === "LATEST_SESSION_MISSING"
     ? ` expected=${limitation.expectedSessionDate ?? "unknown"} actual=${limitation.actualSessionDate ?? "unknown"}`
     : "";
-  return `${subject}${baseline || "Research Fact"} ${limitation.code}${coverage}${latestSession}`.trim();
+  return `${subject}${financial || baseline || "Research Fact"}${period} ${limitation.code}${coverage}${latestSession}`.trim();
 }
 
 function usedFallbackSuccessfully(capability: MarketCapabilityHealth): boolean {

@@ -7,7 +7,8 @@
     "deploy": "wrangler deploy",
     "deploy:beta": "wrangler deploy --config wrangler.beta.jsonc",
     "types": "wrangler types",
-    "typecheck": "wrangler types && tsc --noEmit",
+    "types:beta": "wrangler types worker-configuration.beta.d.ts --config wrangler.beta.jsonc --env-interface ResearchEnv --include-runtime false --strict-vars false",
+    "typecheck": "wrangler types && npm run types:beta && tsc --noEmit",
     "test": "node --test --experimental-transform-types src/*.test.ts src/research/*.test.ts"
   },
   "dependencies": {

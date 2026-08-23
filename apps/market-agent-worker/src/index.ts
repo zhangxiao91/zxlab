@@ -198,7 +198,7 @@ export async function processRun(runId: string, env: Env): Promise<"ack" | "retr
     }
     try {
       const reader = new MarketSnapshotAdapter({ service: env.MARKET_SNAPSHOT_SERVICE, baseUrl: env.MARKET_SNAPSHOT_URL });
-      const output = await new AskService(reader, narratorFor(env), contextReaderFor(env), researchReaderFor(env)).execute({ runId, command, watchlistRevision: watchlist?.revision ?? checkpoint?.evidence.watchlistRevision ?? "ask-without-watchlist", portfolioSnapshot, previous, previousSnapshot: previousCheckpoint?.snapshot, checkpoint: checkpoint ?? undefined, onCheckpoint: (value) => checkpointRun(runs, runId, command.profileId, claim.lease.leaseToken, value), onProgress: (status) => advanceRun(runs, runId, claim.lease.leaseToken, status) });
+      const output = await new AskService(reader, narratorFor(env), contextReaderFor(env), researchReaderFor(env), { companyUpdateEnabled: companyUpdateResearchEnabled(env) }).execute({ runId, command, watchlistRevision: watchlist?.revision ?? checkpoint?.evidence.watchlistRevision ?? "ask-without-watchlist", portfolioSnapshot, previous, previousSnapshot: previousCheckpoint?.snapshot, checkpoint: checkpoint ?? undefined, onCheckpoint: (value) => checkpointRun(runs, runId, command.profileId, claim.lease.leaseToken, value), onProgress: (status) => advanceRun(runs, runId, claim.lease.leaseToken, status) });
       await runs.complete(runId, claim.lease.leaseToken, output.evidence, output.result);
       return "ack";
     } catch (cause) {
@@ -255,6 +255,7 @@ function boundedInteger(value: string | null | undefined, fallback: number, maxi
 function narratorFor(env: Env): GatewayNarrator | DeterministicNarrator { return env.MARKET_AGENT_GENERATION_ENABLED === "true" && env.MARKET_AGENT_GATEWAY_URL && env.MARKET_AGENT_GATEWAY_TOKEN ? new GatewayNarrator({ apiUrl: env.MARKET_AGENT_GATEWAY_URL, token: env.MARKET_AGENT_GATEWAY_TOKEN }) : new DeterministicNarrator(); }
 function contextReaderFor(env: Env): SignalMemoryAdapter { return new SignalMemoryAdapter({ service: env.SIGNAL_MEMORY_SERVICE, baseUrl: env.SIGNAL_MEMORY_URL, token: env.MARKET_AGENT_MEMORY_TOKEN }); }
 function researchReaderFor(env: Env): ResearchFactAdapter { return new ResearchFactAdapter({ service: env.MARKET_SNAPSHOT_SERVICE, baseUrl: env.MARKET_SNAPSHOT_URL, token: env.MARKET_RESEARCH_TOKEN }); }
+function companyUpdateResearchEnabled(env: Env): boolean { return env.COMPANY_UPDATE_RESEARCH_ENABLED === "true"; }
 async function advanceRun(runs: D1RunRepository, runId: string, leaseToken: string, status: "evidence_sealed" | "generating" | "validating"): Promise<void> { if (!await runs.advance(runId, leaseToken, status)) throw new Error("RUN_LEASE_LOST"); }
 async function checkpointRun(runs: D1RunRepository, runId: string, profileId: string, leaseToken: string, checkpoint: import("./run-checkpoint.ts").RunCheckpoint): Promise<void> { if (!await runs.checkpoint(runId, profileId, leaseToken, checkpoint)) throw new Error("RUN_LEASE_LOST"); }
 

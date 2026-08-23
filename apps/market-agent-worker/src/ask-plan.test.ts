@@ -62,7 +62,7 @@ test("every Ask scope resolves through a static market request plan", () => {
   assert.equal(relative.requiresCorroboratedQuotes, true);
   assert.equal(relative.researchPurpose, "relative_performance");
   assert.equal(askEvidencePlan("news_and_announcements").quoteMode, "fallback");
-  assert.equal(askEvidencePlan("news_and_announcements").researchPurpose, undefined);
+  assert.equal(askEvidencePlan("news_and_announcements").researchPurpose, "company_update");
 });
 
 test("Ask scope resolution rejects missing requirements without expanding the request", () => {

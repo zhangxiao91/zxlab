@@ -633,6 +633,7 @@ function claimableNumericTokens(kind: SealedEvidenceBundle["items"][number]["kin
     const factValue = record(fact.value);
     const weight = record(fact.weight);
     const comparison = record(fact.comparison);
+    const comparisons = Array.isArray(fact.comparisons) ? fact.comparisons.flatMap((item) => record(item) ? [record(item)!] : []) : [];
     const historicalPercentile = record(fact.historicalPercentile);
     const observationPeriod = record(fact.observationPeriod);
     const quality = record(fact.quality);
@@ -644,6 +645,7 @@ function claimableNumericTokens(kind: SealedEvidenceBundle["items"][number]["kin
       ...taggedDecimalValues(factValue),
       ...taggedDecimalValues(weight),
       ...taggedDecimalValues(comparison),
+      ...comparisons.flatMap(taggedDecimalValues),
       ...taggedDecimalValues(historicalPercentile),
     ];
   }

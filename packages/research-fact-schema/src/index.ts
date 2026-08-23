@@ -22,6 +22,12 @@ export interface ResearchFactValidation {
 
 export type MarketBaselineWindow = 20 | 60 | 250;
 export type MarketBaselineType = "price_return" | "volume_median" | "realized_volatility" | "relative_return";
+export type FinancialMetricId =
+  | "operating_revenue"
+  | "operating_profit"
+  | "net_profit_attributable_to_parent"
+  | "net_cash_flow_from_operating_activities"
+  | "total_assets";
 export type ResearchCapabilityId = "instrument_mapping" | "market_baselines" | "fundamentals" | "valuation" | "documents" | "calendar";
 export type ResearchCapabilityStatus = "operational" | "degraded" | "unavailable";
 
@@ -30,6 +36,9 @@ export interface ResearchCapabilityLimitation {
   subjectId?: string;
   baselineType?: MarketBaselineType;
   window?: MarketBaselineWindow;
+  metric?: FinancialMetricId;
+  comparisonKind?: FinancialMetricComparison["kind"];
+  periodEnd?: string;
   actual?: number;
   required?: number;
   expectedSessionDate?: string;
@@ -88,14 +97,31 @@ export interface MarketBaselineFact {
   quality: FactQuality;
 }
 
+export interface FinancialReportingPeriod {
+  start: string;
+  end: string;
+  basis: "quarter" | "year_to_date" | "fiscal_year" | "point_in_time";
+}
+
+export interface FinancialMetricComparison {
+  kind: "yoy" | "qoq";
+  comparablePeriod: FinancialReportingPeriod;
+  decimal: string;
+  unit: "ratio";
+  formula: DeterministicFormula;
+}
+
 export interface FinancialMetricFact {
   id: string;
   kind: "financial_metric";
   subjectId: string;
-  metric: string;
-  period: { start: string; end: string; basis: "quarter" | "year_to_date" | "fiscal_year" };
+  metric: FinancialMetricId;
+  period: FinancialReportingPeriod;
   value: { decimal: string; unit: "CNY" | "ratio" | "shares" };
-  comparison?: { kind: "yoy" | "qoq"; decimal: string; unit: "ratio"; formula: DeterministicFormula };
+  formula?: DeterministicFormula;
+  /** @deprecated Immutable research-facts.v2 checkpoints may contain one comparison without a comparable period. */
+  comparison?: Omit<FinancialMetricComparison, "comparablePeriod">;
+  comparisons?: FinancialMetricComparison[];
   provenance: FactProvenance;
   quality: FactQuality;
 }
@@ -200,6 +226,13 @@ const RESEARCH_PURPOSES: readonly ResearchPurpose[] = [
 
 const BASELINE_WINDOWS: readonly MarketBaselineWindow[] = [20, 60, 250];
 const BASELINE_TYPES: readonly MarketBaselineType[] = ["price_return", "volume_median", "realized_volatility", "relative_return"];
+const FINANCIAL_METRIC_IDS: readonly FinancialMetricId[] = [
+  "operating_revenue",
+  "operating_profit",
+  "net_profit_attributable_to_parent",
+  "net_cash_flow_from_operating_activities",
+  "total_assets",
+];
 const CAPABILITY_IDS: readonly ResearchCapabilityId[] = ["instrument_mapping", "market_baselines", "fundamentals", "valuation", "documents", "calendar"];
 const BASELINE_OPERATOR_CONTRACT: Record<MarketBaselineType, { expression: string; unit: MarketBaselineFact["value"]["unit"] }> = {
   price_return: { expression: "close[t] / close[t-window] - 1", unit: "ratio" },
@@ -254,6 +287,9 @@ export function validateResearchFactBundle(value: unknown): ResearchFactValidati
   } else if (value.purpose === "relative_performance") {
     if (value.planVersion !== "relative-performance.v1") issues.push("relative_performance requires planVersion relative-performance.v1");
     validateBaselineSlice(instrumentIds, facts, capabilities, true, expectedLatestSessionDate, issues);
+  } else if (value.purpose === "company_update") {
+    if (value.planVersion !== "company-update.v1") issues.push("company_update requires planVersion company-update.v1");
+    validateCompanyUpdateSlice(facts, capabilities, issues);
   }
   return { ok: issues.length === 0, issues };
 }
@@ -364,21 +400,86 @@ function validateBaselineOperator(value: MarketBaselineFact, path: string, issue
 }
 
 function validateFinancialMetricFact(value: Record<string, unknown>, path: string, issues: string[]) {
-  requireString(value.metric, `${path}.metric`, issues);
-  if (!isRecord(value.period)) issues.push(`${path}.period must be an object`);
-  else {
-    if (!isIso(value.period.start) || !isIso(value.period.end)) issues.push(`${path}.period must have ISO start and end`);
-    if (!oneOf(value.period.basis, ["quarter", "year_to_date", "fiscal_year"])) issues.push(`${path}.period.basis is invalid`);
-  }
+  if (!oneOf(value.metric, FINANCIAL_METRIC_IDS)) issues.push(`${path}.metric is invalid`);
+  validateFinancialReportingPeriod(value.period, `${path}.period`, issues);
   validateDecimalValue(value.value, `${path}.value`, ["CNY", "ratio", "shares"], issues);
-  if (value.comparison !== undefined) {
-    if (!isRecord(value.comparison)) issues.push(`${path}.comparison must be an object`);
-    else {
-      if (!oneOf(value.comparison.kind, ["yoy", "qoq"])) issues.push(`${path}.comparison.kind is invalid`);
-      if (!isDecimal(value.comparison.decimal)) issues.push(`${path}.comparison.decimal is invalid`);
-      if (value.comparison.unit !== "ratio") issues.push(`${path}.comparison.unit must be ratio`);
-      validateFormula(value.comparison.formula, `${path}.comparison.formula`, issues);
+  if (value.formula !== undefined) {
+    if (!isRecord(value.period) || value.period.basis !== "quarter" || value.metric === "total_assets") {
+      issues.push(`${path}.formula is only allowed for quarter-basis flow metrics`);
     }
+    validateFormula(value.formula, `${path}.formula`, issues);
+    validateFinancialValueOperator(value.formula, `${path}.formula`, issues);
+    validateFormulaProvenance(value.formula, value.provenance, `${path}.formula`, issues);
+  }
+  if (value.comparison !== undefined) {
+    validateFinancialComparison(value.comparison, `${path}.comparison`, undefined, undefined, issues);
+  }
+  if (value.comparisons !== undefined) {
+    if (!Array.isArray(value.comparisons) || value.comparisons.length > 2) issues.push(`${path}.comparisons must be an array with at most 2 items`);
+    else {
+      const kinds = new Set<string>();
+      value.comparisons.forEach((comparison, index) => {
+        const comparisonPath = `${path}.comparisons[${index}]`;
+        validateFinancialComparison(comparison, comparisonPath, value.period, value.provenance, issues);
+        if (isRecord(comparison) && oneOf(comparison.kind, ["yoy", "qoq"])) {
+          if (kinds.has(comparison.kind as string)) issues.push(`${path}.comparisons must contain at most one ${comparison.kind}`);
+          kinds.add(comparison.kind as string);
+        }
+      });
+    }
+  }
+  if (value.comparison !== undefined && value.comparisons !== undefined) issues.push(`${path}.comparison and comparisons are mutually exclusive`);
+}
+
+function validateFinancialComparison(value: unknown, path: string, currentPeriod: unknown, provenance: unknown, issues: string[]) {
+  if (!isRecord(value)) { issues.push(`${path} must be an object`); return; }
+  if (!oneOf(value.kind, ["yoy", "qoq"])) issues.push(`${path}.kind is invalid`);
+  if (currentPeriod !== undefined) {
+    validateFinancialReportingPeriod(value.comparablePeriod, `${path}.comparablePeriod`, issues);
+    if (isRecord(currentPeriod) && isRecord(value.comparablePeriod)) {
+      if (oneOf(currentPeriod.basis, ["quarter", "year_to_date", "fiscal_year", "point_in_time"])
+        && value.comparablePeriod.basis !== currentPeriod.basis) issues.push(`${path}.comparablePeriod.basis must equal fact.period.basis`);
+      if (isIso(currentPeriod.end) && isIso(value.comparablePeriod.end)
+        && Date.parse(value.comparablePeriod.end) >= Date.parse(currentPeriod.end)) issues.push(`${path}.comparablePeriod.end must precede fact.period.end`);
+    }
+  }
+  if (!isDecimal(value.decimal)) issues.push(`${path}.decimal is invalid`);
+  if (value.unit !== "ratio") issues.push(`${path}.unit must be ratio`);
+  validateFormula(value.formula, `${path}.formula`, issues);
+  if (currentPeriod !== undefined && oneOf(value.kind, ["yoy", "qoq"])) {
+    validateFinancialComparisonOperator(value.formula, value.kind as FinancialMetricComparison["kind"], `${path}.formula`, issues);
+    validateFormulaProvenance(value.formula, provenance, `${path}.formula`, issues);
+  }
+}
+
+function validateFinancialReportingPeriod(value: unknown, path: string, issues: string[]) {
+  if (!isRecord(value)) { issues.push(`${path} must be an object`); return; }
+  if (!isIso(value.start) || !isIso(value.end)) issues.push(`${path} must have ISO start and end`);
+  if (isIso(value.start) && isIso(value.end) && Date.parse(value.start) > Date.parse(value.end)) issues.push(`${path}.start cannot exceed end`);
+  if (!oneOf(value.basis, ["quarter", "year_to_date", "fiscal_year", "point_in_time"])) issues.push(`${path}.basis is invalid`);
+}
+
+function validateFinancialValueOperator(value: unknown, path: string, issues: string[]) {
+  if (!isRecord(value)) return;
+  if (value.id !== "financial.single_quarter.v1") issues.push(`${path}.id must be financial.single_quarter.v1`);
+  if (value.version !== "1") issues.push(`${path}.version must be 1`);
+  if (value.expression !== "current_cumulative - previous_cumulative") issues.push(`${path}.expression must be current_cumulative - previous_cumulative`);
+  if (value.rounding !== "exact-decimal") issues.push(`${path}.rounding must be exact-decimal`);
+}
+
+function validateFinancialComparisonOperator(value: unknown, kind: FinancialMetricComparison["kind"], path: string, issues: string[]) {
+  if (!isRecord(value)) return;
+  if (value.id !== `financial.${kind}.v1`) issues.push(`${path}.id must be financial.${kind}.v1`);
+  if (value.version !== "1") issues.push(`${path}.version must be 1`);
+  if (value.expression !== "current / prior - 1") issues.push(`${path}.expression must be current / prior - 1`);
+  if (value.rounding !== "decimal-12-nearest") issues.push(`${path}.rounding must be decimal-12-nearest`);
+}
+
+function validateFormulaProvenance(formula: unknown, provenance: unknown, path: string, issues: string[]) {
+  if (!isRecord(formula) || !Array.isArray(formula.inputArtifactIds) || !isRecord(provenance) || !Array.isArray(provenance.sourceArtifactIds)) return;
+  const provenanceArtifacts = new Set(provenance.sourceArtifactIds.filter((item): item is string => typeof item === "string"));
+  for (const inputArtifactId of formula.inputArtifactIds) {
+    if (typeof inputArtifactId === "string" && !provenanceArtifacts.has(inputArtifactId)) issues.push(`${path} input ${inputArtifactId} is absent from provenance`);
   }
 }
 
@@ -496,11 +597,14 @@ function validateCapabilityLimitations(value: unknown, path: string, issues: str
   value.forEach((item, index) => {
     const itemPath = `${path}[${index}]`;
     if (!isRecord(item)) { issues.push(`${itemPath} must be an object`); return; }
-    exactKeys(item, ["code", "subjectId", "baselineType", "window", "actual", "required", "expectedSessionDate", "actualSessionDate", "retryable"], itemPath, issues);
+    exactKeys(item, ["code", "subjectId", "baselineType", "window", "metric", "comparisonKind", "periodEnd", "actual", "required", "expectedSessionDate", "actualSessionDate", "retryable"], itemPath, issues);
     requireString(item.code, `${itemPath}.code`, issues);
     if (item.subjectId !== undefined && !isInstrumentId(item.subjectId)) issues.push(`${itemPath}.subjectId is invalid`);
     if (item.baselineType !== undefined && !oneOf(item.baselineType, BASELINE_TYPES)) issues.push(`${itemPath}.baselineType is invalid`);
     if (item.window !== undefined && !BASELINE_WINDOWS.includes(item.window as MarketBaselineWindow)) issues.push(`${itemPath}.window must be 20, 60, or 250`);
+    if (item.metric !== undefined && !oneOf(item.metric, FINANCIAL_METRIC_IDS)) issues.push(`${itemPath}.metric is invalid`);
+    if (item.comparisonKind !== undefined && !oneOf(item.comparisonKind, ["yoy", "qoq"])) issues.push(`${itemPath}.comparisonKind is invalid`);
+    if (item.periodEnd !== undefined && !isDate(item.periodEnd)) issues.push(`${itemPath}.periodEnd must be YYYY-MM-DD`);
     if (item.actual !== undefined && !nonNegativeInteger(item.actual)) issues.push(`${itemPath}.actual must be a non-negative integer`);
     if (item.required !== undefined && !positiveInteger(item.required)) issues.push(`${itemPath}.required must be a positive integer`);
     if ((item.actual === undefined) !== (item.required === undefined)) issues.push(`${itemPath}.actual and required must be provided together`);
@@ -582,6 +686,19 @@ function validateBaselineSlice(instrumentIds: string[], facts: ResearchFact[], c
   }
 }
 
+function validateCompanyUpdateSlice(facts: ResearchFact[], capabilities: ResearchCapabilityOutcome[], issues: string[]) {
+  if (facts.some((fact) => fact.kind !== "financial_metric")) issues.push("company_update only allows financial_metric facts");
+  if (capabilities.length !== 1 || capabilities[0]?.id !== "fundamentals") issues.push("company_update only allows the fundamentals capability");
+  const fundamentals = capabilities.find((capability) => capability.id === "fundamentals");
+  if (!fundamentals) {
+    issues.push("missing required capability fundamentals");
+    return;
+  }
+  if (!fundamentals.required) issues.push("fundamentals must be required");
+  const financialFactIds = facts.filter((fact) => fact.kind === "financial_metric").map((fact) => fact.id);
+  if (!sameStringSet(fundamentals.factIds, financialFactIds)) issues.push("fundamentals factIds must exactly cover financial_metric facts");
+}
+
 function baselineEndDate(fact: MarketBaselineFact): string | null {
   const period = fact.observationPeriod as unknown;
   return isRecord(period) && typeof period.end === "string" ? period.end.slice(0, 10) : null;
@@ -613,7 +730,24 @@ function canonicalFact(fact: ResearchFact): ResearchFact {
     provenance: { ...fact.provenance, providers: [...fact.provenance.providers].sort(), sourceArtifactIds: [...fact.provenance.sourceArtifactIds].sort() },
     quality: { ...fact.quality, warnings: [...fact.quality.warnings].sort() },
     ...(fact.kind === "market_baseline" ? { formula: { ...fact.formula, inputArtifactIds: [...fact.formula.inputArtifactIds].sort() } } : {}),
+    ...(fact.kind === "financial_metric" && fact.formula
+      ? { formula: { ...fact.formula, inputArtifactIds: [...fact.formula.inputArtifactIds].sort() } }
+      : {}),
+    ...(fact.kind === "financial_metric" && fact.comparisons
+      ? {
+        comparisons: [...fact.comparisons]
+          .map((comparison) => ({
+            ...comparison,
+            formula: { ...comparison.formula, inputArtifactIds: [...comparison.formula.inputArtifactIds].sort() },
+          }))
+          .sort((left, right) => financialComparisonOrder(left.kind) - financialComparisonOrder(right.kind)),
+      }
+      : {}),
   } as ResearchFact;
+}
+
+function financialComparisonOrder(kind: FinancialMetricComparison["kind"]): number {
+  return kind === "yoy" ? 0 : 1;
 }
 
 function stableJson(value: unknown): string {

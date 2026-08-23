@@ -2,6 +2,7 @@ interface Env {
   DB: D1Database;
   MARKET_AGENT_RUNS: Queue<{ runId: string; generation: number; kind: "initial" | "recovery" }>;
   MARKET_AGENT_GENERATION_ENABLED?: string;
+  COMPANY_UPDATE_RESEARCH_ENABLED?: string;
   MARKET_AGENT_GATEWAY_URL?: string;
   MARKET_AGENT_GATEWAY_TOKEN?: string;
   MARKET_SNAPSHOT_URL?: string;

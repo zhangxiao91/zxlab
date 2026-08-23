@@ -36,6 +36,20 @@ test("today-change depth policy requires a report when market and research evide
   assert.equal(policy.allowLimitationClaims, false);
 });
 
+test("news-and-announcements depth policy requires separate announcement, financial, and market context", () => {
+  const evidence = bundle([
+    { id: "announcement", kind: "market_fact", origin: "server-observed", reliable: true, value: { evidenceType: "announcement", instrumentId: "SSE:600000", title: "定期报告" } },
+    { id: "financial", kind: "market_fact", origin: "server-observed", reliable: true, value: { type: "research_fact", fact: { kind: "financial_metric", subjectId: "SSE:600000", metric: "operating_revenue", value: { decimal: "100", unit: "CNY" } } } },
+    { id: "quote", kind: "market_fact", origin: "server-observed", reliable: true, value: { type: "quote", instrumentId: "SSE:600000", price: 10 } },
+  ], "news_and_announcements");
+  const policy = resolveNarrativeDepthPolicy({ workflow: "ask", askScope: "news_and_announcements", context: buildNarrationContext({ evidence, workflow: "ask", askScope: "news_and_announcements" }) });
+
+  assert.equal(policy.summary.minCharacters, 160);
+  assert.deepEqual(policy.requiredEvidenceIds, ["announcement", "financial", "quote"]);
+  assert.deepEqual(policy.minimums, { conclusionEvidenceIds: 3, basis: 3, analysis: 2, portfolioImpacts: 0, watchNext: 1 });
+  assert.match(policy.instructions.join(" "), /announcement facts.*financial changes.*interpretation.*data boundaries/i);
+});
+
 test("depth validation rejects a tiny fact brief with empty report sections", () => {
   const evidence = bundle([
     { id: "quote", kind: "market_fact", origin: "server-observed", reliable: true, value: { type: "quote", instrumentId: "SSE:600000", price: 10, previousClose: 9.8 } },

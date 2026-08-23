@@ -70,6 +70,7 @@ const plans: Record<AskScope, AskEvidencePlan> = {
     include: ["quotes", "news", "announcements"],
     quoteMode: "fallback",
     requiresCorroboratedQuotes: false,
+    researchPurpose: "company_update",
   },
   data_quality: {
     scope: "data_quality",

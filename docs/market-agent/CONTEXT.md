@@ -21,8 +21,12 @@ A versioned policy that fixes which Research Facts, windows, formulas, mappings,
 _Avoid_: Prompt plan, model tool plan
 
 **Knowledge Cutoff**:
-The server-created latest retrieval time of the source artifacts admitted to a Research Fact Bundle.
-_Avoid_: Market time, caller cutoff
+The server-created upper bound of system knowledge admitted to a Research Fact Bundle. It is never earlier than Observation Cutoff and advances to the latest retrieval or First Observed At of every admitted Research Artifact; callers cannot supply or backdate it.
+_Avoid_: Single provider retrieval time, caller cutoff
+
+**Point-in-Time Research Artifact Store**:
+The Market-owned append-only module that captures immutable Research Artifacts and selects revisions under both Observation Cutoff and Knowledge Cutoff. Agent, browser, and model callers cannot choose providers, formulas, storage locators, or historical knowledge times.
+_Avoid_: Agent database, response cache
 
 **Observation Cutoff**:
 The latest market or effective time that a Market Fact may describe in one Research Fact request.

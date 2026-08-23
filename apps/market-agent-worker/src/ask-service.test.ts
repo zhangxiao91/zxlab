@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { AgentResult, MarketAgentAskCommand } from "@zxlab/market-agent-schema";
 import type { MarketSnapshot, MarketSnapshotRequest } from "@zxlab/market-schema";
-import { calculateResearchFactBundleFingerprint } from "@zxlab/research-fact-schema";
+import { calculateResearchFactBundleFingerprint, parseResearchFactBundle, type ResearchFactBundle } from "@zxlab/research-fact-schema";
 import { researchFactBundleFixture } from "@zxlab/research-fact-schema/fixtures";
 import { AskService } from "./ask-service.ts";
 import { createRunCheckpoint } from "./run-checkpoint.ts";
@@ -88,6 +88,34 @@ async function laggedPriceContextResearch() {
   }];
   research.fingerprint = await calculateResearchFactBundleFingerprint(research);
   return research;
+}
+
+async function companyUpdateResearch(observationCutoff = "2026-08-07T08:00:00.000Z"): Promise<ResearchFactBundle> {
+  const research: ResearchFactBundle = {
+    schemaVersion: "research-facts.v2",
+    planVersion: "company-update.v1",
+    purpose: "company_update",
+    observationCutoff,
+    knowledgeCutoff: observationCutoff,
+    generatedAt: observationCutoff,
+    instrumentIds: ["SSE:600000"],
+    facts: [{
+      id: "financial:SSE:600000:operating_revenue:2026Q2",
+      kind: "financial_metric",
+      subjectId: "SSE:600000",
+      metric: "operating_revenue",
+      period: { start: "2026-04-01T00:00:00.000Z", end: "2026-06-30T00:00:00.000Z", basis: "quarter" },
+      value: { decimal: "2500000000", unit: "CNY" },
+      formula: { id: "financial.single_quarter.v1", version: "1", expression: "current_cumulative - previous_cumulative", inputArtifactIds: ["filing:h1", "filing:q1"], parameters: { period: "Q2" }, rounding: "exact-decimal" },
+      comparisons: [{ kind: "yoy", comparablePeriod: { start: "2025-04-01T00:00:00.000Z", end: "2025-06-30T00:00:00.000Z", basis: "quarter" }, decimal: "0.12", unit: "ratio", formula: { id: "financial.yoy.v1", version: "1", expression: "current / prior - 1", inputArtifactIds: ["filing:h1", "filing:q1", "filing:h1-prior", "filing:q1-prior"], parameters: {}, rounding: "decimal-12-nearest" } }],
+      provenance: { providers: ["eastmoney", "cninfo"], sourceArtifactIds: ["filing:h1", "filing:q1", "filing:h1-prior", "filing:q1-prior"], sourceAsOf: "2026-07-31T10:00:00.000Z", retrievedAt: "2026-08-07T08:00:00.000Z" },
+      quality: { status: "operational", reliable: true, coverage: { actual: 4, required: 4 }, warnings: [] },
+    }],
+    capabilities: [{ id: "fundamentals", required: true, status: "operational", factIds: ["financial:SSE:600000:operating_revenue:2026Q2"], asOf: "2026-07-31T10:00:00.000Z", retrievedAt: "2026-08-07T08:00:00.000Z", warnings: [], limitations: [] }],
+    fingerprint: "sha256:pending",
+  };
+  research.fingerprint = await calculateResearchFactBundleFingerprint(research);
+  return parseResearchFactBundle(research);
 }
 
 test("Ask executes only the static plan and seals that plan into evidence", async () => {
@@ -359,6 +387,77 @@ test("relative performance seals Research Facts once and resumes without recolle
   assert.equal(resumed.evidence.fingerprint, first.evidence.fingerprint);
   assert.equal(researchCalls, 1);
   assert.match(resumed.result.outcome?.evidence.limitations.find((item) => item.code === "RESEARCH_SCOPE_PARTIAL")?.message ?? "", /另有 2 个标的/);
+});
+
+test("news and announcements seals company-update financial facts once and replays without Research I/O", async () => {
+  const command = ask({ scope: "news_and_announcements", instrumentId: "SSE:600000" });
+  const research = await companyUpdateResearch();
+  let researchCalls = 0;
+  let checkpoint: Parameters<AskService["execute"]>[0]["checkpoint"];
+  const first = await new AskService(
+    { getCurrentSnapshot: async (input) => marketSnapshot(input) },
+    undefined,
+    undefined,
+    { async materialize(input) {
+      researchCalls += 1;
+      assert.deepEqual(input, {
+        purpose: "company_update",
+        instrumentIds: ["SSE:600000"],
+        selectedInstrumentId: "SSE:600000",
+        observationCutoff: "2026-08-07T08:00:00.000Z",
+      });
+      return research;
+    } },
+  ).execute({ runId: "ask-company-update", command, watchlistRevision: "watchlist-1", onCheckpoint: async (value) => { checkpoint = value; } });
+
+  assert.equal(researchCalls, 1);
+  assert.equal(checkpoint?.research?.purpose, "company_update");
+  assert.equal(first.evidence.items.some((item) => (item.value as { type?: unknown; fact?: { kind?: unknown } })?.type === "research_fact" && (item.value as { fact?: { kind?: unknown } }).fact?.kind === "financial_metric"), true);
+
+  const replayed = await new AskService(
+    { getCurrentSnapshot: async () => { throw new Error("Market Facts must not be recollected after evidence_sealed"); } },
+    undefined,
+    undefined,
+    { materialize: async () => { throw new Error("Research Facts must not be recollected after evidence_sealed"); } },
+  ).execute({ runId: "ask-company-update", command, watchlistRevision: "watchlist-1", checkpoint });
+
+  assert.equal(replayed.evidence.fingerprint, first.evidence.fingerprint);
+  assert.equal(researchCalls, 1);
+});
+
+test("news and announcements does not request company-update research while the runtime gate is disabled", async () => {
+  let researchCalls = 0;
+  let checkpoint: Parameters<AskService["execute"]>[0]["checkpoint"];
+  await new AskService(
+    { getCurrentSnapshot: async (input) => marketSnapshot(input) },
+    undefined,
+    undefined,
+    { async materialize() { researchCalls += 1; throw new Error("company update must remain disabled"); } },
+    { companyUpdateEnabled: false },
+  ).execute({
+    runId: "ask-company-update-disabled",
+    command: ask({ scope: "news_and_announcements", instrumentId: "SSE:600000" }),
+    watchlistRevision: "watchlist-1",
+    onCheckpoint: async (value) => { checkpoint = value; },
+  });
+
+  assert.equal(researchCalls, 0);
+  assert.equal(checkpoint?.research, undefined);
+});
+
+test("weekend company update does not bind financial freshness to the effective trading session", async () => {
+  const asOf = "2026-08-16T02:00:00.000Z";
+  const research = await companyUpdateResearch(asOf);
+  let researchRequest: Parameters<NonNullable<ConstructorParameters<typeof AskService>[3]>["materialize"]>[0] | undefined;
+  await new AskService(
+    { getCurrentSnapshot: async (input) => weekendSnapshot(input, asOf) },
+    undefined,
+    undefined,
+    { async materialize(input) { researchRequest = input; return research; } },
+  ).execute({ runId: "ask-weekend-company-update", command: ask({ scope: "news_and_announcements", instrumentId: "SSE:600000" }), watchlistRevision: "watchlist-1" });
+
+  assert.equal(researchRequest?.purpose, "company_update");
+  assert.equal(Object.hasOwn(researchRequest ?? {}, "expectedLatestSessionDate"), false);
 });
 
 test("Ask never recollects Research Facts for a legacy checkpoint without research", async () => {

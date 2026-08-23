@@ -380,3 +380,267 @@ test("knowledge cutoff cannot precede the requested observation cutoff", () => {
   assert.equal(result.ok, false);
   assert.match(result.issues.join(" "), /observationCutoff cannot exceed knowledgeCutoff/);
 });
+
+test("accepts a provenance-bound company update with deterministic derived-quarter comparisons", async () => {
+  const bundle = companyUpdateBundle();
+  bundle.fingerprint = await calculateResearchFactBundleFingerprint(bundle);
+
+  assert.deepEqual(validateResearchFactBundle(bundle), { ok: true, issues: [] });
+  const parsed = parseResearchFactBundle(bundle);
+  assert.equal(parsed.purpose, "company_update");
+  assert.equal(parsed.facts[0].kind, "financial_metric");
+  assert.equal(await verifyResearchFactBundleFingerprint(bundle), true);
+});
+
+test("rejects financial metrics outside the canonical contract", () => {
+  const bundle = companyUpdateBundle();
+  const fact = bundle.facts[0];
+  if (fact.kind !== "financial_metric") throw new Error("expected financial fixture");
+  fact.metric = "revenue";
+
+  assert.match(validateResearchFactBundle(bundle).issues.join(" "), /metric is invalid/);
+});
+
+test("keeps one legacy financial comparison readable but forbids mixing legacy and new comparisons", () => {
+  const legacy = companyUpdateBundle();
+  const legacyFact = legacy.facts[0];
+  if (legacyFact.kind !== "financial_metric") throw new Error("expected financial fixture");
+  delete legacyFact.formula;
+  delete legacyFact.comparisons;
+  legacyFact.comparison = {
+    kind: "yoy",
+    decimal: "0.25",
+    unit: "ratio",
+    formula: {
+      id: "financial.yoy.v1",
+      version: "1",
+      expression: "current / prior - 1",
+      inputArtifactIds: ["eastmoney:income:2026H1", "eastmoney:income:2025H1"],
+      parameters: {},
+      rounding: "decimal-12-nearest",
+    },
+  };
+  assert.equal(validateResearchFactBundle(legacy).ok, true);
+
+  const mixed = companyUpdateBundle();
+  const mixedFact = mixed.facts[0];
+  if (mixedFact.kind !== "financial_metric") throw new Error("expected financial fixture");
+  mixedFact.comparison = legacyFact.comparison;
+  assert.match(validateResearchFactBundle(mixed).issues.join(" "), /comparison and comparisons are mutually exclusive/);
+});
+
+test("requires unique comparisons against an earlier period with the same reporting basis", () => {
+  const duplicate = companyUpdateBundle();
+  const duplicateFact = duplicate.facts[0];
+  if (duplicateFact.kind !== "financial_metric") throw new Error("expected financial fixture");
+  duplicateFact.comparisons = [duplicateFact.comparisons![0], structuredClone(duplicateFact.comparisons![0])];
+  assert.match(validateResearchFactBundle(duplicate).issues.join(" "), /at most one yoy/);
+
+  const mismatched = companyUpdateBundle();
+  const mismatchedFact = mismatched.facts[0];
+  if (mismatchedFact.kind !== "financial_metric") throw new Error("expected financial fixture");
+  mismatchedFact.comparisons![0].comparablePeriod.basis = "year_to_date";
+  mismatchedFact.comparisons![1].comparablePeriod.end = mismatchedFact.period.end;
+  const issues = validateResearchFactBundle(mismatched).issues.join(" ");
+  assert.match(issues, /comparablePeriod\.basis must equal fact\.period\.basis/);
+  assert.match(issues, /comparablePeriod\.end must precede fact\.period\.end/);
+});
+
+test("enforces closed financial operators and provenance-bound deterministic inputs", () => {
+  const bundle = companyUpdateBundle();
+  const fact = bundle.facts[0];
+  if (fact.kind !== "financial_metric") throw new Error("expected financial fixture");
+  fact.formula!.id = "caller.single-quarter.v9";
+  fact.formula!.inputArtifactIds.push("unsealed:derived-input");
+  fact.comparisons![0].formula.id = "financial.qoq.v1";
+  fact.comparisons![1].formula.rounding = "binary-float";
+  fact.comparisons![1].formula.inputArtifactIds.push("unsealed:comparison-input");
+
+  const issues = validateResearchFactBundle(bundle).issues.join(" ");
+  assert.match(issues, /formula\.id must be financial\.single_quarter\.v1/);
+  assert.match(issues, /formula input unsealed:derived-input is absent from provenance/);
+  assert.match(issues, /comparisons\[0\]\.formula\.id must be financial\.yoy\.v1/);
+  assert.match(issues, /comparisons\[1\]\.formula\.rounding must be decimal-12-nearest/);
+  assert.match(issues, /formula input unsealed:comparison-input is absent from provenance/);
+});
+
+test("allows the single-quarter formula only on derived flow metrics", () => {
+  const cumulative = companyUpdateBundle();
+  const cumulativeFact = cumulative.facts[0];
+  if (cumulativeFact.kind !== "financial_metric") throw new Error("expected financial fixture");
+  cumulativeFact.period.basis = "year_to_date";
+  assert.match(validateResearchFactBundle(cumulative).issues.join(" "), /formula is only allowed for quarter-basis flow metrics/);
+
+  const balance = companyUpdateBundle();
+  const balanceFact = balance.facts[0];
+  if (balanceFact.kind !== "financial_metric") throw new Error("expected financial fixture");
+  balanceFact.metric = "total_assets";
+  assert.match(validateResearchFactBundle(balance).issues.join(" "), /formula is only allowed for quarter-basis flow metrics/);
+});
+
+test("accepts point-in-time periods for balance-sheet metrics", () => {
+  const bundle = companyUpdateBundle();
+  const fact = bundle.facts[0];
+  if (fact.kind !== "financial_metric") throw new Error("expected financial fixture");
+  fact.metric = "total_assets";
+  delete fact.formula;
+  fact.period = { start: fact.period.end, end: fact.period.end, basis: "point_in_time" };
+  for (const comparison of fact.comparisons ?? []) {
+    comparison.comparablePeriod = {
+      start: comparison.comparablePeriod.end,
+      end: comparison.comparablePeriod.end,
+      basis: "point_in_time",
+    };
+  }
+  assert.deepEqual(validateResearchFactBundle(bundle).issues, []);
+});
+
+test("binds company_update to company-update.v1 and its sole required fundamentals capability", () => {
+  const wrongPlan = companyUpdateBundle();
+  wrongPlan.planVersion = "company-research.v1";
+  assert.match(validateResearchFactBundle(wrongPlan).issues.join(" "), /company_update requires planVersion company-update.v1/);
+
+  const optionalNoise = companyUpdateBundle();
+  optionalNoise.capabilities.push({
+    id: "documents",
+    required: false,
+    status: "unavailable",
+    factIds: [],
+    asOf: null,
+    retrievedAt: optionalNoise.knowledgeCutoff,
+    warnings: ["CAPABILITY_NOT_IMPLEMENTED"],
+    limitations: [{ code: "CAPABILITY_NOT_IMPLEMENTED", retryable: false }],
+    error: { code: "CAPABILITY_NOT_IMPLEMENTED", retryable: false },
+  });
+  assert.match(validateResearchFactBundle(optionalNoise).issues.join(" "), /company_update only allows the fundamentals capability/);
+
+  const optionalFundamentals = companyUpdateBundle();
+  optionalFundamentals.capabilities[0].required = false;
+  assert.match(validateResearchFactBundle(optionalFundamentals).issues.join(" "), /fundamentals must be required/);
+});
+
+test("allows financial limitations to locate a metric, comparison, and reporting period", () => {
+  const bundle = companyUpdateBundle();
+  const fundamentals = bundle.capabilities[0];
+  fundamentals.status = "degraded";
+  fundamentals.warnings = ["COMPARISON_NOT_MEANINGFUL"];
+  fundamentals.limitations = [{
+    code: "COMPARISON_NOT_MEANINGFUL",
+    subjectId: "SSE:600000",
+    metric: "operating_revenue",
+    comparisonKind: "qoq",
+    periodEnd: "2026-06-30",
+    retryable: false,
+  }];
+  assert.deepEqual(validateResearchFactBundle(bundle), { ok: true, issues: [] });
+
+  const invalid = structuredClone(bundle);
+  Object.assign(invalid.capabilities[0].limitations[0], {
+    metric: "revenue",
+    comparisonKind: "annualized",
+    periodEnd: "2026-06-31",
+  });
+  const issues = validateResearchFactBundle(invalid).issues.join(" ");
+  assert.match(issues, /metric is invalid/);
+  assert.match(issues, /comparisonKind is invalid/);
+  assert.match(issues, /periodEnd must be YYYY-MM-DD/);
+});
+
+test("canonicalizes new financial comparison and operator inputs while binding their content", async () => {
+  const bundle = companyUpdateBundle();
+  bundle.fingerprint = await calculateResearchFactBundleFingerprint(bundle);
+
+  const reordered = structuredClone(bundle);
+  const reorderedFact = reordered.facts[0];
+  if (reorderedFact.kind !== "financial_metric") throw new Error("expected financial fixture");
+  reorderedFact.formula!.inputArtifactIds.reverse();
+  reorderedFact.comparisons!.reverse();
+  for (const comparison of reorderedFact.comparisons!) comparison.formula.inputArtifactIds.reverse();
+  assert.equal(await verifyResearchFactBundleFingerprint(reordered), true);
+
+  const changed = structuredClone(bundle);
+  const changedFact = changed.facts[0];
+  if (changedFact.kind !== "financial_metric") throw new Error("expected financial fixture");
+  changedFact.comparisons![0].comparablePeriod.end = "2025-06-29T00:00:00.000Z";
+  assert.equal(await verifyResearchFactBundleFingerprint(changed), false);
+});
+
+test("preserves the legacy relative-performance fixture fingerprint", async () => {
+  assert.equal(
+    await calculateResearchFactBundleFingerprint(researchFactBundleFixture()),
+    "sha256:ef10f6d95a7e422f43a2f8143c737b40a7c00cc74a7503b012080fce324bebc3",
+  );
+});
+
+function companyUpdateBundle(): ReturnType<typeof researchFactBundleFixture> {
+  const bundle = researchFactBundleFixture();
+  bundle.purpose = "company_update";
+  bundle.planVersion = "company-update.v1";
+  bundle.facts = [{
+    id: "financial:SSE:600000:operating_revenue:2026Q2",
+    kind: "financial_metric",
+    subjectId: "SSE:600000",
+    metric: "operating_revenue",
+    period: { start: "2026-04-01T00:00:00.000Z", end: "2026-06-30T00:00:00.000Z", basis: "quarter" },
+    value: { decimal: "100000000", unit: "CNY" },
+    formula: {
+      id: "financial.single_quarter.v1",
+      version: "1",
+      expression: "current_cumulative - previous_cumulative",
+      inputArtifactIds: ["eastmoney:income:2026H1", "eastmoney:income:2026Q1"],
+      parameters: {},
+      rounding: "exact-decimal",
+    },
+    comparisons: [{
+      kind: "yoy",
+      comparablePeriod: { start: "2025-04-01T00:00:00.000Z", end: "2025-06-30T00:00:00.000Z", basis: "quarter" },
+      decimal: "0.25",
+      unit: "ratio",
+      formula: {
+        id: "financial.yoy.v1",
+        version: "1",
+        expression: "current / prior - 1",
+        inputArtifactIds: ["eastmoney:income:2026H1", "eastmoney:income:2026Q1", "eastmoney:income:2025H1", "eastmoney:income:2025Q1"],
+        parameters: {},
+        rounding: "decimal-12-nearest",
+      },
+    }, {
+      kind: "qoq",
+      comparablePeriod: { start: "2026-01-01T00:00:00.000Z", end: "2026-03-31T00:00:00.000Z", basis: "quarter" },
+      decimal: "0.1",
+      unit: "ratio",
+      formula: {
+        id: "financial.qoq.v1",
+        version: "1",
+        expression: "current / prior - 1",
+        inputArtifactIds: ["eastmoney:income:2026H1", "eastmoney:income:2026Q1"],
+        parameters: {},
+        rounding: "decimal-12-nearest",
+      },
+    }],
+    provenance: {
+      providers: ["eastmoney", "cninfo"],
+      sourceArtifactIds: [
+        "eastmoney:income:2026H1",
+        "eastmoney:income:2026Q1",
+        "eastmoney:income:2025H1",
+        "eastmoney:income:2025Q1",
+        "cninfo:filing:2026H1",
+      ],
+      sourceAsOf: bundle.observationCutoff,
+      retrievedAt: bundle.knowledgeCutoff,
+    },
+    quality: { status: "operational", reliable: true, coverage: { actual: 2, required: 2 }, warnings: [] },
+  }];
+  bundle.capabilities = [{
+    id: "fundamentals",
+    required: true,
+    status: "operational",
+    factIds: [bundle.facts[0].id],
+    asOf: bundle.observationCutoff,
+    retrievedAt: bundle.knowledgeCutoff,
+    warnings: [],
+    limitations: [],
+  }];
+  return bundle;
+}

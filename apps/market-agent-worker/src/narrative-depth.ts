@@ -46,7 +46,7 @@ const PROFILES: Record<string, DepthProfile> = {
   close_review: profile(160, 3, 2, 0, 1, 2, 52, ["market", "research", "external", "portfolio"]),
   today_change: profile(100, 2, 1, 0, 1, 2, 44, ["research", "market"]),
   relative_performance: profile(140, 3, 1, 0, 1, 2, 48, ["research", "market"]),
-  news_and_announcements: profile(130, 2, 1, 0, 1, 2, 48, ["external", "market"]),
+  news_and_announcements: profile(160, 3, 2, 0, 1, 3, 52, ["external", "research", "market"]),
   data_quality: profile(100, 2, 0, 0, 1, 2, 44, ["quality", "limitation"]),
   portfolio_impact: profile(140, 2, 1, 1, 1, 2, 48, ["portfolio", "market", "research"]),
   compare_previous_run: profile(140, 2, 1, 0, 1, 2, 48, ["prior", "market", "research"]),
@@ -95,6 +95,9 @@ export function resolveNarrativeDepthPolicy(input: DepthInput): NarrativeDepthPo
       "Write a connected research account: conclusion, cited basis, why the evidence matters, uncertainty, and what would change the view.",
       "Cover every required evidence topic in its own observation; do not attach an extra citation to unrelated prose merely to satisfy coverage.",
       "Every observation explanation must state why the cited evidence matters to the conclusion, interpretation, or next verification step.",
+      ...(key === "news_and_announcements"
+        ? ["Cover announcement facts, financial changes, interpretation, and data boundaries as distinct topics when the corresponding Evidence is available."]
+        : []),
       "Meet only the evidence-aware minima in this policy; never invent content to fill a section.",
       "Natural-language prose must contain no quantities. Quantitative facts are rendered separately from sealed deterministic Evidence.",
       allowLimitationClaims
