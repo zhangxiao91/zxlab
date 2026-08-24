@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { AgentResult, MarketAgentAskCommand } from "@zxlab/market-agent-schema";
+import type { AgentResult, DossierBaseReceipt, MarketAgentAskCommand } from "@zxlab/market-agent-schema";
 import type { MarketSnapshot, MarketSnapshotRequest } from "@zxlab/market-schema";
 import { calculateResearchFactBundleFingerprint, parseResearchFactBundle, type ResearchFactBundle } from "@zxlab/research-fact-schema";
 import { researchFactBundleFixture } from "@zxlab/research-fact-schema/fixtures";
 import { AskService } from "./ask-service.ts";
 import { FinancialToolRuntime } from "./financial-tool-runtime.ts";
 import { MemoryFinancialToolInvocationRepository } from "./financial-tool-repository.ts";
-import { createRunCheckpoint } from "./run-checkpoint.ts";
+import { checkpointSnapshotPayload, createRunCheckpoint } from "./run-checkpoint.ts";
+import type { ResearchDossierRuntime } from "./research-dossier-runtime.ts";
 
 function ask(overrides: Partial<MarketAgentAskCommand> = {}): MarketAgentAskCommand {
   return {
@@ -425,6 +426,279 @@ test("news and announcements seals company-update financial facts once and repla
 
   assert.equal(replayed.evidence.fingerprint, first.evidence.fingerprint);
   assert.equal(researchCalls, 1);
+});
+
+test("company-update Ask seals the exact Dossier base in v4 before projecting the sealed Evidence", async () => {
+  const command = ask({ scope: "news_and_announcements", instrumentId: "SSE:600000" });
+  const research = await companyUpdateResearch();
+  const base: DossierBaseReceipt = {
+    schemaVersion: "dossier-base-receipt.v1",
+    profileId: "profile-1",
+    instrumentId: "SSE:600000",
+    dossierId: null,
+    revisionId: null,
+    dossierVersion: 0,
+    dossierFingerprint: null,
+  };
+  const lifecycle: string[] = [];
+  let checkpoint: Parameters<AskService["execute"]>[0]["checkpoint"];
+  let projectedEvidenceFingerprint: string | undefined;
+  const dossierRuntime = {
+    async captureBase(profileId: string, instrumentId: string) {
+      lifecycle.push("base_captured");
+      assert.equal(profileId, "profile-1");
+      assert.equal(instrumentId, "SSE:600000");
+      return base;
+    },
+    async project(input: { evidence: { fingerprint: string }; base: DossierBaseReceipt }) {
+      lifecycle.push("projected");
+      projectedEvidenceFingerprint = input.evidence.fingerprint;
+      assert.deepEqual(input.base, base);
+      return null;
+    },
+  } as unknown as ResearchDossierRuntime;
+
+  const output = await new AskService(
+    { getCurrentSnapshot: async (request) => marketSnapshot(request) },
+    undefined,
+    undefined,
+    { materialize: async () => research },
+    { researchDossierRuntime: dossierRuntime, researchDossierProjectorMode: "fact_only" },
+  ).execute({
+    runId: "ask-dossier-v4",
+    command,
+    watchlistRevision: "watchlist-1",
+    onCheckpoint: async (value) => {
+      lifecycle.push("checkpoint_persisted");
+      checkpoint = value;
+    },
+  });
+
+  assert.deepEqual(lifecycle, ["base_captured", "checkpoint_persisted", "projected"]);
+  assert.deepEqual(checkpoint?.dossierBase, base);
+  assert.equal((checkpointSnapshotPayload(checkpoint!) as { schemaVersion?: string }).schemaVersion, "run-checkpoint.v4");
+  assert.equal(projectedEvidenceFingerprint, output.evidence.fingerprint);
+});
+
+test("temporary Dossier base capture failure seals retryable v4 unavailability without projecting", async () => {
+  const research = await companyUpdateResearch();
+  let checkpoint: Parameters<AskService["execute"]>[0]["checkpoint"];
+  let projectionCalls = 0;
+  const output = await new AskService(
+    { getCurrentSnapshot: async (request) => marketSnapshot(request) },
+    undefined,
+    undefined,
+    { materialize: async () => research },
+    {
+      researchDossierProjectorMode: "fact_only",
+      researchDossierRuntime: {
+        captureBase: async () => { throw new Error("DOSSIER_STORE_UNAVAILABLE"); },
+        project: async () => { projectionCalls += 1; throw new Error("projection must not run"); },
+      } as unknown as ResearchDossierRuntime,
+    },
+  ).execute({
+    runId: "ask-dossier-base-unavailable",
+    command: ask({ scope: "news_and_announcements", instrumentId: "SSE:600000" }),
+    watchlistRevision: "watchlist-1",
+    onCheckpoint: async (value) => { checkpoint = value; },
+  });
+
+  assert.equal(output.evidence.fingerprint, checkpoint?.evidence.fingerprint);
+  assert.equal(checkpoint?.dossierBase, undefined);
+  assert.deepEqual(checkpoint?.dossierProjectionUnavailable, {
+    status: "unavailable",
+    code: "DOSSIER_BASE_UNAVAILABLE",
+    retryable: true,
+  });
+  assert.equal((checkpointSnapshotPayload(checkpoint!) as { schemaVersion?: string }).schemaVersion, "run-checkpoint.v4");
+  assert.equal(projectionCalls, 0);
+});
+
+test("Dossier projection persistence failure cannot fail or alter the sealed Market Run", async () => {
+  const research = await companyUpdateResearch();
+  const base: DossierBaseReceipt = {
+    schemaVersion: "dossier-base-receipt.v1",
+    profileId: "profile-1",
+    instrumentId: "SSE:600000",
+    dossierId: null,
+    revisionId: null,
+    dossierVersion: 0,
+    dossierFingerprint: null,
+  };
+  let checkpoint: Parameters<AskService["execute"]>[0]["checkpoint"];
+  const output = await new AskService(
+    { getCurrentSnapshot: async (request) => marketSnapshot(request) },
+    undefined,
+    undefined,
+    { materialize: async () => research },
+    {
+      researchDossierProjectorMode: "enabled",
+      researchDossierRuntime: {
+        captureBase: async () => base,
+        project: async () => { throw new Error("DOSSIER_PROJECTION_PERSISTENCE_FAILED"); },
+      } as unknown as ResearchDossierRuntime,
+    },
+  ).execute({
+    runId: "ask-dossier-persistence-failure",
+    command: ask({ scope: "news_and_announcements", instrumentId: "SSE:600000" }),
+    watchlistRevision: "watchlist-1",
+    onCheckpoint: async (value) => { checkpoint = value; },
+  });
+
+  assert.equal(output.evidence.fingerprint, checkpoint?.evidence.fingerprint);
+  assert.deepEqual(checkpoint?.dossierBase, base);
+  assert.equal(output.evidence.items.some((item) => JSON.stringify(item.value).includes("DOSSIER_PROJECTION_PERSISTENCE_FAILED")), false);
+});
+
+test("Dossier projection checks Run activity around I/O and never swallows cancellation or lease fencing", async () => {
+  const research = await companyUpdateResearch();
+  const base: DossierBaseReceipt = {
+    schemaVersion: "dossier-base-receipt.v1", profileId: "profile-1", instrumentId: "SSE:600000",
+    dossierId: null, revisionId: null, dossierVersion: 0, dossierFingerprint: null,
+  };
+  for (const code of ["RUN_CANCELLED", "RUN_LEASE_LOST"]) {
+    let activeChecks = 0;
+    await assert.rejects(new AskService(
+      { getCurrentSnapshot: async (request) => marketSnapshot(request) },
+      undefined,
+      undefined,
+      { materialize: async () => research },
+      {
+        researchDossierProjectorMode: "fact_only",
+        researchDossierRuntime: {
+          captureBase: async () => base,
+          project: async () => { throw new Error(code); },
+        } as unknown as ResearchDossierRuntime,
+      },
+    ).execute({
+      runId: `ask-dossier-${code.toLowerCase()}`,
+      command: ask({ scope: "news_and_announcements", instrumentId: "SSE:600000" }),
+      watchlistRevision: "watchlist-1",
+      assertActive: async () => { activeChecks += 1; },
+    }), new RegExp(code));
+    assert.equal(activeChecks, 2, "activity is checked before base capture and before projection");
+  }
+
+  let completedChecks = 0;
+  await new AskService(
+    { getCurrentSnapshot: async (request) => marketSnapshot(request) },
+    undefined,
+    undefined,
+    { materialize: async () => research },
+    {
+      researchDossierProjectorMode: "fact_only",
+      researchDossierRuntime: { captureBase: async () => base, project: async () => null } as unknown as ResearchDossierRuntime,
+    },
+  ).execute({
+    runId: "ask-dossier-active-fence",
+    command: ask({ scope: "news_and_announcements", instrumentId: "SSE:600000" }),
+    watchlistRevision: "watchlist-1",
+    assertActive: async () => { completedChecks += 1; },
+  });
+  assert.equal(completedChecks, 3, "activity is checked before base capture and before and after projection");
+});
+
+test("a v4 replay delegates proposal recovery to the Dossier runtime without recapturing its base", async () => {
+  const research = await companyUpdateResearch();
+  const base: DossierBaseReceipt = {
+    schemaVersion: "dossier-base-receipt.v1",
+    profileId: "profile-1",
+    instrumentId: "SSE:600000",
+    dossierId: null,
+    revisionId: null,
+    dossierVersion: 0,
+    dossierFingerprint: null,
+  };
+  let captureCalls = 0;
+  let projectCalls = 0;
+  const dossierRuntime = {
+    captureBase: async () => { captureCalls += 1; return base; },
+    project: async (input: { base: DossierBaseReceipt }) => {
+      projectCalls += 1;
+      assert.deepEqual(input.base, base);
+      return null;
+    },
+  } as unknown as ResearchDossierRuntime;
+  let checkpoint: Parameters<AskService["execute"]>[0]["checkpoint"];
+  const command = ask({ scope: "news_and_announcements", instrumentId: "SSE:600000" });
+  const first = await new AskService(
+    { getCurrentSnapshot: async (request) => marketSnapshot(request) },
+    undefined,
+    undefined,
+    { materialize: async () => research },
+    { researchDossierRuntime: dossierRuntime, researchDossierProjectorMode: "fact_only" },
+  ).execute({ runId: "ask-dossier-recovery", command, watchlistRevision: "watchlist-1", onCheckpoint: async (value) => { checkpoint = value; } });
+
+  const replay = await new AskService(
+    { getCurrentSnapshot: async () => { throw new Error("snapshot I/O must be zero"); } },
+    undefined,
+    undefined,
+    { materialize: async () => { throw new Error("Research I/O must be zero"); } },
+    { researchDossierRuntime: dossierRuntime, researchDossierProjectorMode: "fact_only" },
+  ).execute({ runId: "ask-dossier-recovery", command, watchlistRevision: "watchlist-1", checkpoint });
+
+  assert.equal(captureCalls, 1);
+  assert.equal(projectCalls, 2);
+  assert.equal(replay.evidence.fingerprint, first.evidence.fingerprint);
+});
+
+test("legacy company-update checkpoints perform zero Dossier I/O", async () => {
+  const research = await companyUpdateResearch();
+  const command = ask({ scope: "news_and_announcements", instrumentId: "SSE:600000" });
+  let legacyCheckpoint: Parameters<AskService["execute"]>[0]["checkpoint"];
+  await new AskService(
+    { getCurrentSnapshot: async (request) => marketSnapshot(request) },
+    undefined,
+    undefined,
+    { materialize: async () => research },
+  ).execute({ runId: "ask-dossier-legacy", command, watchlistRevision: "watchlist-1", onCheckpoint: async (value) => { legacyCheckpoint = value; } });
+  assert.equal(legacyCheckpoint?.dossierBase, undefined);
+
+  const replay = await new AskService(
+    { getCurrentSnapshot: async () => { throw new Error("snapshot I/O must be zero"); } },
+    undefined,
+    undefined,
+    { materialize: async () => { throw new Error("Research I/O must be zero"); } },
+    {
+      researchDossierProjectorMode: "enabled",
+      researchDossierRuntime: {
+        captureBase: async () => { throw new Error("legacy replay must not capture Dossier base"); },
+        project: async () => { throw new Error("legacy replay must not project Dossier"); },
+      } as unknown as ResearchDossierRuntime,
+    },
+  ).execute({ runId: "ask-dossier-legacy", command, watchlistRevision: "watchlist-1", checkpoint: legacyCheckpoint });
+
+  assert.equal(replay.evidence.fingerprint, legacyCheckpoint?.evidence.fingerprint);
+});
+
+test("disabled and non-company Ask paths perform zero Dossier I/O", async () => {
+  let dossierIo = 0;
+  const runtime = {
+    captureBase: async () => { dossierIo += 1; throw new Error("unexpected Dossier I/O"); },
+    project: async () => { dossierIo += 1; throw new Error("unexpected Dossier I/O"); },
+  } as unknown as ResearchDossierRuntime;
+  const research = await companyUpdateResearch();
+
+  await new AskService(
+    { getCurrentSnapshot: async (request) => marketSnapshot(request) },
+    undefined,
+    undefined,
+    { materialize: async () => research },
+    { researchDossierRuntime: runtime, researchDossierProjectorMode: "disabled" },
+  ).execute({
+    runId: "ask-dossier-disabled",
+    command: ask({ scope: "news_and_announcements", instrumentId: "SSE:600000" }),
+    watchlistRevision: "watchlist-1",
+  });
+  await new AskService(
+    { getCurrentSnapshot: async (request) => marketSnapshot(request) },
+    undefined,
+    undefined,
+    undefined,
+    { researchDossierRuntime: runtime, researchDossierProjectorMode: "enabled" },
+  ).execute({ runId: "ask-dossier-other-scope", command: ask(), watchlistRevision: "watchlist-1" });
+
+  assert.equal(dossierIo, 0);
 });
 
 test("enabled financial runtime seals a v3 tool session and replay performs zero tool I/O", async () => {

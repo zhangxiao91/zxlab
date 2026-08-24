@@ -44,8 +44,13 @@ const signalPathAllowed = (path: string, method: string) =>
 const marketAgentPathAllowed = (path: string, method: string) => {
   if (path === "/ask") return method === "POST";
   if (path === "/runs" || path === "/watchlist" || path === "/portfolio-snapshot") return method === "GET" || method === "POST";
-  if (["/today", "/profile", "/quality", "/export"].includes(path)) return method === "GET";
+  if (["/today", "/profile", "/quality", "/export", "/alert-rule-drafts"].includes(path)) return method === "GET";
   if (["/portfolio-snapshot/stop", "/portfolio-snapshot/purge"].includes(path)) return method === "POST";
+  if (/^\/dossiers\/[^/]+$/.test(path)) return method === "GET" || method === "DELETE";
+  if (/^\/dossiers\/[^/]+\/thesis-proposals$/.test(path)) return method === "POST";
+  if (/^\/dossier-proposals\/[^/]+\/(?:confirm|dismiss|alert-rule-drafts)$/.test(path)) return method === "POST";
+  if (/^\/runs\/[^/]+\/dossier-projection$/.test(path)) return method === "GET";
+  if (/^\/runs\/[^/]+\/dossier-projection\/rebase$/.test(path)) return method === "POST";
   if (/^\/runs\/[^/]+$/.test(path)) return method === "GET" || method === "DELETE";
   if (/^\/runs\/[^/]+\/(?:feedback|rerun|retry|cancel)$/.test(path)) return method === "POST";
   return /^\/runs\/[^/]+\/(?:evidence|stream|trace|tool-trace)$/.test(path) && method === "GET";

@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { COMPANY_FINANCIAL_UPDATE_TOOL, FINANCIAL_TOOL_POLICY_VERSION, type FinancialToolSessionReceipt, type SealedEvidenceBundle } from "@zxlab/market-agent-schema";
+import { COMPANY_FINANCIAL_UPDATE_TOOL, DOSSIER_BASE_RECEIPT_SCHEMA_VERSION, FINANCIAL_TOOL_POLICY_VERSION, type DossierBaseReceipt, type FinancialToolSessionReceipt, type SealedEvidenceBundle } from "@zxlab/market-agent-schema";
 import { marketSnapshotFixture } from "@zxlab/market-schema/fixtures";
 import { calculateResearchFactBundleFingerprint } from "@zxlab/research-fact-schema";
 import { researchFactBundleFixture } from "@zxlab/research-fact-schema/fixtures";
-import { checkpointSnapshotPayload, createRunCheckpoint, parseCheckpointSnapshotPayload, verifyRunCheckpoint } from "./run-checkpoint.ts";
+import { checkpointSnapshotPayload, createRunCheckpoint, parseCheckpointSnapshotPayload, verifyRunCheckpoint, type DossierProjectionUnavailableReceipt } from "./run-checkpoint.ts";
 
 test("run-checkpoint.v3 seals a financial tool receipt and Research Bundle together", async () => {
   const snapshot = marketSnapshotFixture();
@@ -45,6 +45,63 @@ test("legacy bare and v2 checkpoint payloads remain readable without tool execut
 
   assert.equal(parseCheckpointSnapshotPayload(snapshot).toolSession, undefined);
   assert.equal(parseCheckpointSnapshotPayload({ schemaVersion: "run-checkpoint.v2", snapshot, research }).research?.fingerprint, research.fingerprint);
+});
+
+test("run-checkpoint.v4 binds the exact Dossier base without persisting thesis text", async () => {
+  const snapshot = marketSnapshotFixture();
+  const research = researchFactBundleFixture();
+  research.fingerprint = await calculateResearchFactBundleFingerprint(research);
+  const dossierBase: DossierBaseReceipt = {
+    schemaVersion: DOSSIER_BASE_RECEIPT_SCHEMA_VERSION,
+    profileId: "profile-1",
+    instrumentId: "SSE:600000",
+    dossierId: "dossier-1",
+    revisionId: "dossier-revision-2",
+    dossierVersion: 2,
+    dossierFingerprint: `sha256:${"c".repeat(64)}`,
+  };
+
+  const checkpoint = await createRunCheckpoint(snapshot, evidenceFixture(), research, undefined, dossierBase);
+  const payload = checkpointSnapshotPayload(checkpoint) as { schemaVersion?: string; dossierBase?: DossierBaseReceipt };
+  const parsed = parseCheckpointSnapshotPayload(payload);
+
+  assert.equal(payload.schemaVersion, "run-checkpoint.v4");
+  assert.deepEqual(payload.dossierBase, dossierBase);
+  assert.deepEqual(parsed.dossierBase, dossierBase);
+  assert.equal(JSON.stringify(payload).includes("thesis"), false);
+  assert.equal(await verifyRunCheckpoint(checkpoint), true);
+  assert.equal(await verifyRunCheckpoint({ ...checkpoint, dossierBase: { ...dossierBase, dossierVersion: 3 } }), false);
+});
+
+test("run-checkpoint.v4 seals a bounded retryable receipt when the Dossier base is temporarily unavailable", async () => {
+  const snapshot = marketSnapshotFixture();
+  const research = researchFactBundleFixture();
+  research.fingerprint = await calculateResearchFactBundleFingerprint(research);
+  const unavailable: DossierProjectionUnavailableReceipt = {
+    status: "unavailable",
+    code: "DOSSIER_BASE_UNAVAILABLE",
+    retryable: true,
+  };
+
+  const checkpoint = await createRunCheckpoint(snapshot, evidenceFixture(), research, undefined, undefined, unavailable);
+  const payload = checkpointSnapshotPayload(checkpoint) as {
+    schemaVersion?: string;
+    dossierProjectionUnavailable?: DossierProjectionUnavailableReceipt;
+  };
+  const parsed = parseCheckpointSnapshotPayload(payload);
+
+  assert.equal(payload.schemaVersion, "run-checkpoint.v4");
+  assert.equal(payload.dossierProjectionUnavailable, unavailable);
+  assert.equal(parsed.dossierBase, undefined);
+  assert.deepEqual(parsed.dossierProjectionUnavailable, unavailable);
+  assert.equal(JSON.stringify(payload).includes("question"), false);
+  assert.equal(JSON.stringify(payload).includes("thesis"), false);
+  assert.equal(JSON.stringify(payload).includes("errorMessage"), false);
+  assert.equal(await verifyRunCheckpoint(checkpoint), true);
+  assert.equal(await verifyRunCheckpoint({
+    ...checkpoint,
+    dossierProjectionUnavailable: { ...unavailable, retryable: false as true },
+  }), false);
 });
 
 function evidenceFixture(): SealedEvidenceBundle {

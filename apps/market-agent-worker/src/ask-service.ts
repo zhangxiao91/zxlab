@@ -1,6 +1,7 @@
 import type {
   AgentResult,
   ConfirmedContext,
+  DossierBaseReceipt,
   MarketAgentAskCommand,
   FinancialToolSessionReceipt,
   PortfolioSnapshot,
@@ -21,9 +22,10 @@ import { evaluatePortfolioRiskImpact } from "./portfolio-risk-impact.ts";
 import type { ConfirmedContextReader } from "./confirmed-context.ts";
 import { assessEvidence } from "./evidence-assessment.ts";
 import { finalizeAgentResult } from "./run-outcome.ts";
-import { createRunCheckpoint, verifyRunCheckpoint } from "./run-checkpoint.ts";
+import { createRunCheckpoint, verifyRunCheckpoint, type DossierProjectionUnavailableReceipt } from "./run-checkpoint.ts";
 import { assertResearchFactScope, researchExpectedLatestSessionDate, selectResearchInstrumentScope, type ResearchFactReader } from "./research-fact-reader.ts";
 import type { FinancialToolRuntime } from "./financial-tool-runtime.ts";
+import type { ResearchDossierProjectorMode, ResearchDossierRuntime } from "./research-dossier-runtime.ts";
 
 export interface AskPreviousRun {
   runId: string;
@@ -55,8 +57,10 @@ export class AskService {
   private readonly companyUpdateEnabled: boolean;
   private readonly financialToolRuntime?: FinancialToolRuntime;
   private readonly financialToolRuntimeMode: "disabled" | "shadow" | "enabled";
+  private readonly researchDossierRuntime?: ResearchDossierRuntime;
+  private readonly researchDossierProjectorMode: ResearchDossierProjectorMode;
 
-  constructor(reader: CurrentMarketSnapshotReader, narrator: Narrator = new DeterministicNarrator(), contextReader?: ConfirmedContextReader, researchReader?: ResearchFactReader, options: { companyUpdateEnabled?: boolean; financialToolRuntime?: FinancialToolRuntime; financialToolRuntimeMode?: "disabled" | "shadow" | "enabled" } = {}) {
+  constructor(reader: CurrentMarketSnapshotReader, narrator: Narrator = new DeterministicNarrator(), contextReader?: ConfirmedContextReader, researchReader?: ResearchFactReader, options: { companyUpdateEnabled?: boolean; financialToolRuntime?: FinancialToolRuntime; financialToolRuntimeMode?: "disabled" | "shadow" | "enabled"; researchDossierRuntime?: ResearchDossierRuntime; researchDossierProjectorMode?: ResearchDossierProjectorMode } = {}) {
     this.reader = reader;
     this.narrator = narrator;
     this.contextReader = contextReader;
@@ -64,6 +68,8 @@ export class AskService {
     this.companyUpdateEnabled = options.companyUpdateEnabled ?? true;
     this.financialToolRuntime = options.financialToolRuntime;
     this.financialToolRuntimeMode = options.financialToolRuntimeMode ?? "disabled";
+    this.researchDossierRuntime = options.researchDossierRuntime;
+    this.researchDossierProjectorMode = options.researchDossierProjectorMode ?? "disabled";
   }
 
   async execute(input: AskServiceInput): Promise<{
@@ -158,8 +164,52 @@ export class AskService {
       || evidence.ask.priorRunId !== input.command.priorRunId
       || !sameValues(evidence.instrumentIds, input.command.resolvedInstrumentIds)
     )) throw new Error("RUN_CHECKPOINT_SCOPE_MISMATCH");
-    if (!input.checkpoint && input.onCheckpoint) await input.onCheckpoint(await createRunCheckpoint(snapshot, evidence, research, financialToolSession));
-    else await input.onProgress?.("evidence_sealed");
+    const dossierEligible = this.researchDossierProjectorMode !== "disabled"
+      && Boolean(this.researchDossierRuntime)
+      && input.command.scope === "news_and_announcements"
+      && plan.researchPurpose === "company_update"
+      && research?.purpose === "company_update"
+      && research.planVersion === "company-update.v1"
+      && Boolean(input.command.instrumentId)
+      && researchScope.instrumentIds.length === 1
+      && researchScope.instrumentIds[0] === input.command.instrumentId;
+    let dossierBase: DossierBaseReceipt | undefined = input.checkpoint?.dossierBase;
+    let dossierProjectionUnavailable: DossierProjectionUnavailableReceipt | undefined = input.checkpoint?.dossierProjectionUnavailable;
+    if (!input.checkpoint && dossierEligible) {
+      await input.assertActive?.();
+      try {
+        dossierBase = await this.researchDossierRuntime!.captureBase(input.command.profileId, input.command.instrumentId!);
+      } catch (cause) {
+        if (isRunFenceError(cause)) throw cause;
+        dossierProjectionUnavailable = {
+          status: "unavailable",
+          code: "DOSSIER_BASE_UNAVAILABLE",
+          retryable: true,
+        };
+      }
+    }
+    if (!input.checkpoint) {
+      const checkpoint = await createRunCheckpoint(snapshot, evidence, research, financialToolSession, dossierBase, dossierProjectionUnavailable);
+      if (input.onCheckpoint) await input.onCheckpoint(checkpoint);
+      else await input.onProgress?.("evidence_sealed");
+    } else await input.onProgress?.("evidence_sealed");
+    if (dossierEligible && dossierBase && research && input.command.instrumentId) {
+      await input.assertActive?.();
+      try {
+        await this.researchDossierRuntime!.project({
+          runId: input.runId,
+          profileId: input.command.profileId,
+          instrumentId: input.command.instrumentId!,
+          evidence,
+          research,
+          base: dossierBase,
+        });
+        await input.assertActive?.();
+      } catch (cause) {
+        if (isRunFenceError(cause)) throw cause;
+        // Dossier projection is downstream of sealed Evidence and cannot fail the Market Run.
+      }
+    }
     const mode = input.checkpoint ? hasReliablePortfolioImpact(evidence) ? "portfolio-aware" : "market-only" : portfolio?.reliable ? "portfolio-aware" : "market-only";
     const researchOmittedInstrumentCount = input.checkpoint
       ? sealedResearchOmittedInstrumentCount(evidence)
@@ -228,4 +278,8 @@ function hasReliablePortfolioImpact(evidence: SealedEvidenceBundle): boolean {
     const value = item.value as { type?: unknown } | null;
     return item.kind === "portfolio_impact" && item.reliable && value?.type === "risk_impact";
   });
+}
+
+function isRunFenceError(cause: unknown): boolean {
+  return cause instanceof Error && (cause.message === "RUN_CANCELLED" || cause.message === "RUN_LEASE_LOST");
 }

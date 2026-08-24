@@ -7,6 +7,14 @@ export const PORTFOLIO_SNAPSHOT_SCHEMA_VERSION = "portfolio-snapshot.v1" as cons
 export const FINANCIAL_TOOL_POLICY_VERSION = "financial-tools.v1" as const;
 export const COMPANY_FINANCIAL_UPDATE_TOOL = { id: "company_financial_update", version: "1" } as const;
 export const COMPANY_FINANCIAL_UPDATE_TOOL_NAME = "company_financial_update.v1" as const;
+export const DOSSIER_BASE_RECEIPT_SCHEMA_VERSION = "dossier-base-receipt.v1" as const;
+export const RESEARCH_DOSSIER_SCHEMA_VERSION = "research-dossier.v1" as const;
+export const RESEARCH_DOSSIER_REVISION_SCHEMA_VERSION = "research-dossier-revision.v1" as const;
+export const RESEARCH_DOSSIER_PROJECTION_SCHEMA_VERSION = "research-dossier-projection.v1" as const;
+export const DOSSIER_PROPOSAL_SCHEMA_VERSION = "dossier-proposal.v1" as const;
+export const THESIS_IMPACT_CLASSIFIER_SCHEMA_VERSION = "thesis-impact-classifier.v1" as const;
+export const ALERT_RULE_DRAFT_SCHEMA_VERSION = "alert-rule-draft.v1" as const;
+export const DOSSIER_FACT_DELTA_ENGINE_VERSION = "dossier-fact-delta.v1" as const;
 export const PORTFOLIO_SNAPSHOT_MAX_POSITIONS = 200;
 export const PORTFOLIO_SNAPSHOT_MAX_TTL_MS = 36 * 60 * 60 * 1_000;
 export const PORTFOLIO_SNAPSHOT_MAX_AGE_MS = 36 * 60 * 60 * 1_000;
@@ -158,6 +166,909 @@ export type ToolTraceEvent = ToolTraceEventBase & (
   | { type: "failed"; durationMs: number; code: string; outcome?: never; researchFingerprint?: never }
 );
 export interface ToolTrace { runId: string; events: ToolTraceEvent[]; }
+
+export type DossierFinancialMetric =
+  | "operating_revenue"
+  | "operating_profit"
+  | "net_profit_attributable_to_parent"
+  | "net_cash_flow_from_operating_activities"
+  | "total_assets";
+export type DossierReportingBasis = "quarter" | "year_to_date" | "fiscal_year" | "point_in_time";
+export type DossierFactDeltaKind = "baseline_added" | "period_advanced" | "source_revised" | "quality_changed";
+export type ThesisImpactKind = "supports" | "weakens" | "invalidates" | "mixed" | "insufficient_evidence";
+export type DossierProposalStatus = "pending" | "confirmed" | "dismissed" | "expired" | "stale";
+
+export interface DossierBaseReceipt {
+  schemaVersion: typeof DOSSIER_BASE_RECEIPT_SCHEMA_VERSION;
+  profileId: string;
+  instrumentId: string;
+  dossierId: string | null;
+  revisionId: string | null;
+  dossierVersion: number;
+  dossierFingerprint: `sha256:${string}` | null;
+}
+
+export interface DossierDeterministicFormula {
+  id: string;
+  version: string;
+  expression: string;
+  inputArtifactIds: string[];
+  parameters: Record<string, string>;
+  rounding: string;
+}
+
+export interface DossierReportingPeriod {
+  start: string;
+  end: string;
+  basis: DossierReportingBasis;
+}
+
+export interface DossierFactComparison {
+  kind: "yoy" | "qoq";
+  comparablePeriod: DossierReportingPeriod;
+  decimal: string;
+  unit: "ratio";
+  formula: DossierDeterministicFormula;
+}
+
+export interface DossierFactAnchor {
+  id: string;
+  logicalSeriesKey: string;
+  factId: string;
+  evidenceId: string;
+  researchFingerprint: `sha256:${string}`;
+  instrumentId: string;
+  metric: DossierFinancialMetric;
+  period: DossierReportingPeriod;
+  value: { decimal: string; unit: "CNY" | "ratio" | "shares" };
+  formula?: DossierDeterministicFormula;
+  comparisons: DossierFactComparison[];
+  provenance: {
+    providers: string[];
+    sourceArtifactIds: string[];
+    sourceAsOf: string;
+    retrievedAt: string;
+  };
+  quality: {
+    status: "operational" | "degraded";
+    reliable: boolean;
+    coverage: { actual: number; required: number };
+    warnings: string[];
+  };
+}
+
+export interface DossierFactDelta {
+  id: string;
+  kind: DossierFactDeltaKind;
+  logicalSeriesKey: string;
+  previous: DossierFactAnchor | null;
+  current: DossierFactAnchor;
+}
+
+export interface ThesisImpact {
+  id: string;
+  thesisId: string;
+  impact: ThesisImpactKind;
+  explanation: string;
+  factDeltaIds: string[];
+  evidenceIds: string[];
+}
+
+export interface DossierProjectionLimitation {
+  code: string;
+  retryable: boolean;
+}
+
+export interface ResearchDossierProjection {
+  schemaVersion: typeof RESEARCH_DOSSIER_PROJECTION_SCHEMA_VERSION;
+  id: string;
+  profileId: string;
+  instrumentId: string;
+  sourceRunId: string;
+  sourceEvidenceFingerprint: `sha256:${string}`;
+  researchFingerprint: `sha256:${string}`;
+  observationCutoff: string;
+  knowledgeCutoff: string;
+  base: DossierBaseReceipt;
+  factDeltas: DossierFactDelta[];
+  thesisImpacts: ThesisImpact[];
+  quality: { status: "operational" | "degraded"; limitations: DossierProjectionLimitation[] };
+  provenance: {
+    source: "market-agent-worker";
+    factDeltaEngineVersion: typeof DOSSIER_FACT_DELTA_ENGINE_VERSION;
+    thesisImpactSource: "model" | "unavailable" | "not_applicable";
+    thesisClassifierTask?: "market-agent-thesis-impact";
+  };
+  projectedAt: string;
+  fingerprint: `sha256:${string}`;
+}
+
+export type ResearchDossierProjectionResult =
+  | { status: "not_applicable"; reason: "NO_FINANCIAL_FACTS" | "NO_DOSSIER_DELTA" }
+  | { status: "projected"; projection: ResearchDossierProjection };
+
+export interface ThesisImpactCandidate {
+  thesisId: string;
+  impact: ThesisImpactKind;
+  explanation: string;
+  factDeltaIds: string[];
+  evidenceIds: string[];
+}
+
+export interface ThesisImpactClassifierOutput {
+  schemaVersion: typeof THESIS_IMPACT_CLASSIFIER_SCHEMA_VERSION;
+  impacts: ThesisImpactCandidate[];
+}
+
+export interface ThesisAssessment extends ThesisImpact {
+  sourceProposalId: string;
+  assessedAt: string;
+}
+
+export interface ThesisStatement {
+  id: string;
+  text: string;
+  status: "active" | "invalidated" | "retired";
+  revision: number;
+  assessments: ThesisAssessment[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ResearchDossier {
+  schemaVersion: typeof RESEARCH_DOSSIER_SCHEMA_VERSION;
+  id: string;
+  profileId: string;
+  instrumentId: string;
+  currentRevisionId: string;
+  version: number;
+  currentRevisionFingerprint: `sha256:${string}`;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ResearchDossierRevision {
+  schemaVersion: typeof RESEARCH_DOSSIER_REVISION_SCHEMA_VERSION;
+  id: string;
+  dossierId: string;
+  profileId: string;
+  instrumentId: string;
+  revisionNumber: number;
+  previousRevisionId: string | null;
+  previousFingerprint: `sha256:${string}` | null;
+  sourceProposalId: string;
+  observationCutoff: string;
+  knowledgeCutoff: string;
+  factAnchors: DossierFactAnchor[];
+  unverifiedObservations: DossierFactAnchor[];
+  theses: ThesisStatement[];
+  createdAt: string;
+  fingerprint: `sha256:${string}`;
+}
+
+export type ManualThesisOperation =
+  | { operation: "create"; text: string }
+  | { operation: "revise"; thesisId: string; text: string }
+  | { operation: "invalidate" | "retire"; thesisId: string };
+
+interface ResearchDossierProposalBase {
+  schemaVersion: typeof DOSSIER_PROPOSAL_SCHEMA_VERSION;
+  id: string;
+  profileId: string;
+  instrumentId: string;
+  dossierId: string | null;
+  base: DossierBaseReceipt;
+  status: DossierProposalStatus;
+  payloadFingerprint: `sha256:${string}`;
+  createdAt: string;
+  updatedAt: string;
+  expiresAt: string;
+}
+
+export type ResearchDossierProposal =
+  | ResearchDossierProposalBase & {
+    kind: "projection";
+    sourceRunId: string;
+    payload: ResearchDossierProjection | null;
+  }
+  | ResearchDossierProposalBase & {
+    kind: "manual_thesis";
+    sourceRunId: null;
+    payload: ManualThesisOperation | null;
+  };
+
+export interface DossierConfirmIntent {
+  expectedDossierVersion: number;
+  acceptedThesisImpactIds: string[];
+  idempotencyKey: string;
+}
+
+export interface DossierDismissIntent { idempotencyKey: string; }
+export interface DossierRebaseIntent { idempotencyKey: string; }
+export type ManualThesisProposalIntent = ManualThesisOperation & {
+  expectedDossierVersion: number;
+  idempotencyKey: string;
+};
+
+export type AlertRuleDraftPredicate =
+  | {
+    version: "financial-alert-predicate.v1";
+    template: "new_reporting_period";
+    metric: DossierFinancialMetric;
+    baselinePeriod: DossierReportingPeriod;
+  }
+  | {
+    version: "financial-alert-predicate.v1";
+    template: "metric_threshold_crossing";
+    metric: DossierFinancialMetric;
+    baselinePeriod: DossierReportingPeriod;
+    field: "value" | "yoy" | "qoq";
+    operator: "crosses_above" | "crosses_below";
+    threshold: { decimal: string; unit: "CNY" | "ratio" | "shares" };
+  };
+
+export interface AlertRuleDraft {
+  schemaVersion: typeof ALERT_RULE_DRAFT_SCHEMA_VERSION;
+  id: string;
+  profileId: string;
+  instrumentId: string;
+  sourceProposalId: string;
+  sourceProjectionFingerprint: `sha256:${string}`;
+  sourceDeltaId: string;
+  sourceEvidenceIds: string[];
+  researchFingerprint: `sha256:${string}`;
+  predicate: AlertRuleDraftPredicate;
+  requiresReliableFacts: true;
+  status: "draft";
+  createdAt: string;
+  expiresAt: string;
+  fingerprint: `sha256:${string}`;
+}
+
+export type AlertRuleDraftIntent =
+  | { template: "new_reporting_period"; deltaId: string; idempotencyKey: string }
+  | {
+    template: "metric_threshold_crossing";
+    deltaId: string;
+    field: "value" | "yoy" | "qoq";
+    operator: "crosses_above" | "crosses_below";
+    threshold: string;
+    idempotencyKey: string;
+  };
+
+export function isDossierBaseReceipt(value: unknown): value is DossierBaseReceipt {
+  const receipt = recordValue(value);
+  if (!receipt || !hasOnlyKeys(receipt, ["schemaVersion", "profileId", "instrumentId", "dossierId", "revisionId", "dossierVersion", "dossierFingerprint"])) return false;
+  if (receipt.schemaVersion !== DOSSIER_BASE_RECEIPT_SCHEMA_VERSION
+    || !boundedTraceIdentifier(receipt.profileId)
+    || !isDossierInstrumentId(receipt.instrumentId)
+    || !Number.isSafeInteger(receipt.dossierVersion)
+    || Number(receipt.dossierVersion) < 0) return false;
+  if (receipt.dossierVersion === 0) {
+    return receipt.dossierId === null && receipt.revisionId === null && receipt.dossierFingerprint === null;
+  }
+  return boundedTraceIdentifier(receipt.dossierId)
+    && boundedTraceIdentifier(receipt.revisionId)
+    && boundedFingerprint(receipt.dossierFingerprint);
+}
+
+export function isResearchDossierProjection(value: unknown): value is ResearchDossierProjection {
+  const projection = recordValue(value);
+  const quality = recordValue(projection?.quality);
+  const provenance = recordValue(projection?.provenance);
+  if (!projection || !quality || !provenance
+    || !hasOnlyKeys(projection, ["schemaVersion", "id", "profileId", "instrumentId", "sourceRunId", "sourceEvidenceFingerprint", "researchFingerprint", "observationCutoff", "knowledgeCutoff", "base", "factDeltas", "thesisImpacts", "quality", "provenance", "projectedAt", "fingerprint"])
+    || projection.schemaVersion !== RESEARCH_DOSSIER_PROJECTION_SCHEMA_VERSION
+    || !boundedTraceIdentifier(projection.id)
+    || !boundedTraceIdentifier(projection.profileId)
+    || !isDossierInstrumentId(projection.instrumentId)
+    || !boundedTraceIdentifier(projection.sourceRunId)
+    || !boundedFingerprint(projection.sourceEvidenceFingerprint)
+    || !boundedFingerprint(projection.researchFingerprint)
+    || !canonicalIsoTimestamp(projection.observationCutoff)
+    || !canonicalIsoTimestamp(projection.knowledgeCutoff)
+    || Date.parse(String(projection.observationCutoff)) > Date.parse(String(projection.knowledgeCutoff))
+    || !canonicalIsoTimestamp(projection.projectedAt)
+    || Date.parse(String(projection.knowledgeCutoff)) > Date.parse(String(projection.projectedAt))
+    || !boundedFingerprint(projection.fingerprint)
+    || !isDossierBaseReceipt(projection.base)
+    || projection.base.profileId !== projection.profileId
+    || projection.base.instrumentId !== projection.instrumentId
+    || !Array.isArray(projection.factDeltas)
+    || projection.factDeltas.length === 0
+    || projection.factDeltas.length > 50
+    || !Array.isArray(projection.thesisImpacts)
+    || projection.thesisImpacts.length > 20
+    || !hasOnlyKeys(quality, ["status", "limitations"])
+    || !oneOf(quality.status, ["operational", "degraded"])
+    || !Array.isArray(quality.limitations)
+    || quality.limitations.length > 12
+    || !quality.limitations.every(isDossierProjectionLimitation)
+    || !isProjectionProvenance(provenance)) return false;
+
+  const deltas = projection.factDeltas as unknown[];
+  if (!deltas.every((delta) => isDossierFactDelta(delta, String(projection.instrumentId), String(projection.researchFingerprint)))) return false;
+  const deltaIds = new Set<string>();
+  const series = new Set<string>();
+  const evidenceIds = new Set<string>();
+  for (const deltaValue of deltas) {
+    const delta = deltaValue as DossierFactDelta;
+    if (deltaIds.has(delta.id) || series.has(delta.logicalSeriesKey)) return false;
+    deltaIds.add(delta.id);
+    series.add(delta.logicalSeriesKey);
+    evidenceIds.add(delta.current.evidenceId);
+  }
+  const impacts = projection.thesisImpacts as unknown[];
+  if (!impacts.every((impact) => isThesisImpact(impact, deltaIds, evidenceIds, deltas as DossierFactDelta[]))) return false;
+  const impactIds = new Set<string>();
+  for (const impact of impacts as ThesisImpact[]) {
+    if (impactIds.has(impact.id)) return false;
+    impactIds.add(impact.id);
+  }
+  if (quality.status === "operational" && quality.limitations.length !== 0) return false;
+  if (quality.status === "degraded" && quality.limitations.length === 0) return false;
+  if (deltas.some((delta) => !(delta as DossierFactDelta).current.quality.reliable) && quality.status !== "degraded") return false;
+  if (provenance.thesisImpactSource === "model" && projection.thesisImpacts.length === 0) return false;
+  if (provenance.thesisImpactSource !== "model" && projection.thesisImpacts.length !== 0) return false;
+  if (provenance.thesisImpactSource === "unavailable"
+    && !(quality.limitations as DossierProjectionLimitation[]).some((limitation) => limitation.code === "THESIS_IMPACT_UNAVAILABLE")) return false;
+  return true;
+}
+
+export function isResearchDossierProjectionResult(value: unknown): value is ResearchDossierProjectionResult {
+  const result = recordValue(value);
+  if (!result) return false;
+  if (result.status === "not_applicable") {
+    return hasOnlyKeys(result, ["status", "reason"])
+      && oneOf(result.reason, ["NO_FINANCIAL_FACTS", "NO_DOSSIER_DELTA"]);
+  }
+  return result.status === "projected"
+    && hasOnlyKeys(result, ["status", "projection"])
+    && isResearchDossierProjection(result.projection);
+}
+
+export function validateThesisImpactClassifierOutput(
+  value: unknown,
+  context: { thesisIds: string[]; factDeltas: DossierFactDelta[] },
+): string[] {
+  const issues: string[] = [];
+  const output = recordValue(value);
+  if (!output) return ["classifier output must be an object"];
+  exactKeys(output, ["schemaVersion", "impacts"], "classifier", issues);
+  if (output.schemaVersion !== THESIS_IMPACT_CLASSIFIER_SCHEMA_VERSION) issues.push("classifier.schemaVersion is invalid");
+  if (!Array.isArray(output.impacts) || output.impacts.length > 20) {
+    issues.push("classifier.impacts is invalid");
+    return issues;
+  }
+  const thesisIds = new Set(context.thesisIds);
+  const deltaIds = new Set(context.factDeltas.map((delta) => delta.id));
+  const evidenceIds = new Set(context.factDeltas.map((delta) => delta.current.evidenceId));
+  const seenTheses = new Set<string>();
+  output.impacts.forEach((candidateValue, index) => {
+    const path = `classifier.impacts[${index}]`;
+    const candidate = recordValue(candidateValue);
+    if (!candidate) { issues.push(`${path} must be an object`); return; }
+    exactKeys(candidate, ["thesisId", "impact", "explanation", "factDeltaIds", "evidenceIds"], path, issues);
+    if (!boundedTraceIdentifier(candidate.thesisId) || !thesisIds.has(String(candidate.thesisId)) || seenTheses.has(String(candidate.thesisId))) issues.push(`${path}.thesisId is invalid`);
+    else seenTheses.add(String(candidate.thesisId));
+    if (!oneOf(candidate.impact, ["supports", "weakens", "invalidates", "mixed", "insufficient_evidence"])) issues.push(`${path}.impact is invalid`);
+    if (typeof candidate.explanation !== "string" || candidate.explanation.length < 1 || candidate.explanation.length > 600 || containsDigitOrTradingInstruction(candidate.explanation)) issues.push(`${path}.explanation is invalid`);
+    if (!boundedReferenceArray(candidate.factDeltaIds, deltaIds, 8)) issues.push(`${path}.factDeltaIds is invalid`);
+    if (!boundedReferenceArray(candidate.evidenceIds, evidenceIds, 8)) issues.push(`${path}.evidenceIds is invalid`);
+    if (Array.isArray(candidate.factDeltaIds) && candidate.impact !== "insufficient_evidence") {
+      const cited = new Set(candidate.factDeltaIds.filter((item): item is string => typeof item === "string"));
+      if (!context.factDeltas.some((delta) => cited.has(delta.id) && delta.current.quality.reliable)) issues.push(`${path} must cite a reliable Fact delta`);
+    }
+  });
+  return issues;
+}
+
+export function isResearchDossier(value: unknown): value is ResearchDossier {
+  const dossier = recordValue(value);
+  return Boolean(dossier)
+    && hasOnlyKeys(dossier!, ["schemaVersion", "id", "profileId", "instrumentId", "currentRevisionId", "version", "currentRevisionFingerprint", "createdAt", "updatedAt"])
+    && dossier!.schemaVersion === RESEARCH_DOSSIER_SCHEMA_VERSION
+    && boundedTraceIdentifier(dossier!.id)
+    && boundedTraceIdentifier(dossier!.profileId)
+    && isDossierInstrumentId(dossier!.instrumentId)
+    && boundedTraceIdentifier(dossier!.currentRevisionId)
+    && Number.isSafeInteger(dossier!.version) && Number(dossier!.version) >= 1
+    && boundedFingerprint(dossier!.currentRevisionFingerprint)
+    && canonicalIsoTimestamp(dossier!.createdAt)
+    && canonicalIsoTimestamp(dossier!.updatedAt)
+    && Date.parse(String(dossier!.updatedAt)) >= Date.parse(String(dossier!.createdAt));
+}
+
+export function isResearchDossierRevision(value: unknown): value is ResearchDossierRevision {
+  const revision = recordValue(value);
+  if (!revision || !hasOnlyKeys(revision, ["schemaVersion", "id", "dossierId", "profileId", "instrumentId", "revisionNumber", "previousRevisionId", "previousFingerprint", "sourceProposalId", "observationCutoff", "knowledgeCutoff", "factAnchors", "unverifiedObservations", "theses", "createdAt", "fingerprint"])
+    || revision.schemaVersion !== RESEARCH_DOSSIER_REVISION_SCHEMA_VERSION
+    || !boundedTraceIdentifier(revision.id)
+    || !boundedTraceIdentifier(revision.dossierId)
+    || !boundedTraceIdentifier(revision.profileId)
+    || !isDossierInstrumentId(revision.instrumentId)
+    || !Number.isSafeInteger(revision.revisionNumber) || Number(revision.revisionNumber) < 1
+    || !boundedTraceIdentifier(revision.sourceProposalId)
+    || !canonicalIsoTimestamp(revision.observationCutoff)
+    || !canonicalIsoTimestamp(revision.knowledgeCutoff)
+    || Date.parse(String(revision.observationCutoff)) > Date.parse(String(revision.knowledgeCutoff))
+    || !canonicalIsoTimestamp(revision.createdAt)
+    || Date.parse(String(revision.knowledgeCutoff)) > Date.parse(String(revision.createdAt))
+    || !boundedFingerprint(revision.fingerprint)
+    || !Array.isArray(revision.factAnchors) || revision.factAnchors.length > 50
+    || !Array.isArray(revision.unverifiedObservations) || revision.unverifiedObservations.length > 50
+    || !Array.isArray(revision.theses) || revision.theses.length > 20) return false;
+  if (revision.revisionNumber === 1) {
+    if (revision.previousRevisionId !== null || revision.previousFingerprint !== null) return false;
+  } else if (!boundedTraceIdentifier(revision.previousRevisionId) || !boundedFingerprint(revision.previousFingerprint)) return false;
+  const anchors = revision.factAnchors as unknown[];
+  const observations = revision.unverifiedObservations as unknown[];
+  if (!anchors.every((anchor) => isDossierFactAnchor(anchor)
+      && anchor.instrumentId === revision.instrumentId
+      && anchor.quality.reliable)
+    || !observations.every((anchor) => isDossierFactAnchor(anchor)
+      && anchor.instrumentId === revision.instrumentId
+      && !anchor.quality.reliable)) return false;
+  const anchorSeries = new Set((anchors as DossierFactAnchor[]).map((anchor) => anchor.logicalSeriesKey));
+  if (anchorSeries.size !== anchors.length) return false;
+  const allFactIds = [...anchors, ...observations].map((anchor) => (anchor as DossierFactAnchor).factId);
+  if (new Set(allFactIds).size !== allFactIds.length) return false;
+  const theses = revision.theses as unknown[];
+  if (!theses.every(isThesisStatement)) return false;
+  return new Set((theses as ThesisStatement[]).map((thesis) => thesis.id)).size === theses.length;
+}
+
+export function isResearchDossierProposal(value: unknown): value is ResearchDossierProposal {
+  const proposal = recordValue(value);
+  if (!proposal || !hasOnlyKeys(proposal, ["schemaVersion", "id", "kind", "profileId", "instrumentId", "dossierId", "base", "sourceRunId", "payload", "payloadFingerprint", "status", "createdAt", "updatedAt", "expiresAt"])
+    || proposal.schemaVersion !== DOSSIER_PROPOSAL_SCHEMA_VERSION
+    || !boundedTraceIdentifier(proposal.id)
+    || !boundedTraceIdentifier(proposal.profileId)
+    || !isDossierInstrumentId(proposal.instrumentId)
+    || (proposal.dossierId !== null && !boundedTraceIdentifier(proposal.dossierId))
+    || !isDossierBaseReceipt(proposal.base)
+    || proposal.base.profileId !== proposal.profileId
+    || proposal.base.instrumentId !== proposal.instrumentId
+    || proposal.base.dossierId !== proposal.dossierId
+    || !oneOf(proposal.status, ["pending", "confirmed", "dismissed", "expired", "stale"])
+    || !boundedFingerprint(proposal.payloadFingerprint)
+    || !canonicalIsoTimestamp(proposal.createdAt)
+    || !canonicalIsoTimestamp(proposal.updatedAt)
+    || !canonicalIsoTimestamp(proposal.expiresAt)
+    || Date.parse(String(proposal.updatedAt)) < Date.parse(String(proposal.createdAt))
+    || Date.parse(String(proposal.expiresAt)) <= Date.parse(String(proposal.createdAt))
+    || Date.parse(String(proposal.expiresAt)) - Date.parse(String(proposal.createdAt)) > 30 * 24 * 60 * 60 * 1_000) return false;
+  const mayClearPayload = proposal.status === "dismissed" || proposal.status === "expired" || proposal.status === "stale";
+  if (proposal.payload === null) return mayClearPayload;
+  if (proposal.kind === "projection") {
+    return boundedTraceIdentifier(proposal.sourceRunId)
+      && isResearchDossierProjection(proposal.payload)
+      && proposal.payload.id !== proposal.id
+      && proposal.payload.profileId === proposal.profileId
+      && proposal.payload.instrumentId === proposal.instrumentId
+      && proposal.payload.sourceRunId === proposal.sourceRunId
+      && proposal.payload.base.dossierId === proposal.dossierId
+      && proposal.payloadFingerprint === proposal.payload.fingerprint;
+  }
+  return proposal.kind === "manual_thesis"
+    && proposal.sourceRunId === null
+    && isManualThesisOperation(proposal.payload);
+}
+
+export function validateDossierConfirmIntent(value: unknown): string[] {
+  const issues: string[] = [];
+  const intent = recordValue(value);
+  if (!intent) return ["confirm intent must be an object"];
+  exactKeys(intent, ["expectedDossierVersion", "acceptedThesisImpactIds", "idempotencyKey"], "confirm", issues);
+  validateExpectedDossierVersion(intent.expectedDossierVersion, "confirm", issues);
+  if (!Array.isArray(intent.acceptedThesisImpactIds) || intent.acceptedThesisImpactIds.length > 20
+    || intent.acceptedThesisImpactIds.some((id) => !boundedTraceIdentifier(id))
+    || new Set(intent.acceptedThesisImpactIds).size !== intent.acceptedThesisImpactIds.length) issues.push("confirm.acceptedThesisImpactIds is invalid");
+  if (!validIdempotencyKey(intent.idempotencyKey)) issues.push("confirm.idempotencyKey is invalid");
+  return issues;
+}
+
+export function validateDossierDismissIntent(value: unknown): string[] {
+  return validateIdempotencyOnlyIntent(value, "dismiss");
+}
+
+export function validateDossierRebaseIntent(value: unknown): string[] {
+  return validateIdempotencyOnlyIntent(value, "rebase");
+}
+
+export function validateManualThesisProposalIntent(value: unknown): string[] {
+  const issues: string[] = [];
+  const intent = recordValue(value);
+  if (!intent) return ["thesis intent must be an object"];
+  const expected = intent.operation === "create"
+    ? ["operation", "expectedDossierVersion", "text", "idempotencyKey"]
+    : intent.operation === "revise"
+      ? ["operation", "expectedDossierVersion", "thesisId", "text", "idempotencyKey"]
+      : ["operation", "expectedDossierVersion", "thesisId", "idempotencyKey"];
+  exactKeys(intent, expected, "thesis", issues);
+  validateExpectedDossierVersion(intent.expectedDossierVersion, "thesis", issues);
+  if (!oneOf(intent.operation, ["create", "revise", "invalidate", "retire"])) issues.push("thesis.operation is invalid");
+  if (intent.operation !== "create" && !boundedTraceIdentifier(intent.thesisId)) issues.push("thesis.thesisId is invalid");
+  if (intent.operation === "create" || intent.operation === "revise") {
+    if (typeof intent.text !== "string" || intent.text.trim().length < 1 || intent.text.length > 800 || containsTradingInstruction(intent.text)) issues.push("thesis.text is invalid");
+  }
+  if (!validIdempotencyKey(intent.idempotencyKey)) issues.push("thesis.idempotencyKey is invalid");
+  return issues;
+}
+
+export function isAlertRuleDraft(value: unknown): value is AlertRuleDraft {
+  const draft = recordValue(value);
+  if (!draft || !hasOnlyKeys(draft, ["schemaVersion", "id", "profileId", "instrumentId", "sourceProposalId", "sourceProjectionFingerprint", "sourceDeltaId", "sourceEvidenceIds", "researchFingerprint", "predicate", "requiresReliableFacts", "status", "createdAt", "expiresAt", "fingerprint"])
+    || draft.schemaVersion !== ALERT_RULE_DRAFT_SCHEMA_VERSION
+    || !boundedTraceIdentifier(draft.id)
+    || !boundedTraceIdentifier(draft.profileId)
+    || !isDossierInstrumentId(draft.instrumentId)
+    || !boundedTraceIdentifier(draft.sourceProposalId)
+    || !boundedFingerprint(draft.sourceProjectionFingerprint)
+    || !boundedTraceIdentifier(draft.sourceDeltaId)
+    || !boundedUniqueStrings(draft.sourceEvidenceIds, 8, 128)
+    || !boundedFingerprint(draft.researchFingerprint)
+    || !isAlertRuleDraftPredicate(draft.predicate)
+    || draft.requiresReliableFacts !== true
+    || draft.status !== "draft"
+    || !canonicalIsoTimestamp(draft.createdAt)
+    || !canonicalIsoTimestamp(draft.expiresAt)
+    || Date.parse(String(draft.expiresAt)) <= Date.parse(String(draft.createdAt))
+    || Date.parse(String(draft.expiresAt)) - Date.parse(String(draft.createdAt)) > 30 * 24 * 60 * 60 * 1_000
+    || !boundedFingerprint(draft.fingerprint)) return false;
+  return true;
+}
+
+export function validateAlertRuleDraftIntent(value: unknown): string[] {
+  const issues: string[] = [];
+  const intent = recordValue(value);
+  if (!intent) return ["alert draft intent must be an object"];
+  const keys = intent.template === "new_reporting_period"
+    ? ["template", "deltaId", "idempotencyKey"]
+    : ["template", "deltaId", "field", "operator", "threshold", "idempotencyKey"];
+  exactKeys(intent, keys, "alertDraft", issues);
+  if (!oneOf(intent.template, ["new_reporting_period", "metric_threshold_crossing"])) issues.push("alertDraft.template is invalid");
+  if (!boundedTraceIdentifier(intent.deltaId)) issues.push("alertDraft.deltaId is invalid");
+  if (intent.template === "metric_threshold_crossing") {
+    if (!oneOf(intent.field, ["value", "yoy", "qoq"])) issues.push("alertDraft.field is invalid");
+    if (!oneOf(intent.operator, ["crosses_above", "crosses_below"])) issues.push("alertDraft.operator is invalid");
+    if (!strictDecimal(intent.threshold)) issues.push("alertDraft.threshold is invalid");
+  }
+  if (!validIdempotencyKey(intent.idempotencyKey)) issues.push("alertDraft.idempotencyKey is invalid");
+  return issues;
+}
+
+export function canonicalResearchDossierProjection(value: Omit<ResearchDossierProjection, "fingerprint"> | ResearchDossierProjection): string {
+  const { fingerprint: _fingerprint, ...payload } = value as ResearchDossierProjection;
+  return stableJson(payload);
+}
+
+export async function calculateResearchDossierProjectionFingerprint(value: Omit<ResearchDossierProjection, "fingerprint"> | ResearchDossierProjection): Promise<`sha256:${string}`> {
+  return sha256Fingerprint(canonicalResearchDossierProjection(value));
+}
+
+export async function verifyResearchDossierProjectionFingerprint(value: ResearchDossierProjection): Promise<boolean> {
+  return isResearchDossierProjection(value) && timingSafeEqualString(value.fingerprint, await calculateResearchDossierProjectionFingerprint(value));
+}
+
+export function canonicalResearchDossierRevision(value: Omit<ResearchDossierRevision, "fingerprint"> | ResearchDossierRevision): string {
+  const { fingerprint: _fingerprint, ...payload } = value as ResearchDossierRevision;
+  return stableJson(payload);
+}
+
+export async function calculateResearchDossierRevisionFingerprint(value: Omit<ResearchDossierRevision, "fingerprint"> | ResearchDossierRevision): Promise<`sha256:${string}`> {
+  return sha256Fingerprint(canonicalResearchDossierRevision(value));
+}
+
+export async function verifyResearchDossierRevisionFingerprint(value: ResearchDossierRevision): Promise<boolean> {
+  return isResearchDossierRevision(value) && timingSafeEqualString(value.fingerprint, await calculateResearchDossierRevisionFingerprint(value));
+}
+
+export function canonicalResearchDossierProposalPayload(value: ResearchDossierProjection | ManualThesisOperation): string {
+  return "schemaVersion" in value && value.schemaVersion === RESEARCH_DOSSIER_PROJECTION_SCHEMA_VERSION
+    ? canonicalResearchDossierProjection(value)
+    : stableJson(value);
+}
+
+export async function calculateResearchDossierProposalPayloadFingerprint(value: ResearchDossierProjection | ManualThesisOperation): Promise<`sha256:${string}`> {
+  return sha256Fingerprint(canonicalResearchDossierProposalPayload(value));
+}
+
+export async function verifyResearchDossierProposalPayloadFingerprint(value: ResearchDossierProposal): Promise<boolean> {
+  return isResearchDossierProposal(value)
+    && value.payload !== null
+    && timingSafeEqualString(value.payloadFingerprint, await calculateResearchDossierProposalPayloadFingerprint(value.payload));
+}
+
+export function canonicalAlertRuleDraft(value: Omit<AlertRuleDraft, "fingerprint"> | AlertRuleDraft): string {
+  const { fingerprint: _fingerprint, ...payload } = value as AlertRuleDraft;
+  return stableJson(payload);
+}
+
+export async function calculateAlertRuleDraftFingerprint(value: Omit<AlertRuleDraft, "fingerprint"> | AlertRuleDraft): Promise<`sha256:${string}`> {
+  return sha256Fingerprint(canonicalAlertRuleDraft(value));
+}
+
+export async function verifyAlertRuleDraftFingerprint(value: AlertRuleDraft): Promise<boolean> {
+  return isAlertRuleDraft(value) && timingSafeEqualString(value.fingerprint, await calculateAlertRuleDraftFingerprint(value));
+}
+
+function isDossierProjectionLimitation(value: unknown): value is DossierProjectionLimitation {
+  const limitation = recordValue(value);
+  return Boolean(limitation)
+    && hasOnlyKeys(limitation!, ["code", "retryable"])
+    && boundedErrorCode(limitation!.code)
+    && typeof limitation!.retryable === "boolean";
+}
+
+function isProjectionProvenance(value: Record<string, unknown>): boolean {
+  const keys = value.thesisImpactSource === "model"
+    ? ["source", "factDeltaEngineVersion", "thesisImpactSource", "thesisClassifierTask"]
+    : ["source", "factDeltaEngineVersion", "thesisImpactSource"];
+  return hasOnlyKeys(value, keys)
+    && value.source === "market-agent-worker"
+    && value.factDeltaEngineVersion === DOSSIER_FACT_DELTA_ENGINE_VERSION
+    && oneOf(value.thesisImpactSource, ["model", "unavailable", "not_applicable"])
+    && (value.thesisImpactSource !== "model" || value.thesisClassifierTask === "market-agent-thesis-impact");
+}
+
+function isDossierFactDelta(value: unknown, instrumentId: string, researchFingerprint: string): value is DossierFactDelta {
+  const delta = recordValue(value);
+  if (!delta || !hasOnlyKeys(delta, ["id", "kind", "logicalSeriesKey", "previous", "current"])
+    || !boundedTraceIdentifier(delta.id)
+    || !oneOf(delta.kind, ["baseline_added", "period_advanced", "source_revised", "quality_changed"])
+    || !boundedSeriesKey(delta.logicalSeriesKey)
+    || !isDossierFactAnchor(delta.current)
+    || delta.current.instrumentId !== instrumentId
+    || delta.current.researchFingerprint !== researchFingerprint
+    || delta.current.logicalSeriesKey !== delta.logicalSeriesKey) return false;
+  if (delta.kind === "baseline_added") return delta.previous === null;
+  if (!isDossierFactAnchor(delta.previous)
+    || delta.previous.instrumentId !== instrumentId
+    || delta.previous.logicalSeriesKey !== delta.logicalSeriesKey
+    || delta.previous.metric !== delta.current.metric
+    || delta.previous.period.basis !== delta.current.period.basis) return false;
+  if (delta.kind === "period_advanced") return Date.parse(delta.current.period.end) > Date.parse(delta.previous.period.end);
+  if (delta.previous.period.start !== delta.current.period.start || delta.previous.period.end !== delta.current.period.end) return false;
+  if (delta.kind === "source_revised") {
+    return hasDossierSourceRevision(delta.previous, delta.current);
+  }
+  return !hasDossierSourceRevision(delta.previous, delta.current)
+    && (delta.previous.quality.status !== delta.current.quality.status
+    || delta.previous.quality.reliable !== delta.current.quality.reliable
+    || stableJson(delta.previous.quality.coverage) !== stableJson(delta.current.quality.coverage)
+    || stableJson(delta.previous.quality.warnings) !== stableJson(delta.current.quality.warnings));
+}
+
+function hasDossierSourceRevision(previous: DossierFactAnchor, current: DossierFactAnchor): boolean {
+  return previous.value.decimal !== current.value.decimal
+    || previous.value.unit !== current.value.unit
+    || stableJson(previous.formula) !== stableJson(current.formula)
+    || stableJson(previous.comparisons) !== stableJson(current.comparisons)
+    || stableJson(previous.provenance.sourceArtifactIds) !== stableJson(current.provenance.sourceArtifactIds)
+    || previous.provenance.sourceAsOf !== current.provenance.sourceAsOf;
+}
+
+function isDossierFactAnchor(value: unknown): value is DossierFactAnchor {
+  const anchor = recordValue(value);
+  const factValue = recordValue(anchor?.value);
+  const provenance = recordValue(anchor?.provenance);
+  const quality = recordValue(anchor?.quality);
+  const coverage = recordValue(quality?.coverage);
+  if (!anchor || !factValue || !provenance || !quality || !coverage
+    || !hasOnlyKeys(anchor, ["id", "logicalSeriesKey", "factId", "evidenceId", "researchFingerprint", "instrumentId", "metric", "period", "value", "formula", "comparisons", "provenance", "quality"].filter((key) => key !== "formula" || anchor.formula !== undefined))
+    || !boundedTraceIdentifier(anchor.id)
+    || !boundedSeriesKey(anchor.logicalSeriesKey)
+    || !boundedTraceIdentifier(anchor.factId)
+    || !boundedTraceIdentifier(anchor.evidenceId)
+    || !boundedFingerprint(anchor.researchFingerprint)
+    || !isDossierInstrumentId(anchor.instrumentId)
+    || !oneOf(anchor.metric, ["operating_revenue", "operating_profit", "net_profit_attributable_to_parent", "net_cash_flow_from_operating_activities", "total_assets"])
+    || !isDossierReportingPeriod(anchor.period)
+    || !hasOnlyKeys(factValue, ["decimal", "unit"])
+    || !strictDecimal(factValue.decimal)
+    || !oneOf(factValue.unit, ["CNY", "ratio", "shares"])
+    || (anchor.formula !== undefined && !isDossierFormula(anchor.formula))
+    || !Array.isArray(anchor.comparisons)
+    || anchor.comparisons.length > 2
+    || !anchor.comparisons.every(isDossierComparison)
+    || new Set((anchor.comparisons as DossierFactComparison[]).map((item) => item.kind)).size !== anchor.comparisons.length
+    || !hasOnlyKeys(provenance, ["providers", "sourceArtifactIds", "sourceAsOf", "retrievedAt"])
+    || !boundedUniqueStrings(provenance.providers, 8, 80)
+    || !boundedUniqueStrings(provenance.sourceArtifactIds, 32, 160)
+    || !canonicalIsoTimestamp(provenance.sourceAsOf)
+    || !canonicalIsoTimestamp(provenance.retrievedAt)
+    || Date.parse(String(provenance.sourceAsOf)) > Date.parse(String(provenance.retrievedAt))
+    || !hasOnlyKeys(quality, ["status", "reliable", "coverage", "warnings"])
+    || !oneOf(quality.status, ["operational", "degraded"])
+    || typeof quality.reliable !== "boolean"
+    || (quality.status === "operational") !== quality.reliable
+    || !hasOnlyKeys(coverage, ["actual", "required"])
+    || !Number.isSafeInteger(coverage.actual) || Number(coverage.actual) < 0
+    || !Number.isSafeInteger(coverage.required) || Number(coverage.required) < 0
+    || Number(coverage.actual) > Number(coverage.required)
+    || !boundedStringArray(quality.warnings, 12, 160)) return false;
+  return anchor.logicalSeriesKey === `${anchor.instrumentId}:${anchor.metric}:${(anchor.period as DossierReportingPeriod).basis}`;
+}
+
+function isDossierReportingPeriod(value: unknown): value is DossierReportingPeriod {
+  const period = recordValue(value);
+  return Boolean(period)
+    && hasOnlyKeys(period!, ["start", "end", "basis"])
+    && canonicalIsoTimestamp(period!.start)
+    && canonicalIsoTimestamp(period!.end)
+    && Date.parse(String(period!.start)) <= Date.parse(String(period!.end))
+    && oneOf(period!.basis, ["quarter", "year_to_date", "fiscal_year", "point_in_time"]);
+}
+
+function isDossierComparison(value: unknown): value is DossierFactComparison {
+  const comparison = recordValue(value);
+  return Boolean(comparison)
+    && hasOnlyKeys(comparison!, ["kind", "comparablePeriod", "decimal", "unit", "formula"])
+    && oneOf(comparison!.kind, ["yoy", "qoq"])
+    && isDossierReportingPeriod(comparison!.comparablePeriod)
+    && strictDecimal(comparison!.decimal)
+    && comparison!.unit === "ratio"
+    && isDossierFormula(comparison!.formula);
+}
+
+function isDossierFormula(value: unknown): value is DossierDeterministicFormula {
+  const formula = recordValue(value);
+  const parameters = recordValue(formula?.parameters);
+  return Boolean(formula) && Boolean(parameters)
+    && hasOnlyKeys(formula!, ["id", "version", "expression", "inputArtifactIds", "parameters", "rounding"])
+    && boundedTraceIdentifier(formula!.id)
+    && boundedTraceIdentifier(formula!.version)
+    && typeof formula!.expression === "string" && formula!.expression.length > 0 && formula!.expression.length <= 300
+    && boundedUniqueStrings(formula!.inputArtifactIds, 32, 160)
+    && Object.keys(parameters!).length <= 20
+    && Object.entries(parameters!).every(([key, item]) => /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(key) && typeof item === "string" && item.length <= 160)
+    && typeof formula!.rounding === "string" && formula!.rounding.length > 0 && formula!.rounding.length <= 80;
+}
+
+function isThesisImpact(value: unknown, deltaIds: Set<string>, evidenceIds: Set<string>, deltas: DossierFactDelta[]): value is ThesisImpact {
+  const impact = recordValue(value);
+  if (!impact || !hasOnlyKeys(impact, ["id", "thesisId", "impact", "explanation", "factDeltaIds", "evidenceIds"])
+    || !boundedTraceIdentifier(impact.id)
+    || !boundedTraceIdentifier(impact.thesisId)
+    || !oneOf(impact.impact, ["supports", "weakens", "invalidates", "mixed", "insufficient_evidence"])
+    || typeof impact.explanation !== "string" || impact.explanation.length < 1 || impact.explanation.length > 600
+    || containsDigitOrTradingInstruction(impact.explanation)
+    || !boundedReferenceArray(impact.factDeltaIds, deltaIds, 8)
+    || !boundedReferenceArray(impact.evidenceIds, evidenceIds, 8)) return false;
+  const cited = new Set(impact.factDeltaIds as string[]);
+  const hasReliableDelta = deltas.some((delta) => cited.has(delta.id) && delta.current.quality.reliable);
+  return impact.impact === "insufficient_evidence" || hasReliableDelta;
+}
+
+function isDossierInstrumentId(value: unknown): value is string {
+  return typeof value === "string" && /^(SSE|SZSE):\d{6}$/.test(value);
+}
+
+function boundedSeriesKey(value: unknown): value is string {
+  return typeof value === "string" && /^(SSE|SZSE):\d{6}:[a-z][a-z0-9_]{0,63}:(quarter|year_to_date|fiscal_year|point_in_time)$/.test(value);
+}
+
+function strictDecimal(value: unknown): value is string {
+  return typeof value === "string" && value.length <= 80 && /^-?(?:0|[1-9]\d*)(?:\.\d{1,18})?$/.test(value) && value !== "-0";
+}
+
+function boundedUniqueStrings(value: unknown, maximum: number, itemMaximum: number): value is string[] {
+  return Array.isArray(value) && value.length > 0 && value.length <= maximum
+    && value.every((item) => typeof item === "string" && item.length > 0 && item.length <= itemMaximum)
+    && new Set(value).size === value.length;
+}
+
+function boundedStringArray(value: unknown, maximum: number, itemMaximum: number): value is string[] {
+  return Array.isArray(value) && value.length <= maximum
+    && value.every((item) => typeof item === "string" && item.length > 0 && item.length <= itemMaximum);
+}
+
+function boundedReferenceArray(value: unknown, allowed: Set<string>, maximum: number): value is string[] {
+  return Array.isArray(value) && value.length > 0 && value.length <= maximum
+    && value.every((item) => typeof item === "string" && allowed.has(item))
+    && new Set(value).size === value.length;
+}
+
+function containsDigitOrTradingInstruction(value: string): boolean {
+  return /[0-9０-９]|\b(?:buy|sell|short|long|trade|purchase)\b|下单|买入|卖出|加仓|减仓|做多|做空/i.test(value);
+}
+
+function containsTradingInstruction(value: string): boolean {
+  return /\b(?:buy|sell|short|long|trade|purchase)\b|下单|买入|卖出|加仓|减仓|做多|做空/i.test(value);
+}
+
+function isThesisStatement(value: unknown): value is ThesisStatement {
+  const thesis = recordValue(value);
+  if (!thesis || !hasOnlyKeys(thesis, ["id", "text", "status", "revision", "assessments", "createdAt", "updatedAt"])
+    || !boundedTraceIdentifier(thesis.id)
+    || typeof thesis.text !== "string" || thesis.text.length < 1 || thesis.text.length > 800 || containsTradingInstruction(thesis.text)
+    || !oneOf(thesis.status, ["active", "invalidated", "retired"])
+    || !Number.isSafeInteger(thesis.revision) || Number(thesis.revision) < 1
+    || !Array.isArray(thesis.assessments) || thesis.assessments.length > 100
+    || !thesis.assessments.every(isThesisAssessment)
+    || !canonicalIsoTimestamp(thesis.createdAt)
+    || !canonicalIsoTimestamp(thesis.updatedAt)
+    || Date.parse(String(thesis.updatedAt)) < Date.parse(String(thesis.createdAt))) return false;
+  return new Set((thesis.assessments as ThesisAssessment[]).map((assessment) => assessment.id)).size === thesis.assessments.length;
+}
+
+function isThesisAssessment(value: unknown): value is ThesisAssessment {
+  const assessment = recordValue(value);
+  return Boolean(assessment)
+    && hasOnlyKeys(assessment!, ["id", "thesisId", "impact", "explanation", "factDeltaIds", "evidenceIds", "sourceProposalId", "assessedAt"])
+    && boundedTraceIdentifier(assessment!.id)
+    && boundedTraceIdentifier(assessment!.thesisId)
+    && oneOf(assessment!.impact, ["supports", "weakens", "invalidates", "mixed", "insufficient_evidence"])
+    && typeof assessment!.explanation === "string" && assessment!.explanation.length > 0 && assessment!.explanation.length <= 600
+    && !containsDigitOrTradingInstruction(String(assessment!.explanation))
+    && boundedUniqueStrings(assessment!.factDeltaIds, 8, 128)
+    && boundedUniqueStrings(assessment!.evidenceIds, 8, 128)
+    && boundedTraceIdentifier(assessment!.sourceProposalId)
+    && canonicalIsoTimestamp(assessment!.assessedAt);
+}
+
+function isManualThesisOperation(value: unknown): value is ManualThesisOperation {
+  const operation = recordValue(value);
+  if (!operation) return false;
+  if (operation.operation === "create") {
+    return hasOnlyKeys(operation, ["operation", "text"])
+      && typeof operation.text === "string" && operation.text.length > 0 && operation.text.length <= 800
+      && !containsTradingInstruction(operation.text);
+  }
+  if (operation.operation === "revise") {
+    return hasOnlyKeys(operation, ["operation", "thesisId", "text"])
+      && boundedTraceIdentifier(operation.thesisId)
+      && typeof operation.text === "string" && operation.text.length > 0 && operation.text.length <= 800
+      && !containsTradingInstruction(operation.text);
+  }
+  return (operation.operation === "invalidate" || operation.operation === "retire")
+    && hasOnlyKeys(operation, ["operation", "thesisId"])
+    && boundedTraceIdentifier(operation.thesisId);
+}
+
+function validateExpectedDossierVersion(value: unknown, path: string, issues: string[]): void {
+  if (!Number.isSafeInteger(value) || Number(value) < 0) issues.push(`${path}.expectedDossierVersion is invalid`);
+}
+
+function validateIdempotencyOnlyIntent(value: unknown, path: string): string[] {
+  const issues: string[] = [];
+  const intent = recordValue(value);
+  if (!intent) return [`${path} intent must be an object`];
+  exactKeys(intent, ["idempotencyKey"], path, issues);
+  if (!validIdempotencyKey(intent.idempotencyKey)) issues.push(`${path}.idempotencyKey is invalid`);
+  return issues;
+}
+
+function isAlertRuleDraftPredicate(value: unknown): value is AlertRuleDraftPredicate {
+  const predicate = recordValue(value);
+  if (!predicate || predicate.version !== "financial-alert-predicate.v1"
+    || !oneOf(predicate.metric, ["operating_revenue", "operating_profit", "net_profit_attributable_to_parent", "net_cash_flow_from_operating_activities", "total_assets"])) return false;
+  if (!isDossierReportingPeriod(predicate.baselinePeriod)) return false;
+  if (predicate.template === "new_reporting_period") return hasOnlyKeys(predicate, ["version", "template", "metric", "baselinePeriod"]);
+  const threshold = recordValue(predicate.threshold);
+  return predicate.template === "metric_threshold_crossing"
+    && hasOnlyKeys(predicate, ["version", "template", "metric", "baselinePeriod", "field", "operator", "threshold"])
+    && oneOf(predicate.field, ["value", "yoy", "qoq"])
+    && oneOf(predicate.operator, ["crosses_above", "crosses_below"])
+    && Boolean(threshold)
+    && hasOnlyKeys(threshold!, ["decimal", "unit"])
+    && strictDecimal(threshold!.decimal)
+    && oneOf(threshold!.unit, ["CNY", "ratio", "shares"])
+    && (predicate.field === "value" || threshold!.unit === "ratio");
+}
+
+async function sha256Fingerprint(value: string): Promise<`sha256:${string}`> {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)));
+  return `sha256:${hex(digest)}`;
+}
+
+function timingSafeEqualString(left: string, right: string): boolean {
+  if (left.length !== right.length) return false;
+  let difference = 0;
+  for (let index = 0; index < left.length; index += 1) difference |= left.charCodeAt(index) ^ right.charCodeAt(index);
+  return difference === 0;
+}
 
 const runTraceEventTypes = new Set<RunTraceEventType>(["run_created", "stage_started", "stage_completed", "retry_scheduled", "cancel_requested", "run_cancelled", "run_completed", "run_failed"]);
 const runTraceOperations = new Set<RunTraceOperation>(["run.create", "run.claim", "run.collect", "evidence.seal", "narration.generate", "result.validate", "run.retry", "run.cancel", "run.complete", "run.fail"]);

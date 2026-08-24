@@ -62,7 +62,7 @@ export function enforceAITaskScope(caller: AICaller, task: string, source?: stri
   if (
     caller === "market-agent"
     && (
-      !["market-agent-close-review", "market-agent-answer", "market-agent-financial-tool-plan"].includes(task)
+      !["market-agent-close-review", "market-agent-answer", "market-agent-financial-tool-plan", "market-agent-thesis-impact"].includes(task)
       || source !== "market-agent-worker"
     )
   ) throw new AIError("UNAUTHORIZED");

@@ -310,6 +310,53 @@ test("private Market Agent allowlist admits the bounded Ask lifecycle only", asy
   }
 });
 
+test("private Market Agent allowlist admits only the bounded Dossier lifecycle", async () => {
+  const allowed = [
+    { path: "dossiers/SSE%3A600000", method: "GET" },
+    { path: "dossiers/SSE%3A600000", method: "DELETE" },
+    { path: "runs/run-1/dossier-projection", method: "GET" },
+    { path: "runs/run-1/dossier-projection/rebase", method: "POST" },
+    { path: "dossiers/SSE%3A600000/thesis-proposals", method: "POST" },
+    { path: "dossier-proposals/proposal-1/confirm", method: "POST" },
+    { path: "dossier-proposals/proposal-1/dismiss", method: "POST" },
+    { path: "dossier-proposals/proposal-1/alert-rule-drafts", method: "POST" },
+    { path: "alert-rule-drafts", method: "GET" },
+  ] as const;
+  let forwarded = 0;
+  for (const item of allowed) {
+    const response = await proxyPrivateRequest(
+      {
+        request: new Request(`https://beta.zxlab.pages.dev/api/private/market-agent/${item.path}`, {
+          method: item.method,
+          body: item.method === "GET" ? undefined : "{}",
+        }),
+        env: { ...env, MARKET_AGENT_API_URL: "https://market-agent.example.com" },
+      },
+      "market-agent",
+      item.path,
+      { verifyAccess, fetcher: async () => { forwarded += 1; return Response.json({ ok: true }); } },
+    );
+    assert.equal(response.status, 200, `${item.method} ${item.path}`);
+  }
+
+  for (const request of [
+    new Request("https://beta.zxlab.pages.dev/api/private/market-agent/dossiers/SSE%3A600000", { method: "POST", body: "{}" }),
+    new Request("https://beta.zxlab.pages.dev/api/private/market-agent/alert-rule-drafts", { method: "POST", body: "{}" }),
+    new Request("https://beta.zxlab.pages.dev/api/private/market-agent/dossier-proposals/proposal-1/activate", { method: "POST", body: "{}" }),
+    new Request("https://beta.zxlab.pages.dev/api/private/market-agent/alert-rules", { method: "GET" }),
+  ]) {
+    const rawPath = new URL(request.url).pathname.replace("/api/private/market-agent/", "");
+    const response = await proxyPrivateRequest(
+      { request, env },
+      "market-agent",
+      rawPath,
+      { verifyAccess, fetcher: async () => { forwarded += 1; return Response.json({ ok: true }); } },
+    );
+    assert.equal(response.status, 404, `${request.method} ${rawPath}`);
+  }
+  assert.equal(forwarded, allowed.length);
+});
+
 test("private Market Agent control routes reject the wrong HTTP method", async () => {
   let called = false;
   const requests = [

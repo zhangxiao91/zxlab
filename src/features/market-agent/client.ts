@@ -1,4 +1,4 @@
-import { isRunStatus, isRunTrace, isRunTraceEvent, isTerminalRunStatus, isToolTrace, isToolTraceEvent, type RunStatus } from "@zxlab/market-agent-schema";
+import { isAlertRuleDraft, isResearchDossier, isResearchDossierProjectionResult, isResearchDossierProposal, isResearchDossierRevision, isRunStatus, isRunTrace, isRunTraceEvent, isTerminalRunStatus, isToolTrace, isToolTraceEvent, type RunStatus } from "@zxlab/market-agent-schema";
 import type {
   AgentFeedback,
   AgentFeedbackValue,
@@ -12,7 +12,17 @@ import type {
   ToolTraceEvent,
   PortfolioSnapshotUpload,
   SealedEvidenceBundle,
+  AlertRuleDraft,
+  AlertRuleDraftIntent,
+  DossierConfirmIntent,
+  DossierRebaseIntent,
+  DossierProposalStatus,
+  ManualThesisProposalIntent,
+  ResearchDossier,
+  ResearchDossierProposal,
+  ResearchDossierRevision,
 } from "@zxlab/market-agent-schema";
+import type { DossierProjectionView } from "./DossierProjection";
 
 export type AgentRunMode = "market-only" | "portfolio-aware";
 export type PortfolioPurgeScope = "all" | "expired";
@@ -111,6 +121,33 @@ export interface PortfolioSnapshotControlState {
   linkedRunCount: number;
   expiredSnapshotCount: number;
   expiredLinkedRunCount: number;
+}
+
+export type ConfirmDossierProposalInput = DossierConfirmIntent;
+
+export interface DossierProposalMutationResult {
+  proposal: DossierProjectionView["proposal"];
+  dossier?: ResearchDossier;
+  revision?: ResearchDossierRevision;
+  reused?: boolean;
+}
+
+export type AlertRuleDraftInput = AlertRuleDraftIntent;
+export type AlertRuleDraftView = AlertRuleDraft;
+
+export interface DeleteResearchDossierInput {
+  confirmation: "DELETE_RESEARCH_DOSSIER";
+  idempotencyKey: string;
+}
+
+export interface DeleteResearchDossierResult {
+  purged: true;
+  reused: boolean;
+}
+
+export interface ResearchDossierSourceRun {
+  runId: string;
+  available: boolean;
 }
 
 export class MarketAgentApiError extends Error {
@@ -394,6 +431,179 @@ export async function getAgentToolTrace(runId: string, signal?: AbortSignal): Pr
   return data;
 }
 
+export async function getAgentRunDossierProjection(
+  runId: string,
+  signal?: AbortSignal,
+): Promise<DossierProjectionView | null> {
+  const response = await marketAgentFetch(
+    `/api/private/market-agent/runs/${encodeURIComponent(runId)}/dossier-projection`,
+    { headers: { accept: "application/json" }, signal },
+  );
+  if (response.status === 404 || response.status === 204) return null;
+  if (!response.ok) throw await apiError(response, "Research Dossier projection 暂不可用");
+  const data = await response.json() as unknown;
+  return parseDossierProjectionView(data, runId, response.status);
+}
+
+export async function confirmDossierProposal(
+  proposalId: string,
+  input: ConfirmDossierProposalInput,
+): Promise<DossierProposalMutationResult> {
+  const response = await marketAgentFetch(
+    `/api/private/market-agent/dossier-proposals/${encodeURIComponent(proposalId)}/confirm`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify(input),
+    },
+  );
+  if (!response.ok) throw await apiError(response, "Research Dossier 更新未确认");
+  return parseDossierProposalMutation(await response.json(), proposalId, "confirmed", response.status);
+}
+
+export async function dismissDossierProposal(
+  proposalId: string,
+  idempotencyKey: string,
+): Promise<DossierProposalMutationResult> {
+  const response = await marketAgentFetch(
+    `/api/private/market-agent/dossier-proposals/${encodeURIComponent(proposalId)}/dismiss`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ idempotencyKey }),
+    },
+  );
+  if (!response.ok) throw await apiError(response, "Dossier proposal 暂未处理");
+  return parseDossierProposalMutation(await response.json(), proposalId, "dismissed", response.status);
+}
+
+export async function createAlertRuleDraft(
+  proposalId: string,
+  input: AlertRuleDraftInput,
+): Promise<{ draft: AlertRuleDraftView }> {
+  const response = await marketAgentFetch(
+    `/api/private/market-agent/dossier-proposals/${encodeURIComponent(proposalId)}/alert-rule-drafts`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify(input),
+    },
+  );
+  if (!response.ok) throw await apiError(response, "Alert Rule Draft 创建失败");
+  const data = await response.json() as { draft?: unknown; reused?: unknown };
+  if (Object.keys(data).length !== 2 || !isAlertRuleDraft(data.draft) || typeof data.reused !== "boolean") {
+    throw new MarketAgentApiError("ALERT_RULE_DRAFT_INVALID", "Alert Rule Draft 响应格式无效", response.status);
+  }
+  return { draft: data.draft };
+}
+
+export async function getResearchDossier(
+  instrumentId: string,
+  signal?: AbortSignal,
+): Promise<{ dossier: ResearchDossier | null; revision: ResearchDossierRevision | null; sourceRun: ResearchDossierSourceRun | null }> {
+  const response = await marketAgentFetch(
+    `/api/private/market-agent/dossiers/${encodeURIComponent(instrumentId)}`,
+    { headers: { accept: "application/json" }, signal },
+  );
+  if (!response.ok) throw await apiError(response, "Research Dossier 暂不可用");
+  const data = await response.json() as { dossier?: unknown; revision?: unknown; sourceRun?: unknown };
+  const dossier = data.dossier;
+  const revision = data.revision;
+  const sourceRun = data.sourceRun;
+  const sourceRunValid = sourceRun === null || Boolean(sourceRun && typeof sourceRun === "object"
+    && Object.keys(sourceRun).length === 2
+    && boundedRunIdentifier((sourceRun as { runId?: unknown }).runId)
+    && typeof (sourceRun as { available?: unknown }).available === "boolean");
+  if (Object.keys(data).length !== 3 || !("dossier" in data) || !("revision" in data) || !("sourceRun" in data)
+    || (dossier === null) !== (revision === null)
+    || (dossier === null && sourceRun !== null)
+    || (dossier !== null && !isResearchDossier(dossier))
+    || (revision !== null && !isResearchDossierRevision(revision))
+    || !sourceRunValid
+    || (dossier && revision && dossier.currentRevisionId !== revision.id)) {
+    throw new MarketAgentApiError("RESEARCH_DOSSIER_INVALID", "Research Dossier 响应格式无效", response.status);
+  }
+  return {
+    dossier: dossier as ResearchDossier | null,
+    revision: revision as ResearchDossierRevision | null,
+    sourceRun: sourceRun as ResearchDossierSourceRun | null,
+  };
+}
+
+export async function deleteResearchDossier(
+  instrumentId: string,
+  input: DeleteResearchDossierInput,
+): Promise<DeleteResearchDossierResult> {
+  const response = await marketAgentFetch(
+    `/api/private/market-agent/dossiers/${encodeURIComponent(instrumentId)}`,
+    {
+      method: "DELETE",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify(input),
+    },
+  );
+  if (!response.ok) throw await apiError(response, "Research Dossier 未能删除");
+  const data = await response.json() as { purged?: unknown; reused?: unknown };
+  if (Object.keys(data).length !== 2 || data.purged !== true || typeof data.reused !== "boolean") {
+    throw new MarketAgentApiError("RESEARCH_DOSSIER_PURGE_INVALID", "Research Dossier 删除响应格式无效", response.status);
+  }
+  return { purged: true, reused: data.reused };
+}
+
+export async function rebaseAgentRunDossierProjection(
+  runId: string,
+  input: DossierRebaseIntent,
+): Promise<DossierProjectionView> {
+  const response = await marketAgentFetch(
+    `/api/private/market-agent/runs/${encodeURIComponent(runId)}/dossier-projection/rebase`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify(input),
+    },
+  );
+  if (!response.ok) throw await apiError(response, "Dossier projection 无法基于最新 revision 重建");
+  const view = parseDossierProjectionView(await response.json(), runId, response.status);
+  if (!view) throw new MarketAgentApiError("DOSSIER_PROJECTION_INVALID", "Dossier rebase 未返回 projection", response.status);
+  return view;
+}
+
+export async function createManualThesisProposal(
+  instrumentId: string,
+  input: ManualThesisProposalIntent,
+): Promise<{ proposal: ResearchDossierProposal }> {
+  const response = await marketAgentFetch(
+    `/api/private/market-agent/dossiers/${encodeURIComponent(instrumentId)}/thesis-proposals`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify(input),
+    },
+  );
+  if (!response.ok) throw await apiError(response, "Thesis proposal 创建失败");
+  const data = await response.json() as { proposal?: unknown; created?: unknown };
+  if (Object.keys(data).length !== 2 || !isResearchDossierProposal(data.proposal)
+    || data.proposal.kind !== "manual_thesis"
+    || data.proposal.instrumentId !== instrumentId
+    || typeof data.created !== "boolean") {
+    throw new MarketAgentApiError("DOSSIER_PROPOSAL_INVALID", "Thesis proposal 响应格式无效", response.status);
+  }
+  return { proposal: data.proposal };
+}
+
+export async function getAlertRuleDrafts(signal?: AbortSignal): Promise<AlertRuleDraft[]> {
+  const response = await marketAgentFetch("/api/private/market-agent/alert-rule-drafts", {
+    headers: { accept: "application/json" },
+    signal,
+  });
+  if (!response.ok) throw await apiError(response, "Alert Rule Draft 列表暂不可用");
+  const data = await response.json() as { drafts?: unknown };
+  if (Object.keys(data).length !== 1 || !Array.isArray(data.drafts) || !data.drafts.every(isAlertRuleDraft)) {
+    throw new MarketAgentApiError("ALERT_RULE_DRAFT_INVALID", "Alert Rule Draft 列表响应格式无效", response.status);
+  }
+  return data.drafts;
+}
+
 export async function getAgentProfile(): Promise<AgentProfileView> {
   const response = await marketAgentFetch("/api/private/market-agent/profile", {
     headers: { accept: "application/json" },
@@ -603,6 +813,64 @@ function isRunView(value: unknown): value is AgentRunView {
   return Boolean(value && typeof value === "object"
     && boundedRunIdentifier((value as { id?: unknown }).id)
     && isRunStatus((value as { status?: unknown }).status));
+}
+
+function parseDossierProjectionView(value: unknown, runId: string, status: number): DossierProjectionView | null {
+  const record = value && typeof value === "object" ? value as Record<string, unknown> : null;
+  const result = record?.result;
+  const proposal = record?.proposal;
+  if (!record
+    || Object.keys(record).length !== 2
+    || !("result" in record)
+    || !("proposal" in record)
+    || !isResearchDossierProjectionResult(result)
+    || (proposal !== null && !isResearchDossierProposal(proposal))) {
+    throw new MarketAgentApiError("DOSSIER_PROJECTION_INVALID", "Research Dossier projection 响应格式无效", status);
+  }
+  if (result.status === "not_applicable") {
+    if (proposal !== null) throw new MarketAgentApiError("DOSSIER_PROJECTION_INVALID", "Research Dossier projection 响应格式无效", status);
+    return null;
+  }
+  if (!proposal
+    || proposal.kind !== "projection"
+    || !proposal.payload
+    || proposal.sourceRunId !== runId
+    || result.projection.sourceRunId !== runId
+    || proposal.payload.fingerprint !== result.projection.fingerprint) {
+    throw new MarketAgentApiError("DOSSIER_PROJECTION_INVALID", "Research Dossier projection 响应格式无效", status);
+  }
+  return {
+    proposal: { id: proposal.id, status: proposal.status, expiresAt: proposal.expiresAt },
+    projection: result.projection,
+  };
+}
+
+function parseDossierProposalMutation(value: unknown, proposalId: string, expected: DossierProposalStatus, status: number): DossierProposalMutationResult {
+  const record = value && typeof value === "object" ? value as Record<string, unknown> : null;
+  if (!record) throw new MarketAgentApiError("DOSSIER_PROPOSAL_INVALID", "Dossier proposal 响应格式无效", status);
+  const proposal = record?.proposal;
+  const expectedKeys = expected === "confirmed" ? ["dossier", "proposal", "reused", "revision"] : ["proposal", "reused"];
+  const actualKeys = Object.keys(record).sort();
+  if (!isResearchDossierProposal(proposal)
+    || proposal.id !== proposalId
+    || proposal.status !== expected
+    || actualKeys.length !== expectedKeys.length
+    || actualKeys.some((key, index) => key !== expectedKeys[index])
+    || typeof record.reused !== "boolean"
+    || (expected === "confirmed" && (!isResearchDossier(record.dossier)
+      || !isResearchDossierRevision(record.revision)
+      || record.dossier.currentRevisionId !== record.revision.id
+      || record.dossier.version !== record.revision.revisionNumber
+      || record.revision.dossierId !== record.dossier.id
+      || record.revision.sourceProposalId !== proposal.id))) {
+    throw new MarketAgentApiError("DOSSIER_PROPOSAL_INVALID", "Dossier proposal 响应格式无效", status);
+  }
+  return {
+    proposal: { id: proposal.id, status: proposal.status, expiresAt: proposal.expiresAt },
+    ...(record.dossier ? { dossier: record.dossier as ResearchDossier } : {}),
+    ...(record.revision ? { revision: record.revision as ResearchDossierRevision } : {}),
+    ...(typeof record.reused === "boolean" ? { reused: record.reused } : {}),
+  };
 }
 
 function boundedRunIdentifier(value: unknown): value is string {

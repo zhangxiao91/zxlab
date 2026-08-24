@@ -1,5 +1,26 @@
-import { isMarketAgentAskCommand, isTerminalRunStatus, normalizePortfolioSnapshotUpload, subjectHash, validateBrowserAskIntent, validateBrowserRunIntent, type BrowserAskIntent, type BrowserRunIntent, type MarketAgentCommand } from "@zxlab/market-agent-schema";
-import { MemoryRunRepository } from "./foundation.ts";
+import {
+  isMarketAgentAskCommand,
+  isTerminalRunStatus,
+  normalizePortfolioSnapshotUpload,
+  subjectHash,
+  validateAlertRuleDraftIntent,
+  validateBrowserAskIntent,
+  validateBrowserRunIntent,
+  validateDossierConfirmIntent,
+  validateDossierDismissIntent,
+  validateDossierRebaseIntent,
+  validateManualThesisProposalIntent,
+  type AlertRuleDraftIntent,
+  type BrowserAskIntent,
+  type BrowserRunIntent,
+  type DossierBaseReceipt,
+  type DossierConfirmIntent,
+  type DossierDismissIntent,
+  type DossierRebaseIntent,
+  type ManualThesisProposalIntent,
+  type MarketAgentCommand,
+  type SealedEvidenceBundle,
+} from "@zxlab/market-agent-schema";
 import { D1RunRepository } from "./d1-repository.ts";
 import { CloseReviewService } from "./close-review.ts";
 import { AskService, type AskPreviousRun } from "./ask-service.ts";
@@ -23,9 +44,14 @@ import { canCreateRunRevision } from "./run-revision-policy.ts";
 import { D1FinancialToolInvocationRepository } from "./financial-tool-repository.ts";
 import { FinancialToolRuntime } from "./financial-tool-runtime.ts";
 import { GatewayFinancialToolPlanner } from "./financial-tool-planner.ts";
+import { D1ResearchDossierRepository, type DossierPurgeIntent, type ResearchDossierRepository } from "./research-dossier-repository.ts";
+import { ResearchDossierRuntime, type ResearchDossierProjectorMode } from "./research-dossier-runtime.ts";
+import { ResearchDossierProjector } from "./research-dossier-projector.ts";
+import { GatewayThesisImpactClassifier } from "./thesis-impact-classifier.ts";
+import type { ResearchFactBundle } from "@zxlab/research-fact-schema";
 
-const repository = new MemoryRunRepository();
 type RunMessage = { runId: string; generation: number; kind: "initial" | "recovery" };
+const DOSSIER_REQUEST_MAX_BYTES = 16 * 1024;
 function json(value: unknown, status = 200) { return new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "private, no-store" } }); }
 
 export default {
@@ -37,7 +63,18 @@ export default {
     try {
       const actor = await resolveMarketAgentActor(request, env); requireMarketAgentScope(actor, request.method);
       if (!env.DB) return json({ error: "DATABASE_UNAVAILABLE" }, 503);
-      const profiles = new D1ProfileRepository(env.DB); const profile = await profiles.resolve(await subjectHash(actor.ownerSubject, marketAgentProxySecret(env))); const runs = new D1RunRepository(env.DB); const archive = new D1RunArchiveRepository(env.DB); const snapshots = new D1PortfolioSnapshotRepository(env.DB); const financialTools = new D1FinancialToolInvocationRepository(env.DB);
+      const profiles = new D1ProfileRepository(env.DB); const profile = await profiles.resolve(await subjectHash(actor.ownerSubject, marketAgentProxySecret(env))); const runs = new D1RunRepository(env.DB); const archive = new D1RunArchiveRepository(env.DB); const snapshots = new D1PortfolioSnapshotRepository(env.DB); const financialTools = new D1FinancialToolInvocationRepository(env.DB); const dossiers = new D1ResearchDossierRepository(env.DB);
+      const dossierResponse = await handleResearchDossierRoute(request, path, profile.profileId, {
+        repository: dossiers,
+        mode: configuredResearchDossierProjectorMode(env),
+        runtime: (mode) => new ResearchDossierRuntime({ repository: dossiers, projector: researchDossierProjectorFor(env, mode), mode }),
+        getCheckpoint: (runId, profileId) => runs.getCheckpoint(runId, profileId),
+        getRunPayloadAvailability: async (profileId, runId) => {
+          const run = await archive.get(profileId, runId);
+          return Boolean(run && !run.payloadPurgedAt);
+        },
+      });
+      if (dossierResponse) return dossierResponse;
       if (path === "/profile" && request.method === "GET") return json(profile);
       if (path === "/watchlist" && request.method === "GET") return json({ profile, watchlist: await profiles.getWatchlist(profile.profileId) });
       if (path === "/watchlist" && request.method === "POST") {
@@ -133,7 +170,7 @@ export default {
               get: (runId) => runs.get(runId),
               listTraceAfter: (runId, profileId, afterSequence) => runs.listTraceAfter(runId, profileId, afterSequence),
               listToolTraceAfter: (runId, profileId, afterSequence) => financialTools.listToolTraceAfter(runId, profileId, afterSequence),
-            }, run.id, profile.profileId, { initialRun: run, timeoutMs: marketAgentRunStreamTimeoutMs(configuredFinancialToolRuntimeMode(env)) })
+            }, run.id, profile.profileId, { initialRun: run, timeoutMs: marketAgentRunStreamTimeoutMs(configuredFinancialToolRuntimeMode(env), configuredResearchDossierProjectorMode(env)) })
           : json({ error: "NOT_FOUND" }, 404);
       }
       const evidenceMatch = path.match(/^\/runs\/([^/]+)\/evidence$/);
@@ -170,11 +207,11 @@ export default {
     } catch (cause) { const code = cause instanceof Error ? cause.message : "INTERNAL_ERROR"; if (code === "ACTOR_SCOPE_REQUIRED") return json({ error: code }, 403); if (code.startsWith("ACTOR_")) return json({ error: code }, 401); if (code === "INVALID_WATCHLIST" || code.startsWith("INVALID_PORTFOLIO") || code === "RUN_ARCHIVE_CURSOR_INVALID") return json({ error: code }, 400); if (code === "IDEMPOTENCY_KEY_REUSED" || code === "PORTFOLIO_SNAPSHOT_NOT_CURRENT") return json({ error: code }, 409); return json({ error: "INTERNAL_ERROR" }, 500); }
   },
   async queue(batch: MessageBatch<RunMessage>, env: Env): Promise<void> { if (batch.queue.endsWith("-dlq")) await processDeadLetters(batch, env); else await processQueue(batch, env); },
-  async scheduled(controller: ScheduledController, env: Env): Promise<void> { if (!env.DB) return; const runs = new D1RunRepository(env.DB); const profiles = new D1ProfileRepository(env.DB); const now = new Date(controller.scheduledTime); await runs.sweepExpired(now.toISOString(), Number(env.MARKET_AGENT_MAX_RECOVERY_GENERATIONS ?? 2)); const retentionDays = boundedInteger(env.MARKET_AGENT_RUN_RETENTION_DAYS, 365, 3650); const cutoff = new Date(now.getTime() - retentionDays * 24 * 60 * 60 * 1_000).toISOString(); await new D1RunArchiveRepository(env.DB).sweepRetentionAll({ cutoff, purgedAt: now.toISOString() }); const workflow = scheduledWorkflowAt(now); if (workflow) { const decision = await decideScheduledWorkflow(workflow, now, productionTradingCalendar); if (decision.decision === "run") { const snapshots = new D1PortfolioSnapshotRepository(env.DB); for (const profileId of await profiles.listBootstrappedProfileIds()) { const command: MarketAgentCommand = { profileId, trigger: "scheduled", workflow, marketDate: decision.marketDate, idempotencyKey: `scheduled:${workflow}:${decision.marketDate}` }; const portfolioSnapshot = await snapshots.getCurrent(profileId); await runs.createQueued(command, { command, actorScope: profileId, commandHash: await sha256(command), portfolioSnapshotId: portfolioSnapshot?.id ?? null }); } } else await runs.recordScheduleDecision({ workflow, marketDate: decision.marketDate, decision: decision.decision, calendarSource: decision.calendar.source, reason: decision.reason }); } await relayOutbox(env, runs); },
+  async scheduled(controller: ScheduledController, env: Env): Promise<void> { if (!env.DB) return; const runs = new D1RunRepository(env.DB); const profiles = new D1ProfileRepository(env.DB); const now = new Date(controller.scheduledTime); await runs.sweepExpired(now.toISOString(), Number(env.MARKET_AGENT_MAX_RECOVERY_GENERATIONS ?? 2)); const retentionDays = boundedInteger(env.MARKET_AGENT_RUN_RETENTION_DAYS, 365, 3650); const cutoff = new Date(now.getTime() - retentionDays * 24 * 60 * 60 * 1_000).toISOString(); await new D1RunArchiveRepository(env.DB).sweepRetentionAll({ cutoff, purgedAt: now.toISOString() }); if (configuredResearchDossierProjectorMode(env) !== "disabled") await new D1ResearchDossierRepository(env.DB).sweepRetention(now.toISOString()); const workflow = scheduledWorkflowAt(now); if (workflow) { const decision = await decideScheduledWorkflow(workflow, now, productionTradingCalendar); if (decision.decision === "run") { const snapshots = new D1PortfolioSnapshotRepository(env.DB); for (const profileId of await profiles.listBootstrappedProfileIds()) { const command: MarketAgentCommand = { profileId, trigger: "scheduled", workflow, marketDate: decision.marketDate, idempotencyKey: `scheduled:${workflow}:${decision.marketDate}` }; const portfolioSnapshot = await snapshots.getCurrent(profileId); await runs.createQueued(command, { command, actorScope: profileId, commandHash: await sha256(command), portfolioSnapshotId: portfolioSnapshot?.id ?? null }); } } else await runs.recordScheduleDecision({ workflow, marketDate: decision.marketDate, decision: decision.decision, calendarSource: decision.calendar.source, reason: decision.reason }); } await relayOutbox(env, runs); },
 } satisfies ExportedHandler<Env, RunMessage>;
 
 export async function processRun(runId: string, env: Env): Promise<"ack" | "retry"> {
-  if (!env.DB) return "retry"; const runs = new D1RunRepository(env.DB); const claim = await runs.claim(runId, "market-agent-consumer", new Date().toISOString(), new Date(Date.now() + marketAgentRunLeaseMs(configuredFinancialToolRuntimeMode(env))).toISOString());
+  if (!env.DB) return "retry"; const runs = new D1RunRepository(env.DB); const claim = await runs.claim(runId, "market-agent-consumer", new Date().toISOString(), new Date(Date.now() + marketAgentRunLeaseMs(configuredFinancialToolRuntimeMode(env), configuredResearchDossierProjectorMode(env))).toISOString());
   if (claim.kind === "terminal" || claim.kind === "missing") return "ack"; if (claim.kind === "leased") return "retry";
   const command = await runs.getCommand(runId); if (!command) { await runs.fail(runId, claim.lease.leaseToken, "COMMAND_MISSING"); return "ack"; }
   let checkpoint: Awaited<ReturnType<D1RunRepository["getCheckpoint"]>>;
@@ -210,12 +247,15 @@ export async function processRun(runId: string, env: Env): Promise<"ack" | "retr
       previous = { runId: prior.id, workflow: prior.workflow, createdAt: prior.createdAt, evidenceFingerprint: evidence.fingerprint, result: prior.result };
     }
     try {
-      const reader = new MarketSnapshotAdapter({ service: env.MARKET_SNAPSHOT_SERVICE, baseUrl: env.MARKET_SNAPSHOT_URL });
+      const reader = new MarketSnapshotAdapter({ service: env.MARKET_SNAPSHOT_SERVICE });
       const financialToolRuntimeMode = configuredFinancialToolRuntimeMode(env);
+      const researchDossierProjectorMode = configuredResearchDossierProjectorMode(env);
       const output = await new AskService(reader, narratorFor(env), contextReaderFor(env), researchReaderFor(env), {
         companyUpdateEnabled: companyUpdateResearchEnabled(env),
         financialToolRuntimeMode,
         ...(financialToolRuntimeMode === "disabled" ? {} : { financialToolRuntime: financialToolRuntimeFor(env) }),
+        researchDossierProjectorMode,
+        ...(researchDossierProjectorMode === "disabled" ? {} : { researchDossierRuntime: researchDossierRuntimeFor(env, researchDossierProjectorMode) }),
       }).execute({ runId, command, attempt: claim.lease.attempt, watchlistRevision: watchlist?.revision ?? checkpoint?.evidence.watchlistRevision ?? "ask-without-watchlist", portfolioSnapshot, previous, previousSnapshot: previousCheckpoint?.snapshot, checkpoint: checkpoint ?? undefined, assertActive: () => assertRunActive(runs, runId, command.profileId, claim.lease.attempt), onCheckpoint: (value) => checkpointRun(runs, runId, command.profileId, claim.lease.leaseToken, value), onProgress: (status) => advanceRun(runs, runId, claim.lease.leaseToken, status) });
       await runs.complete(runId, claim.lease.leaseToken, output.evidence, output.result);
       return "ack";
@@ -226,7 +266,7 @@ export async function processRun(runId: string, env: Env): Promise<"ack" | "retr
   const portfolioSnapshot = !checkpoint && claim.lease.run.portfolioSnapshotId ? await snapshots.getUsableForProfile(command.profileId, claim.lease.run.portfolioSnapshotId) : null;
   const instrumentIds = checkpoint?.evidence.instrumentIds ?? [...new Set([...(command.instrumentId ? [command.instrumentId] : (watchlist?.items.map((item) => item.instrumentId) ?? [])), ...(portfolioSnapshot?.positions.map((item) => item.instrumentId) ?? [])])]; if (!instrumentIds.length) { await runs.fail(runId, claim.lease.leaseToken, "INSTRUMENT_SCOPE_EMPTY"); return "ack"; }
   try {
-    const reader = new MarketSnapshotAdapter({ service: env.MARKET_SNAPSHOT_SERVICE, baseUrl: env.MARKET_SNAPSHOT_URL });
+    const reader = new MarketSnapshotAdapter({ service: env.MARKET_SNAPSHOT_SERVICE });
     const previous = checkpoint ? null : await runs.getPreviousCheckpoint(runId, command.profileId);
     const output = await new CloseReviewService(reader, narratorFor(env), contextReaderFor(env), researchReaderFor(env)).execute({ runId, command, instrumentIds, watchlistRevision: watchlist?.revision ?? checkpoint?.evidence.watchlistRevision ?? "instrument-only", portfolioSnapshot, previous: previous?.snapshot, checkpoint: checkpoint ?? undefined, onCheckpoint: (value) => checkpointRun(runs, runId, command.profileId, claim.lease.leaseToken, value), onProgress: (status) => advanceRun(runs, runId, claim.lease.leaseToken, status) });
     await runs.complete(runId, claim.lease.leaseToken, output.evidence, output.result); return "ack";
@@ -236,6 +276,215 @@ export async function processRun(runId: string, env: Env): Promise<"ack" | "retr
 export async function processQueue(batch: MessageBatch<RunMessage>, env: Env): Promise<void> { for (const message of batch.messages) { const body = message.body; if (!body || typeof body.runId !== "string") { message.ack(); continue; } const disposition = await processRun(body.runId, env); if (disposition === "ack") message.ack(); else message.retry({ delaySeconds: 30 }); } }
 export async function processDeadLetters(batch: MessageBatch<RunMessage>, env: Env): Promise<void> { if (!env.DB) return; const runs = new D1RunRepository(env.DB); for (const message of batch.messages) { const body = message.body; const run = body?.runId ? await runs.get(body.runId) : null; const status = !run ? "orphaned" : isTerminalRunStatus(run.status) ? "resolved_terminal" : "deferred_active_lease"; await runs.recordDeadLetter({ messageId: message.id, runId: body?.runId ?? null, generation: body?.generation ?? 0, status, errorCode: "QUEUE_RETRIES_EXHAUSTED" }); message.ack(); } await runs.sweepExpired(new Date().toISOString(), Number(env.MARKET_AGENT_MAX_RECOVERY_GENERATIONS ?? 2)); await relayOutbox(env, runs); }
 export async function relayOutbox(env: Env, runs = new D1RunRepository(env.DB)): Promise<void> { if (!env.MARKET_AGENT_RUNS) return; for (const item of await runs.pendingDispatches()) { const run = await runs.get(item.runId); if (!run || isTerminalRunStatus(run.status)) { await runs.markDispatchSent(item.id); continue; } try { await env.MARKET_AGENT_RUNS.send({ runId: item.runId, generation: item.generation, kind: item.kind }); await runs.markDispatchSent(item.id); } catch { await runs.markDispatchError(item.id, "QUEUE_SEND_FAILED"); } } }
+
+interface ResearchDossierRouteDependencies {
+  repository: ResearchDossierRepository;
+  mode: ResearchDossierProjectorMode;
+  runtime: (mode: Exclude<ResearchDossierProjectorMode, "disabled">) => Pick<ResearchDossierRuntime, "rebase">;
+  getCheckpoint: (runId: string, profileId: string) => Promise<{
+    dossierBase?: DossierBaseReceipt;
+    dossierProjectionUnavailable?: import("./run-checkpoint.ts").DossierProjectionUnavailableReceipt;
+    evidence: SealedEvidenceBundle;
+    research?: ResearchFactBundle;
+  } | null>;
+  getRunPayloadAvailability: (profileId: string, runId: string) => Promise<boolean>;
+  now?: () => string;
+}
+
+export async function handleResearchDossierRoute(request: Request, path: string, profileId: string, dependencies: ResearchDossierRouteDependencies): Promise<Response | null> {
+  if (!isResearchDossierRoute(path)) return null;
+  if (dependencies.mode === "disabled") {
+    return request.method === "GET"
+      ? json({ error: "NOT_FOUND" }, 404)
+      : json({ error: "DOSSIER_PROJECTOR_DISABLED" }, 409);
+  }
+  try {
+    const now = dependencies.now?.() ?? new Date().toISOString();
+    const dossierMatch = path.match(/^\/dossiers\/([^/]+)$/);
+    if (dossierMatch && request.method === "DELETE") {
+      const instrumentId = dossierInstrumentId(dossierMatch[1]);
+      const body = await readDossierJson(request);
+      const intent = dossierPurgeIntent(body);
+      if (!intent) return json({ error: "DOSSIER_PURGE_INVALID" }, 400);
+      return json(await dependencies.repository.purgeDossier(profileId, instrumentId, intent, now));
+    }
+    if (dossierMatch && request.method === "GET") {
+      const instrumentId = dossierInstrumentId(dossierMatch[1]);
+      const state = await dependencies.repository.getDossier(profileId, instrumentId);
+      if (!state) return json({ dossier: null, revision: null, sourceRun: null });
+      const sourceProposal = await dependencies.repository.getProposal(state.revision.sourceProposalId, profileId);
+      if (!sourceProposal) throw new Error("DOSSIER_INTEGRITY_FAILURE");
+      const sourceRun = sourceProposal.kind === "projection"
+        ? { runId: sourceProposal.sourceRunId, available: await dependencies.getRunPayloadAvailability(profileId, sourceProposal.sourceRunId) }
+        : null;
+      return json({ ...state, sourceRun });
+    }
+    const projectionMatch = path.match(/^\/runs\/([^/]+)\/dossier-projection$/);
+    if (projectionMatch && request.method === "GET") {
+      const runId = dossierResourceId(projectionMatch[1]);
+      const proposal = await dependencies.repository.getProjectionByRun(runId, profileId);
+      if (proposal?.kind === "projection" && proposal.payload) return json({ result: { status: "projected", projection: proposal.payload }, proposal });
+      const checkpoint = await dependencies.getCheckpoint(runId, profileId);
+      const hasFinancialFacts = checkpoint?.research?.purpose === "company_update"
+        && checkpoint.research.facts.some((fact) => fact.kind === "financial_metric");
+      if (checkpoint?.dossierProjectionUnavailable && hasFinancialFacts) {
+        return json({ error: "DOSSIER_PROJECTION_UNAVAILABLE", retryable: true }, 503);
+      }
+      if (!checkpoint?.dossierBase || !hasFinancialFacts) return json({ error: "NOT_FOUND" }, 404);
+      return json({ error: "DOSSIER_PROJECTION_UNAVAILABLE", retryable: true }, 503);
+    }
+    const rebaseMatch = path.match(/^\/runs\/([^/]+)\/dossier-projection\/rebase$/);
+    if (rebaseMatch && request.method === "POST") {
+      const runId = dossierResourceId(rebaseMatch[1]);
+      const body = await readDossierJson(request);
+      const issues = validateDossierRebaseIntent(body);
+      if (issues.length) return json({ error: "DOSSIER_REBASE_INVALID", issues }, 400);
+      const source = await dependencies.repository.getProjectionByRun(runId, profileId);
+      if (!source || source.kind !== "projection" || !source.payload) return json({ error: "NOT_FOUND" }, 404);
+      const checkpoint = await dependencies.getCheckpoint(runId, profileId);
+      if (!checkpoint?.dossierBase || !checkpoint.research) return json({ error: "NOT_FOUND" }, 404);
+      if (source.payload.sourceEvidenceFingerprint !== checkpoint.evidence.fingerprint
+        || source.payload.researchFingerprint !== checkpoint.research.fingerprint
+        || checkpoint.dossierBase.instrumentId !== source.instrumentId) throw new Error("DOSSIER_INTEGRITY_FAILURE");
+      const session = await dependencies.runtime(dependencies.mode).rebase({
+        runId,
+        profileId,
+        instrumentId: source.instrumentId,
+        evidence: checkpoint.evidence,
+        research: checkpoint.research,
+        idempotencyKey: (body as DossierRebaseIntent).idempotencyKey,
+      });
+      if (!session) return json({ error: "DOSSIER_REBASE_NOT_APPLICABLE" }, 409);
+      return json({ result: session.result, proposal: session.proposal });
+    }
+    const thesisMatch = path.match(/^\/dossiers\/([^/]+)\/thesis-proposals$/);
+    if (thesisMatch && request.method === "POST") {
+      const instrumentId = dossierInstrumentId(thesisMatch[1]);
+      const body = await readDossierJson(request);
+      const issues = validateManualThesisProposalIntent(body);
+      if (issues.length) return json({ error: "DOSSIER_THESIS_INTENT_INVALID", issues }, 400);
+      const created = await dependencies.repository.createManualThesisProposal(profileId, instrumentId, body as ManualThesisProposalIntent, now, proposalExpiry(now));
+      return json({ proposal: created.proposal, created: created.created }, created.created ? 201 : 200);
+    }
+    const confirmMatch = path.match(/^\/dossier-proposals\/([^/]+)\/confirm$/);
+    if (confirmMatch && request.method === "POST") {
+      const proposalId = dossierResourceId(confirmMatch[1]);
+      const body = await readDossierJson(request);
+      const issues = validateDossierConfirmIntent(body);
+      if (issues.length) return json({ error: "DOSSIER_CONFIRM_INVALID", issues }, 400);
+      return json(await dependencies.repository.confirm(proposalId, profileId, body as DossierConfirmIntent, now));
+    }
+    const dismissMatch = path.match(/^\/dossier-proposals\/([^/]+)\/dismiss$/);
+    if (dismissMatch && request.method === "POST") {
+      const proposalId = dossierResourceId(dismissMatch[1]);
+      const body = await readDossierJson(request);
+      const issues = validateDossierDismissIntent(body);
+      if (issues.length) return json({ error: "DOSSIER_DISMISS_INVALID", issues }, 400);
+      return json(await dependencies.repository.dismiss(proposalId, profileId, body as DossierDismissIntent, now));
+    }
+    const alertMatch = path.match(/^\/dossier-proposals\/([^/]+)\/alert-rule-drafts$/);
+    if (alertMatch && request.method === "POST") {
+      const proposalId = dossierResourceId(alertMatch[1]);
+      const body = await readDossierJson(request);
+      const issues = validateAlertRuleDraftIntent(body);
+      if (issues.length) return json({ error: "ALERT_DRAFT_INTENT_INVALID", issues }, 400);
+      const created = await dependencies.repository.createAlertRuleDraft(proposalId, profileId, body as AlertRuleDraftIntent, now);
+      return json(created, created.reused ? 200 : 201);
+    }
+    if (path === "/alert-rule-drafts" && request.method === "GET") return json({ drafts: await dependencies.repository.listAlertRuleDrafts(profileId) });
+    return json({ error: "NOT_FOUND" }, 404);
+  } catch (cause) {
+    if (cause instanceof DossierRouteBodyTooLarge) return json({ error: "DOSSIER_REQUEST_TOO_LARGE" }, 413);
+    if (cause instanceof DossierRouteJsonError) return json({ error: "INVALID_JSON" }, 400);
+    return dossierRouteError(cause);
+  }
+}
+
+class DossierRouteJsonError extends Error {}
+class DossierRouteBodyTooLarge extends Error {}
+
+async function readDossierJson(request: Request): Promise<unknown> {
+  const declared = Number(request.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > DOSSIER_REQUEST_MAX_BYTES) throw new DossierRouteBodyTooLarge();
+  if (!request.body) throw new DossierRouteJsonError();
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > DOSSIER_REQUEST_MAX_BYTES) {
+      await reader.cancel();
+      throw new DossierRouteBodyTooLarge();
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  try { return JSON.parse(new TextDecoder().decode(bytes)) as unknown; }
+  catch { throw new DossierRouteJsonError(); }
+}
+
+function isResearchDossierRoute(path: string): boolean {
+  return path === "/alert-rule-drafts"
+    || /^\/dossiers\/[^/]+(?:\/thesis-proposals)?$/.test(path)
+    || /^\/runs\/[^/]+\/dossier-projection(?:\/rebase)?$/.test(path)
+    || /^\/dossier-proposals\/[^/]+\/(?:confirm|dismiss|alert-rule-drafts)$/.test(path);
+}
+
+function dossierInstrumentId(encoded: string): string {
+  const value = decodedDossierSegment(encoded);
+  if (!/^(SSE|SZSE):\d{6}$/.test(value)) throw new Error("DOSSIER_ROUTE_IDENTIFIER_INVALID");
+  return value;
+}
+
+function dossierResourceId(encoded: string): string {
+  const value = decodedDossierSegment(encoded);
+  if (!/^[A-Za-z0-9._:-]{1,160}$/.test(value)) throw new Error("DOSSIER_ROUTE_IDENTIFIER_INVALID");
+  return value;
+}
+
+function decodedDossierSegment(value: string): string {
+  try { return decodeURIComponent(value); }
+  catch { throw new Error("DOSSIER_ROUTE_IDENTIFIER_INVALID"); }
+}
+
+function proposalExpiry(createdAt: string): string {
+  return new Date(Date.parse(createdAt) + 30 * 24 * 60 * 60 * 1_000).toISOString();
+}
+
+function dossierPurgeIntent(value: unknown): DossierPurgeIntent | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const keys = Object.keys(record).sort();
+  return keys.length === 2
+    && keys[0] === "confirmation"
+    && keys[1] === "idempotencyKey"
+    && record.confirmation === "DELETE_RESEARCH_DOSSIER"
+    && typeof record.idempotencyKey === "string"
+    && /^[A-Za-z0-9._:-]{8,180}$/.test(record.idempotencyKey)
+    ? { confirmation: "DELETE_RESEARCH_DOSSIER", idempotencyKey: record.idempotencyKey }
+    : null;
+}
+
+function dossierRouteError(cause: unknown): Response {
+  const code = cause instanceof Error ? cause.message : "INTERNAL_ERROR";
+  if (code === "DOSSIER_PROPOSAL_EXPIRED") return json({ error: code }, 410);
+  if (code === "DOSSIER_NOT_FOUND" || code === "DOSSIER_PROPOSAL_NOT_FOUND" || code === "DOSSIER_THESIS_NOT_FOUND") return json({ error: "NOT_FOUND" }, 404);
+  if (code === "DOSSIER_ROUTE_IDENTIFIER_INVALID"
+    || code.endsWith("_INVALID")
+    || code === "ALERT_DRAFT_DELTA_NOT_FOUND"
+    || code === "ALERT_DRAFT_COMPARISON_UNAVAILABLE") return json({ error: code }, 400);
+  if (code === "DOSSIER_REVISION_CONFLICT"
+    || code === "DOSSIER_IDEMPOTENCY_CONFLICT"
+    || code === "DOSSIER_PROPOSAL_NOT_PENDING"
+    || code === "DOSSIER_PROJECTION_CONFLICT"
+    || code === "ALERT_DRAFT_RELIABLE_FACT_REQUIRED") return json({ error: code }, 409);
+  if (code.includes("INTEGRITY_FAILURE")) return json({ error: "DOSSIER_INTEGRITY_FAILURE" }, 502);
+  return json({ error: "INTERNAL_ERROR" }, 500);
+}
 
 async function retryRun(request: Request, env: Env, runs: D1RunRepository, snapshots: D1PortfolioSnapshotRepository, profileId: string, priorRunId: string): Promise<Response> {
   let body: { idempotencyKey?: unknown };
@@ -271,20 +520,37 @@ function validResolvedAskScope(ids: unknown): ids is string[] { return Array.isA
 function sameInstrumentScope(left: string[], right: string[]): boolean { return left.length === right.length && [...left].sort().every((value, index) => value === [...right].sort()[index]); }
 function boundedInteger(value: string | null | undefined, fallback: number, maximum: number): number { const parsed = Number(value); return Number.isInteger(parsed) && parsed > 0 ? Math.min(parsed, maximum) : fallback; }
 function narratorFor(env: Env): GatewayNarrator | DeterministicNarrator { return env.MARKET_AGENT_GENERATION_ENABLED === "true" && env.MARKET_AGENT_GATEWAY_URL && env.MARKET_AGENT_GATEWAY_TOKEN ? new GatewayNarrator({ apiUrl: env.MARKET_AGENT_GATEWAY_URL, token: env.MARKET_AGENT_GATEWAY_TOKEN }) : new DeterministicNarrator(); }
-function contextReaderFor(env: Env): SignalMemoryAdapter { return new SignalMemoryAdapter({ service: env.SIGNAL_MEMORY_SERVICE, baseUrl: env.SIGNAL_MEMORY_URL, token: env.MARKET_AGENT_MEMORY_TOKEN }); }
-function researchReaderFor(env: Env): ResearchFactAdapter { return new ResearchFactAdapter({ service: env.MARKET_SNAPSHOT_SERVICE, baseUrl: env.MARKET_SNAPSHOT_URL, token: env.MARKET_RESEARCH_TOKEN }); }
+function contextReaderFor(env: Env): SignalMemoryAdapter { return new SignalMemoryAdapter({ service: env.SIGNAL_MEMORY_SERVICE, token: env.MARKET_AGENT_MEMORY_TOKEN }); }
+function researchReaderFor(env: Env): ResearchFactAdapter { return new ResearchFactAdapter({ service: env.MARKET_SNAPSHOT_SERVICE, token: env.MARKET_RESEARCH_TOKEN }); }
 function companyUpdateResearchEnabled(env: Env): boolean { return env.COMPANY_UPDATE_RESEARCH_ENABLED === "true"; }
 function configuredFinancialToolRuntimeMode(env: Env): "disabled" | "shadow" | "enabled" {
   return env.FINANCIAL_TOOL_RUNTIME_MODE === "shadow" || env.FINANCIAL_TOOL_RUNTIME_MODE === "enabled"
     ? env.FINANCIAL_TOOL_RUNTIME_MODE
     : "disabled";
 }
+export function configuredResearchDossierProjectorMode(env: Env): "disabled" | "fact_only" | "enabled" {
+  return env.RESEARCH_DOSSIER_PROJECTOR_MODE === "fact_only" || env.RESEARCH_DOSSIER_PROJECTOR_MODE === "enabled"
+    ? env.RESEARCH_DOSSIER_PROJECTOR_MODE
+    : "disabled";
+}
 function financialToolRuntimeFor(env: Env): FinancialToolRuntime {
   return new FinancialToolRuntime({
     repository: new D1FinancialToolInvocationRepository(env.DB),
     planner: new GatewayFinancialToolPlanner({ apiUrl: env.MARKET_AGENT_GATEWAY_URL ?? "", token: env.MARKET_AGENT_GATEWAY_TOKEN ?? "", timeoutMs: 12_000 }),
-    research: new ResearchFactAdapter({ service: env.MARKET_SNAPSHOT_SERVICE, baseUrl: env.MARKET_SNAPSHOT_URL, token: env.MARKET_RESEARCH_TOKEN, timeoutMs: 35_000 }),
+    research: new ResearchFactAdapter({ service: env.MARKET_SNAPSHOT_SERVICE, token: env.MARKET_RESEARCH_TOKEN, timeoutMs: 35_000 }),
   });
+}
+function researchDossierRuntimeFor(env: Env, mode: Exclude<ResearchDossierProjectorMode, "disabled">): ResearchDossierRuntime {
+  return new ResearchDossierRuntime({
+    repository: new D1ResearchDossierRepository(env.DB),
+    projector: researchDossierProjectorFor(env, mode),
+    mode,
+  });
+}
+function researchDossierProjectorFor(env: Env, mode: Exclude<ResearchDossierProjectorMode, "disabled">): ResearchDossierProjector {
+  return new ResearchDossierProjector(mode === "enabled"
+    ? new GatewayThesisImpactClassifier({ apiUrl: env.MARKET_AGENT_GATEWAY_URL ?? "", token: env.MARKET_AGENT_GATEWAY_TOKEN ?? "", timeoutMs: 12_000 })
+    : undefined);
 }
 async function assertRunActive(runs: D1RunRepository, runId: string, profileId: string, attempt: number): Promise<void> {
   const run = await runs.get(runId);

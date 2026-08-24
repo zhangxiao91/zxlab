@@ -80,6 +80,30 @@ _Avoid_: System prompt, model discretion
 An evidence-linked statement produced by an Agent Run and classified as fact, inference, or unknown.
 _Avoid_: Advice, conclusion, signal
 
+**Research Dossier**:
+A profile-scoped, single-instrument body of user-confirmed research state. It preserves accepted Fact Anchors, user-authored Thesis Statements, and their immutable revision history without becoming a Market Fact or trading plan.
+_Avoid_: Research Fact Bundle, Watch Dossier, Memory summary
+
+**Dossier Revision**:
+An immutable, append-only version of a Research Dossier created only after explicit user confirmation.
+_Avoid_: Mutable document, latest model answer
+
+**Dossier Fact Anchor**:
+A user-accepted normalized Research Fact, including its period, quality, formula, provenance, Evidence reference, and Research fingerprint. A degraded observation cannot replace a reliable anchor.
+_Avoid_: Model finding, copied provider response
+
+**Thesis Statement**:
+A user-authored research claim stored in a Research Dossier. A model may propose an evidence-bound impact classification but cannot create, rewrite, or activate a Thesis Statement.
+_Avoid_: Observation, Watch Next, recommendation
+
+**Dossier Delta Proposal**:
+An immutable, Evidence-bound proposal describing deterministic Fact changes and optional model-classified Thesis Impacts relative to one exact Dossier Revision. It has no durable effect until explicitly confirmed.
+_Avoid_: Dossier Revision, Run diff
+
+**Thesis Impact**:
+A non-authoritative proposal classifying how reliable Fact deltas support, weaken, invalidate, mix, or fail to resolve an existing Thesis Statement.
+_Avoid_: Fact, automatic thesis mutation
+
 **Confirmed Context**:
 User-reviewed durable context that may shape relevance or presentation but cannot create a Market Fact.
 _Avoid_: Memory, profile data

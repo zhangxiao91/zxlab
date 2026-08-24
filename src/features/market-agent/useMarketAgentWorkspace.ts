@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { isCancellableRunStatus, type AgentFeedback, type AgentFeedbackValue, type RunTrace, type RunTraceEvent, type SealedEvidenceBundle, type ToolTrace, type ToolTraceEvent } from "@zxlab/market-agent-schema";
+import { isCancellableRunStatus, type AgentFeedback, type AgentFeedbackValue, type AlertRuleDraft, type ManualThesisOperation, type ResearchDossier, type ResearchDossierProposal, type ResearchDossierRevision, type RunTrace, type RunTraceEvent, type SealedEvidenceBundle, type ToolTrace, type ToolTraceEvent } from "@zxlab/market-agent-schema";
 import { loadMarketWatchlist } from "../market/watchlist";
 import { LocalPortfolioRepository } from "../risk/ledger";
 import {
@@ -9,10 +9,20 @@ import {
   getAgentProfile,
   getAgentRun,
   getAgentRunEvidence,
+  getAgentRunDossierProjection,
   getAgentRunPage,
   getAgentRunTrace,
   getAgentToolTrace,
   getPortfolioSnapshotControlState,
+  confirmDossierProposal,
+  createAlertRuleDraft,
+  dismissDossierProposal,
+  createManualThesisProposal,
+  deleteResearchDossier,
+  getAlertRuleDrafts,
+  getResearchDossier,
+  rebaseAgentRunDossierProjection,
+  MarketAgentApiError,
   marketAgentAccessRequired,
   pollAgentRunUntilTerminal,
   purgePortfolioSnapshotHistory,
@@ -29,9 +39,13 @@ import {
   type AgentProfileView,
   type AgentRunView,
   type AgentWatchlistItem,
+  type AlertRuleDraftView,
   type PortfolioPurgeScope,
   type PortfolioSnapshotControlState,
+  type ResearchDossierSourceRun,
 } from "./client";
+import type { DossierAction, DossierAlertDraftInput, DossierProjectionView } from "./DossierProjection";
+import { clearDossierMutationKey, dossierAlertCommandSignature, dossierMutationKey } from "./dossier-state";
 import {
   previewLocalPortfolioSnapshot,
   type LocalPortfolioSnapshotPreview,
@@ -86,6 +100,18 @@ export interface MarketAgentWorkspace {
     toolTraceLoading: boolean;
     toolTraceError: string | null;
     runControlBusy: { runId: string; action: "cancel" | "retry" } | null;
+    dossierProjection: DossierProjectionView | null;
+    dossierLoading: boolean;
+    dossierError: string | null;
+    dossierBusyAction: DossierAction;
+    dossier: ResearchDossier | null;
+    dossierRevision: ResearchDossierRevision | null;
+    dossierSourceRun: ResearchDossierSourceRun | null;
+    dossierRevisionConflict: boolean;
+    dossierPurgeConfirmationOpen: boolean;
+    alertDrafts: AlertRuleDraft[];
+    alertDraftsLoading: boolean;
+    alertDraftsError: string | null;
   };
   watchlist: {
     items: AgentWatchlistItem[];
@@ -114,6 +140,15 @@ export interface MarketAgentWorkspace {
     saveFeedback(runId: string, value: AgentFeedbackValue): Promise<AgentFeedback>;
     cancelRun(runId: string): Promise<void>;
     retryRun(runId: string): Promise<string>;
+    confirmDossier(acceptedThesisImpactIds: string[]): Promise<void>;
+    dismissDossier(): Promise<void>;
+    createDossierAlertDraft(input: DossierAlertDraftInput): Promise<AlertRuleDraftView>;
+    rebaseDossier(): Promise<void>;
+    createThesisProposal(operation: ManualThesisOperation): Promise<ResearchDossierProposal>;
+    confirmThesisProposal(proposal: ResearchDossierProposal): Promise<void>;
+    requestDossierPurge(): void;
+    cancelDossierPurge(): void;
+    confirmDossierPurge(): Promise<void>;
     updateRun(run: AgentRunView): void;
     refreshPortfolioPreview(): LocalPortfolioSnapshotPreview;
     syncLocalPortfolioSnapshot(): Promise<void>;
@@ -158,6 +193,16 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
   const [toolTraceLoadingRunId, setToolTraceLoadingRunId] = useState<string | null>(null);
   const [toolTraceError, setToolTraceError] = useState<string | null>(null);
   const [runControlBusy, setRunControlBusy] = useState<{ runId: string; action: "cancel" | "retry" } | null>(null);
+  const [dossierProjectionByRunId, setDossierProjectionByRunId] = useState<Record<string, DossierProjectionView>>({});
+  const [dossierLoadingRunId, setDossierLoadingRunId] = useState<string | null>(null);
+  const [dossierError, setDossierError] = useState<string | null>(null);
+  const [dossierAction, setDossierAction] = useState<{ proposalId: string; action: Exclude<DossierAction, null> } | null>(null);
+  const [dossierByInstrumentId, setDossierByInstrumentId] = useState<Record<string, { dossier: ResearchDossier; revision: ResearchDossierRevision; sourceRun: ResearchDossierSourceRun | null }>>({});
+  const [dossierRevisionConflict, setDossierRevisionConflict] = useState(false);
+  const [dossierPurgeInstrumentId, setDossierPurgeInstrumentId] = useState<string | null>(null);
+  const [alertDrafts, setAlertDrafts] = useState<AlertRuleDraft[]>([]);
+  const [alertDraftsLoading, setAlertDraftsLoading] = useState(false);
+  const [alertDraftsError, setAlertDraftsError] = useState<string | null>(null);
   const [portfolioPreview, setPortfolioPreview] =
     useState<LocalPortfolioSnapshotPreview | null>(null);
   const [portfolioState, setPortfolioState] =
@@ -171,6 +216,7 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
   const feedbackQueues = useRef(new Map<string, Promise<AgentFeedback>>());
   const runControlLock = useRef<{ runId: string; action: "cancel" | "retry" } | null>(null);
   const retryKeysBySource = useRef(new Map<string, string>());
+  const dossierMutationKeys = useRef(new Map<string, string>());
   const runsRef = useRef<AgentRunView[]>([]);
   const selectedRunIdRef = useRef<string | null>(null);
   const latest = runs[0];
@@ -395,6 +441,9 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
     setEvidenceError(null);
     setTraceError(null);
     setToolTraceError(null);
+    setDossierError(null);
+    setDossierRevisionConflict(false);
+    setDossierPurgeInstrumentId(null);
   }, [selectedRun?.id]);
 
   useEffect(() => {
@@ -451,6 +500,53 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
       });
     return () => { cancelled = true; };
   }, [evidenceByRunId, selectedRun?.evidenceFingerprint, selectedRun?.id, selectedRun?.status]);
+
+  useEffect(() => {
+    if (!dossierProjectionEligible(selectedRun)) return;
+    if (dossierProjectionByRunId[selectedRun.id]) return;
+    const controller = new AbortController();
+    setDossierLoadingRunId(selectedRun.id);
+    setDossierError(null);
+    void getAgentRunDossierProjection(selectedRun.id, controller.signal)
+      .then((view) => {
+        if (!view || controller.signal.aborted) return;
+        setDossierProjectionByRunId((current) => ({ ...current, [selectedRun.id]: view }));
+      })
+      .catch((cause) => {
+        if (!controller.signal.aborted) setDossierError(cause instanceof Error ? cause.message : "Research Dossier projection 暂不可用");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setDossierLoadingRunId((current) => current === selectedRun.id ? null : current);
+      });
+    return () => controller.abort();
+  }, [dossierProjectionByRunId, selectedRun]);
+
+  useEffect(() => {
+    const instrumentId = selectedRun?.input?.instrumentId;
+    if (!instrumentId || !dossierLookupEligible(selectedRun)) return;
+    const controller = new AbortController();
+    setAlertDraftsLoading(true);
+    setAlertDraftsError(null);
+    void Promise.allSettled([
+      getResearchDossier(instrumentId, controller.signal),
+      getAlertRuleDrafts(controller.signal),
+    ]).then(([dossierResult, draftsResult]) => {
+      if (controller.signal.aborted) return;
+      if (dossierResult.status === "fulfilled" && dossierResult.value.dossier && dossierResult.value.revision) {
+        setDossierByInstrumentId((current) => ({ ...current, [instrumentId]: { dossier: dossierResult.value.dossier!, revision: dossierResult.value.revision!, sourceRun: dossierResult.value.sourceRun } }));
+      } else if (dossierResult.status === "fulfilled") {
+        setDossierByInstrumentId((current) => {
+          if (!(instrumentId in current)) return current;
+          const next = { ...current };
+          delete next[instrumentId];
+          return next;
+        });
+      }
+      if (draftsResult.status === "fulfilled") setAlertDrafts(draftsResult.value);
+      else setAlertDraftsError(draftsResult.reason instanceof Error ? draftsResult.reason.message : "Alert Rule Draft 列表暂不可用");
+    }).finally(() => { if (!controller.signal.aborted) setAlertDraftsLoading(false); });
+    return () => controller.abort();
+  }, [selectedRun?.evidenceFingerprint, selectedRun?.id, selectedRun?.input?.instrumentId, selectedRun?.status]);
 
   useEffect(() => () => {
     for (const controller of activeStreams.current.values()) controller.abort();
@@ -791,6 +887,156 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
     }
   }, [clearAgentIssue, reportAgentIssue, reportLocalIssue, updateRun]);
 
+  const confirmDossier = useCallback(async (acceptedThesisImpactIds: string[]) => {
+    if (!selectedRun) throw new Error("当前没有可确认的 Run。");
+    const view = dossierProjectionByRunId[selectedRun.id];
+    if (!view || view.proposal.status !== "pending") throw new Error("当前没有待确认的 Dossier proposal。");
+    setDossierAction({ proposalId: view.proposal.id, action: "confirm" });
+    setDossierError(null);
+    const commandSignature = `confirm:${[...acceptedThesisImpactIds].sort().join(",")}`;
+    try {
+      const result = await confirmDossierProposal(view.proposal.id, {
+        expectedDossierVersion: view.projection.base.dossierVersion,
+        acceptedThesisImpactIds,
+        idempotencyKey: dossierMutationKey(dossierMutationKeys.current, view.proposal.id, commandSignature),
+      });
+      clearDossierMutationKey(dossierMutationKeys.current, view.proposal.id, commandSignature);
+      setDossierProjectionByRunId((current) => ({
+        ...current,
+        [selectedRun.id]: { ...view, proposal: result.proposal },
+      }));
+      if (result.dossier && result.revision) setDossierByInstrumentId((current) => ({ ...current, [result.dossier!.instrumentId]: { dossier: result.dossier!, revision: result.revision!, sourceRun: { runId: selectedRun.id, available: true } } }));
+    } catch (cause) {
+      if (cause instanceof MarketAgentApiError && cause.code === "DOSSIER_REVISION_CONFLICT") setDossierRevisionConflict(true);
+      setDossierError(cause instanceof Error ? cause.message : "Research Dossier 更新未确认");
+      throw cause;
+    } finally {
+      setDossierAction(null);
+    }
+  }, [dossierProjectionByRunId, selectedRun]);
+
+  const dismissDossier = useCallback(async () => {
+    if (!selectedRun) throw new Error("当前没有可处理的 Run。");
+    const view = dossierProjectionByRunId[selectedRun.id];
+    if (!view || view.proposal.status !== "pending") throw new Error("当前没有待处理的 Dossier proposal。");
+    setDossierAction({ proposalId: view.proposal.id, action: "dismiss" });
+    setDossierError(null);
+    const commandSignature = "dismiss";
+    try {
+      const result = await dismissDossierProposal(
+        view.proposal.id,
+        dossierMutationKey(dossierMutationKeys.current, view.proposal.id, commandSignature),
+      );
+      clearDossierMutationKey(dossierMutationKeys.current, view.proposal.id, commandSignature);
+      setDossierProjectionByRunId((current) => ({
+        ...current,
+        [selectedRun.id]: { ...view, proposal: result.proposal },
+      }));
+    } catch (cause) {
+      setDossierError(cause instanceof Error ? cause.message : "Dossier proposal 暂未处理");
+      throw cause;
+    } finally {
+      setDossierAction(null);
+    }
+  }, [dossierProjectionByRunId, selectedRun]);
+
+  const createDossierAlertDraft = useCallback(async (input: DossierAlertDraftInput) => {
+    if (!selectedRun) throw new Error("当前没有可转换的 Run。");
+    const view = dossierProjectionByRunId[selectedRun.id];
+    if (!view || view.proposal.status !== "pending") throw new Error("当前没有可转换的 Dossier proposal。");
+    setDossierAction({ proposalId: view.proposal.id, action: "alert" });
+    setDossierError(null);
+    const commandSignature = dossierAlertCommandSignature(input);
+    try {
+      const result = await createAlertRuleDraft(view.proposal.id, {
+        ...input,
+        idempotencyKey: dossierMutationKey(dossierMutationKeys.current, view.proposal.id, commandSignature),
+      });
+      clearDossierMutationKey(dossierMutationKeys.current, view.proposal.id, commandSignature);
+      setAlertDrafts((current) => current.some((draft) => draft.id === result.draft.id) ? current : [result.draft, ...current]);
+      return result.draft;
+    } catch (cause) {
+      setDossierError(cause instanceof Error ? cause.message : "Alert Rule Draft 创建失败");
+      throw cause;
+    } finally {
+      setDossierAction(null);
+    }
+  }, [dossierProjectionByRunId, selectedRun]);
+
+  const rebaseDossier = useCallback(async () => {
+    if (!selectedRun) throw new Error("当前没有可重新投影的 Run。");
+    const view = dossierProjectionByRunId[selectedRun.id];
+    if (!view) throw new Error("当前没有 Dossier projection。");
+    const signature = "rebase";
+    setDossierAction({ proposalId: view.proposal.id, action: "rebase" });
+    try {
+      const next = await rebaseAgentRunDossierProjection(selectedRun.id, { idempotencyKey: dossierMutationKey(dossierMutationKeys.current, view.proposal.id, signature) });
+      clearDossierMutationKey(dossierMutationKeys.current, view.proposal.id, signature);
+      setDossierProjectionByRunId((current) => ({ ...current, [selectedRun.id]: next }));
+      setDossierRevisionConflict(false); setDossierError(null);
+    } catch (cause) { setDossierError(cause instanceof Error ? cause.message : "Dossier 重新投影失败"); throw cause; }
+    finally { setDossierAction(null); }
+  }, [dossierProjectionByRunId, selectedRun]);
+
+  const createThesisProposal = useCallback(async (operation: ManualThesisOperation) => {
+    const instrumentId = selectedRun?.input?.instrumentId;
+    const current = instrumentId ? dossierByInstrumentId[instrumentId] : null;
+    if (!instrumentId || !current) throw new Error("请先确认建立 Research Dossier。");
+    const signature = `thesis-create:${JSON.stringify(operation)}`;
+    setDossierAction({ proposalId: current.dossier.id, action: "thesis" });
+    try {
+      const result = await createManualThesisProposal(instrumentId, { ...operation, expectedDossierVersion: current.dossier.version, idempotencyKey: dossierMutationKey(dossierMutationKeys.current, current.dossier.id, signature) });
+      clearDossierMutationKey(dossierMutationKeys.current, current.dossier.id, signature);
+      return result.proposal;
+    } finally { setDossierAction(null); }
+  }, [dossierByInstrumentId, selectedRun]);
+
+  const confirmThesisProposal = useCallback(async (proposal: ResearchDossierProposal) => {
+    const signature = "thesis-confirm";
+    setDossierAction({ proposalId: proposal.id, action: "thesis" });
+    try {
+      const result = await confirmDossierProposal(proposal.id, { expectedDossierVersion: proposal.base.dossierVersion, acceptedThesisImpactIds: [], idempotencyKey: dossierMutationKey(dossierMutationKeys.current, proposal.id, signature) });
+      clearDossierMutationKey(dossierMutationKeys.current, proposal.id, signature);
+      if (result.dossier && result.revision) setDossierByInstrumentId((current) => ({ ...current, [result.dossier!.instrumentId]: { dossier: result.dossier!, revision: result.revision!, sourceRun: null } }));
+    } catch (cause) { if (cause instanceof MarketAgentApiError && cause.code === "DOSSIER_REVISION_CONFLICT") setDossierRevisionConflict(true); throw cause; }
+    finally { setDossierAction(null); }
+  }, []);
+
+  const requestDossierPurge = useCallback(() => {
+    const instrumentId = selectedRun?.input?.instrumentId;
+    if (!instrumentId || !dossierByInstrumentId[instrumentId]) return;
+    setDossierPurgeInstrumentId(instrumentId);
+  }, [dossierByInstrumentId, selectedRun]);
+
+  const confirmDossierPurge = useCallback(async () => {
+    const instrumentId = selectedRun?.input?.instrumentId;
+    const current = instrumentId ? dossierByInstrumentId[instrumentId] : null;
+    if (!instrumentId || !current || dossierPurgeInstrumentId !== instrumentId) throw new Error("请先确认删除当前 Research Dossier。");
+    const commandSignature = "privacy-purge";
+    setDossierAction({ proposalId: current.dossier.id, action: "purge" });
+    setDossierError(null);
+    try {
+      await deleteResearchDossier(instrumentId, {
+        confirmation: "DELETE_RESEARCH_DOSSIER",
+        idempotencyKey: dossierMutationKey(dossierMutationKeys.current, current.dossier.id, commandSignature),
+      });
+      clearDossierMutationKey(dossierMutationKeys.current, current.dossier.id, commandSignature);
+      setDossierByInstrumentId((entries) => {
+        const next = { ...entries };
+        delete next[instrumentId];
+        return next;
+      });
+      setDossierProjectionByRunId((entries) => Object.fromEntries(Object.entries(entries).filter(([, item]) => item.projection.instrumentId !== instrumentId)));
+      setAlertDrafts((drafts) => drafts.filter((draft) => draft.instrumentId !== instrumentId));
+      setDossierPurgeInstrumentId(null);
+    } catch (cause) {
+      setDossierError(cause instanceof Error ? cause.message : "Research Dossier 未能删除");
+      throw cause;
+    } finally {
+      setDossierAction(null);
+    }
+  }, [dossierByInstrumentId, dossierPurgeInstrumentId, selectedRun]);
+
   const selectEvidence = useCallback((evidenceId: string | null) => {
     setSelectedEvidenceId(evidenceId);
   }, []);
@@ -825,6 +1071,11 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
     ])].sort(),
     [localWatchlist, portfolioState?.snapshot?.positions],
   );
+  const selectedDossierInstrumentId = dossierLookupEligible(selectedRun) ? selectedRun.input?.instrumentId ?? null : null;
+  const selectedDossierState = selectedDossierInstrumentId ? dossierByInstrumentId[selectedDossierInstrumentId] ?? null : null;
+  const selectedAlertDrafts = selectedDossierInstrumentId
+    ? alertDrafts.filter((draft) => draft.instrumentId === selectedDossierInstrumentId)
+    : [];
 
   return {
     agent: {
@@ -859,6 +1110,18 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
       toolTraceLoading: Boolean(selectedRun && toolTraceLoadingRunId === selectedRun.id),
       toolTraceError,
       runControlBusy,
+      dossierProjection: selectedRun ? dossierProjectionByRunId[selectedRun.id] ?? null : null,
+      dossierLoading: Boolean(selectedRun && dossierLoadingRunId === selectedRun.id),
+      dossierError,
+      dossierBusyAction: selectedRun ? dossierAction?.action ?? null : null,
+      dossier: selectedDossierState?.dossier ?? null,
+      dossierRevision: selectedDossierState?.revision ?? null,
+      dossierSourceRun: selectedDossierState?.sourceRun ?? null,
+      dossierRevisionConflict,
+      dossierPurgeConfirmationOpen: Boolean(selectedRun?.input?.instrumentId && dossierPurgeInstrumentId === selectedRun.input.instrumentId),
+      alertDrafts: selectedAlertDrafts,
+      alertDraftsLoading,
+      alertDraftsError,
     },
     watchlist: {
       items: localWatchlist,
@@ -887,6 +1150,15 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
       saveFeedback,
       cancelRun,
       retryRun,
+      confirmDossier,
+      dismissDossier,
+      createDossierAlertDraft,
+      rebaseDossier,
+      createThesisProposal,
+      confirmThesisProposal,
+      requestDossierPurge,
+      cancelDossierPurge: () => setDossierPurgeInstrumentId(null),
+      confirmDossierPurge,
       updateRun,
       refreshPortfolioPreview: recheckPortfolioPreview,
       syncLocalPortfolioSnapshot,
@@ -896,6 +1168,22 @@ export function useMarketAgentWorkspace(): MarketAgentWorkspace {
       confirmPortfolioPurge,
     },
   };
+}
+
+export function dossierProjectionEligible(run: AgentRunView | undefined): run is AgentRunView {
+  return Boolean(run
+    && run.workflow === "ask"
+    && run.input?.askScope === "news_and_announcements"
+    && run.evidenceFingerprint
+    && !run.payloadPurgedAt
+    && (run.status === "success" || run.status === "partial"));
+}
+
+function dossierLookupEligible(run: AgentRunView | undefined): run is AgentRunView {
+  return Boolean(run
+    && run.workflow === "ask"
+    && run.input?.askScope === "news_and_announcements"
+    && run.input.instrumentId);
 }
 
 function formatDate(value: string) {

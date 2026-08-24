@@ -205,6 +205,14 @@ test("Yuzi uses its bounded generation policy", () => {
 });
 
 test("Market Agent may use only its bounded Gateway tasks", () => {
+  assert.deepEqual(resolveTaskPolicy({ ...input, task: "market-agent-thesis-impact" }), {
+    timeoutMs: 12_000,
+    totalBudgetMs: 12_000,
+    maxOutputTokens: 1_200,
+    temperature: 0,
+  });
+  assert.equal(resolveTaskPolicy({ ...input, task: "market-agent-thesis-impact", maxOutputTokens: 2_600 }).maxOutputTokens, 1_200);
+  assert.equal(resolveTaskPolicy({ ...input, task: "market-agent-thesis-impact", temperature: 0.9 }).temperature, 0);
   assert.deepEqual(resolveTaskPolicy({ ...input, task: "market-agent-financial-tool-plan" }), {
     timeoutMs: 12_000,
     totalBudgetMs: 12_000,
@@ -236,6 +244,9 @@ test("Market Agent may use only its bounded Gateway tasks", () => {
   assert.doesNotThrow(() =>
     enforceAITaskScope("market-agent", "market-agent-financial-tool-plan", "market-agent-worker"),
   );
+  assert.doesNotThrow(() =>
+    enforceAITaskScope("market-agent", "market-agent-thesis-impact", "market-agent-worker"),
+  );
   assert.throws(
     () => enforceAITaskScope("market-agent", "portfolio-review", "market-agent-worker"),
     (error: unknown) => error instanceof AIError && error.code === "UNAUTHORIZED",
@@ -246,6 +257,10 @@ test("Market Agent may use only its bounded Gateway tasks", () => {
   );
   assert.throws(
     () => enforceAITaskScope("market-agent", "market-agent-financial-tool-plan", "other-service"),
+    (error: unknown) => error instanceof AIError && error.code === "UNAUTHORIZED",
+  );
+  assert.throws(
+    () => enforceAITaskScope("market-agent", "market-agent-thesis-impact", "other-service"),
     (error: unknown) => error instanceof AIError && error.code === "UNAUTHORIZED",
   );
 });

@@ -6,6 +6,7 @@ import type { TradingScreenAction, TradingScreenStatus } from "../trading/screen
 import AgentComposer, { RunActivity } from "./AskPanel";
 import { RunFeedbackControl } from "./RunFeedbackControl";
 import { RunOutcomeSummary } from "./RunOutcomeSummary";
+import { DossierInspectorPanel, DossierProjectionSection, type DossierAction, type DossierProjectionSectionProps, type DossierProjectionView } from "./DossierProjection";
 import {
   marketAgentAccessUrl,
   type AgentAskIntent,
@@ -18,8 +19,8 @@ import { portfolioActionLabel, runExportLabel } from "./action-state";
 import { useMarketAgentWorkspace } from "./useMarketAgentWorkspace";
 
 const date = (value: string) => new Date(value).toLocaleString("zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-export type InspectorSection = "context" | "evidence" | "outcome";
-const inspectorSections: InspectorSection[] = ["context", "evidence", "outcome"];
+export type InspectorSection = "context" | "evidence" | "dossier" | "outcome";
+const inspectorSections: InspectorSection[] = ["context", "evidence", "dossier", "outcome"];
 
 export function nextInspectorSection(section: InspectorSection, key: string): InspectorSection | null {
   const index = inspectorSections.indexOf(section);
@@ -95,6 +96,8 @@ export default function AgentToday({
     hasMoreRuns, evidence, evidenceLoading, evidenceError, selectedEvidenceId,
     exportBusy, exportNote, exportError, trace, traceLoading, traceError,
     toolTrace, toolTraceLoading, toolTraceError, runControlBusy,
+    dossierProjection, dossierLoading, dossierError, dossierBusyAction,
+    dossier, dossierRevision, dossierSourceRun, dossierRevisionConflict, dossierPurgeConfirmationOpen, alertDrafts, alertDraftsLoading, alertDraftsError,
   } = agent;
   const { items: localWatchlist, syncing: syncBusy } = watchlist;
   const {
@@ -108,6 +111,9 @@ export default function AgentToday({
     syncLocalPortfolioSnapshot, stopUsingPortfolioSnapshot, requestPortfolioPurge,
     cancelPortfolioPurge, confirmPortfolioPurge,
     cancelRun, retryRun,
+    confirmDossier, dismissDossier, createDossierAlertDraft,
+    rebaseDossier, createThesisProposal, confirmThesisProposal,
+    requestDossierPurge, cancelDossierPurge, confirmDossierPurge,
   } = commands;
 
   useEffect(() => {
@@ -207,6 +213,15 @@ export default function AgentToday({
                 onSelectedRunChange?.(runId);
               } : undefined}
               onEvidence={openEvidence}
+              dossierProjection={dossierProjection}
+              dossierLoading={dossierLoading}
+              dossierError={dossierError}
+              dossierBusyAction={dossierBusyAction}
+              onConfirmDossier={confirmDossier}
+              onDismissDossier={dismissDossier}
+              onCreateAlertDraft={createDossierAlertDraft}
+              revisionConflict={dossierRevisionConflict}
+              onRebaseDossier={rebaseDossier}
             />
             <AgentComposer
               runs={runs}
@@ -227,6 +242,22 @@ export default function AgentToday({
             section={inspectorSection}
             onSectionChange={setInspectorSection}
             onEvidence={openEvidence}
+            dossierProjection={dossierProjection}
+            dossierLoading={dossierLoading}
+            dossierError={dossierError}
+            dossier={dossier}
+            dossierRevision={dossierRevision}
+            dossierSourceRun={dossierSourceRun}
+            dossierPurgeConfirmationOpen={dossierPurgeConfirmationOpen}
+            alertDrafts={alertDrafts}
+            alertDraftsLoading={alertDraftsLoading}
+            alertDraftsError={alertDraftsError}
+            dossierBusyAction={dossierBusyAction}
+            onCreateThesisProposal={createThesisProposal}
+            onConfirmThesisProposal={confirmThesisProposal}
+            onRequestDossierPurge={requestDossierPurge}
+            onCancelDossierPurge={cancelDossierPurge}
+            onConfirmDossierPurge={confirmDossierPurge}
             onFeedback={(value) => selectedRun ? saveFeedback(selectedRun.id, value) : Promise.reject(new Error("当前没有可反馈的 Run。"))}
             onDelete={() => selectedRun ? void removeRun(selectedRun) : undefined}
             deleting={Boolean(selectedRun && deletingRunId === selectedRun.id)}
@@ -271,7 +302,7 @@ export function RunNavigator({ runs, selectedRunId, onSelect, onExport, onLoadMo
   return <aside className="agent-run-navigator" aria-label="运行记录"><header><div><h2>运行记录</h2><span>{runs.length}</span></div><button type="button" onClick={() => void onExport()} disabled={!runs.length || exportBusy}>{runExportLabel(exportBusy)}</button></header><div className="agent-run-navigator__list">{runs.length ? runs.map((run) => <button type="button" key={run.id} className="agent-run-nav-item" aria-current={selectedRunId === run.id ? "true" : undefined} onClick={() => onSelect(run.id)}><span><i className={`agent-run-nav-item__status agent-status--${run.status}`}>{statusLabel(run.status)}</i><time dateTime={run.createdAt}>{date(run.createdAt)}</time></span><strong>{run.payloadPurgedAt ? "正文已清除" : run.result?.headline ?? runLabel(run)}</strong><small>{run.input?.question ?? modeLabel(run.result?.mode, run.portfolioSnapshotId)}{run.timing ? ` · ${compactDuration(run.timing.durationMs ?? run.timing.elapsedMs)}` : ""}</small></button>) : <div className="agent-run-navigator__empty"><strong>还没有 Run</strong><p>开始一次盘后复盘或受限问答后，记录会出现在这里。</p></div>}</div>{hasMore && <button type="button" className="agent-run-navigator__more" onClick={() => void onLoadMore()} disabled={loadingMore}>{loadingMore ? "读取中" : "加载更早记录"}</button>}<p className="agent-run-navigator__note" aria-live="polite">{exportNote ?? "历史选择不会创建第二套回答状态。"}</p></aside>;
 }
 
-function SelectedRunView({ run, evidence, evidenceLoading, streamingAnswer, trace, toolTrace, traceLoading, toolTraceLoading, traceError, toolTraceError, controlBusy, controlsDisabled, onCancel, onRetry, onEvidence }: {
+function SelectedRunView({ run, evidence, evidenceLoading, streamingAnswer, trace, toolTrace, traceLoading, toolTraceLoading, traceError, toolTraceError, controlBusy, controlsDisabled, onCancel, onRetry, onEvidence, dossierProjection, dossierLoading, dossierError, dossierBusyAction, onConfirmDossier, onDismissDossier, onCreateAlertDraft, revisionConflict, onRebaseDossier }: {
   run?: AgentRunView;
   evidence: SealedEvidenceBundle | null;
   evidenceLoading: boolean;
@@ -287,6 +318,15 @@ function SelectedRunView({ run, evidence, evidenceLoading, streamingAnswer, trac
   onCancel(): Promise<unknown>;
   onRetry?(): Promise<unknown>;
   onEvidence(id: string): void;
+  dossierProjection: DossierProjectionView | null;
+  dossierLoading: boolean;
+  dossierError: string | null;
+  dossierBusyAction: DossierAction;
+  onConfirmDossier(acceptedThesisImpactIds: string[]): Promise<void>;
+  onDismissDossier(): Promise<void>;
+  onCreateAlertDraft: DossierProjectionSectionProps["onCreateAlertDraft"];
+  revisionConflict: boolean;
+  onRebaseDossier(): Promise<void>;
 }) {
   if (!run) return <section className="agent-selected-empty"><strong>选择或建立一条 Run</strong><p>报告、输入上下文、Evidence 与 Outcome 将围绕同一个 Run 展示。</p></section>;
   const report = run.result ? buildMarketReviewReport(run.result) : null;
@@ -294,17 +334,18 @@ function SelectedRunView({ run, evidence, evidenceLoading, streamingAnswer, trac
     <header className="agent-selected-run__header"><div><span className={`agent-status agent-status--${run.status}`}>{statusLabel(run.status)}</span><h2>{report?.conclusion.headline ?? (streamingAnswer ? "正在形成研究报告" : runLabel(run))}</h2><p>{runPrompt(run)}</p>{run.revisionOfRunId && <p className="agent-selected-run__revision">重试自 Run <span title={run.revisionOfRunId}>{run.revisionOfRunId.slice(0, 8)}</span></p>}</div><dl><div><dt>时间</dt><dd>{date(run.createdAt)}</dd></div><div><dt>模式</dt><dd>{modeLabel(run.result?.mode, run.portfolioSnapshotId)}</dd></div></dl></header>
     <RunActivity status={run.status} runId={run.id} trace={trace} toolTrace={toolTrace} evidence={evidence} timing={run.timing} limitations={run.result?.limitations} outcome={run.result?.outcome} traceLoading={traceLoading} toolTraceLoading={toolTraceLoading} traceError={traceError} toolTraceError={toolTraceError} controlBusy={controlBusy} controlsDisabled={controlsDisabled} onCancel={onCancel} onRetry={onRetry} />
     {!run.payloadPurgedAt && run.result && <MarketReferenceSummary evidence={evidence} loading={evidenceLoading} outcome={run.result.outcome} retrying={controlBusy === "retry"} disabled={controlsDisabled} onRetry={onRetry} />}
-    {run.payloadPurgedAt ? <div className="agent-selected-run__state"><strong>正文与 Evidence 已清除</strong><p>审计 fingerprint 仍保留：{run.evidenceFingerprint ?? "未形成"}</p></div> : report ? <ResearchReport report={report} onEvidence={onEvidence} /> : streamingAnswer ? <p className="agent-streamed-answer agent-selected-run__stream">{streamingAnswer}<span className="agent-stream-cursor" aria-hidden="true" /></p> : <div className="agent-selected-run__state"><strong>{run.status === "failed" ? "本次 Run 未能完成" : run.status === "cancelled" ? "本次 Run 已取消" : "确定性事实正在处理"}</strong><p>{run.status === "failed" ? `失败代码：${run.failure?.code ?? "未提供"}` : run.status === "cancelled" ? "原始记录与取消事件已保留；可以从这条 Run 发起一次可追溯的重试。" : "结果只有在 Evidence 封存并通过校验后才会显示。"}</p></div>}
+    {run.payloadPurgedAt ? <div className="agent-selected-run__state"><strong>正文与 Evidence 已清除</strong><p>审计 fingerprint 仍保留：{run.evidenceFingerprint ?? "未形成"}</p></div> : report ? <ResearchReport report={report} onEvidence={onEvidence} dossierProjection={dossierProjection} dossierLoading={dossierLoading} dossierError={dossierError} dossierBusyAction={dossierBusyAction} onConfirmDossier={onConfirmDossier} onDismissDossier={onDismissDossier} onCreateAlertDraft={onCreateAlertDraft} revisionConflict={revisionConflict} onRebaseDossier={onRebaseDossier} /> : streamingAnswer ? <p className="agent-streamed-answer agent-selected-run__stream">{streamingAnswer}<span className="agent-stream-cursor" aria-hidden="true" /></p> : <div className="agent-selected-run__state"><strong>{run.status === "failed" ? "本次 Run 未能完成" : run.status === "cancelled" ? "本次 Run 已取消" : "确定性事实正在处理"}</strong><p>{run.status === "failed" ? `失败代码：${run.failure?.code ?? "未提供"}` : run.status === "cancelled" ? "原始记录与取消事件已保留；可以从这条 Run 发起一次可追溯的重试。" : "结果只有在 Evidence 封存并通过校验后才会显示。"}</p></div>}
   </article>;
 }
 
-export function ResearchReport({ report, onEvidence }: { report: ResearchReportV2; onEvidence(id: string): void }) {
+export function ResearchReport({ report, onEvidence, dossierProjection = null, dossierLoading = false, dossierError = null, dossierBusyAction = null, onConfirmDossier = async () => undefined, onDismissDossier = async () => undefined, onCreateAlertDraft = async () => { throw new Error("Alert Rule Draft 暂不可用"); }, revisionConflict = false, onRebaseDossier = async () => undefined }: { report: ResearchReportV2; onEvidence(id: string): void; dossierProjection?: DossierProjectionView | null; dossierLoading?: boolean; dossierError?: string | null; dossierBusyAction?: DossierAction; onConfirmDossier?(acceptedThesisImpactIds: string[]): Promise<void>; onDismissDossier?(): Promise<void>; onCreateAlertDraft?: DossierProjectionSectionProps["onCreateAlertDraft"]; revisionConflict?: boolean; onRebaseDossier?(): Promise<void> }) {
   const sourceIndex = useMemo(() => new Map(report.sources.map((source, index) => [source.evidenceId, index + 1])), [report.sources]);
   const reportRef = useRef<HTMLElement>(null);
   useAgentRevealMotion(reportRef, `${report.conclusion.headline}:${report.factBlocks?.length ?? "legacy"}:${report.sources.length}`, ":scope > section, :scope > .research-report-v2__sources");
   return <article ref={reportRef} className="research-report-v2" aria-label="Research Report v2">
     <section className="research-report-v2__lead"><span>{report.version}</span><h3>结论</h3><p>{report.conclusion.summary}</p><CitationButtons ids={report.conclusion.evidenceIds} sourceIndex={sourceIndex} onEvidence={onEvidence} /></section>
     <FactBlockSection blocks={report.factBlocks} sourceIndex={sourceIndex} onEvidence={onEvidence} />
+    <DossierProjectionSection view={dossierProjection} loading={dossierLoading} error={dossierError} busyAction={dossierBusyAction} onConfirm={onConfirmDossier} onDismiss={onDismissDossier} onCreateAlertDraft={onCreateAlertDraft} onEvidence={onEvidence} revisionConflict={revisionConflict} onRebase={onRebaseDossier} />
     <ReportObservationSection title="依据" description="可由封存事实直接支持的内容" items={report.basis} sourceIndex={sourceIndex} onEvidence={onEvidence} />
     <ReportObservationSection title="推演" description="事实与持仓含义之间的解释；推断保留不确定性" items={report.analysis} sourceIndex={sourceIndex} onEvidence={onEvidence} />
     <section className="research-report-v2__section"><header><div><h3>风险与数据边界</h3><p>未知项和缺失能力不会由模型补齐</p></div><span>{report.risks.length}</span></header>{report.risks.length ? <div className="research-report-v2__items">{report.risks.map((item) => <article key={item.id} data-kind={item.kind}><strong>{item.title}</strong><p>{item.explanation}</p><CitationButtons ids={item.evidenceIds} sourceIndex={sourceIndex} onEvidence={onEvidence} /></article>)}</div> : <p className="research-report-v2__empty">本次没有额外风险项。</p>}</section>
@@ -366,10 +407,12 @@ function CitationButtons({ ids, sourceIndex, onEvidence }: { ids: string[]; sour
   return <div className="research-report-v2__citations" aria-label="来源引用">{ids.map((id) => <button type="button" key={id} title={id} onClick={() => onEvidence(id)}>来源 {sourceIndex.get(id) ?? "—"}</button>)}</div>;
 }
 
-function RunInspector({ inspectorRef, run, evidence, evidenceLoading, evidenceError, selectedEvidenceId, timing, section, onSectionChange, onEvidence, onFeedback, onDelete, deleting }: {
+function RunInspector({ inspectorRef, run, evidence, evidenceLoading, evidenceError, selectedEvidenceId, timing, section, onSectionChange, onEvidence, onFeedback, onDelete, deleting, dossierProjection, dossierLoading, dossierError, dossier, dossierRevision, dossierSourceRun, dossierPurgeConfirmationOpen, alertDrafts, alertDraftsLoading, alertDraftsError, dossierBusyAction, onCreateThesisProposal, onConfirmThesisProposal, onRequestDossierPurge, onCancelDossierPurge, onConfirmDossierPurge }: {
   inspectorRef: React.Ref<HTMLElement>;
   run?: AgentRunView; evidence: SealedEvidenceBundle | null; evidenceLoading: boolean; evidenceError: string | null; selectedEvidenceId: string | null; section: InspectorSection;
   timing?: RunTiming; onSectionChange(section: InspectorSection): void; onEvidence(id: string): void; onFeedback(value: AgentFeedbackValue): Promise<AgentFeedback>; onDelete(): void; deleting: boolean;
+  dossierProjection: DossierProjectionView | null; dossierLoading: boolean; dossierError: string | null;
+  dossier: ReturnType<typeof useMarketAgentWorkspace>["agent"]["dossier"]; dossierRevision: ReturnType<typeof useMarketAgentWorkspace>["agent"]["dossierRevision"]; dossierSourceRun: ReturnType<typeof useMarketAgentWorkspace>["agent"]["dossierSourceRun"]; dossierPurgeConfirmationOpen: boolean; alertDrafts: ReturnType<typeof useMarketAgentWorkspace>["agent"]["alertDrafts"]; alertDraftsLoading: boolean; alertDraftsError: string | null; dossierBusyAction: DossierAction; onCreateThesisProposal: ReturnType<typeof useMarketAgentWorkspace>["commands"]["createThesisProposal"]; onConfirmThesisProposal: ReturnType<typeof useMarketAgentWorkspace>["commands"]["confirmThesisProposal"]; onRequestDossierPurge: ReturnType<typeof useMarketAgentWorkspace>["commands"]["requestDossierPurge"]; onCancelDossierPurge: ReturnType<typeof useMarketAgentWorkspace>["commands"]["cancelDossierPurge"]; onConfirmDossierPurge: ReturnType<typeof useMarketAgentWorkspace>["commands"]["confirmDossierPurge"];
 }) {
   const selectedEvidence = evidence?.items.find((item) => item.id === selectedEvidenceId) ?? null;
   return <aside ref={inspectorRef} tabIndex={-1} className="agent-run-inspector" aria-label="Run Inspector"><header><div><h2>Inspector</h2><span>{run ? run.id.slice(0, 8) : "未选择"}</span></div><div role="tablist" aria-label="检查器内容">{inspectorSections.map((tab) => <button type="button" role="tab" id={`agent-inspector-tab-${tab}`} aria-controls="agent-inspector-panel" tabIndex={section === tab ? 0 : -1} key={tab} aria-selected={section === tab} onClick={() => onSectionChange(tab)} onKeyDown={(event) => {
@@ -378,9 +421,9 @@ function RunInspector({ inspectorRef, run, evidence, evidenceLoading, evidenceEr
       event.preventDefault();
       onSectionChange(next);
       requestAnimationFrame(() => document.getElementById(`agent-inspector-tab-${next}`)?.focus());
-    }}>{({ context: "Context", evidence: "Evidence", outcome: "Outcome" } as const)[tab]}</button>)}</div></header>
+    }}>{({ context: "Context", evidence: "Evidence", dossier: "Dossier", outcome: "Outcome" } as const)[tab]}</button>)}</div></header>
     <div className="agent-run-inspector__body" role="tabpanel" id="agent-inspector-panel" aria-labelledby={`agent-inspector-tab-${section}`} tabIndex={0}>
-      {!run ? <p className="agent-inspector-empty">选择一条 Run 后查看输入、证据与结果。</p> : section === "context" ? <ContextPanel run={run} evidence={evidence} /> : section === "evidence" ? <EvidencePanel evidence={evidence} loading={evidenceLoading} error={evidenceError} selected={selectedEvidence} onSelect={onEvidence} /> : <OutcomePanel run={run} timing={timing} onFeedback={onFeedback} onDelete={onDelete} deleting={deleting} />}
+      {!run ? <p className="agent-inspector-empty">选择一条 Run 后查看输入、证据与结果。</p> : section === "context" ? <ContextPanel run={run} evidence={evidence} /> : section === "evidence" ? <EvidencePanel evidence={evidence} loading={evidenceLoading} error={evidenceError} selected={selectedEvidence} onSelect={onEvidence} /> : section === "dossier" ? <DossierInspectorPanel view={dossierProjection} loading={dossierLoading} error={dossierError} dossier={dossier} revision={dossierRevision} sourceRun={dossierSourceRun} alertDrafts={alertDrafts} alertDraftsLoading={alertDraftsLoading} alertDraftsError={alertDraftsError} busyAction={dossierBusyAction} purgeConfirmationOpen={dossierPurgeConfirmationOpen} onCreateThesisProposal={onCreateThesisProposal} onConfirmThesisProposal={onConfirmThesisProposal} onRequestPurge={onRequestDossierPurge} onCancelPurge={onCancelDossierPurge} onConfirmPurge={onConfirmDossierPurge} /> : <OutcomePanel run={run} timing={timing} onFeedback={onFeedback} onDelete={onDelete} deleting={deleting} />}
     </div>
   </aside>;
 }

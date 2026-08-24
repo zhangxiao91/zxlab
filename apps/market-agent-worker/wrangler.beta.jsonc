@@ -11,6 +11,6 @@
     { "binding": "SIGNAL_MEMORY_SERVICE", "service": "zx-signal", "environment": "production" }
   ],
   "queues": { "producers": [{ "binding": "MARKET_AGENT_RUNS", "queue": "market-agent-runs-beta" }], "consumers": [{ "queue": "market-agent-runs-beta", "max_retries": 3, "dead_letter_queue": "market-agent-runs-beta-dlq" }, { "queue": "market-agent-runs-beta-dlq", "max_retries": 0 }] },
-  "vars": { "MARKET_AGENT_GENERATION_ENABLED": "true", "MARKET_AGENT_GATEWAY_URL": "https://beta.zxlab.pages.dev/api/ai/generate", "MARKET_AGENT_MAX_RECOVERY_GENERATIONS": "2", "MARKET_AGENT_RUN_RETENTION_DAYS": "365", "COMPANY_UPDATE_RESEARCH_ENABLED": "false", "FINANCIAL_TOOL_RUNTIME_MODE": "disabled" },
+  "vars": { "MARKET_AGENT_GENERATION_ENABLED": "true", "MARKET_AGENT_GATEWAY_URL": "https://beta.zxlab.pages.dev/api/ai/generate", "MARKET_AGENT_MAX_RECOVERY_GENERATIONS": "2", "MARKET_AGENT_RUN_RETENTION_DAYS": "365", "COMPANY_UPDATE_RESEARCH_ENABLED": "false", "FINANCIAL_TOOL_RUNTIME_MODE": "disabled", "RESEARCH_DOSSIER_PROJECTOR_MODE": "disabled" },
   "secrets": { "required": ["MARKET_AGENT_GATEWAY_TOKEN", "MARKET_AGENT_PROXY_TOKEN", "ZX_RUNTIME_SERVICE_TOKEN", "MARKET_AGENT_MEMORY_TOKEN", "MARKET_RESEARCH_TOKEN"] }
 }
