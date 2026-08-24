@@ -274,8 +274,10 @@ test("resource IDs remain globally unique when profiles reuse the same idempoten
 
 test("D1 dismiss fails closed when its pending-status CAS loses", async () => {
   const proposal = (await new MemoryResearchDossierRepository().saveProjection(await projected("run-dismiss-cas"), EXPIRES)).proposal;
+  const statements: string[] = [];
   const db = {
     prepare(sql: string) {
+      statements.push(sql);
       return { bind() { return { async first() {
         if (sql.includes("research_dossier_commands")) return null;
         if (sql.includes("research_dossier_proposals")) return { payload_json: JSON.stringify(proposal) };
@@ -285,6 +287,8 @@ test("D1 dismiss fails closed when its pending-status CAS loses", async () => {
     async batch() { return [{ meta: { changes: 0 } }, { meta: { changes: 1 } }, { meta: { changes: 1 } }]; },
   } as unknown as D1Database;
   await assert.rejects(new D1ResearchDossierRepository(db).dismiss(proposal.id, "profile-1", { idempotencyKey: "dismiss-cas-key" }, NOW), /DOSSIER_PROPOSAL_NOT_PENDING/);
+  assert.ok(statements.some((sql) => /UPDATE research_dossier_proposals SET[^;]*last_command_idempotency_key = \?[^;]*last_command_hash = \?/.test(sql)));
+  assert.ok(statements.some((sql) => /INSERT INTO research_dossier_commands[^;]*last_command_idempotency_key = \?[^;]*last_command_hash = \?/.test(sql)));
 });
 
 test("D1 rebase persists proposal and idempotency command in one atomic batch", async () => {

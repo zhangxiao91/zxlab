@@ -39,6 +39,17 @@ test("Market Agent beta calls the beta unified gateway without changing Producti
   assert.equal(productionConfig.secrets.required.includes("MARKET_RESEARCH_TOKEN"), false);
 });
 
+test("Research Dossier migration stays compatible with the remote D1 query path", async () => {
+  const migration = await readFile(
+    new URL("../migrations/0011_research_dossiers.sql", import.meta.url),
+    "utf8",
+  );
+
+  assert.doesNotMatch(migration, /\bCREATE\s+(?:TEMP\s+)?TRIGGER\b/i);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS research_dossiers/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS alert_rule_drafts/);
+});
+
 test("Market Agent uses a dedicated identity for Research Facts", async () => {
   const source = await readFile(new URL("./index.ts", import.meta.url), "utf8");
   assert.match(source, /function researchReaderFor\(env: Env\): ResearchFactAdapter \{ return new ResearchFactAdapter\(\{[^}]*token: env\.MARKET_RESEARCH_TOKEN/);

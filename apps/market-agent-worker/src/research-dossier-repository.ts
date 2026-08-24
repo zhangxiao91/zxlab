@@ -455,13 +455,22 @@ export class D1ResearchDossierRepository implements ResearchDossierRepository {
     const dossierStatement = current
       ? this.db.prepare("UPDATE research_dossiers SET current_revision_id = ?, version = ?, current_revision_fingerprint = ?, payload_json = ?, updated_at = ? WHERE id = ? AND profile_id = ? AND version = ? AND current_revision_id = ?").bind(revision.id, dossier.version, revision.fingerprint, JSON.stringify(dossier), confirmedAt, dossier.id, profileId, current.dossier.version, current.dossier.currentRevisionId)
       : this.db.prepare("INSERT INTO research_dossiers (id, profile_id, instrument_id, current_revision_id, version, current_revision_fingerprint, payload_json, created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)").bind(dossier.id, profileId, dossier.instrumentId, revision.id, revision.fingerprint, JSON.stringify(dossier), confirmedAt, confirmedAt);
-    const responses = await this.db.batch([
-      this.db.prepare("INSERT INTO research_dossier_revisions (id, dossier_id, profile_id, instrument_id, revision_number, previous_revision_id, previous_fingerprint, source_proposal_id, fingerprint, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(revision.id, revision.dossierId, profileId, revision.instrumentId, revision.revisionNumber, revision.previousRevisionId, revision.previousFingerprint, proposal.id, revision.fingerprint, JSON.stringify(revision), confirmedAt),
-      dossierStatement,
-      this.db.prepare("UPDATE research_dossier_proposals SET status = 'confirmed', payload_json = ?, updated_at = ?, confirm_idempotency_key = ?, confirm_command_hash = ? WHERE id = ? AND profile_id = ? AND status = 'pending'").bind(JSON.stringify(confirmedProposal), confirmedAt, intent.idempotencyKey, commandHash, proposal.id, profileId),
-      this.db.prepare("INSERT INTO research_dossier_commands (profile_id, instrument_id, resource_id, idempotency_key, kind, command_hash, result_json, created_at) VALUES (?, ?, ?, ?, 'confirm', ?, ?, ?)").bind(profileId, proposal.instrumentId, proposal.id, intent.idempotencyKey, commandHash, JSON.stringify(result), confirmedAt),
-      this.db.prepare("INSERT INTO research_dossier_audit_events (id, dossier_id, profile_id, proposal_id, event_type, before_fingerprint, after_fingerprint, occurred_at) VALUES (?, ?, ?, ?, 'confirmed', ?, ?, ?)").bind(crypto.randomUUID(), dossier.id, profileId, proposal.id, current?.revision.fingerprint ?? null, revision.fingerprint, confirmedAt),
-    ]);
+    const guardedRevision = current
+      ? this.db.prepare("INSERT INTO research_dossier_revisions (id, dossier_id, profile_id, instrument_id, revision_number, previous_revision_id, previous_fingerprint, source_proposal_id, fingerprint, payload_json, created_at) SELECT ?, ?, ?, ?, ?, ?, ?, CASE WHEN EXISTS (SELECT 1 FROM research_dossier_proposals WHERE id = ? AND profile_id = ? AND status = 'pending') AND EXISTS (SELECT 1 FROM research_dossiers WHERE id = ? AND profile_id = ? AND version = ? AND current_revision_id = ? AND current_revision_fingerprint = ?) THEN ? ELSE NULL END, ?, ?, ?").bind(revision.id, revision.dossierId, profileId, revision.instrumentId, revision.revisionNumber, revision.previousRevisionId, revision.previousFingerprint, proposal.id, profileId, current.dossier.id, profileId, current.dossier.version, current.dossier.currentRevisionId, current.dossier.currentRevisionFingerprint, proposal.id, revision.fingerprint, JSON.stringify(revision), confirmedAt)
+      : this.db.prepare("INSERT INTO research_dossier_revisions (id, dossier_id, profile_id, instrument_id, revision_number, previous_revision_id, previous_fingerprint, source_proposal_id, fingerprint, payload_json, created_at) SELECT ?, ?, ?, ?, ?, ?, ?, CASE WHEN EXISTS (SELECT 1 FROM research_dossier_proposals WHERE id = ? AND profile_id = ? AND status = 'pending') AND NOT EXISTS (SELECT 1 FROM research_dossiers WHERE id = ?) THEN ? ELSE NULL END, ?, ?, ?").bind(revision.id, revision.dossierId, profileId, revision.instrumentId, revision.revisionNumber, revision.previousRevisionId, revision.previousFingerprint, proposal.id, profileId, revision.dossierId, proposal.id, revision.fingerprint, JSON.stringify(revision), confirmedAt);
+    let responses: D1Result<unknown>[];
+    try {
+      responses = await this.db.batch([
+        guardedRevision,
+        dossierStatement,
+        this.db.prepare("UPDATE research_dossier_proposals SET status = 'confirmed', payload_json = ?, updated_at = ?, confirm_idempotency_key = ?, confirm_command_hash = ?, last_command_kind = 'confirm', last_command_idempotency_key = ?, last_command_hash = ? WHERE id = ? AND profile_id = ? AND status = 'pending'").bind(JSON.stringify(confirmedProposal), confirmedAt, intent.idempotencyKey, commandHash, intent.idempotencyKey, commandHash, proposal.id, profileId),
+        this.db.prepare("INSERT INTO research_dossier_commands (profile_id, instrument_id, resource_id, idempotency_key, kind, command_hash, result_json, created_at) VALUES (?, ?, ?, ?, 'confirm', ?, ?, ?)").bind(profileId, proposal.instrumentId, proposal.id, intent.idempotencyKey, commandHash, JSON.stringify(result), confirmedAt),
+        this.db.prepare("INSERT INTO research_dossier_audit_events (id, dossier_id, profile_id, proposal_id, event_type, before_fingerprint, after_fingerprint, occurred_at) VALUES (?, ?, ?, ?, 'confirmed', ?, ?, ?)").bind(crypto.randomUUID(), dossier.id, profileId, proposal.id, current?.revision.fingerprint ?? null, revision.fingerprint, confirmedAt),
+      ]);
+    } catch (cause) {
+      if (isGuardConstraintFailure(cause, "research_dossier_revisions", "source_proposal_id")) throw new Error("DOSSIER_REVISION_CONFLICT");
+      throw cause;
+    }
     if (!responses[1]?.meta.changes || !responses[2]?.meta.changes) throw new Error("DOSSIER_REVISION_CONFLICT");
     return result;
   }
@@ -475,11 +484,17 @@ export class D1ResearchDossierRepository implements ResearchDossierRepository {
     if (!proposal) throw new Error("DOSSIER_PROPOSAL_NOT_FOUND");
     if (proposal.status !== "pending") throw new Error("DOSSIER_PROPOSAL_NOT_PENDING");
     const dismissed: ResearchDossierProposal = { ...proposal, status: "dismissed", updatedAt: dismissedAt };
-    const responses = await this.db.batch([
-      this.db.prepare("UPDATE research_dossier_proposals SET status = 'dismissed', payload_json = ?, updated_at = ? WHERE id = ? AND profile_id = ? AND status = 'pending'").bind(JSON.stringify(dismissed), dismissedAt, proposalId, profileId),
-      this.db.prepare("INSERT INTO research_dossier_commands (profile_id, instrument_id, resource_id, idempotency_key, kind, command_hash, result_json, created_at) VALUES (?, ?, ?, ?, 'dismiss', ?, ?, ?)").bind(profileId, proposal.instrumentId, proposal.id, intent.idempotencyKey, hash, JSON.stringify(dismissed), dismissedAt),
-      this.db.prepare("INSERT INTO research_dossier_audit_events (id, dossier_id, profile_id, proposal_id, event_type, before_fingerprint, after_fingerprint, occurred_at) VALUES (?, ?, ?, ?, 'dismissed', ?, NULL, ?)").bind(crypto.randomUUID(), proposal.dossierId, profileId, proposal.id, proposal.base.dossierFingerprint, dismissedAt),
-    ]);
+    let responses: D1Result<unknown>[];
+    try {
+      responses = await this.db.batch([
+        this.db.prepare("UPDATE research_dossier_proposals SET status = 'dismissed', payload_json = ?, updated_at = ?, last_command_kind = 'dismiss', last_command_idempotency_key = ?, last_command_hash = ? WHERE id = ? AND profile_id = ? AND status = 'pending'").bind(JSON.stringify(dismissed), dismissedAt, intent.idempotencyKey, hash, proposalId, profileId),
+        this.db.prepare("INSERT INTO research_dossier_commands (profile_id, instrument_id, resource_id, idempotency_key, kind, command_hash, result_json, created_at) SELECT ?, ?, CASE WHEN EXISTS (SELECT 1 FROM research_dossier_proposals WHERE id = ? AND profile_id = ? AND status = 'dismissed' AND last_command_kind = 'dismiss' AND last_command_idempotency_key = ? AND last_command_hash = ?) THEN ? ELSE NULL END, ?, 'dismiss', ?, ?, ?").bind(profileId, proposal.instrumentId, proposal.id, profileId, intent.idempotencyKey, hash, proposal.id, intent.idempotencyKey, hash, JSON.stringify(dismissed), dismissedAt),
+        this.db.prepare("INSERT INTO research_dossier_audit_events (id, dossier_id, profile_id, proposal_id, event_type, before_fingerprint, after_fingerprint, occurred_at) VALUES (?, ?, ?, ?, 'dismissed', ?, NULL, ?)").bind(crypto.randomUUID(), proposal.dossierId, profileId, proposal.id, proposal.base.dossierFingerprint, dismissedAt),
+      ]);
+    } catch (cause) {
+      if (isGuardConstraintFailure(cause, "research_dossier_commands", "resource_id")) throw new Error("DOSSIER_PROPOSAL_NOT_PENDING");
+      throw cause;
+    }
     if (!responses[0]?.meta.changes) throw new Error("DOSSIER_PROPOSAL_NOT_PENDING");
     return { proposal: dismissed, reused: false };
   }
@@ -525,10 +540,19 @@ export class D1ResearchDossierRepository implements ResearchDossierRepository {
     const expiresAt = new Date(Date.parse(createdAt) + 30 * 24 * 60 * 60 * 1_000).toISOString();
     const unsigned: Omit<AlertRuleDraft, "fingerprint"> = { schemaVersion: ALERT_RULE_DRAFT_SCHEMA_VERSION, id: await resourceId("alert-draft", profileId, proposal.instrumentId, intent.idempotencyKey), profileId, instrumentId: proposal.instrumentId, sourceProposalId: proposal.id, sourceProjectionFingerprint: proposal.payload.fingerprint, sourceDeltaId: delta.id, sourceEvidenceIds: [delta.current.evidenceId], researchFingerprint: proposal.payload.researchFingerprint, predicate, requiresReliableFacts: true, status: "draft", createdAt, expiresAt };
     const draft: AlertRuleDraft = { ...unsigned, fingerprint: await calculateAlertRuleDraftFingerprint(unsigned) };
-    await this.db.batch([
-      this.db.prepare("INSERT INTO alert_rule_drafts (id, profile_id, instrument_id, source_proposal_id, source_delta_id, fingerprint, payload_json, status, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)").bind(draft.id, profileId, draft.instrumentId, proposal.id, delta.id, draft.fingerprint, JSON.stringify(draft), createdAt, expiresAt),
-      this.db.prepare("INSERT INTO research_dossier_commands (profile_id, instrument_id, resource_id, idempotency_key, kind, command_hash, result_json, created_at) VALUES (?, ?, ?, ?, 'alert_draft', ?, ?, ?)").bind(profileId, proposal.instrumentId, draft.id, intent.idempotencyKey, hash, JSON.stringify(draft), createdAt),
-    ]);
+    try {
+      await this.db.batch([
+        this.db.prepare("INSERT INTO alert_rule_drafts (id, profile_id, instrument_id, source_proposal_id, source_delta_id, fingerprint, payload_json, status, created_at, expires_at) SELECT ?, ?, ?, CASE WHEN EXISTS (SELECT 1 FROM research_dossier_proposals WHERE id = ? AND profile_id = ? AND status = 'pending' AND expires_at > ?) THEN ? ELSE NULL END, ?, ?, ?, 'draft', ?, ?").bind(draft.id, profileId, draft.instrumentId, proposal.id, profileId, createdAt, proposal.id, delta.id, draft.fingerprint, JSON.stringify(draft), createdAt, expiresAt),
+        this.db.prepare("INSERT INTO research_dossier_commands (profile_id, instrument_id, resource_id, idempotency_key, kind, command_hash, result_json, created_at) VALUES (?, ?, ?, ?, 'alert_draft', ?, ?, ?)").bind(profileId, proposal.instrumentId, draft.id, intent.idempotencyKey, hash, JSON.stringify(draft), createdAt),
+      ]);
+    } catch (cause) {
+      if (isGuardConstraintFailure(cause, "alert_rule_drafts", "source_proposal_id")) {
+        const currentProposal = await this.getProposal(proposalId, profileId);
+        if (currentProposal?.status === "expired" || (currentProposal && Date.parse(createdAt) >= Date.parse(currentProposal.expiresAt))) throw new Error("DOSSIER_PROPOSAL_EXPIRED");
+        throw new Error("DOSSIER_PROPOSAL_NOT_PENDING");
+      }
+      throw cause;
+    }
     return { draft, reused: false };
   }
 
@@ -797,3 +821,9 @@ function stableJson(value: unknown): string {
 }
 function validIdempotencyKey(value: string): boolean { return /^[A-Za-z0-9._:-]{8,128}$/.test(value); }
 function isCanonicalIso(value: unknown): value is string { return typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value) && Number.isFinite(Date.parse(value)); }
+function isGuardConstraintFailure(cause: unknown, table: string, column: string): boolean {
+  if (!(cause instanceof Error)) return false;
+  const nested = (cause as Error & { cause?: unknown }).cause;
+  const message = `${cause.message} ${nested instanceof Error ? nested.message : ""}`;
+  return message.includes(`NOT NULL constraint failed: ${table}.${column}`);
+}

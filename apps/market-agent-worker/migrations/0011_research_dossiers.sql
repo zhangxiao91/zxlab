@@ -43,6 +43,9 @@ CREATE TABLE IF NOT EXISTS research_dossier_proposals (
   payload_json TEXT,
   confirm_idempotency_key TEXT,
   confirm_command_hash TEXT,
+  last_command_kind TEXT CHECK (last_command_kind IN ('confirm', 'dismiss')),
+  last_command_idempotency_key TEXT,
+  last_command_hash TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   expires_at TEXT NOT NULL,
@@ -84,28 +87,6 @@ CREATE TABLE IF NOT EXISTS alert_rule_drafts (
 CREATE INDEX IF NOT EXISTS idx_alert_rule_drafts_profile_created
   ON alert_rule_drafts(profile_id, created_at DESC);
 
-CREATE TRIGGER IF NOT EXISTS validate_alert_rule_draft_insert
-BEFORE INSERT ON alert_rule_drafts
-BEGIN
-  SELECT CASE
-    WHEN EXISTS (
-      SELECT 1 FROM research_dossier_proposals
-      WHERE id = NEW.source_proposal_id
-        AND profile_id = NEW.profile_id
-        AND (status = 'expired' OR expires_at <= NEW.created_at)
-    )
-      THEN RAISE(ABORT, 'DOSSIER_PROPOSAL_EXPIRED')
-    WHEN NOT EXISTS (
-      SELECT 1 FROM research_dossier_proposals
-      WHERE id = NEW.source_proposal_id
-        AND profile_id = NEW.profile_id
-        AND status = 'pending'
-        AND expires_at > NEW.created_at
-    )
-      THEN RAISE(ABORT, 'DOSSIER_PROPOSAL_NOT_PENDING')
-  END;
-END;
-
 CREATE TABLE IF NOT EXISTS research_dossier_commands (
   profile_id TEXT NOT NULL,
   instrument_id TEXT NOT NULL,
@@ -117,43 +98,3 @@ CREATE TABLE IF NOT EXISTS research_dossier_commands (
   created_at TEXT NOT NULL,
   PRIMARY KEY(profile_id, idempotency_key)
 );
-
-CREATE TRIGGER IF NOT EXISTS validate_research_dossier_revision_insert
-BEFORE INSERT ON research_dossier_revisions
-BEGIN
-  SELECT CASE
-    WHEN NOT EXISTS (
-      SELECT 1 FROM research_dossier_proposals
-      WHERE id = NEW.source_proposal_id
-        AND profile_id = NEW.profile_id
-        AND status = 'pending'
-    )
-      THEN RAISE(ABORT, 'DOSSIER_PROPOSAL_NOT_PENDING')
-    WHEN NEW.revision_number = 1
-      AND EXISTS (SELECT 1 FROM research_dossiers WHERE id = NEW.dossier_id)
-      THEN RAISE(ABORT, 'DOSSIER_REVISION_CONFLICT')
-    WHEN NEW.revision_number > 1
-      AND NOT EXISTS (
-        SELECT 1 FROM research_dossiers
-        WHERE id = NEW.dossier_id
-          AND profile_id = NEW.profile_id
-          AND version = NEW.revision_number - 1
-          AND current_revision_id = NEW.previous_revision_id
-          AND current_revision_fingerprint = NEW.previous_fingerprint
-      )
-      THEN RAISE(ABORT, 'DOSSIER_REVISION_CONFLICT')
-  END;
-END;
-
-CREATE TRIGGER IF NOT EXISTS validate_research_dossier_dismiss_command
-BEFORE INSERT ON research_dossier_commands
-WHEN NEW.kind = 'dismiss'
-  AND NOT EXISTS (
-    SELECT 1 FROM research_dossier_proposals
-    WHERE id = NEW.resource_id
-      AND profile_id = NEW.profile_id
-      AND status = 'dismissed'
-  )
-BEGIN
-  SELECT RAISE(ABORT, 'DOSSIER_PROPOSAL_NOT_PENDING');
-END;
